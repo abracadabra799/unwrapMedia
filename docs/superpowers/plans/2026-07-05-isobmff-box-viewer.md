@@ -1932,12 +1932,12 @@ class ParseFileIntegrationTest {
     @Test
     fun `parses a synthetic minimal mp4 into a full box tree with decoded fields`() {
         val ftyp = box("ftyp", byteArrayOf(0x69, 0x73, 0x6F, 0x6D, 0x00, 0x00, 0x00, 0x00))
-        val mvhd = fullBox("mvhd", version = 0, body = uint32(600) + uint32(1200))
+        val mvhd = fullBox("mvhd", version = 0, body = uint32(0) + uint32(0) + uint32(600) + uint32(1200))
         val tkhd = fullBox(
             "tkhd", version = 0,
-            body = uint32(7) + uint32(0) + uint32(10) + ByteArray(8 + 2 + 2 + 2 + 2 + 36) + uint32(1920L * 65536L) + uint32(1080L * 65536L),
+            body = uint32(0) + uint32(0) + uint32(7) + uint32(0) + uint32(10) + ByteArray(8 + 2 + 2 + 2 + 2 + 36) + uint32(1920L * 65536L) + uint32(1080L * 65536L),
         )
-        val mdhd = fullBox("mdhd", version = 0, body = uint32(1000) + uint32(2000) + byteArrayOf(0x55, 0xC4.toByte()) + byteArrayOf(0, 0))
+        val mdhd = fullBox("mdhd", version = 0, body = uint32(0) + uint32(0) + uint32(1000) + uint32(2000) + byteArrayOf(0x55, 0xC4.toByte()) + byteArrayOf(0, 0))
         val hdlr = fullBox("hdlr", version = 0, body = uint32(0) + "vide".toByteArray() + ByteArray(12) + "Video\u0000".toByteArray())
         val mdia = box("mdia", mdhd + hdlr)
         val trak = box("trak", tkhd + mdia)
