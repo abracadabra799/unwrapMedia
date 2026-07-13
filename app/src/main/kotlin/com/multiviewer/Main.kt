@@ -1,7 +1,10 @@
 package com.multiviewer
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Tab
@@ -13,6 +16,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import com.multiviewer.ui.AppState
+import com.multiviewer.ui.BoxTreeView
+import com.multiviewer.ui.HexView
 import java.awt.FileDialog
 import java.awt.Frame
 import java.awt.datatransfer.DataFlavor
@@ -21,6 +26,8 @@ import java.awt.dnd.DropTarget
 import java.awt.dnd.DropTargetAdapter
 import java.awt.dnd.DropTargetDropEvent
 import java.io.File
+
+private const val BYTES_PER_ROW = 16
 
 fun main() = application {
     val appState = remember { AppState() }
@@ -72,13 +79,33 @@ fun main() = application {
                     }
 
                     val currentTab = appState.tabs[appState.selectedTabIndex]
+                    val hexListState = remember(currentTab) { androidx.compose.foundation.lazy.LazyListState() }
+
+                    LaunchedEffect(currentTab.selected) {
+                        val sel = currentTab.selected
+                        if (sel != null) {
+                            hexListState.scrollToItem((sel.offset / BYTES_PER_ROW).toInt())
+                        }
+                    }
+
                     when {
                         currentTab.error != null -> Text("Error: ${currentTab.error}")
-                        currentTab.root != null -> com.multiviewer.ui.BoxTreeView(
-                            root = currentTab.root!!,
-                            selected = currentTab.selected,
-                            onSelect = { currentTab.selected = it },
-                        )
+                        currentTab.root != null -> Row(modifier = Modifier.fillMaxSize()) {
+                            Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                BoxTreeView(
+                                    root = currentTab.root!!,
+                                    selected = currentTab.selected,
+                                    onSelect = { currentTab.selected = it },
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                HexView(
+                                    file = currentTab.file,
+                                    highlightRange = currentTab.selected?.let { it.offset until (it.offset + it.size) },
+                                    listState = hexListState,
+                                )
+                            }
+                        }
                     }
                 }
             }
