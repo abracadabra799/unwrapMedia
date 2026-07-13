@@ -90,21 +90,24 @@ fun main() = application {
 
                     when {
                         currentTab.error != null -> Text("Error: ${currentTab.error}")
-                        currentTab.root != null -> Row(modifier = Modifier.fillMaxSize()) {
-                            Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                                BoxTreeView(
-                                    root = currentTab.root!!,
-                                    selected = currentTab.selected,
-                                    onSelect = { currentTab.selected = it },
-                                )
+                        currentTab.root != null -> Column(modifier = Modifier.fillMaxSize()) {
+                            Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                    BoxTreeView(
+                                        root = currentTab.root!!,
+                                        selected = currentTab.selected,
+                                        onSelect = { currentTab.selected = it },
+                                    )
+                                }
+                                Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                    HexView(
+                                        file = currentTab.file,
+                                        highlightRange = currentTab.selected?.let { it.offset until (it.offset + it.size) },
+                                        listState = hexListState,
+                                    )
+                                }
                             }
-                            Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                                HexView(
-                                    file = currentTab.file,
-                                    highlightRange = currentTab.selected?.let { it.offset until (it.offset + it.size) },
-                                    listState = hexListState,
-                                )
-                            }
+                            com.multiviewer.ui.FieldPanel(currentTab.selected)
                         }
                     }
                 }
