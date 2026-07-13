@@ -29,11 +29,19 @@ fun main() = application {
         LaunchedEffect(Unit) {
             window.contentPane.dropTarget = DropTarget(window.contentPane, object : DropTargetAdapter() {
                 override fun drop(event: DropTargetDropEvent) {
+                    if (!event.transferable.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
+                        event.rejectDrop()
+                        return
+                    }
                     event.acceptDrop(DnDConstants.ACTION_COPY)
-                    @Suppress("UNCHECKED_CAST")
-                    val files = event.transferable.getTransferData(DataFlavor.javaFileListFlavor) as List<File>
-                    files.firstOrNull()?.let { appState.openFile(it) }
-                    event.dropComplete(true)
+                    try {
+                        @Suppress("UNCHECKED_CAST")
+                        val files = event.transferable.getTransferData(DataFlavor.javaFileListFlavor) as List<File>
+                        files.firstOrNull()?.let { appState.openFile(it) }
+                        event.dropComplete(true)
+                    } catch (e: Exception) {
+                        event.dropComplete(false)
+                    }
                 }
             })
         }
