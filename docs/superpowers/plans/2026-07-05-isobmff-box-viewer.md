@@ -1454,7 +1454,7 @@ object HdlrBoxDecoder : BoxDecoder {
         val handlerType = reader.readFourCC(handlerTypeOffset)
         val nameOffset = payloadStart + needed
         val nameBytes = reader.readBytes(nameOffset, (payloadEnd - nameOffset).toInt())
-        val name = String(nameBytes, Charsets.UTF_8).trimEnd(' ')
+        val name = String(nameBytes, Charsets.UTF_8).trimEnd('\u0000')
         val fields = listOf(
             BoxField("handler_type", handlerType, handlerTypeOffset, 4),
             BoxField("name", name, nameOffset, nameBytes.size.toLong()),
@@ -1938,7 +1938,7 @@ class ParseFileIntegrationTest {
             body = uint32(7) + uint32(0) + uint32(10) + ByteArray(8 + 2 + 2 + 2 + 2 + 36) + uint32(1920L * 65536L) + uint32(1080L * 65536L),
         )
         val mdhd = fullBox("mdhd", version = 0, body = uint32(1000) + uint32(2000) + byteArrayOf(0x55, 0xC4.toByte()) + byteArrayOf(0, 0))
-        val hdlr = fullBox("hdlr", version = 0, body = uint32(0) + "vide".toByteArray() + ByteArray(12) + "Video ".toByteArray())
+        val hdlr = fullBox("hdlr", version = 0, body = uint32(0) + "vide".toByteArray() + ByteArray(12) + "Video\u0000".toByteArray())
         val mdia = box("mdia", mdhd + hdlr)
         val trak = box("trak", tkhd + mdia)
         val moov = box("moov", mvhd + trak)
