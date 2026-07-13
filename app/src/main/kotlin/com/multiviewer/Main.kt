@@ -74,7 +74,11 @@ fun main() = application {
                     val currentTab = appState.tabs[appState.selectedTabIndex]
                     when {
                         currentTab.error != null -> Text("Error: ${currentTab.error}")
-                        currentTab.root != null -> Text("Loaded ${currentTab.file.name}: ${currentTab.root!!.children.size} top-level boxes")
+                        currentTab.root != null -> com.multiviewer.ui.BoxTreeView(
+                            root = currentTab.root!!,
+                            selected = currentTab.selected,
+                            onSelect = { currentTab.selected = it },
+                        )
                     }
                 }
             }
