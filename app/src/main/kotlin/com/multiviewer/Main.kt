@@ -7,6 +7,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.Window
@@ -14,11 +15,29 @@ import androidx.compose.ui.window.application
 import com.multiviewer.ui.AppState
 import java.awt.FileDialog
 import java.awt.Frame
+import java.awt.datatransfer.DataFlavor
+import java.awt.dnd.DnDConstants
+import java.awt.dnd.DropTarget
+import java.awt.dnd.DropTargetAdapter
+import java.awt.dnd.DropTargetDropEvent
+import java.io.File
 
 fun main() = application {
     val appState = remember { AppState() }
 
     Window(onCloseRequest = ::exitApplication, title = "multiViewer") {
+        LaunchedEffect(Unit) {
+            window.contentPane.dropTarget = DropTarget(window.contentPane, object : DropTargetAdapter() {
+                override fun drop(event: DropTargetDropEvent) {
+                    event.acceptDrop(DnDConstants.ACTION_COPY)
+                    @Suppress("UNCHECKED_CAST")
+                    val files = event.transferable.getTransferData(DataFlavor.javaFileListFlavor) as List<File>
+                    files.firstOrNull()?.let { appState.openFile(it) }
+                    event.dropComplete(true)
+                }
+            })
+        }
+
         MaterialTheme {
             Column(modifier = Modifier.fillMaxSize()) {
                 Button(onClick = {
@@ -27,7 +46,7 @@ fun main() = application {
                     val fileName = dialog.file
                     val directory = dialog.directory
                     if (fileName != null && directory != null) {
-                        appState.openFile(java.io.File(directory, fileName))
+                        appState.openFile(File(directory, fileName))
                     }
                 }) {
                     Text("Open File")
