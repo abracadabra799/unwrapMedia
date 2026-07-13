@@ -2437,6 +2437,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.buildAnnotatedString
@@ -2450,6 +2451,9 @@ private const val BYTES_PER_ROW = 16
 @Composable
 fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
     val raf = remember(file) { RandomAccessFile(file, "r") }
+    DisposableEffect(raf) {
+        onDispose { raf.close() }
+    }
     val rowCount = ((raf.length() + BYTES_PER_ROW - 1) / BYTES_PER_ROW).toInt()
 
     LazyColumn(state = listState) {
