@@ -107,7 +107,9 @@ fun main() = application {
                                     )
                                 }
                             }
-                            com.multiviewer.ui.FieldPanel(currentTab.selected)
+                            Column(modifier = Modifier.weight(0.3f).fillMaxWidth()) {
+                                com.multiviewer.ui.FieldPanel(currentTab.selected)
+                            }
                         }
                     }
                 }
