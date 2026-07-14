@@ -2765,7 +2765,7 @@ fun TableView(table: TableData) {
         Row {
             Text(table.columns.joinToString("  |  "))
         }
-        LazyColumn(modifier = Modifier.fillMaxWidth()) {
+        LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
             items(table.rows.subList(start, end)) { row ->
                 Text(row.joinToString("  |  ") { it.toString() })
             }
@@ -2782,6 +2782,8 @@ fun TableView(table: TableData) {
     }
 }
 ```
+
+`Modifier.weight(1f)` on the `LazyColumn` is required, not cosmetic: the outer `Column` here gets a fixed height from its parent (Main.kt's `weight(0.3f)` wrapper added in Task 22's fix), and within that fixed height, a `LazyColumn` with no weight would greedily fill the entire available height ahead of its unweighted `Row` siblings — the same layout bug fixed in Task 22, but here it would push the "Previous"/"Next" pagination buttons (the footer `Row`) off the bottom of the visible area instead of collapsing a sibling to zero. Weighting the `LazyColumn` and leaving the header/footer `Row`s unweighted is the standard Compose "list with header and footer" pattern: unweighted siblings get their natural size first, and the weighted list fills exactly what's left over (scrolling internally instead of overflowing).
 
 - [ ] **Step 2: Branch between `FieldPanel` and `TableView` in `Main.kt`**
 
