@@ -2785,16 +2785,20 @@ fun TableView(table: TableData) {
 
 - [ ] **Step 2: Branch between `FieldPanel` and `TableView` in `Main.kt`**
 
-Replace the `com.multiviewer.ui.FieldPanel(currentTab.selected)` line with:
+Replace the `Column(modifier = Modifier.weight(0.3f).fillMaxWidth()) { com.multiviewer.ui.FieldPanel(currentTab.selected) }` block (added in Task 22's fix) with:
 
 ```kotlin
-val selectedNode = currentTab.selected
-if (selectedNode?.table != null) {
-    com.multiviewer.ui.TableView(selectedNode.table!!)
-} else {
-    com.multiviewer.ui.FieldPanel(selectedNode)
+Column(modifier = Modifier.weight(0.3f).fillMaxWidth()) {
+    val selectedNode = currentTab.selected
+    if (selectedNode?.table != null) {
+        com.multiviewer.ui.TableView(selectedNode.table!!)
+    } else {
+        com.multiviewer.ui.FieldPanel(selectedNode)
+    }
 }
 ```
+
+The `weight(0.3f)` wrapper is required, not cosmetic: without a weight/height constraint here, the unweighted `LazyColumn` inside `FieldPanel`/`TableView` would claim the `Column`'s entire height ahead of the sibling weighted `Row` (tree+hex), collapsing the tree+hex view to zero height the moment a node is selected. Keep both the `Row` and this `Column` weighted so Compose divides space between them proportionally.
 
 - [ ] **Step 3: Verify manually**
 
