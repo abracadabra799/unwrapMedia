@@ -108,7 +108,12 @@ fun main() = application {
                                 }
                             }
                             Column(modifier = Modifier.weight(0.3f).fillMaxWidth()) {
-                                com.multiviewer.ui.FieldPanel(currentTab.selected)
+                                val selectedNode = currentTab.selected
+                                if (selectedNode?.table != null) {
+                                    com.multiviewer.ui.TableView(selectedNode.table!!)
+                                } else {
+                                    com.multiviewer.ui.FieldPanel(selectedNode)
+                                }
                             }
                         }
                     }
