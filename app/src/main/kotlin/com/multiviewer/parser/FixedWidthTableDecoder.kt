@@ -51,7 +51,7 @@ class FixedWidthTableDecoder(
             headerSize = headerSize,
             size = size,
             warnings = w,
-            summary = "$entryCount entries",
+            summary = pluralize(entryCount, "entry", "entries"),
             table = TableData(columns, rows),
         )
     }

@@ -15,7 +15,7 @@ class ContainerBoxDecoder(
         val payloadStart = offset + headerSize + childOffsetInPayload
         val payloadEnd = offset + size
         val children = parseBoxes(reader, payloadStart, payloadEnd)
-        val summary = if (summarize) "${children.size} entries" else null
+        val summary = if (summarize) pluralize(children.size.toLong(), "entry", "entries") else null
         return BoxNode(
             type = type,
             offset = offset,

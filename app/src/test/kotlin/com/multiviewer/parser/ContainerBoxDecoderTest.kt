@@ -30,7 +30,7 @@ class ContainerBoxDecoderTest {
             )
         )
         val boxes = parseBoxes(reader, 0, reader.length)
-        assertEquals("1 entries", boxes[0].summary)
+        assertEquals("1 entry", boxes[0].summary)
         reader.close()
     }
 }

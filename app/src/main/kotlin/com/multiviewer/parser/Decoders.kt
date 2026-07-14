@@ -28,5 +28,5 @@ fun registerAllDecoders() {
     BoxRegistry.register("co64", FixedWidthTableDecoder(listOf("chunk_offset"), listOf(8)))
     BoxRegistry.register("stss", FixedWidthTableDecoder(listOf("sample_number"), listOf(4)))
     BoxRegistry.register("ctts", FixedWidthTableDecoder(listOf("sample_count", "sample_offset"), listOf(4, 4)))
-    BoxRegistry.register("stsz", StszBoxDecoder())
+    BoxRegistry.register("stsz", StszBoxDecoder)
 }

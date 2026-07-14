@@ -12,7 +12,7 @@ class StszBoxDecoderTest {
             0x00, 0x00, 0x00, 0x05, // sample_count = 5
         )
         val reader = byteReaderOf(body)
-        val node = StszBoxDecoder().decode(reader, "stsz", 0, 0, body.size.toLong(), emptyList())
+        val node = StszBoxDecoder.decode(reader, "stsz", 0, 0, body.size.toLong(), emptyList())
         assertEquals("5 samples, uniform size 1024", node.summary)
         assertEquals(null, node.table)
         reader.close()
@@ -28,7 +28,7 @@ class StszBoxDecoderTest {
             0x00, 0x00, 0x02, 0x00, // size[1] = 512
         )
         val reader = byteReaderOf(body)
-        val node = StszBoxDecoder().decode(reader, "stsz", 0, 0, body.size.toLong(), emptyList())
+        val node = StszBoxDecoder.decode(reader, "stsz", 0, 0, body.size.toLong(), emptyList())
         assertEquals("2 entries (variable size)", node.summary)
         assertEquals(listOf(listOf(256L), listOf(512L)), node.table?.rows)
         reader.close()

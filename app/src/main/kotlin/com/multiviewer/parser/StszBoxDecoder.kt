@@ -1,6 +1,6 @@
 package com.multiviewer.parser
 
-class StszBoxDecoder : BoxDecoder {
+object StszBoxDecoder : BoxDecoder {
     override fun decode(
         reader: ByteReader,
         type: String,
@@ -28,7 +28,7 @@ class StszBoxDecoder : BoxDecoder {
                     BoxField("sample_size", sampleSize.toString(), sampleSizeOffset, 4),
                     BoxField("sample_count", sampleCount.toString(), sampleCountOffset, 4),
                 ),
-                summary = "$sampleCount samples, uniform size $sampleSize",
+                summary = "${pluralize(sampleCount, "sample", "samples")}, uniform size $sampleSize",
             )
         }
 
@@ -47,7 +47,7 @@ class StszBoxDecoder : BoxDecoder {
         }
         return BoxNode(
             type = type, offset = offset, headerSize = headerSize, size = size, warnings = w,
-            summary = "$sampleCount entries (variable size)",
+            summary = "${pluralize(sampleCount, "entry", "entries")} (variable size)",
             table = TableData(listOf("sample_size"), rows),
         )
     }

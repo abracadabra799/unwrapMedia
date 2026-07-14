@@ -19,7 +19,7 @@ class StsdBoxDecoderTest {
         val boxes = parseBoxes(reader, 0, reader.length)
         assertEquals(1, boxes[0].children.size)
         assertEquals("hvc1", boxes[0].children[0].type)
-        assertEquals("1 entries", boxes[0].summary)
+        assertEquals("1 entry", boxes[0].summary)
         reader.close()
     }
 }
