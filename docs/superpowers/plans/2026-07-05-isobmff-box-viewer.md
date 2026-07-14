@@ -2866,3 +2866,572 @@ git commit -m "fix: address issues found in end-to-end smoke test"
 ```
 
 If no fixes were needed, skip this step — there is nothing to commit.
+
+---
+
+## Part 5 — Follow-up fixes from the final whole-branch review
+
+Two Important findings surfaced by the whole-branch code review after Task 24, both tracked as real (non-blocking) gaps rather than implementation slips. These two tasks close them.
+
+### Task 25: Correct `meta` box parsing for QuickTime `.mov` (plain box, not FullBox)
+
+**Files:**
+- Create: `app/src/main/kotlin/com/multiviewer/parser/MetaBoxDecoder.kt`
+- Create: `app/src/test/kotlin/com/multiviewer/parser/MetaBoxDecoderTest.kt`
+- Modify: `app/src/main/kotlin/com/multiviewer/parser/Decoders.kt`
+
+**Context:** `registerAllDecoders()` currently registers `"meta"` as `ContainerBoxDecoder(childOffsetInPayload = 4)`, unconditionally skipping 4 bytes of version/flags before recursing into children. This is correct for the ISO/IEC 14496-12 `meta` box (used by MP4 and HEIC) but wrong for QuickTime `.mov` files, where `meta` is historically a **plain** box with no version/flags — the children start immediately at the box's payload start. Since `.mov` is an explicitly supported format, parsing it with the wrong offset misreads the first child's size/type, which the box walker then reports as a "smaller than header size" or "extends past parent" warning rather than crashing — visible, but wrong.
+
+**Detection heuristic:** every `meta` box's very first child is mandated by spec to be `hdlr` in both the plain (QuickTime) and FullBox (ISO) layouts. A box's on-disk shape is `size(4 bytes) + type(4-byte FourCC) + payload`. So:
+- In a **plain** `meta` box, the first child's FourCC sits at `payloadStart + 4` (right after that child's own 4-byte size field).
+- In a **FullBox** `meta` box, there are 4 extra bytes (version/flags) before the first child even starts, so the first child's FourCC sits at `payloadStart + 8`.
+
+Peek 4 bytes at `payloadStart + 4`: if they look like a plausible FourCC (all 4 bytes printable ASCII, `0x20`–`0x7E`), treat `meta` as plain (no skip). Otherwise, default to the FullBox behavior (skip 4 bytes) — this preserves all existing MP4/HEIC behavior exactly, since a real FourCC won't look like a printable string in that position for those files (it's actually `hdlr`'s *size* field there, all zero/small binary bytes, not printable).
+
+**Interfaces:**
+- Consumes: `BoxDecoder`, `ByteReader`, `parseBoxes` from Tasks 2–3.
+- Produces: `object MetaBoxDecoder : BoxDecoder`, replacing the inline `ContainerBoxDecoder(childOffsetInPayload = 4)` registration for `"meta"` in `Decoders.kt`. Does not change any other registration.
+
+- [ ] **Step 1: Write the failing tests**
+
+```kotlin
+package com.multiviewer.parser
+
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class MetaBoxDecoderTest {
+    @Test
+    fun `plain QuickTime-style meta box (no version-flags) has its first child at the payload start`() {
+        // meta box: 8-byte header, size 20 (8 header + 12 payload)
+        // payload is just one child: hdlr, size 12 (8-byte header + 4 dummy payload bytes)
+        val body = byteArrayOf(
+            0x00, 0x00, 0x00, 0x0C, 0x68, 0x64, 0x6C, 0x72, // child "hdlr", size 12
+            0x00, 0x00, 0x00, 0x00, // dummy payload to reach size 12
+        )
+        val reader = byteReaderOf(
+            byteArrayOf(0x00, 0x00, 0x00, 0x14, 0x6D, 0x65, 0x74, 0x61) + body // "meta", size 20
+        )
+        val node = MetaBoxDecoder.decode(reader, "meta", 0, 8, 20, emptyList())
+        assertEquals(1, node.children.size)
+        assertEquals("hdlr", node.children[0].type)
+        assertEquals(8L, node.children[0].offset)
+        reader.close()
+    }
+
+    @Test
+    fun `ISO-style meta box with version-flags skips 4 bytes before the first child`() {
+        // meta box payload: 4-byte version/flags, then one child hdlr, size 12
+        val body = byteArrayOf(
+            0x00, 0x00, 0x00, 0x00, // version/flags
+            0x00, 0x00, 0x00, 0x0C, 0x68, 0x64, 0x6C, 0x72, // child "hdlr", size 12
+            0x00, 0x00, 0x00, 0x00, // dummy payload to reach size 12
+        )
+        val reader = byteReaderOf(
+            byteArrayOf(0x00, 0x00, 0x00, 0x18, 0x6D, 0x65, 0x74, 0x61) + body // "meta", size 24
+        )
+        val node = MetaBoxDecoder.decode(reader, "meta", 0, 8, 24, emptyList())
+        assertEquals(1, node.children.size)
+        assertEquals("hdlr", node.children[0].type)
+        assertEquals(12L, node.children[0].offset)
+        reader.close()
+    }
+
+    @Test
+    fun `too short to peek a fourcc defaults to FullBox behavior without crashing`() {
+        // meta box, size 8 (header only, empty payload) — nothing to peek, must not throw
+        val reader = byteReaderOf(byteArrayOf(0x00, 0x00, 0x00, 0x08, 0x6D, 0x65, 0x74, 0x61))
+        val node = MetaBoxDecoder.decode(reader, "meta", 0, 8, 8, emptyList())
+        assertEquals(0, node.children.size)
+        reader.close()
+    }
+}
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run:
+```bash
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+./gradlew test --tests "com.multiviewer.parser.MetaBoxDecoderTest"
+```
+Expected: FAIL — `MetaBoxDecoder` doesn't exist yet.
+
+- [ ] **Step 3: Implement `MetaBoxDecoder`**
+
+```kotlin
+package com.multiviewer.parser
+
+object MetaBoxDecoder : BoxDecoder {
+    override fun decode(
+        reader: ByteReader,
+        type: String,
+        offset: Long,
+        headerSize: Int,
+        size: Long,
+        warnings: List<String>,
+    ): BoxNode {
+        val payloadStart = offset + headerSize
+        val payloadEnd = offset + size
+        val childOffsetInPayload = if (isPlainBoxLayout(reader, payloadStart, payloadEnd)) 0 else 4
+        val children = parseBoxes(reader, payloadStart + childOffsetInPayload, payloadEnd)
+        return BoxNode(
+            type = type,
+            offset = offset,
+            headerSize = headerSize,
+            size = size,
+            children = children,
+            warnings = warnings,
+        )
+    }
+}
+
+private fun isPlainBoxLayout(reader: ByteReader, payloadStart: Long, payloadEnd: Long): Boolean {
+    val fourCcOffset = payloadStart + 4
+    if (fourCcOffset + 4 > payloadEnd) return false
+    val bytes = reader.readBytes(fourCcOffset, 4)
+    return bytes.all { (it.toInt() and 0xFF) in 0x20..0x7E }
+}
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run:
+```bash
+./gradlew test --tests "com.multiviewer.parser.MetaBoxDecoderTest"
+```
+Expected: PASS (3 tests).
+
+- [ ] **Step 5: Register `MetaBoxDecoder` in place of the inline `ContainerBoxDecoder`**
+
+In `Decoders.kt`, replace:
+```kotlin
+    BoxRegistry.register("meta", ContainerBoxDecoder(childOffsetInPayload = 4))
+```
+with:
+```kotlin
+    BoxRegistry.register("meta", MetaBoxDecoder)
+```
+
+- [ ] **Step 6: Run the full parser test suite**
+
+Run:
+```bash
+./gradlew test
+```
+Expected: PASS — all existing tests still pass (the Task 6 `MetaBoxDecoderTest`-equivalent test from that task registers its own local `ContainerBoxDecoder(childOffsetInPayload = 4)` directly and is unaffected by this change), plus the 3 new tests.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add app/src/main/kotlin/com/multiviewer/parser/MetaBoxDecoder.kt app/src/test/kotlin/com/multiviewer/parser/MetaBoxDecoderTest.kt app/src/main/kotlin/com/multiviewer/parser/Decoders.kt
+git commit -m "fix(parser): detect QuickTime plain-box meta layout vs ISO FullBox layout"
+```
+
+---
+
+### Task 26: Lazy row decoding for large sample tables (avoid eager in-memory materialization)
+
+**Files:**
+- Modify: `app/src/main/kotlin/com/multiviewer/parser/BoxNode.kt`
+- Modify: `app/src/main/kotlin/com/multiviewer/parser/FixedWidthTableDecoder.kt`
+- Modify: `app/src/main/kotlin/com/multiviewer/parser/StszBoxDecoder.kt`
+- Create: `app/src/main/kotlin/com/multiviewer/parser/TableRowReader.kt`
+- Modify: `app/src/test/kotlin/com/multiviewer/parser/FixedWidthTableDecoderTest.kt`
+- Modify: `app/src/test/kotlin/com/multiviewer/parser/StszBoxDecoderTest.kt`
+- Create: `app/src/test/kotlin/com/multiviewer/parser/TableRowReaderTest.kt`
+- Modify: `app/src/main/kotlin/com/multiviewer/ui/TableView.kt`
+- Modify: `app/src/main/kotlin/com/multiviewer/Main.kt`
+
+**Context:** `FixedWidthTableDecoder` and `StszBoxDecoder`'s variable-size branch currently decode every row into `TableData.rows: List<List<Long>>` during `decode()`, even though the UI only ever displays 200 rows at a time (`TableView`'s pagination). For a file with millions of samples, this means allocating millions of boxed `List<Long>` objects up front just to parse the tree — bounded by file size (no unbounded blowup) but working against the "don't explode large tables" scalability goal. This task changes `TableData` to carry table *metadata* (byte offset of the first entry, entry count, and field widths) instead of pre-decoded rows, and adds a small `readTableRow` function that decodes exactly one row on demand, given an open reader. `TableView` (which already opens its own `ByteReader` independent of the parser, per the established parser/UI I/O boundary — see `HexView`) calls this function only for the rows on the currently visible page.
+
+**Interfaces:**
+- Consumes: `ByteReader`, `readUIntOfWidth` from Tasks 2, 8.
+- Produces: `TableData(columns: List<String>, fieldWidths: List<Int>, entriesStart: Long, entryCount: Long)` (replaces the old `rows`-based shape — this is a breaking change to `TableData`'s public shape, consumed by `TableView`). `fun readTableRow(reader: ByteReader, entriesStart: Long, fieldWidths: List<Int>, rowIndex: Long): List<Long>` — consumed by `TableView`. `TableView`'s signature changes to `TableView(file: File, table: TableData)` — consumed by `Main.kt`.
+
+- [ ] **Step 1: Update `TableData`'s shape in `BoxNode.kt`**
+
+Replace:
+```kotlin
+data class TableData(
+    val columns: List<String>,
+    val rows: List<List<Long>>,
+)
+```
+with:
+```kotlin
+data class TableData(
+    val columns: List<String>,
+    val fieldWidths: List<Int>,
+    val entriesStart: Long,
+    val entryCount: Long,
+)
+```
+
+- [ ] **Step 2: Write the failing test for `readTableRow`**
+
+```kotlin
+package com.multiviewer.parser
+
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class TableRowReaderTest {
+    @Test
+    fun `reads a two-field row at the correct file offset`() {
+        val body = byteArrayOf(
+            0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x14, // row 0: (10, 20)
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x1E, // row 1: (1, 30)
+        )
+        val reader = byteReaderOf(body)
+        assertEquals(listOf(10L, 20L), readTableRow(reader, entriesStart = 0, fieldWidths = listOf(4, 4), rowIndex = 0))
+        assertEquals(listOf(1L, 30L), readTableRow(reader, entriesStart = 0, fieldWidths = listOf(4, 4), rowIndex = 1))
+        reader.close()
+    }
+
+    @Test
+    fun `reads a single 8-byte-wide field row (e.g. co64 chunk offsets)`() {
+        val body = byteArrayOf(
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, // row 0: 65536
+        )
+        val reader = byteReaderOf(body)
+        assertEquals(listOf(65536L), readTableRow(reader, entriesStart = 0, fieldWidths = listOf(8), rowIndex = 0))
+        reader.close()
+    }
+}
+```
+
+- [ ] **Step 3: Run the test to verify it fails**
+
+Run:
+```bash
+./gradlew test --tests "com.multiviewer.parser.TableRowReaderTest"
+```
+Expected: FAIL — `readTableRow` doesn't exist yet.
+
+- [ ] **Step 4: Implement `readTableRow`**
+
+```kotlin
+package com.multiviewer.parser
+
+fun readTableRow(reader: ByteReader, entriesStart: Long, fieldWidths: List<Int>, rowIndex: Long): List<Long> {
+    val entryWidth = fieldWidths.sum()
+    var pos = entriesStart + rowIndex * entryWidth
+    val row = mutableListOf<Long>()
+    for (width in fieldWidths) {
+        row.add(readUIntOfWidth(reader, pos, width))
+        pos += width
+    }
+    return row
+}
+```
+
+- [ ] **Step 5: Run the test to verify it passes**
+
+Run:
+```bash
+./gradlew test --tests "com.multiviewer.parser.TableRowReaderTest"
+```
+Expected: PASS (2 tests).
+
+- [ ] **Step 6: Update `FixedWidthTableDecoder` to stop eagerly decoding rows**
+
+Replace the body of `decode` from the `val rows = mutableListOf<List<Long>>()` loop onward:
+
+```kotlin
+package com.multiviewer.parser
+
+class FixedWidthTableDecoder(
+    private val columns: List<String>,
+    private val fieldWidths: List<Int>,
+) : BoxDecoder {
+    init {
+        require(columns.size == fieldWidths.size) { "columns and fieldWidths must be the same size" }
+    }
+
+    private val entryWidth = fieldWidths.sum()
+
+    override fun decode(
+        reader: ByteReader,
+        type: String,
+        offset: Long,
+        headerSize: Int,
+        size: Long,
+        warnings: List<String>,
+    ): BoxNode {
+        val w = warnings.toMutableList()
+        val payloadStart = offset + headerSize
+        val payloadEnd = offset + size
+        if (payloadEnd - payloadStart < 8) {
+            w.add("Box too short to contain a FullBox header and entry count")
+            return BoxNode(type, offset, headerSize, size, warnings = w)
+        }
+        val entryCount = reader.readUInt32(payloadStart + 4)
+        val entriesStart = payloadStart + 8
+        val available = payloadEnd - entriesStart
+        val fitCount = if (entryWidth == 0) 0 else available / entryWidth
+        val actualCount = minOf(entryCount, fitCount)
+        if (actualCount < entryCount) {
+            w.add("Declared $entryCount entries but only enough space for $fitCount")
+        }
+        return BoxNode(
+            type = type,
+            offset = offset,
+            headerSize = headerSize,
+            size = size,
+            warnings = w,
+            summary = pluralize(entryCount, "entry", "entries"),
+            table = TableData(columns, fieldWidths, entriesStart, actualCount),
+        )
+    }
+}
+```
+
+- [ ] **Step 7: Update `FixedWidthTableDecoderTest` for the new `TableData` shape**
+
+```kotlin
+package com.multiviewer.parser
+
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class FixedWidthTableDecoderTest {
+    @Test
+    fun `decodes entry_count and records table metadata, summarizing instead of exposing rows as children`() {
+        val decoder = FixedWidthTableDecoder(listOf("sample_count", "sample_delta"), listOf(4, 4))
+        val body = byteArrayOf(
+            0x00, 0x00, 0x00, 0x00, // version/flags
+            0x00, 0x00, 0x00, 0x02, // entry_count = 2
+            0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x14, // row 1: (10, 20)
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x1E, // row 2: (1, 30)
+        )
+        val reader = byteReaderOf(body)
+        val node = decoder.decode(reader, "stts", 0, 0, body.size.toLong(), emptyList())
+        assertEquals("2 entries", node.summary)
+        assertEquals(listOf("sample_count", "sample_delta"), node.table?.columns)
+        assertEquals(listOf(4, 4), node.table?.fieldWidths)
+        assertEquals(8L, node.table?.entriesStart)
+        assertEquals(2L, node.table?.entryCount)
+        assertEquals(true, node.children.isEmpty())
+        reader.close()
+    }
+
+    @Test
+    fun `declared entry_count larger than available bytes truncates with a warning`() {
+        val decoder = FixedWidthTableDecoder(listOf("chunk_offset"), listOf(4))
+        val body = byteArrayOf(
+            0x00, 0x00, 0x00, 0x00, // version/flags
+            0x00, 0x00, 0x00, 0x64, // entry_count = 100 (way more than available)
+            0x00, 0x00, 0x00, 0x01, // only 1 entry actually fits
+        )
+        val reader = byteReaderOf(body)
+        val node = decoder.decode(reader, "stco", 0, 0, body.size.toLong(), emptyList())
+        assertEquals(1L, node.table?.entryCount)
+        assertEquals(1, node.warnings.size)
+        reader.close()
+    }
+}
+```
+
+- [ ] **Step 8: Run the updated test to verify it passes**
+
+Run:
+```bash
+./gradlew test --tests "com.multiviewer.parser.FixedWidthTableDecoderTest"
+```
+Expected: PASS (2 tests).
+
+- [ ] **Step 9: Update `StszBoxDecoder`'s variable-size branch the same way**
+
+Replace the body of `decode` from `val entriesStart = payloadStart + 12` onward:
+
+```kotlin
+package com.multiviewer.parser
+
+object StszBoxDecoder : BoxDecoder {
+    override fun decode(
+        reader: ByteReader,
+        type: String,
+        offset: Long,
+        headerSize: Int,
+        size: Long,
+        warnings: List<String>,
+    ): BoxNode {
+        val w = warnings.toMutableList()
+        val payloadStart = offset + headerSize
+        val payloadEnd = offset + size
+        if (payloadEnd - payloadStart < 12) {
+            w.add("Box too short to contain a FullBox header, sample_size and sample_count")
+            return BoxNode(type, offset, headerSize, size, warnings = w)
+        }
+        val sampleSizeOffset = payloadStart + 4
+        val sampleSize = reader.readUInt32(sampleSizeOffset)
+        val sampleCountOffset = payloadStart + 8
+        val sampleCount = reader.readUInt32(sampleCountOffset)
+
+        if (sampleSize != 0L) {
+            return BoxNode(
+                type = type, offset = offset, headerSize = headerSize, size = size, warnings = w,
+                fields = listOf(
+                    BoxField("sample_size", sampleSize.toString(), sampleSizeOffset, 4),
+                    BoxField("sample_count", sampleCount.toString(), sampleCountOffset, 4),
+                ),
+                summary = "${pluralize(sampleCount, "sample", "samples")}, uniform size $sampleSize",
+            )
+        }
+
+        val entriesStart = payloadStart + 12
+        val available = payloadEnd - entriesStart
+        val fitCount = available / 4
+        val actualCount = minOf(sampleCount, fitCount)
+        if (actualCount < sampleCount) {
+            w.add("Declared $sampleCount entries but only enough space for $fitCount")
+        }
+        return BoxNode(
+            type = type, offset = offset, headerSize = headerSize, size = size, warnings = w,
+            summary = "${pluralize(sampleCount, "entry", "entries")} (variable size)",
+            table = TableData(listOf("sample_size"), listOf(4), entriesStart, actualCount),
+        )
+    }
+}
+```
+
+- [ ] **Step 10: Update `StszBoxDecoderTest` for the new `TableData` shape**
+
+Replace the second test (`sample_size 0 means variable sizes follow as a table`) with:
+
+```kotlin
+    @Test
+    fun `sample_size 0 means variable sizes follow as a table`() {
+        val body = byteArrayOf(
+            0x00, 0x00, 0x00, 0x00, // version/flags
+            0x00, 0x00, 0x00, 0x00, // sample_size = 0 (variable)
+            0x00, 0x00, 0x00, 0x02, // sample_count = 2
+            0x00, 0x00, 0x01, 0x00, // size[0] = 256
+            0x00, 0x00, 0x02, 0x00, // size[1] = 512
+        )
+        val reader = byteReaderOf(body)
+        val node = StszBoxDecoder.decode(reader, "stsz", 0, 0, body.size.toLong(), emptyList())
+        assertEquals("2 entries (variable size)", node.summary)
+        assertEquals(12L, node.table?.entriesStart)
+        assertEquals(2L, node.table?.entryCount)
+        assertEquals(listOf("sample_size"), node.table?.columns)
+        assertEquals(listOf(4), node.table?.fieldWidths)
+        reader.close()
+    }
+```
+
+The first test (`uniform sample size is reported as fields, not a table`) is unaffected — leave it as-is.
+
+- [ ] **Step 11: Run the parser test suite**
+
+Run:
+```bash
+./gradlew test --tests "com.multiviewer.parser.*"
+```
+Expected: PASS — all parser tests green with the new `TableData` shape.
+
+- [ ] **Step 12: Update `TableView` to read rows on demand**
+
+```kotlin
+package com.multiviewer.ui
+
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import com.multiviewer.parser.ByteReader
+import com.multiviewer.parser.TableData
+import com.multiviewer.parser.readTableRow
+import java.io.File
+
+private const val PAGE_SIZE = 200
+
+@Composable
+fun TableView(file: File, table: TableData) {
+    var page by remember(table) { mutableStateOf(0) }
+    val pageCount = (((table.entryCount + PAGE_SIZE - 1) / PAGE_SIZE).coerceAtLeast(1)).toInt()
+    val start = page.toLong() * PAGE_SIZE
+    val end = minOf(start + PAGE_SIZE, table.entryCount)
+
+    val reader = remember(file) { ByteReader.open(file) }
+    DisposableEffect(reader) {
+        onDispose { reader.close() }
+    }
+
+    val rows = remember(table, page) {
+        (start until end).map { rowIndex -> readTableRow(reader, table.entriesStart, table.fieldWidths, rowIndex) }
+    }
+
+    Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
+        Row {
+            Text(table.columns.joinToString("  |  "))
+        }
+        LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            items(rows) { row ->
+                Text(row.joinToString("  |  ") { it.toString() })
+            }
+        }
+        Row {
+            Button(onClick = { page = (page - 1).coerceAtLeast(0) }, enabled = page > 0) {
+                Text("Previous")
+            }
+            Text(" Page ${page + 1} / $pageCount (${table.entryCount} total entries) ")
+            Button(onClick = { page = (page + 1).coerceAtMost(pageCount - 1) }, enabled = page < pageCount - 1) {
+                Text("Next")
+            }
+        }
+    }
+}
+```
+
+Note: `ByteReader.open` and `.close()` are the same API `HexView` uses for its own independent `RandomAccessFile`-backed reads — this keeps `TableView` consistent with the established parser/UI I/O boundary (the UI does its own file reads for display; the parser's own `ByteReader` from `parseFile` was already closed by the time the UI renders).
+
+- [ ] **Step 13: Update `Main.kt`'s call site**
+
+In `Main.kt`, change:
+```kotlin
+                                if (selectedNode?.table != null) {
+                                    com.multiviewer.ui.TableView(selectedNode.table!!)
+                                } else {
+```
+to:
+```kotlin
+                                if (selectedNode?.table != null) {
+                                    com.multiviewer.ui.TableView(currentTab.file, selectedNode.table!!)
+                                } else {
+```
+
+- [ ] **Step 14: Verify it compiles and the full suite passes**
+
+Run:
+```bash
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+./gradlew test
+```
+Expected: BUILD SUCCESSFUL, all tests passing.
+
+Run:
+```bash
+./gradlew run
+```
+Expected: launches without exceptions (same process-level verification as prior UI tasks — no interactive GUI access in this sandbox).
+
+- [ ] **Step 15: Commit**
+
+```bash
+git add app/src/main/kotlin/com/multiviewer/parser/BoxNode.kt app/src/main/kotlin/com/multiviewer/parser/FixedWidthTableDecoder.kt app/src/main/kotlin/com/multiviewer/parser/StszBoxDecoder.kt app/src/main/kotlin/com/multiviewer/parser/TableRowReader.kt app/src/test/kotlin/com/multiviewer/parser/FixedWidthTableDecoderTest.kt app/src/test/kotlin/com/multiviewer/parser/StszBoxDecoderTest.kt app/src/test/kotlin/com/multiviewer/parser/TableRowReaderTest.kt app/src/main/kotlin/com/multiviewer/ui/TableView.kt app/src/main/kotlin/com/multiviewer/Main.kt
+git commit -m "perf(parser,ui): decode large sample table rows lazily instead of eagerly at parse time"
+```
