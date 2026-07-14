@@ -30,7 +30,10 @@ class StszBoxDecoderTest {
         val reader = byteReaderOf(body)
         val node = StszBoxDecoder.decode(reader, "stsz", 0, 0, body.size.toLong(), emptyList())
         assertEquals("2 entries (variable size)", node.summary)
-        assertEquals(listOf(listOf(256L), listOf(512L)), node.table?.rows)
+        assertEquals(12L, node.table?.entriesStart)
+        assertEquals(2L, node.table?.entryCount)
+        assertEquals(listOf("sample_size"), node.table?.columns)
+        assertEquals(listOf(4), node.table?.fieldWidths)
         reader.close()
     }
 }

@@ -110,7 +110,7 @@ fun main() = application {
                             Column(modifier = Modifier.weight(0.3f).fillMaxWidth()) {
                                 val selectedNode = currentTab.selected
                                 if (selectedNode?.table != null) {
-                                    com.multiviewer.ui.TableView(selectedNode.table!!)
+                                    com.multiviewer.ui.TableView(currentTab.file, selectedNode.table!!)
                                 } else {
                                     com.multiviewer.ui.FieldPanel(selectedNode)
                                 }

@@ -5,7 +5,7 @@ import kotlin.test.assertEquals
 
 class FixedWidthTableDecoderTest {
     @Test
-    fun `decodes entry_count and rows, summarizing instead of exposing rows as children`() {
+    fun `decodes entry_count and records table metadata, summarizing instead of exposing rows as children`() {
         val decoder = FixedWidthTableDecoder(listOf("sample_count", "sample_delta"), listOf(4, 4))
         val body = byteArrayOf(
             0x00, 0x00, 0x00, 0x00, // version/flags
@@ -17,7 +17,9 @@ class FixedWidthTableDecoderTest {
         val node = decoder.decode(reader, "stts", 0, 0, body.size.toLong(), emptyList())
         assertEquals("2 entries", node.summary)
         assertEquals(listOf("sample_count", "sample_delta"), node.table?.columns)
-        assertEquals(listOf(listOf(10L, 20L), listOf(1L, 30L)), node.table?.rows)
+        assertEquals(listOf(4, 4), node.table?.fieldWidths)
+        assertEquals(8L, node.table?.entriesStart)
+        assertEquals(2L, node.table?.entryCount)
         assertEquals(true, node.children.isEmpty())
         reader.close()
     }
@@ -32,7 +34,7 @@ class FixedWidthTableDecoderTest {
         )
         val reader = byteReaderOf(body)
         val node = decoder.decode(reader, "stco", 0, 0, body.size.toLong(), emptyList())
-        assertEquals(1, node.table?.rows?.size)
+        assertEquals(1L, node.table?.entryCount)
         assertEquals(1, node.warnings.size)
         reader.close()
     }

@@ -9,7 +9,9 @@ data class BoxField(
 
 data class TableData(
     val columns: List<String>,
-    val rows: List<List<Long>>,
+    val fieldWidths: List<Int>,
+    val entriesStart: Long,
+    val entryCount: Long,
 )
 
 data class BoxNode(

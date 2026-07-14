@@ -39,16 +39,10 @@ object StszBoxDecoder : BoxDecoder {
         if (actualCount < sampleCount) {
             w.add("Declared $sampleCount entries but only enough space for $fitCount")
         }
-        val rows = mutableListOf<List<Long>>()
-        var pos = entriesStart
-        repeat(actualCount.toInt()) {
-            rows.add(listOf(reader.readUInt32(pos)))
-            pos += 4
-        }
         return BoxNode(
             type = type, offset = offset, headerSize = headerSize, size = size, warnings = w,
             summary = "${pluralize(sampleCount, "entry", "entries")} (variable size)",
-            table = TableData(listOf("sample_size"), rows),
+            table = TableData(listOf("sample_size"), listOf(4), entriesStart, actualCount),
         )
     }
 }

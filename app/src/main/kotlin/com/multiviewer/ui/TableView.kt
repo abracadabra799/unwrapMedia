@@ -9,29 +9,42 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.multiviewer.parser.ByteReader
 import com.multiviewer.parser.TableData
+import com.multiviewer.parser.readTableRow
+import java.io.File
 
 private const val PAGE_SIZE = 200
 
 @Composable
-fun TableView(table: TableData) {
+fun TableView(file: File, table: TableData) {
     var page by remember(table) { mutableStateOf(0) }
-    val pageCount = ((table.rows.size + PAGE_SIZE - 1) / PAGE_SIZE).coerceAtLeast(1)
-    val start = page * PAGE_SIZE
-    val end = minOf(start + PAGE_SIZE, table.rows.size)
+    val pageCount = (((table.entryCount + PAGE_SIZE - 1) / PAGE_SIZE).coerceAtLeast(1)).toInt()
+    val start = page.toLong() * PAGE_SIZE
+    val end = minOf(start + PAGE_SIZE, table.entryCount)
+
+    val reader = remember(file) { ByteReader.open(file) }
+    DisposableEffect(reader) {
+        onDispose { reader.close() }
+    }
+
+    val rows = remember(table, page) {
+        (start until end).map { rowIndex -> readTableRow(reader, table.entriesStart, table.fieldWidths, rowIndex) }
+    }
 
     Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
         Row {
             Text(table.columns.joinToString("  |  "))
         }
         LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            items(table.rows.subList(start, end)) { row ->
+            items(rows) { row ->
                 Text(row.joinToString("  |  ") { it.toString() })
             }
         }
@@ -39,7 +52,7 @@ fun TableView(table: TableData) {
             Button(onClick = { page = (page - 1).coerceAtLeast(0) }, enabled = page > 0) {
                 Text("Previous")
             }
-            Text(" Page ${page + 1} / $pageCount (${table.rows.size} total entries) ")
+            Text(" Page ${page + 1} / $pageCount (${table.entryCount} total entries) ")
             Button(onClick = { page = (page + 1).coerceAtMost(pageCount - 1) }, enabled = page < pageCount - 1) {
                 Text("Next")
             }

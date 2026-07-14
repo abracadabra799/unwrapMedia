@@ -33,18 +33,6 @@ class FixedWidthTableDecoder(
         if (actualCount < entryCount) {
             w.add("Declared $entryCount entries but only enough space for $fitCount")
         }
-        val rows = mutableListOf<List<Long>>()
-        var pos = entriesStart
-        repeat(actualCount.toInt()) {
-            val row = mutableListOf<Long>()
-            var fieldPos = pos
-            for (width in fieldWidths) {
-                row.add(readUIntOfWidth(reader, fieldPos, width))
-                fieldPos += width
-            }
-            rows.add(row)
-            pos += entryWidth
-        }
         return BoxNode(
             type = type,
             offset = offset,
@@ -52,7 +40,7 @@ class FixedWidthTableDecoder(
             size = size,
             warnings = w,
             summary = pluralize(entryCount, "entry", "entries"),
-            table = TableData(columns, rows),
+            table = TableData(columns, fieldWidths, entriesStart, actualCount),
         )
     }
 }
