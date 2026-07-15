@@ -108,21 +108,21 @@ fun main() = application {
                                 }
                                 Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(Color.DarkGray))
                                 Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                                    HexView(
-                                        file = currentTab.file,
-                                        highlightRange = currentTab.selected?.let { it.offset until (it.offset + it.size) },
-                                        listState = hexListState,
-                                    )
+                                    val selectedNode = currentTab.selected
+                                    if (selectedNode?.table != null) {
+                                        com.multiviewer.ui.TableView(currentTab.file, selectedNode.table!!)
+                                    } else {
+                                        com.multiviewer.ui.FieldPanel(selectedNode)
+                                    }
                                 }
                             }
                             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color.DarkGray))
                             Column(modifier = Modifier.weight(0.3f).fillMaxWidth()) {
-                                val selectedNode = currentTab.selected
-                                if (selectedNode?.table != null) {
-                                    com.multiviewer.ui.TableView(currentTab.file, selectedNode.table!!)
-                                } else {
-                                    com.multiviewer.ui.FieldPanel(selectedNode)
-                                }
+                                HexView(
+                                    file = currentTab.file,
+                                    highlightRange = currentTab.selected?.let { it.offset until (it.offset + it.size) },
+                                    listState = hexListState,
+                                )
                             }
                         }
                     }
