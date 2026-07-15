@@ -35,14 +35,30 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
 
             Text(buildAnnotatedString {
                 append("%08X  ".format(rowStart))
+                for (i in 0 until BYTES_PER_ROW) {
+                    if (i < buf.size) {
+                        val byteOffset = rowStart + i
+                        val isHighlighted = highlightRange?.contains(byteOffset) == true
+                        val hex = "%02X ".format(buf[i])
+                        if (isHighlighted) {
+                            withStyle(SpanStyle(background = Color.Yellow)) { append(hex) }
+                        } else {
+                            append(hex)
+                        }
+                    } else {
+                        append("   ")
+                    }
+                }
+                append(" ")
                 for (i in buf.indices) {
                     val byteOffset = rowStart + i
                     val isHighlighted = highlightRange?.contains(byteOffset) == true
-                    val hex = "%02X ".format(buf[i])
+                    val byteValue = buf[i].toInt() and 0xFF
+                    val char = if (byteValue in 0x20..0x7E) byteValue.toChar() else '.'
                     if (isHighlighted) {
-                        withStyle(SpanStyle(background = Color.Yellow)) { append(hex) }
+                        withStyle(SpanStyle(background = Color.Yellow)) { append(char) }
                     } else {
-                        append(hex)
+                        append(char)
                     }
                 }
             })
