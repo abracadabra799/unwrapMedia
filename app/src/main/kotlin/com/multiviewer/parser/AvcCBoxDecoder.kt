@@ -50,6 +50,8 @@ object AvcCBoxDecoder : BoxDecoder {
             if (numPps < declaredPps) {
                 w.add("Declared $declaredPps PPS entries but only found $numPps")
             }
+        } else {
+            w.add("Box too short to contain a PPS count")
         }
 
         val fields = listOf(

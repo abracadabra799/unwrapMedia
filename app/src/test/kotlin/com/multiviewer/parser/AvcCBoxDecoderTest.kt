@@ -61,4 +61,23 @@ class AvcCBoxDecoderTest {
         assertEquals(true, node.fields.isEmpty())
         reader.close()
     }
+
+    @Test
+    fun `box truncated before PPS count byte emits warning`() {
+        val body = byteArrayOf(
+            0x01,                   // configuration_version
+            0x64,                   // avc_profile_indication = 100
+            0x00,                   // profile_compatibility
+            0x1F,                   // avc_level_indication = 31
+            0xFF.toByte(),          // lengthSizeMinusOne bits -> length_size = 4
+            0xE1.toByte(),          // numSps bits -> declared 1 SPS
+            0x00, 0x04,             // sps_length = 4
+            0x67, 0x64, 0x00, 0x1F, // sps bytes (ends here, no PPS count)
+        )
+        val reader = byteReaderOf(body)
+        val node = AvcCBoxDecoder.decode(reader, "avcC", 0, 0, body.size.toLong(), emptyList())
+        assertEquals(1, node.warnings.size)
+        assertEquals("Box too short to contain a PPS count", node.warnings[0])
+        reader.close()
+    }
 }
