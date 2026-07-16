@@ -1,5 +1,6 @@
 package com.multiviewer.ui
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -13,13 +14,39 @@ import com.multiviewer.parser.BoxNode
 
 @Composable
 fun FieldPanel(node: BoxNode?) {
-    if (node == null || node.fields.isEmpty()) return
+    if (node == null) return
     LazyColumn(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
+        item {
+            Column {
+                MetadataRow("Type", node.type)
+                MetadataRow("Offset", "${node.offset} (0x${node.offset.toString(16).uppercase()})")
+                MetadataRow("Size", "${node.size}")
+                MetadataRow("Header size", "${node.headerSize}")
+                MetadataRow("Payload size", "${node.size - node.headerSize}")
+                if (node.children.isNotEmpty()) {
+                    MetadataRow("Children", "${node.children.size}")
+                }
+                if (node.warnings.isNotEmpty()) {
+                    Text("Warnings:", modifier = Modifier.padding(top = 4.dp))
+                    node.warnings.forEach { warning ->
+                        Text("- $warning", modifier = Modifier.padding(start = 8.dp))
+                    }
+                }
+            }
+        }
         items(node.fields) { field ->
             Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                 Text("${field.name}: ", modifier = Modifier.padding(end = 4.dp))
                 Text(field.value)
             }
         }
+    }
+}
+
+@Composable
+private fun MetadataRow(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        Text("$label: ", modifier = Modifier.padding(end = 4.dp))
+        Text(value)
     }
 }
