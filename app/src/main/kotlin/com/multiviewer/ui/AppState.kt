@@ -12,6 +12,8 @@ class TabState(val file: File) {
     var root: BoxNode? by mutableStateOf(null)
     var error: String? by mutableStateOf(null)
     var selected: BoxNode? by mutableStateOf(null)
+    var verticalSplit: Float by mutableStateOf(0.5f)
+    var horizontalSplit: Float by mutableStateOf(1f / 1.3f)
 }
 
 class AppState {
