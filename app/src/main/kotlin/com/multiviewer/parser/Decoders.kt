@@ -12,6 +12,8 @@ fun registerAllDecoders() {
     BoxRegistry.register("mdhd", MdhdBoxDecoder)
     BoxRegistry.register("hdlr", HdlrBoxDecoder)
     BoxRegistry.register("ispe", IspeBoxDecoder)
+    BoxRegistry.register("avc1", VisualSampleEntryDecoder)
+    BoxRegistry.register("hvc1", VisualSampleEntryDecoder)
 
     BoxRegistry.register("stsd", ContainerBoxDecoder(childOffsetInPayload = 8, summarize = true))
     BoxRegistry.register("meta", MetaBoxDecoder)
