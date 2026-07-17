@@ -22,6 +22,8 @@ fun registerAllDecoders() {
     BoxRegistry.register("dref", ContainerBoxDecoder(childOffsetInPayload = 8, summarize = true))
     BoxRegistry.register("url ", UrlBoxDecoder)
     BoxRegistry.register("urn ", UrnBoxDecoder)
+    BoxRegistry.register("colr", ColrBoxDecoder)
+    BoxRegistry.register("pasp", PaspBoxDecoder)
 
     BoxRegistry.register("stsd", ContainerBoxDecoder(childOffsetInPayload = 8, summarize = true))
     BoxRegistry.register("meta", MetaBoxDecoder)
