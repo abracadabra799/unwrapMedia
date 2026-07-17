@@ -31,6 +31,7 @@ fun registerAllDecoders() {
     for (containerType in listOf("moov", "trak", "mdia", "minf", "dinf", "edts", "udta", "stbl", "iprp", "ipco", "mpvd")) {
         BoxRegistry.register(containerType, ContainerBoxDecoder())
     }
+    BoxRegistry.register("sefd", SefdBoxDecoder)
 
     BoxRegistry.register("stts", FixedWidthTableDecoder(listOf("sample_count", "sample_delta"), listOf(4, 4)))
     BoxRegistry.register(
