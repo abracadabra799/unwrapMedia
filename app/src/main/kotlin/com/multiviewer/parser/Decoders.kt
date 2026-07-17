@@ -17,6 +17,7 @@ fun registerAllDecoders() {
     BoxRegistry.register("mp4a", AudioSampleEntryDecoder)
     BoxRegistry.register("avcC", AvcCBoxDecoder)
     BoxRegistry.register("hvcC", HvcCBoxDecoder)
+    BoxRegistry.register("elst", ElstBoxDecoder)
 
     BoxRegistry.register("stsd", ContainerBoxDecoder(childOffsetInPayload = 8, summarize = true))
     BoxRegistry.register("meta", MetaBoxDecoder)
