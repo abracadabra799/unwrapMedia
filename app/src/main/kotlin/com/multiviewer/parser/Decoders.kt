@@ -19,6 +19,10 @@ fun registerAllDecoders() {
     BoxRegistry.register("hvcC", HvcCBoxDecoder)
     BoxRegistry.register("elst", ElstBoxDecoder)
 
+    BoxRegistry.register("dref", ContainerBoxDecoder(childOffsetInPayload = 8, summarize = true))
+    BoxRegistry.register("url ", UrlBoxDecoder)
+    BoxRegistry.register("urn ", UrnBoxDecoder)
+
     BoxRegistry.register("stsd", ContainerBoxDecoder(childOffsetInPayload = 8, summarize = true))
     BoxRegistry.register("meta", MetaBoxDecoder)
     for (containerType in listOf("moov", "trak", "mdia", "minf", "dinf", "edts", "udta", "stbl", "iprp", "ipco")) {
