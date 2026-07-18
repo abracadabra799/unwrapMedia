@@ -232,10 +232,6 @@ private fun decodeDqt(reader: ByteReader, name: String, offset: Long, declaredSi
     val warnings = mutableListOf<String>()
     var pos = payloadStart
     while (pos < payloadEnd) {
-        if (pos + 1 > payloadEnd) {
-            warnings.add("Trailing byte(s) too short for a quantization table header")
-            break
-        }
         val pqTq = reader.readUInt8(pos)
         val precision = pqTq shr 4
         val destinationId = pqTq and 0x0F
@@ -389,9 +385,18 @@ private fun decodeApp0(reader: ByteReader, name: String, offset: Long, declaredS
     val payloadStart = offset + 4
     val payloadEnd = offset + declaredSize
     val jfifBodySize = 9 // version(2) + units(1) + x_density(2) + y_density(2) + x_thumbnail(1) + y_thumbnail(1)
-    if (payloadEnd - payloadStart >= JFIF_PREFIX.size + jfifBodySize &&
+    val hasJfifPrefix = payloadEnd - payloadStart >= JFIF_PREFIX.size &&
         reader.readBytes(payloadStart, JFIF_PREFIX.size).contentEquals(JFIF_PREFIX)
-    ) {
+    if (hasJfifPrefix && payloadEnd - payloadStart < JFIF_PREFIX.size + jfifBodySize) {
+        return BoxNode(
+            type = name, offset = offset, headerSize = 4, size = totalSize,
+            warnings = listOf(
+                "JFIF header truncated: needs ${JFIF_PREFIX.size + jfifBodySize} byte(s) " +
+                    "but only ${payloadEnd - payloadStart} remain",
+            ),
+        )
+    }
+    if (hasJfifPrefix) {
         val bodyStart = payloadStart + JFIF_PREFIX.size
         val majorVersion = reader.readUInt8(bodyStart)
         val minorVersion = reader.readUInt8(bodyStart + 1)

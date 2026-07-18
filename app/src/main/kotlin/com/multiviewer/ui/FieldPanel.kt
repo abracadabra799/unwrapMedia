@@ -41,9 +41,10 @@ fun FieldPanel(node: BoxNode?) {
                 Text(field.value)
             }
         }
-        if (node.grid != null) {
+        val grid = node.grid
+        if (grid != null) {
             item {
-                GridDisplay(node.grid!!)
+                GridDisplay(grid)
             }
         }
     }
