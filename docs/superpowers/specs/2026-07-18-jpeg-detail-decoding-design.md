@@ -76,12 +76,13 @@ Baseline chrominance table (raster order):
 99 99 99 99 99 99 99 99
 ```
 
-Compute `avgScale = average(table[i].toDouble() / baseline[i])` over the 64 de-zigzagged values, comparing against the luminance baseline when `destination_id == 0` and the chrominance baseline when `destination_id >= 1` (the conventional encoder assignment — DC luminance tables are almost universally assigned destination 0 and chrominance destination 1+, but this is a convention, not a spec guarantee, so it's documented here as a heuristic, same as JPEGsnoop's own approach). Then invert the standard IJG scaling formula:
+Compute `ratio = average(table[i].toDouble() / baseline[i])` over the 64 de-zigzagged values, comparing against the luminance baseline when `destination_id == 0` and the chrominance baseline when `destination_id >= 1` (the conventional encoder assignment — DC luminance tables are almost universally assigned destination 0 and chrominance destination 1+, but this is a convention, not a spec guarantee, so it's documented here as a heuristic, same as JPEGsnoop's own approach). `ratio` approximates `scaleFactor / 100` from the forward IJG formula (`scaleFactor = quality < 50 ? 5000/quality : 200 - 2*quality`), so invert it:
 
 ```
-quality = if (avgScale <= 100.0) (200.0 - avgScale) / 2.0 else 5000.0 / avgScale
+scaleFactor = ratio * 100.0
+quality = if (scaleFactor < 100.0) 100.0 - scaleFactor / 2.0 else 5000.0 / scaleFactor
 ```
-clamped to `[1, 100]` and rounded to the nearest integer, displayed as `"~N%"` (the tilde signals "estimated," matching how this project already flags derived/heuristic values distinctly from directly-read ones).
+clamped to `[1, 100]` and rounded to the nearest integer, displayed as `"~N%"` (the tilde signals "estimated," matching how this project already flags derived/heuristic values distinctly from directly-read ones). This inversion was verified against the forward IJG formula with a Python script across quality values 1–100: it recovers the exact original quality for the 25–95 range and comes within a few percentage points at the extremes (1–10, 99–100), where integer clamping of the forward-scaled table values inherently loses precision — the same fundamental limitation every DQT-based quality estimator (including JPEGsnoop's) has.
 
 ### 4. DHT decoding (`JpegWalker.kt`)
 
