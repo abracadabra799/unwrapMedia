@@ -107,6 +107,8 @@ private fun decodeSegment(reader: ByteReader, marker: Int, offset: Long, declare
         marker == 0xDB -> decodeDqt(reader, name, offset, declaredSize, totalSize)
         marker == 0xC4 -> decodeDht(reader, name, offset, declaredSize, totalSize)
         marker == 0xDA -> decodeSos(reader, name, offset, declaredSize, totalSize)
+        marker == 0xFE -> decodeCom(reader, name, offset, declaredSize, totalSize)
+        marker == 0xE0 -> decodeApp0(reader, name, offset, declaredSize, totalSize)
         else -> BoxNode(type = name, offset = offset, headerSize = 4, size = totalSize)
     }
 }
@@ -266,7 +268,6 @@ private fun decodeDqt(reader: ByteReader, name: String, offset: Long, declaredSi
                     BoxField("destination_id", destinationId.toString(), pos, 1),
                     BoxField("quality_estimate", "~$quality%", pos, tableBytes.toLong()),
                 ),
-                grid = GridData(8, 8, raster.map { it.toString() }),
                 summary = "precision=$precision, destination_id=$destinationId, quality~$quality%",
             ),
         )
@@ -368,4 +369,54 @@ private fun decodeSos(reader: ByteReader, name: String, offset: Long, declaredSi
         fields = fields,
         summary = "$componentCount component(s)",
     )
+}
+
+private fun decodeCom(reader: ByteReader, name: String, offset: Long, declaredSize: Long, totalSize: Long): BoxNode {
+    val payloadStart = offset + 4
+    val payloadEnd = offset + declaredSize
+    val text = String(reader.readBytes(payloadStart, (payloadEnd - payloadStart).toInt()), Charsets.UTF_8)
+    return BoxNode(
+        type = name, offset = offset, headerSize = 4, size = totalSize,
+        fields = listOf(BoxField("comment", text, payloadStart, payloadEnd - payloadStart)),
+        summary = text,
+    )
+}
+
+private val JFIF_PREFIX = byteArrayOf(0x4A, 0x46, 0x49, 0x46, 0x00) // "JFIF" + NUL
+
+private fun decodeApp0(reader: ByteReader, name: String, offset: Long, declaredSize: Long, totalSize: Long): BoxNode {
+    val payloadStart = offset + 4
+    val payloadEnd = offset + declaredSize
+    val jfifBodySize = 9 // version(2) + units(1) + x_density(2) + y_density(2) + x_thumbnail(1) + y_thumbnail(1)
+    if (payloadEnd - payloadStart >= JFIF_PREFIX.size + jfifBodySize &&
+        reader.readBytes(payloadStart, JFIF_PREFIX.size).contentEquals(JFIF_PREFIX)
+    ) {
+        val bodyStart = payloadStart + JFIF_PREFIX.size
+        val majorVersion = reader.readUInt8(bodyStart)
+        val minorVersion = reader.readUInt8(bodyStart + 1)
+        val units = reader.readUInt8(bodyStart + 2)
+        val xDensity = reader.readUInt16(bodyStart + 3)
+        val yDensity = reader.readUInt16(bodyStart + 5)
+        val xThumbnail = reader.readUInt8(bodyStart + 7)
+        val yThumbnail = reader.readUInt8(bodyStart + 8)
+        val unitsLabel = when (units) {
+            0 -> "none"
+            1 -> "pixels/inch"
+            2 -> "pixels/cm"
+            else -> units.toString()
+        }
+        return BoxNode(
+            type = name, offset = offset, headerSize = 4, size = totalSize,
+            fields = listOf(
+                BoxField("version", "$majorVersion.$minorVersion", bodyStart, 2),
+                BoxField("units", unitsLabel, bodyStart + 2, 1),
+                BoxField("x_density", xDensity.toString(), bodyStart + 3, 2),
+                BoxField("y_density", yDensity.toString(), bodyStart + 5, 2),
+                BoxField("x_thumbnail", xThumbnail.toString(), bodyStart + 7, 1),
+                BoxField("y_thumbnail", yThumbnail.toString(), bodyStart + 8, 1),
+            ),
+            summary = "JFIF $majorVersion.$minorVersion, ${xDensity}x${yDensity} $unitsLabel",
+        )
+    }
+    return BoxNode(type = name, offset = offset, headerSize = 4, size = totalSize)
 }

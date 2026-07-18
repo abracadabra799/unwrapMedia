@@ -173,7 +173,6 @@ class JpegWalkerTest {
             49, 64, 78, 87, 103, 121, 120, 101,
             72, 92, 95, 98, 112, 100, 103, 99,
         ).map { it.toString() }
-        assertEquals(GridData(8, 8, expectedRaster), table.grid)
         reader.close()
     }
 
@@ -318,6 +317,57 @@ class JpegWalkerTest {
         assertEquals("63", sos.fields.first { it.name == "spectral_selection_end" }.value)
         assertEquals("0", sos.fields.first { it.name == "successive_approx_high" }.value)
         assertEquals("0", sos.fields.first { it.name == "successive_approx_low" }.value)
+        reader.close()
+    }
+
+    @Test
+    fun `COM decodes the comment payload as UTF-8 text`() {
+        val bytes = byteArrayOf(
+            0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xfe.toByte(), 0x00, 0x0e, 0x54, 0x65,
+            0x73, 0x74, 0x20, 0x63, 0x6f, 0x6d, 0x6d, 0x65,
+            0x6e, 0x74, 0xff.toByte(), 0xd9.toByte(),
+        )
+        val reader = byteReaderOf(bytes)
+        val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
+
+        assertEquals(listOf("SOI", "COM", "EOI"), segments.map { it.type })
+        assertEquals("Test comment", segments[1].fields.first { it.name == "comment" }.value)
+        reader.close()
+    }
+
+    @Test
+    fun `APP0 decodes JFIF header fields`() {
+        val bytes = byteArrayOf(
+            0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xe0.toByte(), 0x00, 0x10, 0x4a, 0x46,
+            0x49, 0x46, 0x00, 0x01, 0x01, 0x01, 0x00, 0x48,
+            0x00, 0x48, 0x00, 0x00, 0xff.toByte(), 0xd9.toByte(),
+        )
+        val reader = byteReaderOf(bytes)
+        val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
+
+        assertEquals(listOf("SOI", "APP0", "EOI"), segments.map { it.type })
+        val app0 = segments[1]
+        assertEquals("1.1", app0.fields.first { it.name == "version" }.value)
+        assertEquals("pixels/inch", app0.fields.first { it.name == "units" }.value)
+        assertEquals("72", app0.fields.first { it.name == "x_density" }.value)
+        assertEquals("72", app0.fields.first { it.name == "y_density" }.value)
+        assertEquals("0", app0.fields.first { it.name == "x_thumbnail" }.value)
+        assertEquals("0", app0.fields.first { it.name == "y_thumbnail" }.value)
+        reader.close()
+    }
+
+    @Test
+    fun `non-JFIF APP0 falls back to a plain structural node`() {
+        val bytes = byteArrayOf(
+            0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xe0.toByte(), 0x00, 0x0f, 0x4e, 0x4f,
+            0x54, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x65, 0x78,
+            0x74, 0x72, 0x61, 0xff.toByte(), 0xd9.toByte(),
+        )
+        val reader = byteReaderOf(bytes)
+        val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
+
+        assertEquals(listOf("SOI", "APP0", "EOI"), segments.map { it.type })
+        assertEquals(0, segments[1].fields.size)
         reader.close()
     }
 }
