@@ -38,18 +38,33 @@ object InfeBoxDecoder : BoxDecoder {
         val itemTypeOffset = protectionIndexOffset + 2
         val itemType = reader.readFourCC(itemTypeOffset)
         val nameOffset = itemTypeOffset + 4
-        val nameBytes = reader.readBytes(nameOffset, (payloadEnd - nameOffset).toInt())
-        val itemName = String(nameBytes, Charsets.UTF_8).trimEnd(Char(0))
-        val fields = listOf(
+        val remainingBytes = reader.readBytes(nameOffset, (payloadEnd - nameOffset).toInt())
+        val nameNullIndex = remainingBytes.indexOf(0)
+        val nameLength = if (nameNullIndex >= 0) nameNullIndex else remainingBytes.size
+        val itemName = String(remainingBytes, 0, nameLength, Charsets.UTF_8)
+
+        val fields = mutableListOf(
             BoxField("item_ID", itemId.toString(), itemIdOffset, itemIdWidth.toLong()),
             BoxField("item_protection_index", protectionIndex.toString(), protectionIndexOffset, 2),
             BoxField("item_type", itemType, itemTypeOffset, 4),
-            BoxField("item_name", itemName, nameOffset, nameBytes.size.toLong()),
+            BoxField("item_name", itemName, nameOffset, nameLength.toLong()),
         )
+
+        var summary = "$itemType: $itemName"
+        if (itemType == "mime" && nameNullIndex >= 0) {
+            val contentTypeStart = nameNullIndex + 1
+            val contentTypeBytes = remainingBytes.copyOfRange(contentTypeStart, remainingBytes.size)
+            val contentTypeNullIndex = contentTypeBytes.indexOf(0)
+            val contentTypeLength = if (contentTypeNullIndex >= 0) contentTypeNullIndex else contentTypeBytes.size
+            val contentType = String(contentTypeBytes, 0, contentTypeLength, Charsets.UTF_8)
+            fields.add(BoxField("content_type", contentType, nameOffset + contentTypeStart, contentTypeLength.toLong()))
+            summary = "$itemType ($contentType): $itemName"
+        }
+
         return BoxNode(
             type = type, offset = offset, headerSize = headerSize, size = size,
             fields = fields, warnings = w,
-            summary = "$itemType: $itemName",
+            summary = summary,
         )
     }
 }

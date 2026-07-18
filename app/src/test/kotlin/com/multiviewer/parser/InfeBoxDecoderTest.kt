@@ -41,4 +41,22 @@ class InfeBoxDecoderTest {
         assertEquals(true, node.fields.isEmpty())
         reader.close()
     }
+
+    @Test
+    fun `mime item_type reads content_type after item_name`() {
+        val body = byteArrayOf(0x02, 0x00, 0x00, 0x00) + // version=2, flags=0
+            byteArrayOf(0x00, 0x32) +                     // item_ID = 50
+            byteArrayOf(0x00, 0x00) +                     // item_protection_index = 0
+            "mime".toByteArray() +                        // item_type
+            byteArrayOf(0) +                              // item_name = "" (empty, null-terminated)
+            "application/rdf+xml".toByteArray() + byteArrayOf(0) // content_type, null-terminated
+        val reader = byteReaderOf(body)
+        val node = InfeBoxDecoder.decode(reader, "infe", 0, 0, body.size.toLong(), emptyList())
+
+        assertEquals("50", node.fields[0].value)
+        assertEquals("mime", node.fields[2].value)
+        assertEquals("", node.fields[3].value)
+        assertEquals("application/rdf+xml", node.fields[4].value)
+        reader.close()
+    }
 }
