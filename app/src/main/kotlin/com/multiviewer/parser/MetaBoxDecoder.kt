@@ -100,12 +100,16 @@ private fun enrichIlocItem(
             enrichedItem.copy(children = enrichedItem.children + exifChildren, summary = "Exif metadata")
         }
         itemType == "mime" && contentType == "application/rdf+xml" -> {
-            val bytes = reader.readBytes(extentOffset, extentLength.toInt())
-            val text = String(bytes, Charsets.UTF_8).trimEnd(' ', Char(0))
-            enrichedItem.copy(
-                fields = enrichedItem.fields + BoxField("xmp", text, extentOffset, extentLength),
-                summary = "XMP (${text.length} chars)",
-            )
+            if (extentOffset < 0 || extentLength < 0 || extentLength > Int.MAX_VALUE || extentOffset + extentLength > reader.length) {
+                enrichedItem.copy(warnings = enrichedItem.warnings + "Item ${itemNode.type}: XMP extent is out of bounds")
+            } else {
+                val bytes = reader.readBytes(extentOffset, extentLength.toInt())
+                val text = String(bytes, Charsets.UTF_8).trimEnd(' ', Char(0))
+                enrichedItem.copy(
+                    fields = enrichedItem.fields + BoxField("xmp", text, extentOffset, extentLength),
+                    summary = "XMP (${text.length} chars)",
+                )
+            }
         }
         else -> enrichedItem
     }
