@@ -292,4 +292,32 @@ class JpegWalkerTest {
         assertTrue(dht.warnings.isNotEmpty())
         reader.close()
     }
+
+    @Test
+    fun `SOS header decodes component selectors, spectral selection, and successive approximation`() {
+        val bytes = byteArrayOf(
+            0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xda.toByte(), 0x00, 0x0c, 0x03, 0x01,
+            0x00, 0x02, 0x11, 0x03, 0x11, 0x00, 0x3f, 0x00,
+            0xab.toByte(), 0xff.toByte(), 0xd9.toByte(),
+        )
+        val reader = byteReaderOf(bytes)
+        val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
+
+        assertEquals(listOf("SOI", "SOS", "EOI"), segments.map { it.type })
+        val sos = segments[1]
+        assertEquals(2L, sos.offset)
+        assertEquals(15L, sos.size)
+        assertEquals("3", sos.fields.first { it.name == "num_components" }.value)
+        val selectors = sos.fields.filter { it.name == "component_selector" }.map { it.value }
+        assertEquals(listOf("1", "2", "3"), selectors)
+        val dcTables = sos.fields.filter { it.name == "dc_table" }.map { it.value }
+        assertEquals(listOf("0", "1", "1"), dcTables)
+        val acTables = sos.fields.filter { it.name == "ac_table" }.map { it.value }
+        assertEquals(listOf("0", "1", "1"), acTables)
+        assertEquals("0", sos.fields.first { it.name == "spectral_selection_start" }.value)
+        assertEquals("63", sos.fields.first { it.name == "spectral_selection_end" }.value)
+        assertEquals("0", sos.fields.first { it.name == "successive_approx_high" }.value)
+        assertEquals("0", sos.fields.first { it.name == "successive_approx_low" }.value)
+        reader.close()
+    }
 }

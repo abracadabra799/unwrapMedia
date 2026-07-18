@@ -106,6 +106,7 @@ private fun decodeSegment(reader: ByteReader, marker: Int, offset: Long, declare
         marker == 0xE1 -> decodeApp1(reader, name, offset, declaredSize, totalSize)
         marker == 0xDB -> decodeDqt(reader, name, offset, declaredSize, totalSize)
         marker == 0xC4 -> decodeDht(reader, name, offset, declaredSize, totalSize)
+        marker == 0xDA -> decodeSos(reader, name, offset, declaredSize, totalSize)
         else -> BoxNode(type = name, offset = offset, headerSize = 4, size = totalSize)
     }
 }
@@ -325,5 +326,46 @@ private fun decodeDht(reader: ByteReader, name: String, offset: Long, declaredSi
         type = name, offset = offset, headerSize = 4, size = totalSize,
         children = children, warnings = warnings,
         summary = "${children.size} Huffman table(s)",
+    )
+}
+
+private fun decodeSos(reader: ByteReader, name: String, offset: Long, declaredSize: Long, totalSize: Long): BoxNode {
+    val payloadStart = offset + 4
+    val payloadEnd = offset + declaredSize
+    if (payloadStart + 1 > payloadEnd) {
+        return BoxNode(name, offset, 4, totalSize, warnings = listOf("Segment too short to contain num_components"))
+    }
+    val numComponents = reader.readUInt8(payloadStart)
+    val fields = mutableListOf(BoxField("num_components", numComponents.toString(), payloadStart, 1))
+    var pos = payloadStart + 1
+    var componentCount = 0
+    for (i in 0 until numComponents) {
+        if (pos + 2 > payloadEnd) break
+        val selector = reader.readUInt8(pos)
+        val tables = reader.readUInt8(pos + 1)
+        fields.add(BoxField("component_selector", selector.toString(), pos, 1))
+        fields.add(BoxField("dc_table", (tables shr 4).toString(), pos + 1, 1))
+        fields.add(BoxField("ac_table", (tables and 0x0F).toString(), pos + 1, 1))
+        componentCount += 1
+        pos += 2
+    }
+    if (pos + 3 > payloadEnd) {
+        return BoxNode(
+            type = name, offset = offset, headerSize = 4, size = totalSize,
+            fields = fields,
+            warnings = listOf("Segment too short to contain spectral selection / successive approximation fields"),
+        )
+    }
+    val spectralStart = reader.readUInt8(pos)
+    val spectralEnd = reader.readUInt8(pos + 1)
+    val approx = reader.readUInt8(pos + 2)
+    fields.add(BoxField("spectral_selection_start", spectralStart.toString(), pos, 1))
+    fields.add(BoxField("spectral_selection_end", spectralEnd.toString(), pos + 1, 1))
+    fields.add(BoxField("successive_approx_high", (approx shr 4).toString(), pos + 2, 1))
+    fields.add(BoxField("successive_approx_low", (approx and 0x0F).toString(), pos + 2, 1))
+    return BoxNode(
+        type = name, offset = offset, headerSize = 4, size = totalSize,
+        fields = fields,
+        summary = "$componentCount component(s)",
     )
 }
