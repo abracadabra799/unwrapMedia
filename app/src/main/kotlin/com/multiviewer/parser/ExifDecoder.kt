@@ -155,12 +155,18 @@ private fun decodeIfd(
                 )
             }
             TAG_MAKER_NOTE -> {
-                children.add(decodeMakerNote(reader, tiffStart, valueAbsolutePos, count.toInt(), littleEndian))
+                if (valueAbsolutePos >= 0 && valueAbsolutePos + count <= itemEnd) {
+                    children.add(decodeMakerNote(reader, tiffStart, valueAbsolutePos, count.toInt(), littleEndian, itemEnd))
+                }
             }
             else -> {
                 val name = tagNames[tag] ?: "Tag 0x${tag.toString(16).padStart(4, '0')}"
-                val display = formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian)
-                fields.add(BoxField(name, display, valueAbsolutePos, totalSize))
+                if (valueAbsolutePos < 0 || valueAbsolutePos + totalSize > itemEnd) {
+                    fields.add(BoxField(name, "(out of bounds)", valueAbsolutePos, totalSize))
+                } else {
+                    val display = formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian)
+                    fields.add(BoxField(name, display, valueAbsolutePos, totalSize))
+                }
             }
         }
         pos += 12
@@ -177,6 +183,7 @@ private fun decodeMakerNote(
     absolutePos: Long,
     byteLength: Int,
     littleEndian: Boolean,
+    itemEnd: Long,
 ): BoxNode {
     val endPos = absolutePos + byteLength
     if (byteLength < 2) {
@@ -199,8 +206,12 @@ private fun decodeMakerNote(
             tiffStart + readUInt32Endian(reader, valueOffsetPos, littleEndian)
         }
         val name = TAG_NAMES_MAKERNOTE[tag] ?: "Tag 0x${tag.toString(16).padStart(4, '0')}"
-        val display = formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian)
-        fields.add(BoxField(name, display, valueAbsolutePos, totalSize))
+        if (valueAbsolutePos < 0 || valueAbsolutePos + totalSize > itemEnd) {
+            fields.add(BoxField(name, "(out of bounds)", valueAbsolutePos, totalSize))
+        } else {
+            val display = formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian)
+            fields.add(BoxField(name, display, valueAbsolutePos, totalSize))
+        }
         pos += 12
     }
     return BoxNode(type = "MakerNote", offset = absolutePos, headerSize = 2, size = byteLength.toLong(), fields = fields)

@@ -64,4 +64,18 @@ class ExifDecoderTest {
         assertEquals("42", ifds[0].fields.first { it.name == "Tag 0x1234" }.value)
         reader.close()
     }
+
+    @Test
+    fun `out-of-line value offset past the end of the item is treated as out of bounds, not a crash`() {
+        val body = byteArrayOf(
+            0x00, 0x00, 0x00, 0x00, 0x49, 0x49, 0x2a, 0x00,
+            0x08, 0x00, 0x00, 0x00, 0x01, 0x00,
+            0x0f, 0x01, 0x02, 0x00, 0x0a, 0x00, 0x00, 0x00, 0xff.toByte(), 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        )
+        val reader = byteReaderOf(body)
+        val ifds = decodeExif(reader, 0, body.size.toLong())
+        assertEquals("(out of bounds)", ifds[0].fields.first { it.name == "Make" }.value)
+        reader.close()
+    }
 }
