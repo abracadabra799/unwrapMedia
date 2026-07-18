@@ -83,7 +83,7 @@ fun parseJpegSegments(reader: ByteReader, start: Long, end: Long): List<BoxNode>
             while (scanPos + 2 <= end) {
                 if (reader.readUInt8(scanPos) == 0xFF) {
                     val next = reader.readUInt8(scanPos + 1)
-                    if (next != 0x00 && next !in 0xD0..0xD7) break
+                    if (next != 0x00 && next != 0xFF && next !in 0xD0..0xD7) break
                 }
                 scanPos += 1
             }

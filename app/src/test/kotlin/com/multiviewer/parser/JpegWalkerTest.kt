@@ -68,6 +68,24 @@ class JpegWalkerTest {
     }
 
     @Test
+    fun `SOS scan-data skip treats a run of FF fill bytes before the real marker as scan data`() {
+        val bytes = byteArrayOf(
+            0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xda.toByte(), 0x00, 0x08, 0x01, 0x01,
+            0x00, 0x00, 0x3f, 0x00, 0xab.toByte(), 0xff.toByte(), 0xff.toByte(), 0xd9.toByte(),
+        )
+        val reader = byteReaderOf(bytes)
+        val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
+
+        assertEquals(listOf("SOI", "SOS", "EOI"), segments.map { it.type })
+        val sos = segments[1]
+        assertEquals(2L, sos.offset)
+        assertEquals(12L, sos.size)
+        val eoi = segments[2]
+        assertEquals(14L, eoi.offset)
+        reader.close()
+    }
+
+    @Test
     fun `a byte that is not 0xFF where a marker is expected produces a warning and stops`() {
         val bytes = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0x00, 0x01)
         val reader = byteReaderOf(bytes)
