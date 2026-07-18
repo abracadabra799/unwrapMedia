@@ -96,11 +96,15 @@ private fun enrichIlocItem(
 
     return when {
         itemType == "Exif" -> {
-            val exifChildren = decodeExif(reader, extentOffset, extentOffset + extentLength)
-            enrichedItem.copy(children = enrichedItem.children + exifChildren, summary = "Exif metadata")
+            if (!isExtentInBounds(reader, extentOffset, extentLength)) {
+                enrichedItem.copy(warnings = enrichedItem.warnings + "Item ${itemNode.type}: Exif extent is out of bounds")
+            } else {
+                val exifChildren = decodeExif(reader, extentOffset, extentOffset + extentLength)
+                enrichedItem.copy(children = enrichedItem.children + exifChildren, summary = "Exif metadata")
+            }
         }
         itemType == "mime" && contentType == "application/rdf+xml" -> {
-            if (extentOffset < 0 || extentLength < 0 || extentLength > Int.MAX_VALUE || extentOffset + extentLength > reader.length) {
+            if (!isExtentInBounds(reader, extentOffset, extentLength)) {
                 enrichedItem.copy(warnings = enrichedItem.warnings + "Item ${itemNode.type}: XMP extent is out of bounds")
             } else {
                 val bytes = reader.readBytes(extentOffset, extentLength.toInt())
@@ -113,4 +117,8 @@ private fun enrichIlocItem(
         }
         else -> enrichedItem
     }
+}
+
+private fun isExtentInBounds(reader: ByteReader, offset: Long, length: Long): Boolean {
+    return offset >= 0 && length >= 0 && length <= Int.MAX_VALUE && offset + length <= reader.length
 }
