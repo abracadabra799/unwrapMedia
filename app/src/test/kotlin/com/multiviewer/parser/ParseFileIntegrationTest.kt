@@ -40,6 +40,18 @@ class ParseFileIntegrationTest {
         assertEquals(listOf("mdhd", "hdlr"), mdiaNode.children.map { it.type })
         assertEquals("vide: Video", mdiaNode.children[1].summary)
     }
+
+    @Test
+    fun `parses a JPEG file via the JPEG marker-segment path, not the ISOBMFF path`() {
+        val bytes = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xd9.toByte())
+        val tmp = File.createTempFile("multiviewer-jpeg", ".jpg")
+        tmp.deleteOnExit()
+        tmp.writeBytes(bytes)
+
+        val root = parseFile(tmp)
+
+        assertEquals(listOf("SOI", "EOI"), root.children.map { it.type })
+    }
 }
 
 private fun uint32(value: Long): ByteArray = byteArrayOf(

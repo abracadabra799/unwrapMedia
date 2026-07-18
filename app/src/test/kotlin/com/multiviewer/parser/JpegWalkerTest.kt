@@ -95,4 +95,46 @@ class JpegWalkerTest {
         assertTrue(segments[1].warnings.isNotEmpty())
         reader.close()
     }
+
+    @Test
+    fun `APP1 Exif payload delegates to decodeTiff`() {
+        val bytes = byteArrayOf(
+            0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xe1.toByte(), 0x00, 0x22, 0x45, 0x78,
+            0x69, 0x66, 0x00, 0x00, 0x49, 0x49, 0x2a, 0x00,
+            0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x0f, 0x01,
+            0x02, 0x00, 0x04, 0x00, 0x00, 0x00, 0x41, 0x42,
+            0x43, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff.toByte(), 0xd9.toByte(),
+        )
+        val reader = byteReaderOf(bytes)
+        val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
+
+        assertEquals(listOf("SOI", "APP1", "EOI"), segments.map { it.type })
+        val app1 = segments[1]
+        assertEquals(36L, app1.size)
+        val ifd0 = app1.children.single()
+        assertEquals("IFD0", ifd0.type)
+        assertEquals("ABC", ifd0.fields.first { it.name == "Make" }.value)
+        reader.close()
+    }
+
+    @Test
+    fun `APP1 XMP payload is exposed as a single text field`() {
+        val bytes = byteArrayOf(
+            0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xe1.toByte(), 0x00, 0x2b, 0x68, 0x74,
+            0x74, 0x70, 0x3a, 0x2f, 0x2f, 0x6e, 0x73, 0x2e,
+            0x61, 0x64, 0x6f, 0x62, 0x65, 0x2e, 0x63, 0x6f,
+            0x6d, 0x2f, 0x78, 0x61, 0x70, 0x2f, 0x31, 0x2e,
+            0x30, 0x2f, 0x00, 0x3c, 0x78, 0x3a, 0x78, 0x6d,
+            0x70, 0x6d, 0x65, 0x74, 0x61, 0x2f, 0x3e, 0xff.toByte(),
+            0xd9.toByte(),
+        )
+        val reader = byteReaderOf(bytes)
+        val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
+
+        assertEquals(listOf("SOI", "APP1", "EOI"), segments.map { it.type })
+        val app1 = segments[1]
+        assertEquals("<x:xmpmeta/>", app1.fields.first { it.name == "xmp" }.value)
+        assertEquals("XMP (12 chars)", app1.summary)
+        reader.close()
+    }
 }
