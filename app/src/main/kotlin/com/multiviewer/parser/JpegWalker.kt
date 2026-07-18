@@ -1,5 +1,7 @@
 package com.multiviewer.parser
 
+import kotlin.math.roundToInt
+
 private val MARKER_NAMES: Map<Int, String> = buildMap {
     put(0x01, "TEM")
     for (m in 0xC0..0xC3) put(m, "SOF${m - 0xC0}")
@@ -102,6 +104,7 @@ private fun decodeSegment(reader: ByteReader, marker: Int, offset: Long, declare
     return when {
         marker in SOF_MARKERS -> decodeSof(reader, name, offset, declaredSize, totalSize)
         marker == 0xE1 -> decodeApp1(reader, name, offset, declaredSize, totalSize)
+        marker == 0xDB -> decodeDqt(reader, name, offset, declaredSize, totalSize)
         else -> BoxNode(type = name, offset = offset, headerSize = 4, size = totalSize)
     }
 }
@@ -172,4 +175,104 @@ private fun decodeApp1(reader: ByteReader, name: String, offset: Long, declaredS
     }
 
     return BoxNode(type = name, offset = offset, headerSize = 4, size = totalSize)
+}
+
+private val ZIGZAG_TO_RASTER = intArrayOf(
+    0, 1, 8, 16, 9, 2, 3, 10,
+    17, 24, 32, 25, 18, 11, 4, 5,
+    12, 19, 26, 33, 40, 48, 41, 34,
+    27, 20, 13, 6, 7, 14, 21, 28,
+    35, 42, 49, 56, 57, 50, 43, 36,
+    29, 22, 15, 23, 30, 37, 44, 51,
+    58, 59, 52, 45, 38, 31, 39, 46,
+    53, 60, 61, 54, 47, 55, 62, 63,
+)
+
+private val BASELINE_LUMINANCE = intArrayOf(
+    16, 11, 10, 16, 24, 40, 51, 61,
+    12, 12, 14, 19, 26, 58, 60, 55,
+    14, 13, 16, 24, 40, 57, 69, 56,
+    14, 17, 22, 29, 51, 87, 80, 62,
+    18, 22, 37, 56, 68, 109, 103, 77,
+    24, 35, 55, 64, 81, 104, 113, 92,
+    49, 64, 78, 87, 103, 121, 120, 101,
+    72, 92, 95, 98, 112, 100, 103, 99,
+)
+
+private val BASELINE_CHROMINANCE = intArrayOf(
+    17, 18, 24, 47, 99, 99, 99, 99,
+    18, 21, 26, 66, 99, 99, 99, 99,
+    24, 26, 56, 99, 99, 99, 99, 99,
+    47, 66, 99, 99, 99, 99, 99, 99,
+    99, 99, 99, 99, 99, 99, 99, 99,
+    99, 99, 99, 99, 99, 99, 99, 99,
+    99, 99, 99, 99, 99, 99, 99, 99,
+    99, 99, 99, 99, 99, 99, 99, 99,
+)
+
+private fun estimateQuality(rasterTable: IntArray, baseline: IntArray): Int {
+    var sumRatio = 0.0
+    for (i in 0 until 64) {
+        sumRatio += rasterTable[i].toDouble() / baseline[i]
+    }
+    val ratio = sumRatio / 64
+    val scaleFactor = ratio * 100.0
+    val quality = if (scaleFactor < 100.0) 100.0 - scaleFactor / 2.0 else 5000.0 / scaleFactor
+    return quality.roundToInt().coerceIn(1, 100)
+}
+
+private fun decodeDqt(reader: ByteReader, name: String, offset: Long, declaredSize: Long, totalSize: Long): BoxNode {
+    val payloadStart = offset + 4
+    val payloadEnd = offset + declaredSize
+    val children = mutableListOf<BoxNode>()
+    val warnings = mutableListOf<String>()
+    var pos = payloadStart
+    while (pos < payloadEnd) {
+        if (pos + 1 > payloadEnd) {
+            warnings.add("Trailing byte(s) too short for a quantization table header")
+            break
+        }
+        val pqTq = reader.readUInt8(pos)
+        val precision = pqTq shr 4
+        val destinationId = pqTq and 0x0F
+        val valueSize = if (precision == 0) 1 else 2
+        val tableBytes = 1 + 64 * valueSize
+        if (pos + tableBytes > payloadEnd) {
+            warnings.add("Quantization table at offset $pos needs $tableBytes byte(s) but only ${payloadEnd - pos} remain")
+            break
+        }
+        val zigzag = IntArray(64)
+        var valuePos = pos + 1
+        for (k in 0 until 64) {
+            zigzag[k] = if (valueSize == 1) reader.readUInt8(valuePos) else reader.readUInt16(valuePos)
+            valuePos += valueSize
+        }
+        val raster = IntArray(64)
+        for (k in 0 until 64) {
+            raster[ZIGZAG_TO_RASTER[k]] = zigzag[k]
+        }
+        val baseline = if (destinationId == 0) BASELINE_LUMINANCE else BASELINE_CHROMINANCE
+        val quality = estimateQuality(raster, baseline)
+        children.add(
+            BoxNode(
+                type = "QuantizationTable",
+                offset = pos,
+                headerSize = 1,
+                size = tableBytes.toLong(),
+                fields = listOf(
+                    BoxField("precision", precision.toString(), pos, 1),
+                    BoxField("destination_id", destinationId.toString(), pos, 1),
+                    BoxField("quality_estimate", "~$quality%", pos, tableBytes.toLong()),
+                ),
+                grid = GridData(8, 8, raster.map { it.toString() }),
+                summary = "precision=$precision, destination_id=$destinationId, quality~$quality%",
+            ),
+        )
+        pos += tableBytes
+    }
+    return BoxNode(
+        type = name, offset = offset, headerSize = 4, size = totalSize,
+        children = children, warnings = warnings,
+        summary = "${children.size} quantization table(s)",
+    )
 }

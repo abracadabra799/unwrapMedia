@@ -14,6 +14,12 @@ data class TableData(
     val entryCount: Long,
 )
 
+data class GridData(
+    val columns: Int,
+    val rows: Int,
+    val values: List<String>,
+)
+
 data class BoxNode(
     val type: String,
     val offset: Long,
@@ -24,4 +30,5 @@ data class BoxNode(
     val warnings: List<String> = emptyList(),
     val summary: String? = null,
     val table: TableData? = null,
+    val grid: GridData? = null,
 )
