@@ -101,7 +101,7 @@ private fun decodeSegment(reader: ByteReader, marker: Int, offset: Long, declare
     val name = markerName(marker)
     return when {
         marker in SOF_MARKERS -> decodeSof(reader, name, offset, declaredSize, totalSize)
-        marker == 0xE1 -> decodeApp1(reader, offset, declaredSize, totalSize)
+        marker == 0xE1 -> decodeApp1(reader, name, offset, declaredSize, totalSize)
         else -> BoxNode(type = name, offset = offset, headerSize = 4, size = totalSize)
     }
 }
@@ -145,7 +145,7 @@ private fun decodeSof(reader: ByteReader, name: String, offset: Long, declaredSi
 private val EXIF_PREFIX = byteArrayOf(0x45, 0x78, 0x69, 0x66, 0x00, 0x00) // "Exif" + 2 NUL bytes
 private val XMP_IDENTIFIER = "http://ns.adobe.com/xap/1.0/".toByteArray(Charsets.US_ASCII)
 
-private fun decodeApp1(reader: ByteReader, offset: Long, declaredSize: Long, totalSize: Long): BoxNode {
+private fun decodeApp1(reader: ByteReader, name: String, offset: Long, declaredSize: Long, totalSize: Long): BoxNode {
     val payloadStart = offset + 4
     val payloadEnd = offset + declaredSize
 
@@ -154,7 +154,7 @@ private fun decodeApp1(reader: ByteReader, offset: Long, declaredSize: Long, tot
     ) {
         val tiffStart = payloadStart + EXIF_PREFIX.size
         val children = decodeTiff(reader, tiffStart, payloadEnd)
-        return BoxNode(type = "APP1", offset = offset, headerSize = 4, size = totalSize, children = children, summary = "Exif metadata")
+        return BoxNode(type = name, offset = offset, headerSize = 4, size = totalSize, children = children, summary = "Exif metadata")
     }
 
     val xmpPrefixSize = XMP_IDENTIFIER.size + 1
@@ -163,13 +163,13 @@ private fun decodeApp1(reader: ByteReader, offset: Long, declaredSize: Long, tot
     ) {
         val textStart = payloadStart + xmpPrefixSize
         val textLength = payloadEnd - textStart
-        val text = String(reader.readBytes(textStart, textLength.toInt()), Charsets.UTF_8)
+        val text = String(reader.readBytes(textStart, textLength.toInt()), Charsets.UTF_8).trimEnd(' ', Char(0))
         return BoxNode(
-            type = "APP1", offset = offset, headerSize = 4, size = totalSize,
+            type = name, offset = offset, headerSize = 4, size = totalSize,
             fields = listOf(BoxField("xmp", text, textStart, textLength)),
             summary = "XMP (${text.length} chars)",
         )
     }
 
-    return BoxNode(type = "APP1", offset = offset, headerSize = 4, size = totalSize)
+    return BoxNode(type = name, offset = offset, headerSize = 4, size = totalSize)
 }
