@@ -467,4 +467,15 @@ class JpegWalkerTest {
         assertTrue(segments[2].warnings.isNotEmpty())
         reader.close()
     }
+
+    @Test
+    fun `a range shorter than 4 bytes at the malformed-marker point does not attempt a negative seek`() {
+        val bytes = byteArrayOf(0x00, 0x00, 0x00)
+        val reader = byteReaderOf(bytes)
+        val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
+
+        assertEquals(listOf("?"), segments.map { it.type })
+        assertTrue(segments[0].warnings.isNotEmpty())
+        reader.close()
+    }
 }
