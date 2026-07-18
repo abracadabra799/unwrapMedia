@@ -24,6 +24,11 @@ object IlocBoxDecoder : BoxDecoder {
         val baseOffsetSize = (sizesByte2 shr 4) and 0xF
         val indexSize = sizesByte2 and 0xF
 
+        if (offsetSize !in setOf(4, 8) || lengthSize !in setOf(4, 8) || baseOffsetSize !in setOf(0, 4, 8)) {
+            w.add("Unsupported offset_size/length_size/base_offset_size combination ($offsetSize/$lengthSize/$baseOffsetSize)")
+            return BoxNode(type, offset, headerSize, size, warnings = w)
+        }
+
         var pos = payloadStart + 6
         val itemCountWidth = if (version < 2) 2 else 4
         if (pos + itemCountWidth > payloadEnd) {
@@ -83,7 +88,7 @@ object IlocBoxDecoder : BoxDecoder {
                     headerSize = fixedItemHeaderSize,
                     size = pos - itemStart,
                     children = extents,
-                    fields = listOf(BoxField("construction_method", constructionMethod.toString(), itemStart + itemIdWidth, 2)),
+                    fields = listOf(BoxField("construction_method", constructionMethod.toString(), itemStart + itemIdWidth, constructionMethodWidth.toLong())),
                 ),
             )
             itemsFound++

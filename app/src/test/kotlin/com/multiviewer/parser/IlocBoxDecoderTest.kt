@@ -48,7 +48,8 @@ class IlocBoxDecoderTest {
 
         assertEquals("item_3", node.children[2].type)
         assertEquals(1, node.warnings.size)
-        assertEquals("5", node.children[2].children[0].fields.first { it.name == "base_offset" || it.name == "extent_offset" }.value)
+        assertEquals("0", node.children[2].children[0].fields.first { it.name == "base_offset" }.value)
+        assertEquals("5", node.children[2].children[0].fields.first { it.name == "extent_offset" }.value)
 
         assertEquals("3 items", node.summary)
         reader.close()
@@ -79,6 +80,21 @@ class IlocBoxDecoderTest {
     fun `box too short for FullBox header and size fields returns a warning and no children`() {
         val reader = byteReaderOf(ByteArray(4))
         val node = IlocBoxDecoder.decode(reader, "iloc", 0, 0, 4, emptyList())
+        assertEquals(1, node.warnings.size)
+        assertEquals(true, node.children.isEmpty())
+        reader.close()
+    }
+
+    @Test
+    fun `unsupported offset_size bails out with a warning instead of crashing`() {
+        val body = byteArrayOf(
+            0x01, 0x00, 0x00, 0x00,             // version=1, flags=0
+            0x24,                               // offset_size=2 (unsupported), length_size=4
+            0x00,                               // base_offset_size=0, index_size=0
+            0x00, 0x00,                         // item_count = 0
+        )
+        val reader = byteReaderOf(body)
+        val node = IlocBoxDecoder.decode(reader, "iloc", 0, 0, body.size.toLong(), emptyList())
         assertEquals(1, node.warnings.size)
         assertEquals(true, node.children.isEmpty())
         reader.close()
