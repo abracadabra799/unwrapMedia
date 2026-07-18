@@ -105,6 +105,7 @@ private fun decodeSegment(reader: ByteReader, marker: Int, offset: Long, declare
         marker in SOF_MARKERS -> decodeSof(reader, name, offset, declaredSize, totalSize)
         marker == 0xE1 -> decodeApp1(reader, name, offset, declaredSize, totalSize)
         marker == 0xDB -> decodeDqt(reader, name, offset, declaredSize, totalSize)
+        marker == 0xC4 -> decodeDht(reader, name, offset, declaredSize, totalSize)
         else -> BoxNode(type = name, offset = offset, headerSize = 4, size = totalSize)
     }
 }
@@ -274,5 +275,55 @@ private fun decodeDqt(reader: ByteReader, name: String, offset: Long, declaredSi
         type = name, offset = offset, headerSize = 4, size = totalSize,
         children = children, warnings = warnings,
         summary = "${children.size} quantization table(s)",
+    )
+}
+
+private fun decodeDht(reader: ByteReader, name: String, offset: Long, declaredSize: Long, totalSize: Long): BoxNode {
+    val payloadStart = offset + 4
+    val payloadEnd = offset + declaredSize
+    val children = mutableListOf<BoxNode>()
+    val warnings = mutableListOf<String>()
+    var pos = payloadStart
+    while (pos < payloadEnd) {
+        if (pos + 1 + 16 > payloadEnd) {
+            warnings.add("Huffman table at offset $pos needs at least 17 byte(s) but only ${payloadEnd - pos} remain")
+            break
+        }
+        val classDest = reader.readUInt8(pos)
+        val tableClass = classDest shr 4
+        val destinationId = classDest and 0x0F
+        val bitCounts = IntArray(16)
+        var totalCodes = 0
+        for (i in 0 until 16) {
+            bitCounts[i] = reader.readUInt8(pos + 1 + i)
+            totalCodes += bitCounts[i]
+        }
+        val tableBytes = 1 + 16 + totalCodes
+        if (pos + tableBytes > payloadEnd) {
+            warnings.add("Huffman table at offset $pos declares $totalCodes code(s) but not enough symbol data remains")
+            break
+        }
+        val className = if (tableClass == 0) "DC" else "AC"
+        children.add(
+            BoxNode(
+                type = "HuffmanTable",
+                offset = pos,
+                headerSize = 1,
+                size = tableBytes.toLong(),
+                fields = listOf(
+                    BoxField("class", className, pos, 1),
+                    BoxField("destination_id", destinationId.toString(), pos, 1),
+                    BoxField("bit_counts", bitCounts.joinToString(", "), pos + 1, 16),
+                    BoxField("total_codes", totalCodes.toString(), pos + 1, 16),
+                ),
+                summary = "$className table $destinationId, $totalCodes code(s)",
+            ),
+        )
+        pos += tableBytes
+    }
+    return BoxNode(
+        type = name, offset = offset, headerSize = 4, size = totalSize,
+        children = children, warnings = warnings,
+        summary = "${children.size} Huffman table(s)",
     )
 }

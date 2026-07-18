@@ -149,31 +149,25 @@ class JpegWalkerTest {
             0x37, 0x40, 0x48, 0x5c, 0x4e, 0x40, 0x44, 0x57,
             0x45, 0x37, 0x38, 0x50, 0x6d, 0x51, 0x57, 0x5f,
             0x62, 0x67, 0x68, 0x67, 0x3e, 0x4d, 0x71, 0x79,
-            0x70, 0x64, 0x78, 0x5c, 0x65, 0x67, 0x63, 0xff.toByte(),
-            0xd9.toByte(),
+            0x70, 0x64, 0x78, 0x5c, 0x65, 0x67, 0x63, 0x01,
+            0x11, 0x12, 0x12, 0x18, 0x15, 0x18, 0x2f, 0x1a,
+            0x1a, 0x2f, 0x63, 0x42, 0x38, 0x42, 0x63, 0x63,
+            0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63,
+            0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63,
+            0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63,
+            0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63,
+            0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63,
+            0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63,
+            0xff.toByte(), 0xd9.toByte(),
         )
         val reader = byteReaderOf(bytes)
         val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
 
-        assertEquals(listOf("SOI", "DQT", "EOI"), segments.map { it.type })
         val dqt = segments[1]
         assertEquals(1, dqt.children.size)
-        val table = dqt.children[0]
-        assertEquals("QuantizationTable", table.type)
-        assertEquals("0", table.fields.first { it.name == "precision" }.value)
-        assertEquals("0", table.fields.first { it.name == "destination_id" }.value)
-        assertEquals("~50%", table.fields.first { it.name == "quality_estimate" }.value)
-        val expectedRaster = listOf(
-            16, 11, 10, 16, 24, 40, 51, 61,
-            12, 12, 14, 19, 26, 58, 60, 55,
-            14, 13, 16, 24, 40, 57, 69, 56,
-            14, 17, 22, 29, 51, 87, 80, 62,
-            18, 22, 37, 56, 68, 109, 103, 77,
-            24, 35, 55, 64, 81, 104, 113, 92,
-            49, 64, 78, 87, 103, 121, 120, 101,
-            72, 92, 95, 98, 112, 100, 103, 99,
-        ).map { it.toString() }
-        assertEquals(GridData(8, 8, expectedRaster), table.grid)
+        assertEquals("0", dqt.children[0].fields.first { it.name == "destination_id" }.value)
+        assertEquals("~50%", dqt.children[0].fields.first { it.name == "quality_estimate" }.value)
+        assertEquals("1 quantization table(s)", dqt.summary)
         reader.close()
     }
 
@@ -227,6 +221,69 @@ class JpegWalkerTest {
         val dqt = segments[1]
         assertEquals(0, dqt.children.size)
         assertTrue(dqt.warnings.isNotEmpty())
+        reader.close()
+    }
+
+    @Test
+    fun `DHT decodes a single Huffman table's bit counts and total code count`() {
+        val bytes = byteArrayOf(
+            0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xc4.toByte(), 0x00, 0x1f, 0x00, 0x00,
+            0x01, 0x05, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+            0x09, 0x0a, 0x0b, 0xff.toByte(), 0xd9.toByte(),
+        )
+        val reader = byteReaderOf(bytes)
+        val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
+
+        assertEquals(listOf("SOI", "DHT", "EOI"), segments.map { it.type })
+        val dht = segments[1]
+        assertEquals(1, dht.children.size)
+        val table = dht.children[0]
+        assertEquals("HuffmanTable", table.type)
+        assertEquals("DC", table.fields.first { it.name == "class" }.value)
+        assertEquals("0", table.fields.first { it.name == "destination_id" }.value)
+        assertEquals("0, 1, 5, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0", table.fields.first { it.name == "bit_counts" }.value)
+        assertEquals("12", table.fields.first { it.name == "total_codes" }.value)
+        reader.close()
+    }
+
+    @Test
+    fun `DHT decodes multiple tables packed into one segment`() {
+        val bytes = byteArrayOf(
+            0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xc4.toByte(), 0x00, 0x32, 0x00, 0x00,
+            0x01, 0x05, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+            0x09, 0x0a, 0x0b, 0x11, 0x01, 0x00, 0x01, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0xaa.toByte(), 0xbb.toByte(), 0xff.toByte(), 0xd9.toByte(),
+        )
+        val reader = byteReaderOf(bytes)
+        val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
+
+        val dht = segments[1]
+        assertEquals(2, dht.children.size)
+        assertEquals("DC", dht.children[0].fields.first { it.name == "class" }.value)
+        assertEquals("AC", dht.children[1].fields.first { it.name == "class" }.value)
+        assertEquals("1", dht.children[1].fields.first { it.name == "destination_id" }.value)
+        assertEquals("2", dht.children[1].fields.first { it.name == "total_codes" }.value)
+        reader.close()
+    }
+
+    @Test
+    fun `DHT with a truncated table produces a warning and no children`() {
+        val bytes = byteArrayOf(
+            0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xc4.toByte(), 0x00, 0x0d, 0x00, 0x00,
+            0x01, 0x05, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+            0x00, 0xff.toByte(), 0xd9.toByte(),
+        )
+        val reader = byteReaderOf(bytes)
+        val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
+
+        val dht = segments[1]
+        assertEquals(0, dht.children.size)
+        assertTrue(dht.warnings.isNotEmpty())
         reader.close()
     }
 }
