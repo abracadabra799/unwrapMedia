@@ -428,4 +428,43 @@ class JpegWalkerTest {
         assertEquals(0, segments[1].fields.size)
         reader.close()
     }
+
+    @Test
+    fun `a SEFT-terminated trailer after JPEG data decodes as a sefd node`() {
+        val bytes = byteArrayOf(
+            0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xd9.toByte(), 0x00, 0x00, 0x34, 0x12,
+            0x0a, 0x00, 0x00, 0x00, 0x54, 0x65, 0x73, 0x74,
+            0x5f, 0x46, 0x69, 0x65, 0x6c, 0x64, 0x68, 0x69,
+            0x53, 0x45, 0x46, 0x48, 0x01, 0x00, 0x00, 0x00,
+            0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x34, 0x12,
+            0x14, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00,
+            0x18, 0x00, 0x00, 0x00, 0x53, 0x45, 0x46, 0x54,
+        )
+        val reader = byteReaderOf(bytes)
+        val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
+
+        assertEquals(listOf("SOI", "EOI", "sefd"), segments.map { it.type })
+        val sefd = segments[2]
+        assertEquals(4L, sefd.offset)
+        assertEquals(52L, sefd.size)
+        assertEquals(1, sefd.children.size)
+        val field = sefd.children[0]
+        assertEquals("Test_Field", field.type)
+        assertEquals(4L, field.offset)
+        assertEquals("0x1234", field.fields[0].value)
+        assertEquals("hi", field.fields[1].value)
+        assertTrue(sefd.warnings.isEmpty())
+        reader.close()
+    }
+
+    @Test
+    fun `a short non-SEFT trailer falls back to the existing malformed-marker warning`() {
+        val bytes = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xd9.toByte(), 0x00, 0x01, 0x02)
+        val reader = byteReaderOf(bytes)
+        val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
+
+        assertEquals(listOf("SOI", "EOI", "?"), segments.map { it.type })
+        assertTrue(segments[2].warnings.isNotEmpty())
+        reader.close()
+    }
 }

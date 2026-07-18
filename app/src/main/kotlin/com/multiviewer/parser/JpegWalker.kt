@@ -42,8 +42,9 @@ fun parseJpegSegments(reader: ByteReader, start: Long, end: Long): List<BoxNode>
 
         val markerPrefix = reader.readUInt8(pos)
         if (markerPrefix != 0xFF) {
+            val sefdNode = tryDecodeSefdTrailer(reader, pos, end)
             result.add(
-                BoxNode(
+                sefdNode ?: BoxNode(
                     "?", pos, 0, remaining,
                     warnings = listOf("Expected marker prefix 0xFF, found 0x${markerPrefix.toString(16).padStart(2, '0')}"),
                 ),
@@ -425,4 +426,9 @@ private fun decodeApp0(reader: ByteReader, name: String, offset: Long, declaredS
         )
     }
     return BoxNode(type = name, offset = offset, headerSize = 4, size = totalSize)
+}
+
+private fun tryDecodeSefdTrailer(reader: ByteReader, start: Long, end: Long): BoxNode? {
+    if (end - start < 4 || reader.readFourCC(end - 4) != "SEFT") return null
+    return SefdBoxDecoder.decode(reader, "sefd", start, 0, end - start, emptyList())
 }
