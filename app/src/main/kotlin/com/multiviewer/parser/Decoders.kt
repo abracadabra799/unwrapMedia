@@ -32,6 +32,7 @@ fun registerAllDecoders() {
         BoxRegistry.register(containerType, ContainerBoxDecoder())
     }
     BoxRegistry.register("sefd", SefdBoxDecoder)
+    BoxRegistry.register("iloc", IlocBoxDecoder)
 
     BoxRegistry.register("stts", FixedWidthTableDecoder(listOf("sample_count", "sample_delta"), listOf(4, 4)))
     BoxRegistry.register(
