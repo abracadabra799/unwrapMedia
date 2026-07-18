@@ -90,6 +90,10 @@ fun decodeExif(reader: ByteReader, itemStart: Long, itemEnd: Long): List<BoxNode
     if (itemEnd - itemStart < 4) return emptyList()
     val tiffHeaderOffsetField = reader.readUInt32(itemStart)
     val tiffStart = itemStart + 4 + tiffHeaderOffsetField
+    return decodeTiff(reader, tiffStart, itemEnd)
+}
+
+fun decodeTiff(reader: ByteReader, tiffStart: Long, itemEnd: Long): List<BoxNode> {
     if (tiffStart + 8 > itemEnd) return emptyList()
     val byteOrderBytes = reader.readBytes(tiffStart, 2)
     val littleEndian = byteOrderBytes[0] == 'I'.code.toByte() && byteOrderBytes[1] == 'I'.code.toByte()

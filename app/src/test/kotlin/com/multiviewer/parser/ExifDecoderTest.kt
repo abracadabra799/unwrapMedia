@@ -78,4 +78,21 @@ class ExifDecoderTest {
         assertEquals("(out of bounds)", ifds[0].fields.first { it.name == "Make" }.value)
         reader.close()
     }
+
+    @Test
+    fun `decodeTiff decodes a standalone TIFF blob with no HEIF offset wrapper`() {
+        val tiff = byteArrayOf(
+            0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00,
+            0x01, 0x00, 0x0f, 0x01, 0x02, 0x00, 0x04, 0x00,
+            0x00, 0x00, 0x41, 0x42, 0x43, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        )
+        val reader = byteReaderOf(tiff)
+        val ifds = decodeTiff(reader, 0, tiff.size.toLong())
+
+        assertEquals(1, ifds.size)
+        assertEquals("IFD0", ifds[0].type)
+        assertEquals("ABC", ifds[0].fields.first { it.name == "Make" }.value)
+        reader.close()
+    }
 }
