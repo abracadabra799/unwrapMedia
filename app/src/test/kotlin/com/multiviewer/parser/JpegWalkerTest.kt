@@ -149,25 +149,31 @@ class JpegWalkerTest {
             0x37, 0x40, 0x48, 0x5c, 0x4e, 0x40, 0x44, 0x57,
             0x45, 0x37, 0x38, 0x50, 0x6d, 0x51, 0x57, 0x5f,
             0x62, 0x67, 0x68, 0x67, 0x3e, 0x4d, 0x71, 0x79,
-            0x70, 0x64, 0x78, 0x5c, 0x65, 0x67, 0x63, 0x01,
-            0x11, 0x12, 0x12, 0x18, 0x15, 0x18, 0x2f, 0x1a,
-            0x1a, 0x2f, 0x63, 0x42, 0x38, 0x42, 0x63, 0x63,
-            0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63,
-            0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63,
-            0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63,
-            0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63,
-            0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63,
-            0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63, 0x63,
-            0xff.toByte(), 0xd9.toByte(),
+            0x70, 0x64, 0x78, 0x5c, 0x65, 0x67, 0x63, 0xff.toByte(),
+            0xd9.toByte(),
         )
         val reader = byteReaderOf(bytes)
         val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
 
+        assertEquals(listOf("SOI", "DQT", "EOI"), segments.map { it.type })
         val dqt = segments[1]
         assertEquals(1, dqt.children.size)
-        assertEquals("0", dqt.children[0].fields.first { it.name == "destination_id" }.value)
-        assertEquals("~50%", dqt.children[0].fields.first { it.name == "quality_estimate" }.value)
-        assertEquals("1 quantization table(s)", dqt.summary)
+        val table = dqt.children[0]
+        assertEquals("QuantizationTable", table.type)
+        assertEquals("0", table.fields.first { it.name == "precision" }.value)
+        assertEquals("0", table.fields.first { it.name == "destination_id" }.value)
+        assertEquals("~50%", table.fields.first { it.name == "quality_estimate" }.value)
+        val expectedRaster = listOf(
+            16, 11, 10, 16, 24, 40, 51, 61,
+            12, 12, 14, 19, 26, 58, 60, 55,
+            14, 13, 16, 24, 40, 57, 69, 56,
+            14, 17, 22, 29, 51, 87, 80, 62,
+            18, 22, 37, 56, 68, 109, 103, 77,
+            24, 35, 55, 64, 81, 104, 113, 92,
+            49, 64, 78, 87, 103, 121, 120, 101,
+            72, 92, 95, 98, 112, 100, 103, 99,
+        ).map { it.toString() }
+        assertEquals(GridData(8, 8, expectedRaster), table.grid)
         reader.close()
     }
 
