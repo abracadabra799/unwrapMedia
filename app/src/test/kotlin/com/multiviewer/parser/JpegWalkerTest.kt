@@ -173,6 +173,7 @@ class JpegWalkerTest {
             49, 64, 78, 87, 103, 121, 120, 101,
             72, 92, 95, 98, 112, 100, 103, 99,
         ).map { it.toString() }
+        assertEquals(GridData(8, 8, expectedRaster), table.grid)
         reader.close()
     }
 

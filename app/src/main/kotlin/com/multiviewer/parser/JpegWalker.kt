@@ -268,6 +268,7 @@ private fun decodeDqt(reader: ByteReader, name: String, offset: Long, declaredSi
                     BoxField("destination_id", destinationId.toString(), pos, 1),
                     BoxField("quality_estimate", "~$quality%", pos, tableBytes.toLong()),
                 ),
+                grid = GridData(8, 8, raster.map { it.toString() }),
                 summary = "precision=$precision, destination_id=$destinationId, quality~$quality%",
             ),
         )
