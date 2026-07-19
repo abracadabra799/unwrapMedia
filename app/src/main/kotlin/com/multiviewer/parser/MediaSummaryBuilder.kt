@@ -35,7 +35,7 @@ private fun findPrimaryItemProperty(root: BoxNode, propertyType: String): BoxNod
     val meta = root.children.find { it.type == "meta" } ?: return null
     val pitm = meta.children.find { it.type == "pitm" } ?: return null
     val primaryItemId = pitm.fields.find { it.name == "primary_item_ID" }?.value ?: return null
-    val ipma = meta.children.find { it.type == "ipma" } ?: return null
+    val ipma = findFirst(meta) { it.type == "ipma" } ?: return null
     val itemEntry = ipma.children.find { it.type == "item_$primaryItemId" } ?: return null
     val propertyIndices = itemEntry.fields
         .filter { it.name == "property_index" }

@@ -251,11 +251,6 @@ class MediaSummaryBuilderTest {
             type = "ipco", offset = 0, headerSize = 0, size = 0,
             children = listOf(tileIspe, tileColr, primaryIspe, primaryColr),
         )
-        val iprp = BoxNode(type = "iprp", offset = 0, headerSize = 0, size = 0, children = listOf(ipco))
-        val pitm = BoxNode(
-            type = "pitm", offset = 0, headerSize = 0, size = 0,
-            fields = listOf(BoxField("primary_item_ID", "99", 0, 4)),
-        )
         val ipmaTileItem = BoxNode(
             type = "item_1", offset = 0, headerSize = 0, size = 0,
             fields = listOf(BoxField("property_index", "1", 0, 1), BoxField("property_index", "2", 0, 1)),
@@ -265,7 +260,13 @@ class MediaSummaryBuilderTest {
             fields = listOf(BoxField("property_index", "3", 0, 1), BoxField("property_index", "4", 0, 1)),
         )
         val ipma = BoxNode(type = "ipma", offset = 0, headerSize = 0, size = 0, children = listOf(ipmaTileItem, ipmaPrimaryItem))
-        val meta = BoxNode(type = "meta", offset = 0, headerSize = 0, size = 0, children = listOf(pitm, ipma, iprp))
+        // ipma is a child of iprp (a sibling of ipco), not a direct child of meta — matches the real HEIF box layout.
+        val iprp = BoxNode(type = "iprp", offset = 0, headerSize = 0, size = 0, children = listOf(ipco, ipma))
+        val pitm = BoxNode(
+            type = "pitm", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("primary_item_ID", "99", 0, 4)),
+        )
+        val meta = BoxNode(type = "meta", offset = 0, headerSize = 0, size = 0, children = listOf(pitm, iprp))
         val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(meta))
 
         val basicInfo = buildMediaSummary(root, tempFile()).sections.first { it.title == "Basic Info" }
@@ -296,17 +297,18 @@ class MediaSummaryBuilderTest {
             type = "ipco", offset = 0, headerSize = 0, size = 0,
             children = listOf(tileColr, primaryIrot),
         )
-        val iprp = BoxNode(type = "iprp", offset = 0, headerSize = 0, size = 0, children = listOf(ipco))
-        val pitm = BoxNode(
-            type = "pitm", offset = 0, headerSize = 0, size = 0,
-            fields = listOf(BoxField("primary_item_ID", "5", 0, 4)),
-        )
         val ipmaPrimaryItem = BoxNode(
             type = "item_5", offset = 0, headerSize = 0, size = 0,
             fields = listOf(BoxField("property_index", "2", 0, 1)),
         )
         val ipma = BoxNode(type = "ipma", offset = 0, headerSize = 0, size = 0, children = listOf(ipmaPrimaryItem))
-        val meta = BoxNode(type = "meta", offset = 0, headerSize = 0, size = 0, children = listOf(pitm, ipma, iprp))
+        // ipma is a child of iprp (a sibling of ipco), not a direct child of meta — matches the real HEIF box layout.
+        val iprp = BoxNode(type = "iprp", offset = 0, headerSize = 0, size = 0, children = listOf(ipco, ipma))
+        val pitm = BoxNode(
+            type = "pitm", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("primary_item_ID", "5", 0, 4)),
+        )
+        val meta = BoxNode(type = "meta", offset = 0, headerSize = 0, size = 0, children = listOf(pitm, iprp))
         val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(meta))
 
         val basicInfo = buildMediaSummary(root, tempFile()).sections.first { it.title == "Basic Info" }
