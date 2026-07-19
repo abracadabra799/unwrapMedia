@@ -31,6 +31,23 @@ private fun findFirst(node: BoxNode, predicate: (BoxNode) -> Boolean): BoxNode? 
     return null
 }
 
+private fun findPrimaryItemProperty(root: BoxNode, propertyType: String): BoxNode? {
+    val meta = root.children.find { it.type == "meta" } ?: return null
+    val pitm = meta.children.find { it.type == "pitm" } ?: return null
+    val primaryItemId = pitm.fields.find { it.name == "primary_item_ID" }?.value ?: return null
+    val ipma = meta.children.find { it.type == "ipma" } ?: return null
+    val itemEntry = ipma.children.find { it.type == "item_$primaryItemId" } ?: return null
+    val propertyIndices = itemEntry.fields
+        .filter { it.name == "property_index" }
+        .mapNotNull { it.value.toIntOrNull() }
+    val ipco = findFirst(meta) { it.type == "ipco" } ?: return null
+    for (index in propertyIndices) {
+        val property = ipco.children.getOrNull(index - 1) ?: continue
+        if (property.type == propertyType) return property
+    }
+    return null
+}
+
 private fun formatFileSize(bytes: Long): String = when {
     bytes >= 1_000_000_000 -> "%.1f GB".format(bytes / 1_000_000_000.0)
     bytes >= 1_000_000 -> "%.1f MB".format(bytes / 1_000_000.0)
@@ -83,7 +100,9 @@ private fun buildImageSummary(root: BoxNode, file: File): List<SummarySection> {
 private fun buildImageBasicInfo(root: BoxNode, file: File): SummarySection {
     val fields = mutableListOf<SummaryField>()
     val isJpeg = root.children.any { it.type == "SOI" }
-    val sofOrIspe = findFirst(root) { it.type.startsWith("SOF") || it.type == "ispe" }
+    val sof = findFirst(root) { it.type.startsWith("SOF") }
+    val ispe = findPrimaryItemProperty(root, "ispe") ?: findFirst(root) { it.type == "ispe" }
+    val sofOrIspe = sof ?: ispe
 
     if (sofOrIspe != null) {
         val width = sofOrIspe.fields.find { it.name == "width" || it.name == "image_width" }?.value
@@ -102,7 +121,7 @@ private fun buildImageBasicInfo(root: BoxNode, file: File): SummarySection {
     }
     fields.add(SummaryField("Format", format))
 
-    val colr = findFirst(root) { it.type == "colr" }
+    val colr = findPrimaryItemProperty(root, "colr") ?: findFirst(root) { it.type == "colr" }
     val colorSpace = if (colr != null) {
         colr.summary ?: "Unknown"
     } else if (sofOrIspe != null && isJpeg) {

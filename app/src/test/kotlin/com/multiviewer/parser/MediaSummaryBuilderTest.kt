@@ -234,4 +234,57 @@ class MediaSummaryBuilderTest {
         val trackList = summary.sections.first { it.title == "Track List" }
         assertEquals("0", trackList.fields.first { it.label == "Audio Tracks" }.value)
     }
+
+    @Test
+    fun `Resolution and Color Space use the primary item's ispe and colr, not the first one in tree order`() {
+        val tileIspe = BoxNode(
+            type = "ispe", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("image_width", "512", 0, 4), BoxField("image_height", "512", 0, 4)),
+        )
+        val tileColr = BoxNode(type = "colr", offset = 0, headerSize = 0, size = 0, summary = "ICC profile (10 bytes)")
+        val primaryIspe = BoxNode(
+            type = "ispe", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("image_width", "4000", 0, 4), BoxField("image_height", "2252", 0, 4)),
+        )
+        val primaryColr = BoxNode(type = "colr", offset = 0, headerSize = 0, size = 0, summary = "nclx: 9/16/9")
+        val ipco = BoxNode(
+            type = "ipco", offset = 0, headerSize = 0, size = 0,
+            children = listOf(tileIspe, tileColr, primaryIspe, primaryColr),
+        )
+        val iprp = BoxNode(type = "iprp", offset = 0, headerSize = 0, size = 0, children = listOf(ipco))
+        val pitm = BoxNode(
+            type = "pitm", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("primary_item_ID", "99", 0, 4)),
+        )
+        val ipmaTileItem = BoxNode(
+            type = "item_1", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("property_index", "1", 0, 1), BoxField("property_index", "2", 0, 1)),
+        )
+        val ipmaPrimaryItem = BoxNode(
+            type = "item_99", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("property_index", "3", 0, 1), BoxField("property_index", "4", 0, 1)),
+        )
+        val ipma = BoxNode(type = "ipma", offset = 0, headerSize = 0, size = 0, children = listOf(ipmaTileItem, ipmaPrimaryItem))
+        val meta = BoxNode(type = "meta", offset = 0, headerSize = 0, size = 0, children = listOf(pitm, ipma, iprp))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(meta))
+
+        val basicInfo = buildMediaSummary(root, tempFile()).sections.first { it.title == "Basic Info" }
+        assertEquals("4000x2252", basicInfo.fields.first { it.label == "Resolution" }.value)
+        assertEquals("nclx: 9/16/9", basicInfo.fields.first { it.label == "Color Space" }.value)
+    }
+
+    @Test
+    fun `without pitm or ipma, Resolution falls back to the first ispe in tree order`() {
+        val ispe = BoxNode(
+            type = "ispe", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("image_width", "800", 0, 4), BoxField("image_height", "600", 0, 4)),
+        )
+        val ipco = BoxNode(type = "ipco", offset = 0, headerSize = 0, size = 0, children = listOf(ispe))
+        val iprp = BoxNode(type = "iprp", offset = 0, headerSize = 0, size = 0, children = listOf(ipco))
+        val meta = BoxNode(type = "meta", offset = 0, headerSize = 0, size = 0, children = listOf(iprp))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(meta))
+
+        val basicInfo = buildMediaSummary(root, tempFile()).sections.first { it.title == "Basic Info" }
+        assertEquals("800x600", basicInfo.fields.first { it.label == "Resolution" }.value)
+    }
 }
