@@ -10,6 +10,8 @@ import com.multiviewer.parser.buildMediaSummary
 import com.multiviewer.parser.parseFile
 import java.io.File
 
+private const val MAX_OPEN_FILES = 2
+
 class TabState(val file: File) {
     var root: BoxNode? by mutableStateOf(null)
     var mediaSummary: MediaSummary? by mutableStateOf(null)
@@ -23,13 +25,20 @@ class TabState(val file: File) {
 class AppState {
     val tabs = mutableStateListOf<TabState>()
     var selectedTabIndex by mutableStateOf(0)
+    var openError: String? by mutableStateOf(null)
 
     fun openFile(file: File) {
         val existingIndex = tabs.indexOfFirst { it.file.absolutePath == file.absolutePath }
         if (existingIndex >= 0) {
             selectedTabIndex = existingIndex
+            openError = null
             return
         }
+        if (tabs.size >= MAX_OPEN_FILES) {
+            openError = "You can only have $MAX_OPEN_FILES files open at a time."
+            return
+        }
+        openError = null
         val tab = TabState(file)
         tabs.add(tab)
         selectedTabIndex = tabs.size - 1
@@ -43,6 +52,16 @@ class AppState {
             }
         } catch (e: Exception) {
             tab.error = e.message ?: "Failed to open file"
+        }
+    }
+
+    fun closeTab(index: Int) {
+        tabs.removeAt(index)
+        selectedTabIndex = when {
+            tabs.isEmpty() -> 0
+            index < selectedTabIndex -> selectedTabIndex - 1
+            index == selectedTabIndex -> index.coerceAtMost(tabs.size - 1)
+            else -> selectedTabIndex
         }
     }
 }
