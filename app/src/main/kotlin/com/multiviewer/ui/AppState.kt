@@ -5,15 +5,19 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.multiviewer.parser.BoxNode
+import com.multiviewer.parser.MediaSummary
+import com.multiviewer.parser.buildMediaSummary
 import com.multiviewer.parser.parseFile
 import java.io.File
 
 class TabState(val file: File) {
     var root: BoxNode? by mutableStateOf(null)
+    var mediaSummary: MediaSummary? by mutableStateOf(null)
     var error: String? by mutableStateOf(null)
     var selected: BoxNode? by mutableStateOf(null)
     var verticalSplit: Float by mutableStateOf(0.5f)
     var horizontalSplit: Float by mutableStateOf(1f / 1.3f)
+    var summaryTabIndex: Int by mutableStateOf(0)
 }
 
 class AppState {
@@ -30,7 +34,9 @@ class AppState {
         tabs.add(tab)
         selectedTabIndex = tabs.size - 1
         try {
-            tab.root = parseFile(file)
+            val root = parseFile(file)
+            tab.root = root
+            tab.mediaSummary = buildMediaSummary(root, file)
         } catch (e: Exception) {
             tab.error = e.message ?: "Failed to open file"
         }

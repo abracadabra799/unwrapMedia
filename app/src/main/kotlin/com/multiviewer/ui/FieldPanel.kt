@@ -51,7 +51,7 @@ fun FieldPanel(node: BoxNode?) {
 }
 
 @Composable
-private fun MetadataRow(label: String, value: String) {
+fun MetadataRow(label: String, value: String) {
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
         Text("$label: ", modifier = Modifier.padding(end = 4.dp))
         Text(value)

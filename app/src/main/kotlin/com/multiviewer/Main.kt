@@ -152,56 +152,72 @@ fun main() = application {
                     when {
                         currentTab.error != null -> Text("Error: ${currentTab.error}")
                         currentTab.root != null -> {
-                            var columnHeightPx by remember { mutableStateOf(0) }
-                            var rowWidthPx by remember { mutableStateOf(0) }
+                            TabRow(selectedTabIndex = currentTab.summaryTabIndex) {
+                                Tab(
+                                    selected = currentTab.summaryTabIndex == 0,
+                                    onClick = { currentTab.summaryTabIndex = 0 },
+                                    text = { Text("Media Summary") },
+                                )
+                                Tab(
+                                    selected = currentTab.summaryTabIndex == 1,
+                                    onClick = { currentTab.summaryTabIndex = 1 },
+                                    text = { Text("Structure Analyser") },
+                                )
+                            }
+                            if (currentTab.summaryTabIndex == 0) {
+                                com.multiviewer.ui.MediaSummaryView(currentTab.mediaSummary)
+                            } else {
+                                var columnHeightPx by remember { mutableStateOf(0) }
+                                var rowWidthPx by remember { mutableStateOf(0) }
 
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .onGloballyPositioned { columnHeightPx = it.size.height },
-                            ) {
-                                Row(
+                                Column(
                                     modifier = Modifier
-                                        .weight(currentTab.horizontalSplit)
-                                        .fillMaxWidth()
-                                        .onGloballyPositioned { rowWidthPx = it.size.width },
+                                        .fillMaxSize()
+                                        .onGloballyPositioned { columnHeightPx = it.size.height },
                                 ) {
-                                    Column(modifier = Modifier.weight(currentTab.verticalSplit).fillMaxWidth()) {
-                                        BoxTreeView(
-                                            root = currentTab.root!!,
-                                            selected = currentTab.selected,
-                                            onSelect = { currentTab.selected = it },
+                                    Row(
+                                        modifier = Modifier
+                                            .weight(currentTab.horizontalSplit)
+                                            .fillMaxWidth()
+                                            .onGloballyPositioned { rowWidthPx = it.size.width },
+                                    ) {
+                                        Column(modifier = Modifier.weight(currentTab.verticalSplit).fillMaxWidth()) {
+                                            BoxTreeView(
+                                                root = currentTab.root!!,
+                                                selected = currentTab.selected,
+                                                onSelect = { currentTab.selected = it },
+                                            )
+                                        }
+                                        DraggableDivider(
+                                            orientation = Orientation.Vertical,
+                                            containerSizePx = rowWidthPx,
+                                            tabKey = currentTab,
+                                            getSplit = { currentTab.verticalSplit },
+                                            setSplit = { currentTab.verticalSplit = it },
                                         )
-                                    }
-                                    DraggableDivider(
-                                        orientation = Orientation.Vertical,
-                                        containerSizePx = rowWidthPx,
-                                        tabKey = currentTab,
-                                        getSplit = { currentTab.verticalSplit },
-                                        setSplit = { currentTab.verticalSplit = it },
-                                    )
-                                    Column(modifier = Modifier.weight(1f - currentTab.verticalSplit).fillMaxWidth()) {
-                                        val selectedNode = currentTab.selected
-                                        if (selectedNode?.table != null) {
-                                            com.multiviewer.ui.TableView(currentTab.file, selectedNode.table!!)
-                                        } else {
-                                            com.multiviewer.ui.FieldPanel(selectedNode)
+                                        Column(modifier = Modifier.weight(1f - currentTab.verticalSplit).fillMaxWidth()) {
+                                            val selectedNode = currentTab.selected
+                                            if (selectedNode?.table != null) {
+                                                com.multiviewer.ui.TableView(currentTab.file, selectedNode.table!!)
+                                            } else {
+                                                com.multiviewer.ui.FieldPanel(selectedNode)
+                                            }
                                         }
                                     }
-                                }
-                                DraggableDivider(
-                                    orientation = Orientation.Horizontal,
-                                    containerSizePx = columnHeightPx,
-                                    tabKey = currentTab,
-                                    getSplit = { currentTab.horizontalSplit },
-                                    setSplit = { currentTab.horizontalSplit = it },
-                                )
-                                Column(modifier = Modifier.weight(1f - currentTab.horizontalSplit).fillMaxWidth()) {
-                                    HexView(
-                                        file = currentTab.file,
-                                        highlightRange = currentTab.selected?.let { it.offset until (it.offset + it.size) },
-                                        listState = hexListState,
+                                    DraggableDivider(
+                                        orientation = Orientation.Horizontal,
+                                        containerSizePx = columnHeightPx,
+                                        tabKey = currentTab,
+                                        getSplit = { currentTab.horizontalSplit },
+                                        setSplit = { currentTab.horizontalSplit = it },
                                     )
+                                    Column(modifier = Modifier.weight(1f - currentTab.horizontalSplit).fillMaxWidth()) {
+                                        HexView(
+                                            file = currentTab.file,
+                                            highlightRange = currentTab.selected?.let { it.offset until (it.offset + it.size) },
+                                            listState = hexListState,
+                                        )
+                                    }
                                 }
                             }
                         }
