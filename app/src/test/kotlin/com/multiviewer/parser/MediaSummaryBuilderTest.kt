@@ -167,7 +167,7 @@ class MediaSummaryBuilderTest {
         val videoTrak = BoxNode(type = "trak", offset = 0, headerSize = 0, size = 0, children = listOf(videoTkhd, videoMdia))
 
         val moovChildren = mutableListOf<BoxNode>()
-        val mvhd = BoxNode(type = "mvhd", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("timescale", "1000", 0, 4), BoxField("duration", "10000", 0, 4)))
+        val mvhd = BoxNode(type = "mvhd", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("timescale", "1000", 0, 4), BoxField("duration", "20000", 0, 4)))
         moovChildren.add(mvhd)
         moovChildren.add(videoTrak)
 
@@ -201,10 +201,10 @@ class MediaSummaryBuilderTest {
         assertEquals(4, summary.sections.size)
 
         val basicInfo = summary.sections.first { it.title == "Basic Info" }
-        assertEquals("0:00:10", basicInfo.fields.first { it.label == "Duration" }.value)
+        assertEquals("0:00:20", basicInfo.fields.first { it.label == "Duration" }.value)
         assertEquals("1920x1080", basicInfo.fields.first { it.label == "Resolution" }.value)
         assertEquals("isom", basicInfo.fields.first { it.label == "Container Brand" }.value)
-        assertEquals("1.0 Mbps", basicInfo.fields.first { it.label == "Average Bitrate" }.value)
+        assertEquals("500.0 Kbps", basicInfo.fields.first { it.label == "Average Bitrate" }.value)
 
         val trackList = summary.sections.first { it.title == "Track List" }
         assertEquals("1", trackList.fields.first { it.label == "Video Tracks" }.value)
@@ -212,6 +212,10 @@ class MediaSummaryBuilderTest {
 
         val videoDetail = summary.sections.first { it.title == "Video Track Detail" }
         assertEquals("avc1", videoDetail.fields.first { it.label == "Codec" }.value)
+        // Deliberately distinct from mvhd's 20s movie-level duration above: this fixture's video
+        // track has its own mdhd (30000/300000 = 10s). If frame-rate calculation ever regressed to
+        // use mvhd's duration instead of the track's own mdhd, this would compute 15.00 fps instead
+        // of the correct 30.00 fps.
         assertEquals("30.00 fps", videoDetail.fields.first { it.label == "Frame Rate" }.value)
 
         val audioDetail = summary.sections.first { it.title == "Audio Track Detail" }
