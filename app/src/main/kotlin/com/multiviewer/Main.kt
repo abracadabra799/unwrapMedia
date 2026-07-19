@@ -1,6 +1,7 @@
 package com.multiviewer
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
@@ -116,16 +118,21 @@ fun main() = application {
 
         MaterialTheme(typography = compactTypography) {
             Column(modifier = Modifier.fillMaxSize()) {
-                Button(onClick = {
-                    val dialog = FileDialog(null as Frame?, "Open file", FileDialog.LOAD)
-                    dialog.isVisible = true
-                    val fileName = dialog.file
-                    val directory = dialog.directory
-                    if (fileName != null && directory != null) {
-                        appState.openFile(File(directory, fileName))
+                Row {
+                    Button(onClick = {
+                        val dialog = FileDialog(null as Frame?, "Open file", FileDialog.LOAD)
+                        dialog.isVisible = true
+                        val fileName = dialog.file
+                        val directory = dialog.directory
+                        if (fileName != null && directory != null) {
+                            appState.openFile(File(directory, fileName))
+                        }
+                    }) {
+                        Text("Open File")
                     }
-                }) {
-                    Text("Open File")
+                    appState.openError?.let { message ->
+                        Text(message, modifier = Modifier.padding(start = 8.dp))
+                    }
                 }
 
                 if (appState.tabs.isNotEmpty()) {
@@ -134,7 +141,17 @@ fun main() = application {
                             Tab(
                                 selected = index == appState.selectedTabIndex,
                                 onClick = { appState.selectedTabIndex = index },
-                                text = { Text(tab.file.name) },
+                                text = {
+                                    Row {
+                                        Text(tab.file.name)
+                                        Text(
+                                            "✕",
+                                            modifier = Modifier
+                                                .padding(start = 8.dp)
+                                                .clickable { appState.closeTab(index) },
+                                        )
+                                    }
+                                },
                             )
                         }
                     }
