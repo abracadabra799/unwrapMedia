@@ -153,4 +153,81 @@ class MediaSummaryBuilderTest {
         assertEquals("Basic Info", basicInfo.title)
         assertEquals("Grayscale", basicInfo.fields.first { it.label == "Color Space" }.value)
     }
+
+    private fun buildVideoFixture(includeAudioTrack: Boolean): BoxNode {
+        val videoHdlr = BoxNode(type = "hdlr", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("handler_type", "vide", 0, 4)))
+        val videoMdhd = BoxNode(type = "mdhd", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("timescale", "30000", 0, 4), BoxField("duration", "300000", 0, 4)))
+        val avc1 = BoxNode(type = "avc1", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("width", "1920.0", 0, 2), BoxField("height", "1080.0", 0, 2)))
+        val videoStsd = BoxNode(type = "stsd", offset = 0, headerSize = 0, size = 0, children = listOf(avc1))
+        val videoStsz = BoxNode(type = "stsz", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("sample_size", "0", 0, 4), BoxField("sample_count", "300", 0, 4)))
+        val videoStbl = BoxNode(type = "stbl", offset = 0, headerSize = 0, size = 0, children = listOf(videoStsd, videoStsz))
+        val videoMinf = BoxNode(type = "minf", offset = 0, headerSize = 0, size = 0, children = listOf(videoStbl))
+        val videoMdia = BoxNode(type = "mdia", offset = 0, headerSize = 0, size = 0, children = listOf(videoHdlr, videoMdhd, videoMinf))
+        val videoTkhd = BoxNode(type = "tkhd", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("track_ID", "1", 0, 4), BoxField("duration", "300000", 0, 4), BoxField("width", "1920.0", 0, 4), BoxField("height", "1080.0", 0, 4)))
+        val videoTrak = BoxNode(type = "trak", offset = 0, headerSize = 0, size = 0, children = listOf(videoTkhd, videoMdia))
+
+        val moovChildren = mutableListOf<BoxNode>()
+        val mvhd = BoxNode(type = "mvhd", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("timescale", "1000", 0, 4), BoxField("duration", "10000", 0, 4)))
+        moovChildren.add(mvhd)
+        moovChildren.add(videoTrak)
+
+        if (includeAudioTrack) {
+            val audioHdlr = BoxNode(type = "hdlr", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("handler_type", "soun", 0, 4)))
+            val mp4a = BoxNode(type = "mp4a", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("channelcount", "2", 0, 2), BoxField("samplerate", "44100.0", 0, 4)))
+            val audioStsd = BoxNode(type = "stsd", offset = 0, headerSize = 0, size = 0, children = listOf(mp4a))
+            val audioStbl = BoxNode(type = "stbl", offset = 0, headerSize = 0, size = 0, children = listOf(audioStsd))
+            val audioMinf = BoxNode(type = "minf", offset = 0, headerSize = 0, size = 0, children = listOf(audioStbl))
+            val audioMdia = BoxNode(type = "mdia", offset = 0, headerSize = 0, size = 0, children = listOf(audioHdlr, audioMinf))
+            val audioTkhd = BoxNode(type = "tkhd", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("track_ID", "2", 0, 4)))
+            val audioTrak = BoxNode(type = "trak", offset = 0, headerSize = 0, size = 0, children = listOf(audioTkhd, audioMdia))
+            moovChildren.add(audioTrak)
+        }
+
+        val moov = BoxNode(type = "moov", offset = 0, headerSize = 0, size = 0, children = moovChildren)
+        val ftyp = BoxNode(type = "ftyp", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("major_brand", "isom", 0, 4)))
+        return BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ftyp, moov))
+    }
+
+    @Test
+    fun `a full video tree produces all four video sections with correct values`() {
+        val root = buildVideoFixture(includeAudioTrack = true)
+        val tmp = File.createTempFile("media-summary-video-test", ".mp4")
+        tmp.deleteOnExit()
+        tmp.writeBytes(ByteArray(1_250_000))
+
+        val summary = buildMediaSummary(root, tmp)
+
+        assertEquals(MediaCategory.VIDEO, summary.category)
+        assertEquals(4, summary.sections.size)
+
+        val basicInfo = summary.sections.first { it.title == "Basic Info" }
+        assertEquals("0:00:10", basicInfo.fields.first { it.label == "Duration" }.value)
+        assertEquals("1920x1080", basicInfo.fields.first { it.label == "Resolution" }.value)
+        assertEquals("isom", basicInfo.fields.first { it.label == "Container Brand" }.value)
+        assertEquals("1.0 Mbps", basicInfo.fields.first { it.label == "Average Bitrate" }.value)
+
+        val trackList = summary.sections.first { it.title == "Track List" }
+        assertEquals("1", trackList.fields.first { it.label == "Video Tracks" }.value)
+        assertEquals("1", trackList.fields.first { it.label == "Audio Tracks" }.value)
+
+        val videoDetail = summary.sections.first { it.title == "Video Track Detail" }
+        assertEquals("avc1", videoDetail.fields.first { it.label == "Codec" }.value)
+        assertEquals("30.00 fps", videoDetail.fields.first { it.label == "Frame Rate" }.value)
+
+        val audioDetail = summary.sections.first { it.title == "Audio Track Detail" }
+        assertEquals("mp4a", audioDetail.fields.first { it.label == "Codec" }.value)
+        assertEquals("44100.0 Hz", audioDetail.fields.first { it.label == "Sample Rate" }.value)
+        assertEquals("2", audioDetail.fields.first { it.label == "Channels" }.value)
+    }
+
+    @Test
+    fun `a video-only tree (no audio track) omits Audio Track Detail`() {
+        val root = buildVideoFixture(includeAudioTrack = false)
+        val summary = buildMediaSummary(root, tempFile())
+
+        assertEquals(3, summary.sections.size)
+        assertEquals(null, summary.sections.find { it.title == "Audio Track Detail" })
+        val trackList = summary.sections.first { it.title == "Track List" }
+        assertEquals("0", trackList.fields.first { it.label == "Audio Tracks" }.value)
+    }
 }
