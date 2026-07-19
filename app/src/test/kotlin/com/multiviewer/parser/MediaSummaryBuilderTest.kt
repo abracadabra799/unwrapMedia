@@ -287,4 +287,29 @@ class MediaSummaryBuilderTest {
         val basicInfo = buildMediaSummary(root, tempFile()).sections.first { it.title == "Basic Info" }
         assertEquals("800x600", basicInfo.fields.first { it.label == "Resolution" }.value)
     }
+
+    @Test
+    fun `when the primary item's properties don't include a colr, Color Space falls back to the first colr in tree order`() {
+        val tileColr = BoxNode(type = "colr", offset = 0, headerSize = 0, size = 0, summary = "ICC profile (10 bytes)")
+        val primaryIrot = BoxNode(type = "irot", offset = 0, headerSize = 0, size = 0)
+        val ipco = BoxNode(
+            type = "ipco", offset = 0, headerSize = 0, size = 0,
+            children = listOf(tileColr, primaryIrot),
+        )
+        val iprp = BoxNode(type = "iprp", offset = 0, headerSize = 0, size = 0, children = listOf(ipco))
+        val pitm = BoxNode(
+            type = "pitm", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("primary_item_ID", "5", 0, 4)),
+        )
+        val ipmaPrimaryItem = BoxNode(
+            type = "item_5", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("property_index", "2", 0, 1)),
+        )
+        val ipma = BoxNode(type = "ipma", offset = 0, headerSize = 0, size = 0, children = listOf(ipmaPrimaryItem))
+        val meta = BoxNode(type = "meta", offset = 0, headerSize = 0, size = 0, children = listOf(pitm, ipma, iprp))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(meta))
+
+        val basicInfo = buildMediaSummary(root, tempFile()).sections.first { it.title == "Basic Info" }
+        assertEquals("ICC profile (10 bytes)", basicInfo.fields.first { it.label == "Color Space" }.value)
+    }
 }
