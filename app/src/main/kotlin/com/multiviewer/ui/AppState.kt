@@ -56,6 +56,7 @@ class AppState {
     }
 
     fun closeTab(index: Int) {
+        openError = null
         tabs.removeAt(index)
         selectedTabIndex = when {
             tabs.isEmpty() -> 0
