@@ -36,7 +36,11 @@ class AppState {
         try {
             val root = parseFile(file)
             tab.root = root
-            tab.mediaSummary = buildMediaSummary(root, file)
+            tab.mediaSummary = try {
+                buildMediaSummary(root, file)
+            } catch (e: Exception) {
+                null
+            }
         } catch (e: Exception) {
             tab.error = e.message ?: "Failed to open file"
         }
