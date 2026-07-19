@@ -25,6 +25,8 @@ fun registerAllDecoders() {
     BoxRegistry.register("pasp", PaspBoxDecoder)
     BoxRegistry.register("iinf", IinfBoxDecoder)
     BoxRegistry.register("infe", InfeBoxDecoder)
+    BoxRegistry.register("pitm", PitmBoxDecoder)
+    BoxRegistry.register("ipma", IpmaBoxDecoder)
 
     BoxRegistry.register("stsd", ContainerBoxDecoder(childOffsetInPayload = 8, summarize = true))
     BoxRegistry.register("meta", MetaBoxDecoder)
