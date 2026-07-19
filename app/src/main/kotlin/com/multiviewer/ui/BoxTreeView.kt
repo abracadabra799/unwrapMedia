@@ -29,7 +29,7 @@ private const val ARROW_WIDTH_DP = 16
 
 @Composable
 fun BoxTreeView(root: BoxNode, selected: BoxNode?, onSelect: (BoxNode) -> Unit) {
-    val expanded = remember { mutableStateOf(setOf<BoxNode>()) }
+    val expanded = remember(root) { mutableStateOf(setOf(root)) }
     val rows = remember(root, expanded.value) { flatten(root, 0, expanded.value) }
 
     LazyColumn {

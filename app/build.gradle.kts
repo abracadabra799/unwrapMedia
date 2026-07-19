@@ -24,6 +24,7 @@ tasks.test {
 compose.desktop {
     application {
         mainClass = "com.multiviewer.MainKt"
+        jvmArgs += listOf("-Dapple.awt.application.name=multiViewer")
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "multiViewer"
