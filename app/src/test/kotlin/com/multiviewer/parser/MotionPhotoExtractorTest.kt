@@ -43,6 +43,38 @@ class MotionPhotoExtractorTest {
     }
 
     @Test
+    fun `prefers the sefd field named MotionPhoto_Data over an earlier MotionPhoto_AutoPlay preview clip`() {
+        // Matches the real Samsung SEFD directory order: a short autoplay preview loop is listed
+        // before the full-length video, and both start with a nested ftyp box.
+        val autoPlayFtyp = BoxNode(
+            type = "ftyp", offset = 200, headerSize = 8, size = 16,
+            fields = listOf(BoxField("major_brand", "mp42", 200, 4)),
+        )
+        val autoPlayField = BoxNode(
+            type = "MotionPhoto_AutoPlay", offset = 196, headerSize = 4, size = 20,
+            children = listOf(autoPlayFtyp),
+        )
+        val dataFtyp = BoxNode(
+            type = "ftyp", offset = 300, headerSize = 8, size = 16,
+            fields = listOf(BoxField("major_brand", "mp42", 300, 4)),
+        )
+        val dataField = BoxNode(
+            type = "MotionPhoto_Data", offset = 220, headerSize = 4, size = 4096,
+            children = listOf(dataFtyp),
+        )
+        val sefd = BoxNode(
+            type = "sefd", offset = 50, headerSize = 0, size = 4200,
+            children = listOf(autoPlayField, dataField),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 4250, children = listOf(sefd))
+
+        val video = findEmbeddedVideo(root)
+
+        assertEquals(224L, video?.start)
+        assertEquals(4316L, video?.end)
+    }
+
+    @Test
     fun `returns null when neither mpvd nor a video-bearing sefd field is present`() {
         val ftyp = BoxNode(type = "ftyp", offset = 0, headerSize = 8, size = 16)
         val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 16, children = listOf(ftyp))

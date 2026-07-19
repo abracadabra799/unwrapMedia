@@ -8,7 +8,8 @@ fun findEmbeddedVideo(root: BoxNode): EmbeddedVideo? {
     val videoNode = root.children.find { it.type == "mpvd" }
         ?: findFirst(root) { it.type == "sefd" }
             ?.children
-            ?.find { it.children.firstOrNull()?.type == "ftyp" }
+            ?.filter { it.children.firstOrNull()?.type == "ftyp" }
+            ?.let { candidates -> candidates.find { it.type == "MotionPhoto_Data" } ?: candidates.firstOrNull() }
         ?: return null
     val majorBrand = videoNode.children.find { it.type == "ftyp" }
         ?.fields?.find { it.name == "major_brand" }?.value
