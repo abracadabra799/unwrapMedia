@@ -5,8 +5,10 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.multiviewer.parser.BoxNode
+import com.multiviewer.parser.EmbeddedVideo
 import com.multiviewer.parser.MediaSummary
 import com.multiviewer.parser.buildMediaSummary
+import com.multiviewer.parser.findEmbeddedVideo
 import com.multiviewer.parser.parseFile
 import java.io.File
 
@@ -15,6 +17,7 @@ private const val MAX_OPEN_FILES = 2
 class TabState(val file: File) {
     var root: BoxNode? by mutableStateOf(null)
     var mediaSummary: MediaSummary? by mutableStateOf(null)
+    var embeddedVideo: EmbeddedVideo? by mutableStateOf(null)
     var error: String? by mutableStateOf(null)
     var selected: BoxNode? by mutableStateOf(null)
     var verticalSplit: Float by mutableStateOf(0.5f)
@@ -25,20 +28,20 @@ class TabState(val file: File) {
 class AppState {
     val tabs = mutableStateListOf<TabState>()
     var selectedTabIndex by mutableStateOf(0)
-    var openError: String? by mutableStateOf(null)
+    var statusMessage: String? by mutableStateOf(null)
 
     fun openFile(file: File) {
         val existingIndex = tabs.indexOfFirst { it.file.absolutePath == file.absolutePath }
         if (existingIndex >= 0) {
             selectedTabIndex = existingIndex
-            openError = null
+            statusMessage = null
             return
         }
         if (tabs.size >= MAX_OPEN_FILES) {
-            openError = "You can only have $MAX_OPEN_FILES files open at a time."
+            statusMessage = "You can only have $MAX_OPEN_FILES files open at a time."
             return
         }
-        openError = null
+        statusMessage = null
         val tab = TabState(file)
         tabs.add(tab)
         selectedTabIndex = tabs.size - 1
@@ -50,13 +53,18 @@ class AppState {
             } catch (e: Exception) {
                 null
             }
+            tab.embeddedVideo = try {
+                findEmbeddedVideo(root)
+            } catch (e: Exception) {
+                null
+            }
         } catch (e: Exception) {
             tab.error = e.message ?: "Failed to open file"
         }
     }
 
     fun closeTab(index: Int) {
-        openError = null
+        statusMessage = null
         tabs.removeAt(index)
         selectedTabIndex = when {
             tabs.isEmpty() -> 0

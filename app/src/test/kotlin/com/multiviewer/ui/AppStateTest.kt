@@ -14,7 +14,7 @@ class AppStateTest {
     }
 
     @Test
-    fun `openFile rejects a third distinct file and sets openError`() {
+    fun `openFile rejects a third distinct file and sets statusMessage`() {
         val appState = AppState()
         val file1 = tempFile("appstate-test-1")
         val file2 = tempFile("appstate-test-2")
@@ -23,11 +23,11 @@ class AppStateTest {
         appState.openFile(file1)
         appState.openFile(file2)
         assertEquals(2, appState.tabs.size)
-        assertEquals(null, appState.openError)
+        assertEquals(null, appState.statusMessage)
 
         appState.openFile(file3)
         assertEquals(2, appState.tabs.size)
-        assertEquals("You can only have 2 files open at a time.", appState.openError)
+        assertEquals("You can only have 2 files open at a time.", appState.statusMessage)
     }
 
     @Test
@@ -42,7 +42,50 @@ class AppStateTest {
 
         assertEquals(2, appState.tabs.size)
         assertEquals(0, appState.selectedTabIndex)
-        assertEquals(null, appState.openError)
+        assertEquals(null, appState.statusMessage)
+    }
+
+    @Test
+    fun `openFile populates embeddedVideo when the file contains a top-level mpvd box`() {
+        // A minimal ISOBMFF file: a top-level ftyp box, followed by an mpvd box
+        // whose payload is itself a single nested ftyp box (major_brand "isom").
+        val bytes = byteArrayOf(
+            0x00, 0x00, 0x00, 0x10, 'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte(),
+            'i'.code.toByte(), 's'.code.toByte(), 'o'.code.toByte(), 'm'.code.toByte(), 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x18, 'm'.code.toByte(), 'p'.code.toByte(), 'v'.code.toByte(), 'd'.code.toByte(),
+            0x00, 0x00, 0x00, 0x10, 'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte(),
+            'i'.code.toByte(), 's'.code.toByte(), 'o'.code.toByte(), 'm'.code.toByte(), 0x00, 0x00, 0x00, 0x00,
+        )
+        val file = File.createTempFile("appstate-motion-photo", ".bin")
+        file.deleteOnExit()
+        file.writeBytes(bytes)
+
+        val appState = AppState()
+        appState.openFile(file)
+
+        val tab = appState.tabs.single()
+        assertEquals(null, tab.error)
+        assertEquals(24L, tab.embeddedVideo?.start)
+        assertEquals(40L, tab.embeddedVideo?.end)
+        assertEquals("mp4", tab.embeddedVideo?.extension)
+    }
+
+    @Test
+    fun `openFile leaves embeddedVideo null when the file has no embedded video`() {
+        val bytes = byteArrayOf(
+            0x00, 0x00, 0x00, 0x10, 'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte(),
+            'i'.code.toByte(), 's'.code.toByte(), 'o'.code.toByte(), 'm'.code.toByte(), 0x00, 0x00, 0x00, 0x00,
+        )
+        val file = File.createTempFile("appstate-no-motion-photo", ".bin")
+        file.deleteOnExit()
+        file.writeBytes(bytes)
+
+        val appState = AppState()
+        appState.openFile(file)
+
+        val tab = appState.tabs.single()
+        assertEquals(null, tab.error)
+        assertEquals(null, tab.embeddedVideo)
     }
 
     @Test

@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -29,15 +28,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyShortcut
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.MenuBar
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
+import com.multiviewer.parser.extractEmbeddedVideo
 import com.multiviewer.ui.AppState
 import com.multiviewer.ui.BoxTreeView
 import com.multiviewer.ui.HexView
+import com.multiviewer.ui.TabState
 import java.awt.FileDialog
 import java.awt.Frame
 import java.awt.datatransfer.DataFlavor
@@ -55,6 +59,33 @@ private val compactTypography = Typography().let { defaults ->
         bodyLarge = defaults.bodyLarge.copy(fontSize = 13.sp),
         labelLarge = defaults.labelLarge.copy(fontSize = 13.sp),
     )
+}
+
+private fun showOpenFileDialog(appState: AppState) {
+    val dialog = FileDialog(null as Frame?, "Open file", FileDialog.LOAD)
+    dialog.isVisible = true
+    val fileName = dialog.file
+    val directory = dialog.directory
+    if (fileName != null && directory != null) {
+        appState.openFile(File(directory, fileName))
+    }
+}
+
+private fun extractMotionPhotoVideo(appState: AppState, tab: TabState) {
+    val video = tab.embeddedVideo ?: return
+    val dialog = FileDialog(null as Frame?, "Save extracted video", FileDialog.SAVE)
+    dialog.file = "${tab.file.nameWithoutExtension}_motion.${video.extension}"
+    dialog.isVisible = true
+    val fileName = dialog.file
+    val directory = dialog.directory
+    if (fileName == null || directory == null) return
+    val destination = File(directory, fileName)
+    appState.statusMessage = try {
+        extractEmbeddedVideo(tab.file, video, destination)
+        "Saved to ${destination.name}"
+    } catch (e: Exception) {
+        "Failed to save: ${e.message}"
+    }
 }
 
 @Composable
@@ -96,6 +127,30 @@ fun main() = application {
     val appState = remember { AppState() }
 
     Window(onCloseRequest = ::exitApplication, title = "multiViewer") {
+        MenuBar {
+            Menu("File") {
+                Item(
+                    "Open",
+                    shortcut = KeyShortcut(Key.O, meta = true),
+                    onClick = { showOpenFileDialog(appState) },
+                )
+                Item(
+                    "Close",
+                    enabled = appState.tabs.isNotEmpty(),
+                    shortcut = KeyShortcut(Key.W, meta = true),
+                    onClick = { appState.closeTab(appState.selectedTabIndex) },
+                )
+            }
+            Menu("MotionPhoto") {
+                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                Item(
+                    "동영상 추출",
+                    enabled = currentTab?.embeddedVideo != null,
+                    onClick = { currentTab?.let { extractMotionPhotoVideo(appState, it) } },
+                )
+            }
+        }
+
         LaunchedEffect(Unit) {
             window.contentPane.dropTarget = DropTarget(window.contentPane, object : DropTargetAdapter() {
                 override fun drop(event: DropTargetDropEvent) {
@@ -118,24 +173,18 @@ fun main() = application {
 
         MaterialTheme(typography = compactTypography) {
             Column(modifier = Modifier.fillMaxSize()) {
-                Row {
-                    Button(onClick = {
-                        val dialog = FileDialog(null as Frame?, "Open file", FileDialog.LOAD)
-                        dialog.isVisible = true
-                        val fileName = dialog.file
-                        val directory = dialog.directory
-                        if (fileName != null && directory != null) {
-                            appState.openFile(File(directory, fileName))
-                        }
-                    }) {
-                        Text("Open File")
+                if (appState.tabs.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize().clickable { showOpenFileDialog(appState) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("📂 Open File", fontSize = 24.sp)
                     }
-                    appState.openError?.let { message ->
-                        Text(message, modifier = Modifier.padding(start = 8.dp))
+                } else {
+                    appState.statusMessage?.let { message ->
+                        Text(message, modifier = Modifier.padding(8.dp))
                     }
-                }
 
-                if (appState.tabs.isNotEmpty()) {
                     TabRow(selectedTabIndex = appState.selectedTabIndex) {
                         appState.tabs.forEachIndexed { index, tab ->
                             Tab(
