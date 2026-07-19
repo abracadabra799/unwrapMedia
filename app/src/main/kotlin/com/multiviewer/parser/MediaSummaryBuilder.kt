@@ -22,7 +22,7 @@ private fun detectCategory(root: BoxNode): MediaCategory {
     return if (hasVideoOrAudioTrack) MediaCategory.VIDEO else MediaCategory.IMAGE
 }
 
-private fun findFirst(node: BoxNode, predicate: (BoxNode) -> Boolean): BoxNode? {
+fun findFirst(node: BoxNode, predicate: (BoxNode) -> Boolean): BoxNode? {
     if (predicate(node)) return node
     for (child in node.children) {
         val found = findFirst(child, predicate)
