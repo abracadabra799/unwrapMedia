@@ -78,4 +78,17 @@ class MotionPhotoExtractorTest {
 
         assertContentEquals(sourceBytes, destination.readBytes())
     }
+
+    @Test
+    fun `extractEmbeddedVideo produces an empty file for a zero-length range`() {
+        val source = File.createTempFile("motion-photo-extract-source-empty", ".bin")
+        source.deleteOnExit()
+        source.writeBytes(ByteArray(10))
+        val destination = File.createTempFile("motion-photo-extract-dest-empty", ".mp4")
+        destination.deleteOnExit()
+
+        extractEmbeddedVideo(source, EmbeddedVideo(start = 5, end = 5, extension = "mp4"), destination)
+
+        assertEquals(0, destination.length())
+    }
 }

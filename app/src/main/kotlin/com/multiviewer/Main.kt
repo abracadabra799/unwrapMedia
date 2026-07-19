@@ -84,7 +84,7 @@ private fun extractMotionPhotoVideo(appState: AppState, tab: TabState) {
         extractEmbeddedVideo(tab.file, video, destination)
         "Saved to ${destination.name}"
     } catch (e: Exception) {
-        "Failed to save: ${e.message}"
+        "Failed to save: ${e.message ?: e.toString()}"
     }
 }
 
