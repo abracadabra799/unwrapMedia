@@ -88,6 +88,23 @@ private fun extractMotionPhotoVideo(appState: AppState, tab: TabState) {
     }
 }
 
+private fun extractMotionPhotoPreview(appState: AppState, tab: TabState) {
+    val video = tab.motionPhotoPreview ?: return
+    val dialog = FileDialog(null as Frame?, "Save extracted preview video", FileDialog.SAVE)
+    dialog.file = "${tab.file.nameWithoutExtension}_preview.${video.extension}"
+    dialog.isVisible = true
+    val fileName = dialog.file
+    val directory = dialog.directory
+    if (fileName == null || directory == null) return
+    val destination = File(directory, fileName)
+    appState.statusMessage = try {
+        extractEmbeddedVideo(tab.file, video, destination)
+        "Saved to ${destination.name}"
+    } catch (e: Exception) {
+        "Failed to save: ${e.message ?: e.toString()}"
+    }
+}
+
 @Composable
 private fun DraggableDivider(
     orientation: Orientation,
@@ -147,6 +164,11 @@ fun main() = application {
                     "동영상 추출",
                     enabled = currentTab?.embeddedVideo != null,
                     onClick = { currentTab?.let { extractMotionPhotoVideo(appState, it) } },
+                )
+                Item(
+                    "미리보기 동영상 추출",
+                    enabled = currentTab?.motionPhotoPreview != null,
+                    onClick = { currentTab?.let { extractMotionPhotoPreview(appState, it) } },
                 )
             }
         }

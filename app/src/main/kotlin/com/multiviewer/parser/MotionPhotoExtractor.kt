@@ -24,6 +24,17 @@ fun findEmbeddedVideo(root: BoxNode): EmbeddedVideo? {
     return findGoogleMotionPhotoVideo(root)
 }
 
+fun findMotionPhotoPreview(root: BoxNode): EmbeddedVideo? {
+    val previewNode = findFirst(root) { it.type == "sefd" }
+        ?.children
+        ?.find { it.type == "MotionPhoto_AutoPlay" && it.children.firstOrNull()?.type == "ftyp" }
+        ?: return null
+    val majorBrand = previewNode.children.find { it.type == "ftyp" }
+        ?.fields?.find { it.name == "major_brand" }?.value
+    val extension = if (majorBrand?.trim() == "qt") "mov" else "mp4"
+    return EmbeddedVideo(previewNode.offset + previewNode.headerSize, previewNode.offset + previewNode.size, extension)
+}
+
 fun extractEmbeddedVideo(source: File, video: EmbeddedVideo, destination: File) {
     val chunkSizeLimit = 1L shl 20 // 1 MB
     ByteReader.open(source).use { reader ->

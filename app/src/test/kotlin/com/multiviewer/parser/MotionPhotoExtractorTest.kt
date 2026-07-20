@@ -332,4 +332,63 @@ class MotionPhotoExtractorTest {
 
         assertEquals(null, findEmbeddedVideo(root))
     }
+
+    @Test
+    fun `findMotionPhotoPreview finds the MotionPhoto_AutoPlay field specifically, even when MotionPhoto_Data is also present`() {
+        val autoPlayFtyp = BoxNode(
+            type = "ftyp", offset = 200, headerSize = 8, size = 16,
+            fields = listOf(BoxField("major_brand", "mp42", 200, 4)),
+        )
+        val autoPlayField = BoxNode(
+            type = "MotionPhoto_AutoPlay", offset = 196, headerSize = 4, size = 20,
+            children = listOf(autoPlayFtyp),
+        )
+        val dataFtyp = BoxNode(
+            type = "ftyp", offset = 300, headerSize = 8, size = 16,
+            fields = listOf(BoxField("major_brand", "mp42", 300, 4)),
+        )
+        val dataField = BoxNode(
+            type = "MotionPhoto_Data", offset = 220, headerSize = 4, size = 4096,
+            children = listOf(dataFtyp),
+        )
+        val sefd = BoxNode(
+            type = "sefd", offset = 50, headerSize = 0, size = 4200,
+            children = listOf(autoPlayField, dataField),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 4250, children = listOf(sefd))
+
+        val preview = findMotionPhotoPreview(root)
+
+        assertEquals(200L, preview?.start)
+        assertEquals(216L, preview?.end)
+        assertEquals("mp4", preview?.extension)
+    }
+
+    @Test
+    fun `findMotionPhotoPreview returns null when only MotionPhoto_Data is present`() {
+        val dataFtyp = BoxNode(
+            type = "ftyp", offset = 220, headerSize = 8, size = 16,
+            fields = listOf(BoxField("major_brand", "mp42", 220, 4)),
+        )
+        val dataField = BoxNode(
+            type = "MotionPhoto_Data", offset = 200, headerSize = 4, size = 4096,
+            children = listOf(dataFtyp),
+        )
+        val sefd = BoxNode(type = "sefd", offset = 50, headerSize = 0, size = 4200, children = listOf(dataField))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 4250, children = listOf(sefd))
+
+        assertEquals(null, findMotionPhotoPreview(root))
+    }
+
+    @Test
+    fun `findMotionPhotoPreview returns null when the file has only an mpvd box (HEIC, no sefd)`() {
+        val nestedFtyp = BoxNode(
+            type = "ftyp", offset = 24, headerSize = 8, size = 16,
+            fields = listOf(BoxField("major_brand", "isom", 24, 4)),
+        )
+        val mpvd = BoxNode(type = "mpvd", offset = 16, headerSize = 8, size = 24, children = listOf(nestedFtyp))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 40, children = listOf(mpvd))
+
+        assertEquals(null, findMotionPhotoPreview(root))
+    }
 }

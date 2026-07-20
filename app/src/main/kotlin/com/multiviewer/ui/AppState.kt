@@ -9,6 +9,7 @@ import com.multiviewer.parser.EmbeddedVideo
 import com.multiviewer.parser.MediaSummary
 import com.multiviewer.parser.buildMediaSummary
 import com.multiviewer.parser.findEmbeddedVideo
+import com.multiviewer.parser.findMotionPhotoPreview
 import com.multiviewer.parser.parseFile
 import java.io.File
 
@@ -18,6 +19,7 @@ class TabState(val file: File) {
     var root: BoxNode? by mutableStateOf(null)
     var mediaSummary: MediaSummary? by mutableStateOf(null)
     var embeddedVideo: EmbeddedVideo? by mutableStateOf(null)
+    var motionPhotoPreview: EmbeddedVideo? by mutableStateOf(null)
     var error: String? by mutableStateOf(null)
     var selected: BoxNode? by mutableStateOf(null)
     var verticalSplit: Float by mutableStateOf(0.5f)
@@ -55,6 +57,11 @@ class AppState {
             }
             tab.embeddedVideo = try {
                 findEmbeddedVideo(root)
+            } catch (e: Exception) {
+                null
+            }
+            tab.motionPhotoPreview = try {
+                findMotionPhotoPreview(root)
             } catch (e: Exception) {
                 null
             }
