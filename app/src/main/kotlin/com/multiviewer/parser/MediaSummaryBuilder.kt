@@ -7,9 +7,30 @@ fun buildMediaSummary(root: BoxNode, file: File): MediaSummary {
     val sections = if (category == MediaCategory.IMAGE) {
         buildImageSummary(root, file)
     } else {
-        buildVideoSummary(root, file)
+        buildVideoSummary(root, file.length())
     }
-    return MediaSummary(category, sections)
+    val motionPhotoVideoSections = if (category == MediaCategory.IMAGE) {
+        buildMotionPhotoVideoSummary(root, file)
+    } else {
+        null
+    }
+    return MediaSummary(category, sections, motionPhotoVideoSections)
+}
+
+private fun buildMotionPhotoVideoSummary(root: BoxNode, file: File): List<SummarySection>? {
+    val video = findEmbeddedVideo(root) ?: return null
+    return try {
+        ByteReader.open(file).use { reader ->
+            val videoBoxes = parseBoxes(reader, video.start, video.end)
+            val videoRoot = BoxNode(
+                type = "root", offset = video.start, headerSize = 0,
+                size = video.end - video.start, children = videoBoxes,
+            )
+            buildVideoSummary(videoRoot, video.end - video.start)
+        }
+    } catch (e: Exception) {
+        null
+    }
 }
 
 private fun detectCategory(root: BoxNode): MediaCategory {
@@ -144,14 +165,14 @@ private fun buildImageBasicInfo(root: BoxNode, file: File): SummarySection {
     return SummarySection("Basic Info", fields)
 }
 
-private fun buildVideoSummary(root: BoxNode, file: File): List<SummarySection> {
+private fun buildVideoSummary(root: BoxNode, fileSizeBytes: Long): List<SummarySection> {
     val sections = mutableListOf<SummarySection>()
     val moov = root.children.find { it.type == "moov" }
     val traks = moov?.children?.filter { it.type == "trak" } ?: emptyList()
     val videoTrak = traks.find { trakHandlerType(it) == "vide" }
     val audioTrak = traks.find { trakHandlerType(it) == "soun" }
 
-    sections.add(buildVideoBasicInfo(root, file, moov, videoTrak))
+    sections.add(buildVideoBasicInfo(root, fileSizeBytes, moov, videoTrak))
     sections.add(buildTrackList(traks))
     buildVideoTrackDetail(videoTrak)?.let { sections.add(it) }
     buildAudioTrackDetail(audioTrak)?.let { sections.add(it) }
@@ -164,7 +185,7 @@ private fun trakHandlerType(trak: BoxNode): String? {
     return hdlr?.fields?.find { it.name == "handler_type" }?.value
 }
 
-private fun buildVideoBasicInfo(root: BoxNode, file: File, moov: BoxNode?, videoTrak: BoxNode?): SummarySection {
+private fun buildVideoBasicInfo(root: BoxNode, fileSizeBytes: Long, moov: BoxNode?, videoTrak: BoxNode?): SummarySection {
     val fields = mutableListOf<SummaryField>()
 
     val mvhd = moov?.children?.find { it.type == "mvhd" }
@@ -180,14 +201,14 @@ private fun buildVideoBasicInfo(root: BoxNode, file: File, moov: BoxNode?, video
         fields.add(SummaryField("Resolution", "${width.toInt()}x${height.toInt()}"))
     }
 
-    fields.add(SummaryField("File Size", formatFileSize(file.length())))
+    fields.add(SummaryField("File Size", formatFileSize(fileSizeBytes)))
 
     root.children.find { it.type == "ftyp" }?.fields?.find { it.name == "major_brand" }?.let {
         fields.add(SummaryField("Container Brand", it.value))
     }
 
     if (durationSeconds != null && durationSeconds > 0) {
-        val bitrate = (file.length() * 8) / durationSeconds
+        val bitrate = (fileSizeBytes * 8) / durationSeconds
         fields.add(SummaryField("Average Bitrate", formatBitrate(bitrate)))
     }
 

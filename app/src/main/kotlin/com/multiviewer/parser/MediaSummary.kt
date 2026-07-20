@@ -15,4 +15,5 @@ data class SummarySection(
 data class MediaSummary(
     val category: MediaCategory,
     val sections: List<SummarySection>,
+    val motionPhotoVideoSections: List<SummarySection>? = null,
 )

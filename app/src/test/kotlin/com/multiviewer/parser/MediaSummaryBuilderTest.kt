@@ -314,4 +314,59 @@ class MediaSummaryBuilderTest {
         val basicInfo = buildMediaSummary(root, tempFile()).sections.first { it.title == "Basic Info" }
         assertEquals("ICC profile (10 bytes)", basicInfo.fields.first { it.label == "Color Space" }.value)
     }
+
+    @Test
+    fun `a motion photo image populates motionPhotoVideoSections from the embedded video, using the video's own size`() {
+        val bytes = byteArrayOf(
+            // outer ftyp (16 bytes) — the containing photo's own top-level ftyp
+            0x00, 0x00, 0x00, 0x10, 'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte(),
+            'h'.code.toByte(), 'e'.code.toByte(), 'i'.code.toByte(), 'c'.code.toByte(), 0x00, 0x00, 0x00, 0x00,
+            // mpvd header, size=60 — the embedded video wrapper
+            0x00, 0x00, 0x00, 0x3C, 'm'.code.toByte(), 'p'.code.toByte(), 'v'.code.toByte(), 'd'.code.toByte(),
+            // nested ftyp (16 bytes) — the embedded video's own ftyp
+            0x00, 0x00, 0x00, 0x10, 'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte(),
+            'i'.code.toByte(), 's'.code.toByte(), 'o'.code.toByte(), 'm'.code.toByte(), 0x00, 0x00, 0x00, 0x00,
+            // moov, size=36
+            0x00, 0x00, 0x00, 0x24, 'm'.code.toByte(), 'o'.code.toByte(), 'o'.code.toByte(), 'v'.code.toByte(),
+            // mvhd, size=28: version+flags, creation_time, modification_time, timescale=1000, duration=2000
+            0x00, 0x00, 0x00, 0x1C, 'm'.code.toByte(), 'v'.code.toByte(), 'h'.code.toByte(), 'd'.code.toByte(),
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x03, 0xE8.toByte(),
+            0x00, 0x00, 0x07, 0xD0.toByte(),
+        )
+        val file = File.createTempFile("motion-photo-video-summary", ".bin")
+        file.deleteOnExit()
+        file.writeBytes(bytes)
+
+        val root = parseFile(file)
+        val summary = buildMediaSummary(root, file)
+
+        assertEquals(MediaCategory.IMAGE, summary.category)
+        val imageBasicInfo = summary.sections.first { it.title == "Basic Info" }
+        assertEquals("76 bytes", imageBasicInfo.fields.first { it.label == "File Size" }.value)
+
+        val videoSections = summary.motionPhotoVideoSections
+        assertEquals(true, videoSections != null)
+        val videoBasicInfo = videoSections!!.first { it.title == "Basic Info" }
+        assertEquals("0:00:02", videoBasicInfo.fields.first { it.label == "Duration" }.value)
+        assertEquals("52 bytes", videoBasicInfo.fields.first { it.label == "File Size" }.value)
+    }
+
+    @Test
+    fun `an ordinary non-motion-photo image leaves motionPhotoVideoSections null`() {
+        val bytes = byteArrayOf(
+            0x00, 0x00, 0x00, 0x10, 'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte(),
+            'h'.code.toByte(), 'e'.code.toByte(), 'i'.code.toByte(), 'c'.code.toByte(), 0x00, 0x00, 0x00, 0x00,
+        )
+        val file = File.createTempFile("ordinary-image", ".bin")
+        file.deleteOnExit()
+        file.writeBytes(bytes)
+
+        val root = parseFile(file)
+        val summary = buildMediaSummary(root, file)
+
+        assertEquals(null, summary.motionPhotoVideoSections)
+    }
 }
