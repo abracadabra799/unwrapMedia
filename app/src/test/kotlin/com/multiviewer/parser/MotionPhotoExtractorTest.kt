@@ -297,4 +297,39 @@ class MotionPhotoExtractorTest {
         assertEquals(204L, video?.start)
         assertEquals(4296L, video?.end)
     }
+
+    @Test
+    fun `XMP with a DOCTYPE declaring an external entity is rejected, not resolved or thrown`() {
+        val xmp = """
+            <?xml version="1.0"?>
+            <!DOCTYPE x:xmpmeta [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+            <x:xmpmeta xmlns:x="adobe:ns:meta/">
+              <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+                <rdf:Description rdf:about=""
+                    xmlns:Container="http://ns.google.com/photos/1.0/container/"
+                    xmlns:Item="http://ns.google.com/photos/1.0/container/item/">
+                  <Container:Directory>
+                    <rdf:Seq>
+                      <rdf:li rdf:parseType="Resource" Item:Mime="video/mp4" Item:Semantic="MotionPhoto" Item:Length="&xxe;"/>
+                    </rdf:Seq>
+                  </Container:Directory>
+                </rdf:Description>
+              </rdf:RDF>
+            </x:xmpmeta>
+        """.trimIndent()
+        val app1 = BoxNode(type = "APP1", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("xmp", xmp, 0, 0)))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 1000, children = listOf(app1))
+
+        assertEquals(null, findEmbeddedVideo(root))
+    }
+
+    @Test
+    fun `a deeply nested XMP document does not crash findEmbeddedVideo`() {
+        val depth = 20000
+        val xmp = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">" + "<a>".repeat(depth) + "</a>".repeat(depth) + "</x:xmpmeta>"
+        val app1 = BoxNode(type = "APP1", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("xmp", xmp, 0, 0)))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 1000, children = listOf(app1))
+
+        assertEquals(null, findEmbeddedVideo(root))
+    }
 }

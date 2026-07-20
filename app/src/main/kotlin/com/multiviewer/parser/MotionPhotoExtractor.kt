@@ -51,7 +51,9 @@ private fun findGoogleMotionPhotoVideo(root: BoxNode): EmbeddedVideo? {
         if (length <= 0 || length > root.size) return null
         val extension = if (fromDirectory?.mimeType == "video/quicktime") "mov" else "mp4"
         EmbeddedVideo(root.size - length, root.size, extension)
-    } catch (e: Exception) {
+    } catch (e: Throwable) {
+        // Untrusted input: a crafted/deeply-nested XMP document can throw StackOverflowError
+        // or OutOfMemoryError (both are Error, not Exception), not just parse exceptions.
         null
     }
 }
