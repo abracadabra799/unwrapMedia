@@ -44,16 +44,16 @@ private fun findGoogleMotionPhotoVideo(root: BoxNode): EmbeddedVideo? {
     val xmpText = findFirst(root) { it.fields.any { field -> field.name == "xmp" } }
         ?.fields?.find { it.name == "xmp" }?.value
         ?: return null
-    val document = try {
-        parseXmpDocument(xmpText)
+    return try {
+        val document = parseXmpDocument(xmpText)
+        val fromDirectory = findMotionPhotoInDirectory(document)
+        val length = fromDirectory?.length ?: findMicroVideoOffset(document) ?: return null
+        if (length <= 0 || length > root.size) return null
+        val extension = if (fromDirectory?.mimeType == "video/quicktime") "mov" else "mp4"
+        EmbeddedVideo(root.size - length, root.size, extension)
     } catch (e: Exception) {
-        return null
+        null
     }
-    val fromDirectory = findMotionPhotoInDirectory(document)
-    val length = fromDirectory?.length ?: findMicroVideoOffset(document) ?: return null
-    if (length <= 0 || length > root.size) return null
-    val extension = if (fromDirectory?.mimeType == "video/quicktime") "mov" else "mp4"
-    return EmbeddedVideo(root.size - length, root.size, extension)
 }
 
 private fun parseXmpDocument(xmpText: String): Document {
