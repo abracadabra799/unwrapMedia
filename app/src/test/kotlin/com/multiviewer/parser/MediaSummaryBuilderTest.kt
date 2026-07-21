@@ -393,4 +393,42 @@ class MediaSummaryBuilderTest {
         assertEquals("avif", basicInfo.fields.first { it.label == "Format" }.value)
         assertEquals("500.0 KB", basicInfo.fields.first { it.label == "File Size" }.value)
     }
+
+    @Test
+    fun `a TIFF-shaped tree (IFD0 as a direct root child) produces Resolution, Format TIFF, Camera Info, and GPS Location`() {
+        val gps = BoxNode(
+            type = "GPS", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(
+                BoxField("GPSLatitudeRef", "N", 0, 1),
+                BoxField("GPSLatitude", "37/1, 34/1, 0/1", 0, 24),
+            ),
+        )
+        val ifd0 = BoxNode(
+            type = "IFD0", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(
+                BoxField("ImageWidth", "640", 0, 2),
+                BoxField("ImageLength", "480", 0, 2),
+                BoxField("Make", "TiffCam", 0, 7),
+                BoxField("Model", "T200", 0, 4),
+            ),
+            children = listOf(gps),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ifd0))
+        val file = File.createTempFile("tiff-summary-test", ".tiff")
+        file.deleteOnExit()
+        file.writeBytes(ByteArray(1000))
+
+        val summary = buildMediaSummary(root, file)
+
+        val basicInfo = summary.sections.first { it.title == "Basic Info" }
+        assertEquals("640x480", basicInfo.fields.first { it.label == "Resolution" }.value)
+        assertEquals("TIFF", basicInfo.fields.first { it.label == "Format" }.value)
+
+        val cameraInfo = summary.sections.first { it.title == "Camera Info" }
+        assertEquals("TiffCam", cameraInfo.fields.first { it.label == "Make" }.value)
+        assertEquals("T200", cameraInfo.fields.first { it.label == "Model" }.value)
+
+        val gpsSection = summary.sections.first { it.title == "GPS Location" }
+        assertEquals("N", gpsSection.fields.first { it.label == "Latitude Ref" }.value)
+    }
 }

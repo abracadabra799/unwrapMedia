@@ -52,6 +52,28 @@ class ParseFileIntegrationTest {
 
         assertEquals(listOf("SOI", "EOI"), root.children.map { it.type })
     }
+
+    @Test
+    fun `parses a TIFF file via decodeTiff, not the ISOBMFF path`() {
+        val bytes = byteArrayOf(
+            0x49, 0x49, 0x2A, 0x00, // "II", 42 (little-endian byte order)
+            0x08, 0x00, 0x00, 0x00, // IFD0 offset = 8
+            0x02, 0x00, // entry_count = 2
+            0x00, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x80.toByte(), 0x02, 0x00, 0x00, // ImageWidth = 640
+            0x01, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0xE0.toByte(), 0x01, 0x00, 0x00, // ImageLength = 480
+            0x00, 0x00, 0x00, 0x00, // next IFD offset = 0
+        )
+        val tmp = File.createTempFile("multiviewer-tiff", ".tiff")
+        tmp.deleteOnExit()
+        tmp.writeBytes(bytes)
+
+        val root = parseFile(tmp)
+
+        assertEquals(listOf("IFD0"), root.children.map { it.type })
+        val ifd0 = root.children.single()
+        assertEquals("640", ifd0.fields.first { it.name == "ImageWidth" }.value)
+        assertEquals("480", ifd0.fields.first { it.name == "ImageLength" }.value)
+    }
 }
 
 private fun uint32(value: Long): ByteArray = byteArrayOf(

@@ -121,6 +121,7 @@ private fun buildImageSummary(root: BoxNode, file: File): List<SummarySection> {
 private fun buildImageBasicInfo(root: BoxNode, file: File): SummarySection {
     val fields = mutableListOf<SummaryField>()
     val isJpeg = root.children.any { it.type == "SOI" }
+    val isTiff = root.children.any { it.type == "IFD0" }
     val sof = findFirst(root) { it.type.startsWith("SOF") }
     val ispe = findPrimaryItemProperty(root, "ispe") ?: findFirst(root) { it.type == "ispe" }
     val sofOrIspe = sof ?: ispe
@@ -131,12 +132,21 @@ private fun buildImageBasicInfo(root: BoxNode, file: File): SummarySection {
         if (width != null && height != null) {
             fields.add(SummaryField("Resolution", "${width}x${height}"))
         }
+    } else if (isTiff) {
+        val tiffIfd0 = root.children.find { it.type == "IFD0" }
+        val width = tiffIfd0?.fields?.find { it.name == "ImageWidth" }?.value
+        val height = tiffIfd0?.fields?.find { it.name == "ImageLength" }?.value
+        if (width != null && height != null) {
+            fields.add(SummaryField("Resolution", "${width}x${height}"))
+        }
     }
 
     fields.add(SummaryField("File Size", formatFileSize(file.length())))
 
     val format = if (isJpeg) {
         "JPEG"
+    } else if (isTiff) {
+        "TIFF"
     } else {
         root.children.find { it.type == "ftyp" }?.fields?.find { it.name == "major_brand" }?.value ?: "Unknown"
     }
