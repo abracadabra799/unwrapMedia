@@ -96,6 +96,26 @@ class ParseFileIntegrationTest {
         assertEquals("640", ifd0.fields.first { it.name == "ImageWidth" }.value)
         assertEquals("480", ifd0.fields.first { it.name == "ImageLength" }.value)
     }
+
+    @Test
+    fun `parses a PNG file via the chunk walker, not the ISOBMFF path`() {
+        val signature = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+        val ihdrData = byteArrayOf(
+            0x00, 0x00, 0x00, 0x0A, // width = 10
+            0x00, 0x00, 0x00, 0x0A, // height = 10
+            0x08, 0x02, 0x00, 0x00, 0x00, // bit_depth=8, color_type=2 (Truecolor), rest=0
+        )
+        val ihdrChunk = pngChunkBytes("IHDR", ihdrData)
+        val iendChunk = pngChunkBytes("IEND", ByteArray(0))
+        val bytes = signature + ihdrChunk + iendChunk
+        val tmp = File.createTempFile("multiviewer-png", ".png")
+        tmp.deleteOnExit()
+        tmp.writeBytes(bytes)
+
+        val root = parseFile(tmp)
+
+        assertEquals(listOf("IHDR", "IEND"), root.children.map { it.type })
+    }
 }
 
 private fun uint32(value: Long): ByteArray = byteArrayOf(
@@ -113,4 +133,15 @@ private fun box(type: String, body: ByteArray): ByteArray {
 private fun fullBox(type: String, version: Int, body: ByteArray): ByteArray {
     val fullBoxHeader = byteArrayOf(version.toByte(), 0, 0, 0)
     return box(type, fullBoxHeader + body)
+}
+
+private fun pngChunkBytes(type: String, data: ByteArray): ByteArray {
+    val length = data.size
+    val lengthBytes = byteArrayOf(
+        ((length shr 24) and 0xFF).toByte(),
+        ((length shr 16) and 0xFF).toByte(),
+        ((length shr 8) and 0xFF).toByte(),
+        (length and 0xFF).toByte(),
+    )
+    return lengthBytes + type.toByteArray(Charsets.US_ASCII) + data + ByteArray(4)
 }
