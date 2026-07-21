@@ -54,7 +54,7 @@ class MediaSummaryBuilderTest {
     }
 
     @Test
-    fun `a full image tree produces all four image sections with correct values`() {
+    fun `a full image tree produces all five image sections with correct values`() {
         val sof0 = BoxNode(
             type = "SOF0", offset = 0, headerSize = 4, size = 19,
             fields = listOf(
@@ -106,14 +106,17 @@ class MediaSummaryBuilderTest {
         val summary = buildMediaSummary(root, tmp)
 
         assertEquals(MediaCategory.IMAGE, summary.category)
-        assertEquals(4, summary.sections.size)
+        assertEquals(5, summary.sections.size)
 
-        val basicInfo = summary.sections.first { it.title == "Basic Info" }
-        assertEquals("640x480", basicInfo.fields.first { it.label == "Resolution" }.value)
-        assertEquals("1.5 MB", basicInfo.fields.first { it.label == "File Size" }.value)
-        assertEquals("JPEG", basicInfo.fields.first { it.label == "Format" }.value)
-        assertEquals("Color (YCbCr)", basicInfo.fields.first { it.label == "Color Space" }.value)
-        assertEquals("2026:07:19 10:00:00", basicInfo.fields.first { it.label == "Capture Date" }.value)
+        val general = summary.sections.first { it.title == "General" }
+        assertEquals("1.5 MB", general.fields.first { it.label == "File Size" }.value)
+        assertEquals("JPEG", general.fields.first { it.label == "Format" }.value)
+
+        val image = summary.sections.first { it.title == "Image" }
+        assertEquals("640", image.fields.first { it.label == "Width" }.value)
+        assertEquals("480", image.fields.first { it.label == "Height" }.value)
+        assertEquals("Color (YCbCr)", image.fields.first { it.label == "Color Space" }.value)
+        assertEquals("2026:07:19 10:00:00", image.fields.first { it.label == "Capture Date" }.value)
 
         val cameraInfo = summary.sections.first { it.title == "Camera Info" }
         assertEquals("TestCam", cameraInfo.fields.first { it.label == "Make" }.value)
@@ -132,7 +135,7 @@ class MediaSummaryBuilderTest {
     }
 
     @Test
-    fun `a minimal image tree with no Exif produces only a Basic Info section`() {
+    fun `a minimal image tree with no Exif produces only General and Image sections`() {
         val sof0 = BoxNode(
             type = "SOF0", offset = 0, headerSize = 4, size = 19,
             fields = listOf(
@@ -148,10 +151,11 @@ class MediaSummaryBuilderTest {
         )
         val summary = buildMediaSummary(root, tempFile())
 
-        assertEquals(1, summary.sections.size)
-        val basicInfo = summary.sections[0]
-        assertEquals("Basic Info", basicInfo.title)
-        assertEquals("Grayscale", basicInfo.fields.first { it.label == "Color Space" }.value)
+        assertEquals(2, summary.sections.size)
+        assertEquals("General", summary.sections[0].title)
+        assertEquals("Image", summary.sections[1].title)
+        val image = summary.sections.first { it.title == "Image" }
+        assertEquals("Grayscale", image.fields.first { it.label == "Color Space" }.value)
     }
 
     private fun buildVideoFixture(includeAudioTrack: Boolean): BoxNode {
@@ -269,9 +273,10 @@ class MediaSummaryBuilderTest {
         val meta = BoxNode(type = "meta", offset = 0, headerSize = 0, size = 0, children = listOf(pitm, iprp))
         val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(meta))
 
-        val basicInfo = buildMediaSummary(root, tempFile()).sections.first { it.title == "Basic Info" }
-        assertEquals("4000x2252", basicInfo.fields.first { it.label == "Resolution" }.value)
-        assertEquals("nclx: 9/16/9", basicInfo.fields.first { it.label == "Color Space" }.value)
+        val image = buildMediaSummary(root, tempFile()).sections.first { it.title == "Image" }
+        assertEquals("4000", image.fields.first { it.label == "Width" }.value)
+        assertEquals("2252", image.fields.first { it.label == "Height" }.value)
+        assertEquals("nclx: 9/16/9", image.fields.first { it.label == "Color Space" }.value)
     }
 
     @Test
@@ -285,8 +290,9 @@ class MediaSummaryBuilderTest {
         val meta = BoxNode(type = "meta", offset = 0, headerSize = 0, size = 0, children = listOf(iprp))
         val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(meta))
 
-        val basicInfo = buildMediaSummary(root, tempFile()).sections.first { it.title == "Basic Info" }
-        assertEquals("800x600", basicInfo.fields.first { it.label == "Resolution" }.value)
+        val image = buildMediaSummary(root, tempFile()).sections.first { it.title == "Image" }
+        assertEquals("800", image.fields.first { it.label == "Width" }.value)
+        assertEquals("600", image.fields.first { it.label == "Height" }.value)
     }
 
     @Test
@@ -311,8 +317,8 @@ class MediaSummaryBuilderTest {
         val meta = BoxNode(type = "meta", offset = 0, headerSize = 0, size = 0, children = listOf(pitm, iprp))
         val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(meta))
 
-        val basicInfo = buildMediaSummary(root, tempFile()).sections.first { it.title == "Basic Info" }
-        assertEquals("ICC profile (10 bytes)", basicInfo.fields.first { it.label == "Color Space" }.value)
+        val image = buildMediaSummary(root, tempFile()).sections.first { it.title == "Image" }
+        assertEquals("ICC profile (10 bytes)", image.fields.first { it.label == "Color Space" }.value)
     }
 
     @Test
@@ -344,8 +350,8 @@ class MediaSummaryBuilderTest {
         val summary = buildMediaSummary(root, file)
 
         assertEquals(MediaCategory.IMAGE, summary.category)
-        val imageBasicInfo = summary.sections.first { it.title == "Basic Info" }
-        assertEquals("76 bytes", imageBasicInfo.fields.first { it.label == "File Size" }.value)
+        val imageGeneral = summary.sections.first { it.title == "General" }
+        assertEquals("76 bytes", imageGeneral.fields.first { it.label == "File Size" }.value)
 
         val videoSections = summary.motionPhotoVideoSections
         assertEquals(true, videoSections != null)
@@ -388,10 +394,14 @@ class MediaSummaryBuilderTest {
         file.deleteOnExit()
         file.writeBytes(ByteArray(500_000))
 
-        val basicInfo = buildMediaSummary(root, file).sections.first { it.title == "Basic Info" }
-        assertEquals("1920x1080", basicInfo.fields.first { it.label == "Resolution" }.value)
-        assertEquals("avif", basicInfo.fields.first { it.label == "Format" }.value)
-        assertEquals("500.0 KB", basicInfo.fields.first { it.label == "File Size" }.value)
+        val summary = buildMediaSummary(root, file)
+        val general = summary.sections.first { it.title == "General" }
+        assertEquals("avif", general.fields.first { it.label == "Format" }.value)
+        assertEquals("500.0 KB", general.fields.first { it.label == "File Size" }.value)
+
+        val image = summary.sections.first { it.title == "Image" }
+        assertEquals("1920", image.fields.first { it.label == "Width" }.value)
+        assertEquals("1080", image.fields.first { it.label == "Height" }.value)
     }
 
     @Test
@@ -420,9 +430,12 @@ class MediaSummaryBuilderTest {
 
         val summary = buildMediaSummary(root, file)
 
-        val basicInfo = summary.sections.first { it.title == "Basic Info" }
-        assertEquals("640x480", basicInfo.fields.first { it.label == "Resolution" }.value)
-        assertEquals("TIFF", basicInfo.fields.first { it.label == "Format" }.value)
+        val general = summary.sections.first { it.title == "General" }
+        assertEquals("TIFF", general.fields.first { it.label == "Format" }.value)
+
+        val image = summary.sections.first { it.title == "Image" }
+        assertEquals("640", image.fields.first { it.label == "Width" }.value)
+        assertEquals("480", image.fields.first { it.label == "Height" }.value)
 
         val cameraInfo = summary.sections.first { it.title == "Camera Info" }
         assertEquals("TiffCam", cameraInfo.fields.first { it.label == "Make" }.value)
@@ -447,10 +460,14 @@ class MediaSummaryBuilderTest {
         file.deleteOnExit()
         file.writeBytes(ByteArray(2000))
 
-        val basicInfo = buildMediaSummary(root, file).sections.first { it.title == "Basic Info" }
-        assertEquals("1920x1080", basicInfo.fields.first { it.label == "Resolution" }.value)
-        assertEquals("PNG", basicInfo.fields.first { it.label == "Format" }.value)
-        assertEquals("Truecolor+Alpha", basicInfo.fields.first { it.label == "Color Space" }.value)
+        val summary = buildMediaSummary(root, file)
+        val general = summary.sections.first { it.title == "General" }
+        assertEquals("PNG", general.fields.first { it.label == "Format" }.value)
+
+        val image = summary.sections.first { it.title == "Image" }
+        assertEquals("1920", image.fields.first { it.label == "Width" }.value)
+        assertEquals("1080", image.fields.first { it.label == "Height" }.value)
+        assertEquals("Truecolor+Alpha", image.fields.first { it.label == "Color Space" }.value)
     }
 
     @Test
@@ -495,11 +512,13 @@ class MediaSummaryBuilderTest {
 
         val summary = buildMediaSummary(root, file)
 
-        assertEquals(1, summary.sections.size)
-        val basicInfo = summary.sections[0]
-        assertEquals("Basic Info", basicInfo.title)
-        assertEquals("100x50", basicInfo.fields.first { it.label == "Resolution" }.value)
-        assertEquals("BMP", basicInfo.fields.first { it.label == "Format" }.value)
-        assertEquals(null, basicInfo.fields.find { it.label == "Color Space" })
+        assertEquals(2, summary.sections.size)
+        val general = summary.sections.first { it.title == "General" }
+        assertEquals("BMP", general.fields.first { it.label == "Format" }.value)
+
+        val image = summary.sections.first { it.title == "Image" }
+        assertEquals("100", image.fields.first { it.label == "Width" }.value)
+        assertEquals("50", image.fields.first { it.label == "Height" }.value)
+        assertEquals(null, image.fields.find { it.label == "Color Space" })
     }
 }

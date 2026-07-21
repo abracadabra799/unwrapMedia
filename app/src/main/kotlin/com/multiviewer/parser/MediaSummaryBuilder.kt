@@ -79,7 +79,8 @@ private fun formatFileSize(bytes: Long): String = when {
 
 private fun buildImageSummary(root: BoxNode, file: File): List<SummarySection> {
     val sections = mutableListOf<SummarySection>()
-    sections.add(buildImageBasicInfo(root, file))
+    sections.add(buildImageGeneral(root, file))
+    buildImageDetail(root)?.let { sections.add(it) }
 
     val ifd0 = findFirst(root) { it.type == "IFD0" }
     if (ifd0 != null) {
@@ -119,46 +120,12 @@ private fun buildImageSummary(root: BoxNode, file: File): List<SummarySection> {
     return sections
 }
 
-private fun buildImageBasicInfo(root: BoxNode, file: File): SummarySection {
+private fun buildImageGeneral(root: BoxNode, file: File): SummarySection {
     val fields = mutableListOf<SummaryField>()
     val isJpeg = root.children.any { it.type == "SOI" }
     val isTiff = root.children.any { it.type == "IFD0" }
     val isPng = root.children.any { it.type == "IHDR" }
     val isBmp = root.children.any { it.type == "BITMAPFILEHEADER" }
-    val sof = findFirst(root) { it.type.startsWith("SOF") }
-    val ispe = findPrimaryItemProperty(root, "ispe") ?: findFirst(root) { it.type == "ispe" }
-    val sofOrIspe = sof ?: ispe
-
-    if (sofOrIspe != null) {
-        val width = sofOrIspe.fields.find { it.name == "width" || it.name == "image_width" }?.value
-        val height = sofOrIspe.fields.find { it.name == "height" || it.name == "image_height" }?.value
-        if (width != null && height != null) {
-            fields.add(SummaryField("Resolution", "${width}x${height}"))
-        }
-    } else if (isTiff) {
-        val tiffIfd0 = root.children.find { it.type == "IFD0" }
-        val width = tiffIfd0?.fields?.find { it.name == "ImageWidth" }?.value
-        val height = tiffIfd0?.fields?.find { it.name == "ImageLength" }?.value
-        if (width != null && height != null) {
-            fields.add(SummaryField("Resolution", "${width}x${height}"))
-        }
-    } else if (isPng) {
-        val ihdr = root.children.find { it.type == "IHDR" }
-        val width = ihdr?.fields?.find { it.name == "width" }?.value
-        val height = ihdr?.fields?.find { it.name == "height" }?.value
-        if (width != null && height != null) {
-            fields.add(SummaryField("Resolution", "${width}x${height}"))
-        }
-    } else if (isBmp) {
-        val infoHeader = root.children.find { it.type == "BITMAPINFOHEADER" }
-        val width = infoHeader?.fields?.find { it.name == "width" }?.value
-        val height = infoHeader?.fields?.find { it.name == "height" }?.value?.toIntOrNull()
-        if (width != null && height != null) {
-            fields.add(SummaryField("Resolution", "${width}x${abs(height)}"))
-        }
-    }
-
-    fields.add(SummaryField("File Size", formatFileSize(file.length())))
 
     val format = if (isJpeg) {
         "JPEG"
@@ -172,6 +139,53 @@ private fun buildImageBasicInfo(root: BoxNode, file: File): SummarySection {
         root.children.find { it.type == "ftyp" }?.fields?.find { it.name == "major_brand" }?.value ?: "Unknown"
     }
     fields.add(SummaryField("Format", format))
+    fields.add(SummaryField("File Size", formatFileSize(file.length())))
+
+    return SummarySection("General", fields)
+}
+
+private fun buildImageDetail(root: BoxNode): SummarySection? {
+    val fields = mutableListOf<SummaryField>()
+    val isJpeg = root.children.any { it.type == "SOI" }
+    val isTiff = root.children.any { it.type == "IFD0" }
+    val isPng = root.children.any { it.type == "IHDR" }
+    val isBmp = root.children.any { it.type == "BITMAPFILEHEADER" }
+    val sof = findFirst(root) { it.type.startsWith("SOF") }
+    val ispe = findPrimaryItemProperty(root, "ispe") ?: findFirst(root) { it.type == "ispe" }
+    val sofOrIspe = sof ?: ispe
+
+    if (sofOrIspe != null) {
+        val width = sofOrIspe.fields.find { it.name == "width" || it.name == "image_width" }?.value
+        val height = sofOrIspe.fields.find { it.name == "height" || it.name == "image_height" }?.value
+        if (width != null && height != null) {
+            fields.add(SummaryField("Width", width))
+            fields.add(SummaryField("Height", height))
+        }
+    } else if (isTiff) {
+        val tiffIfd0 = root.children.find { it.type == "IFD0" }
+        val width = tiffIfd0?.fields?.find { it.name == "ImageWidth" }?.value
+        val height = tiffIfd0?.fields?.find { it.name == "ImageLength" }?.value
+        if (width != null && height != null) {
+            fields.add(SummaryField("Width", width))
+            fields.add(SummaryField("Height", height))
+        }
+    } else if (isPng) {
+        val ihdr = root.children.find { it.type == "IHDR" }
+        val width = ihdr?.fields?.find { it.name == "width" }?.value
+        val height = ihdr?.fields?.find { it.name == "height" }?.value
+        if (width != null && height != null) {
+            fields.add(SummaryField("Width", width))
+            fields.add(SummaryField("Height", height))
+        }
+    } else if (isBmp) {
+        val infoHeader = root.children.find { it.type == "BITMAPINFOHEADER" }
+        val width = infoHeader?.fields?.find { it.name == "width" }?.value
+        val height = infoHeader?.fields?.find { it.name == "height" }?.value?.toIntOrNull()
+        if (width != null && height != null) {
+            fields.add(SummaryField("Width", width))
+            fields.add(SummaryField("Height", abs(height).toString()))
+        }
+    }
 
     val colr = findPrimaryItemProperty(root, "colr") ?: findFirst(root) { it.type == "colr" }
     val colorSpace = if (colr != null) {
@@ -197,7 +211,7 @@ private fun buildImageBasicInfo(root: BoxNode, file: File): SummarySection {
         ?: ifd0?.fields?.find { it.name == "DateTime" }?.value
     captureDate?.let { fields.add(SummaryField("Capture Date", it)) }
 
-    return SummarySection("Basic Info", fields)
+    return if (fields.isNotEmpty()) SummarySection("Image", fields) else null
 }
 
 private fun buildVideoSummary(root: BoxNode, fileSizeBytes: Long): List<SummarySection> {
