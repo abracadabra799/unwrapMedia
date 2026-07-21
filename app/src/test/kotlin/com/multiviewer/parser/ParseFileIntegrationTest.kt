@@ -116,6 +116,20 @@ class ParseFileIntegrationTest {
 
         assertEquals(listOf("IHDR", "IEND"), root.children.map { it.type })
     }
+
+    @Test
+    fun `parses a BMP file via the header walker, not the ISOBMFF or TIFF path`() {
+        val fileHeader = byteArrayOf('B'.code.toByte(), 'M'.code.toByte()) + uint32LE(70) + ByteArray(4) + uint32LE(54)
+        val infoHeader = uint32LE(40) + int32LE(10) + int32LE(10) + uint16LE(1) + uint16LE(24) + ByteArray(24)
+        val bytes = fileHeader + infoHeader
+        val tmp = File.createTempFile("multiviewer-bmp", ".bmp")
+        tmp.deleteOnExit()
+        tmp.writeBytes(bytes)
+
+        val root = parseFile(tmp)
+
+        assertEquals(listOf("BITMAPFILEHEADER", "BITMAPINFOHEADER"), root.children.map { it.type })
+    }
 }
 
 private fun uint32(value: Long): ByteArray = byteArrayOf(
@@ -145,3 +159,14 @@ private fun pngChunkBytes(type: String, data: ByteArray): ByteArray {
     )
     return lengthBytes + type.toByteArray(Charsets.US_ASCII) + data + ByteArray(4)
 }
+
+private fun uint16LE(value: Int): ByteArray = byteArrayOf((value and 0xFF).toByte(), ((value shr 8) and 0xFF).toByte())
+
+private fun uint32LE(value: Long): ByteArray = byteArrayOf(
+    (value and 0xFF).toByte(),
+    ((value shr 8) and 0xFF).toByte(),
+    ((value shr 16) and 0xFF).toByte(),
+    ((value shr 24) and 0xFF).toByte(),
+)
+
+private fun int32LE(value: Int): ByteArray = uint32LE(value.toLong() and 0xFFFFFFFFL)
