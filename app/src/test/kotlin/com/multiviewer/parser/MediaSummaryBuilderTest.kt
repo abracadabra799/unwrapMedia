@@ -193,7 +193,7 @@ class MediaSummaryBuilderTest {
     }
 
     @Test
-    fun `a full video tree produces all four video sections with correct values`() {
+    fun `a full video tree produces General, Track List, Video, and Audio sections with correct values`() {
         val root = buildVideoFixture(includeAudioTrack = true)
         val tmp = File.createTempFile("media-summary-video-test", ".mp4")
         tmp.deleteOnExit()
@@ -204,37 +204,39 @@ class MediaSummaryBuilderTest {
         assertEquals(MediaCategory.VIDEO, summary.category)
         assertEquals(4, summary.sections.size)
 
-        val basicInfo = summary.sections.first { it.title == "Basic Info" }
-        assertEquals("0:00:20", basicInfo.fields.first { it.label == "Duration" }.value)
-        assertEquals("1920x1080", basicInfo.fields.first { it.label == "Resolution" }.value)
-        assertEquals("isom", basicInfo.fields.first { it.label == "Container Brand" }.value)
-        assertEquals("500.0 Kbps", basicInfo.fields.first { it.label == "Average Bitrate" }.value)
+        val general = summary.sections.first { it.title == "General" }
+        assertEquals("0:00:20", general.fields.first { it.label == "Duration" }.value)
+        assertEquals("isom", general.fields.first { it.label == "Format" }.value)
+        assertEquals("500.0 Kbps", general.fields.first { it.label == "Overall Bit Rate" }.value)
+        assertEquals(null, general.fields.find { it.label == "Width" })
 
         val trackList = summary.sections.first { it.title == "Track List" }
         assertEquals("1", trackList.fields.first { it.label == "Video Tracks" }.value)
         assertEquals("1", trackList.fields.first { it.label == "Audio Tracks" }.value)
 
-        val videoDetail = summary.sections.first { it.title == "Video Track Detail" }
-        assertEquals("avc1", videoDetail.fields.first { it.label == "Codec" }.value)
+        val videoDetail = summary.sections.first { it.title == "Video" }
+        assertEquals("AVC", videoDetail.fields.first { it.label == "Format" }.value)
+        assertEquals("1920", videoDetail.fields.first { it.label == "Width" }.value)
+        assertEquals("1080", videoDetail.fields.first { it.label == "Height" }.value)
         // Deliberately distinct from mvhd's 20s movie-level duration above: this fixture's video
         // track has its own mdhd (30000/300000 = 10s). If frame-rate calculation ever regressed to
         // use mvhd's duration instead of the track's own mdhd, this would compute 15.00 fps instead
         // of the correct 30.00 fps.
         assertEquals("30.00 fps", videoDetail.fields.first { it.label == "Frame Rate" }.value)
 
-        val audioDetail = summary.sections.first { it.title == "Audio Track Detail" }
-        assertEquals("mp4a", audioDetail.fields.first { it.label == "Codec" }.value)
-        assertEquals("44100.0 Hz", audioDetail.fields.first { it.label == "Sample Rate" }.value)
-        assertEquals("2", audioDetail.fields.first { it.label == "Channels" }.value)
+        val audioDetail = summary.sections.first { it.title == "Audio" }
+        assertEquals("AAC", audioDetail.fields.first { it.label == "Format" }.value)
+        assertEquals("44100.0 Hz", audioDetail.fields.first { it.label == "Sampling Rate" }.value)
+        assertEquals("2", audioDetail.fields.first { it.label == "Channel(s)" }.value)
     }
 
     @Test
-    fun `a video-only tree (no audio track) omits Audio Track Detail`() {
+    fun `a video-only tree (no audio track) omits the Audio section`() {
         val root = buildVideoFixture(includeAudioTrack = false)
         val summary = buildMediaSummary(root, tempFile())
 
         assertEquals(3, summary.sections.size)
-        assertEquals(null, summary.sections.find { it.title == "Audio Track Detail" })
+        assertEquals(null, summary.sections.find { it.title == "Audio" })
         val trackList = summary.sections.first { it.title == "Track List" }
         assertEquals("0", trackList.fields.first { it.label == "Audio Tracks" }.value)
     }
@@ -355,9 +357,9 @@ class MediaSummaryBuilderTest {
 
         val videoSections = summary.motionPhotoVideoSections
         assertEquals(true, videoSections != null)
-        val videoBasicInfo = videoSections!!.first { it.title == "Basic Info" }
-        assertEquals("0:00:02", videoBasicInfo.fields.first { it.label == "Duration" }.value)
-        assertEquals("52 bytes", videoBasicInfo.fields.first { it.label == "File Size" }.value)
+        val videoGeneral = videoSections!!.first { it.title == "General" }
+        assertEquals("0:00:02", videoGeneral.fields.first { it.label == "Duration" }.value)
+        assertEquals("52 bytes", videoGeneral.fields.first { it.label == "File Size" }.value)
     }
 
     @Test
@@ -520,5 +522,24 @@ class MediaSummaryBuilderTest {
         assertEquals("100", image.fields.first { it.label == "Width" }.value)
         assertEquals("50", image.fields.first { it.label == "Height" }.value)
         assertEquals(null, image.fields.find { it.label == "Color Space" })
+    }
+
+    @Test
+    fun `an unrecognized video codec falls back to its raw box-type string under Format`() {
+        val videoHdlr = BoxNode(type = "hdlr", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("handler_type", "vide", 0, 4)))
+        val s263 = BoxNode(type = "s263", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("width", "352.0", 0, 2), BoxField("height", "288.0", 0, 2)))
+        val videoStsd = BoxNode(type = "stsd", offset = 0, headerSize = 0, size = 0, children = listOf(s263))
+        val videoStbl = BoxNode(type = "stbl", offset = 0, headerSize = 0, size = 0, children = listOf(videoStsd))
+        val videoMinf = BoxNode(type = "minf", offset = 0, headerSize = 0, size = 0, children = listOf(videoStbl))
+        val videoMdia = BoxNode(type = "mdia", offset = 0, headerSize = 0, size = 0, children = listOf(videoHdlr, videoMinf))
+        val videoTkhd = BoxNode(type = "tkhd", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("track_ID", "1", 0, 4), BoxField("width", "352.0", 0, 4), BoxField("height", "288.0", 0, 4)))
+        val videoTrak = BoxNode(type = "trak", offset = 0, headerSize = 0, size = 0, children = listOf(videoTkhd, videoMdia))
+        val moov = BoxNode(type = "moov", offset = 0, headerSize = 0, size = 0, children = listOf(videoTrak))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(moov))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val videoDetail = summary.sections.first { it.title == "Video" }
+        assertEquals("s263", videoDetail.fields.first { it.label == "Format" }.value)
     }
 }

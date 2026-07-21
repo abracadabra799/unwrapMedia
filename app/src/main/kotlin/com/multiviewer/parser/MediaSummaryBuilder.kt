@@ -3,6 +3,13 @@ package com.multiviewer.parser
 import java.io.File
 import kotlin.math.abs
 
+private val CODEC_DISPLAY_NAMES = mapOf(
+    "avc1" to "AVC",
+    "hvc1" to "HEVC",
+    "av01" to "AV1",
+    "mp4a" to "AAC",
+)
+
 fun buildMediaSummary(root: BoxNode, file: File): MediaSummary {
     val category = detectCategory(root)
     val sections = if (category == MediaCategory.IMAGE) {
@@ -221,10 +228,10 @@ private fun buildVideoSummary(root: BoxNode, fileSizeBytes: Long): List<SummaryS
     val videoTrak = traks.find { trakHandlerType(it) == "vide" }
     val audioTrak = traks.find { trakHandlerType(it) == "soun" }
 
-    sections.add(buildVideoBasicInfo(root, fileSizeBytes, moov, videoTrak))
+    sections.add(buildVideoGeneral(root, fileSizeBytes, moov))
     sections.add(buildTrackList(traks))
-    buildVideoTrackDetail(videoTrak)?.let { sections.add(it) }
-    buildAudioTrackDetail(audioTrak)?.let { sections.add(it) }
+    buildVideoDetail(videoTrak)?.let { sections.add(it) }
+    buildAudioDetail(audioTrak)?.let { sections.add(it) }
 
     return sections
 }
@@ -234,7 +241,7 @@ private fun trakHandlerType(trak: BoxNode): String? {
     return hdlr?.fields?.find { it.name == "handler_type" }?.value
 }
 
-private fun buildVideoBasicInfo(root: BoxNode, fileSizeBytes: Long, moov: BoxNode?, videoTrak: BoxNode?): SummarySection {
+private fun buildVideoGeneral(root: BoxNode, fileSizeBytes: Long, moov: BoxNode?): SummarySection {
     val fields = mutableListOf<SummaryField>()
 
     val mvhd = moov?.children?.find { it.type == "mvhd" }
@@ -243,25 +250,18 @@ private fun buildVideoBasicInfo(root: BoxNode, fileSizeBytes: Long, moov: BoxNod
     val durationSeconds = if (timescale != null && timescale > 0 && duration != null) duration.toDouble() / timescale else null
     durationSeconds?.let { fields.add(SummaryField("Duration", formatDuration(it))) }
 
-    val tkhd = videoTrak?.children?.find { it.type == "tkhd" }
-    val width = tkhd?.fields?.find { it.name == "width" }?.value?.toDoubleOrNull()
-    val height = tkhd?.fields?.find { it.name == "height" }?.value?.toDoubleOrNull()
-    if (width != null && height != null) {
-        fields.add(SummaryField("Resolution", "${width.toInt()}x${height.toInt()}"))
-    }
-
     fields.add(SummaryField("File Size", formatFileSize(fileSizeBytes)))
 
     root.children.find { it.type == "ftyp" }?.fields?.find { it.name == "major_brand" }?.let {
-        fields.add(SummaryField("Container Brand", it.value))
+        fields.add(SummaryField("Format", it.value))
     }
 
     if (durationSeconds != null && durationSeconds > 0) {
         val bitrate = (fileSizeBytes * 8) / durationSeconds
-        fields.add(SummaryField("Average Bitrate", formatBitrate(bitrate)))
+        fields.add(SummaryField("Overall Bit Rate", formatBitrate(bitrate)))
     }
 
-    return SummarySection("Basic Info", fields)
+    return SummarySection("General", fields)
 }
 
 private fun buildTrackList(traks: List<BoxNode>): SummarySection {
@@ -278,12 +278,20 @@ private fun buildTrackList(traks: List<BoxNode>): SummarySection {
     return SummarySection("Track List", fields)
 }
 
-private fun buildVideoTrackDetail(videoTrak: BoxNode?): SummarySection? {
+private fun buildVideoDetail(videoTrak: BoxNode?): SummarySection? {
     if (videoTrak == null) return null
     val fields = mutableListOf<SummaryField>()
 
     val stsd = findFirst(videoTrak) { it.type == "stsd" }
-    stsd?.children?.firstOrNull()?.type?.let { fields.add(SummaryField("Codec", it)) }
+    stsd?.children?.firstOrNull()?.type?.let { fields.add(SummaryField("Format", CODEC_DISPLAY_NAMES[it] ?: it)) }
+
+    val tkhd = videoTrak.children.find { it.type == "tkhd" }
+    val width = tkhd?.fields?.find { it.name == "width" }?.value?.toDoubleOrNull()
+    val height = tkhd?.fields?.find { it.name == "height" }?.value?.toDoubleOrNull()
+    if (width != null && height != null) {
+        fields.add(SummaryField("Width", width.toInt().toString()))
+        fields.add(SummaryField("Height", height.toInt().toString()))
+    }
 
     val mdhd = findFirst(videoTrak) { it.type == "mdhd" }
     val timescale = mdhd?.fields?.find { it.name == "timescale" }?.value?.toLongOrNull()
@@ -296,18 +304,18 @@ private fun buildVideoTrackDetail(videoTrak: BoxNode?): SummarySection? {
         fields.add(SummaryField("Frame Rate", "%.2f fps".format(fps)))
     }
 
-    return if (fields.isNotEmpty()) SummarySection("Video Track Detail", fields) else null
+    return if (fields.isNotEmpty()) SummarySection("Video", fields) else null
 }
 
-private fun buildAudioTrackDetail(audioTrak: BoxNode?): SummarySection? {
+private fun buildAudioDetail(audioTrak: BoxNode?): SummarySection? {
     if (audioTrak == null) return null
     val stsd = findFirst(audioTrak) { it.type == "stsd" }
     val audioEntry = stsd?.children?.firstOrNull()
     val fields = mutableListOf<SummaryField>()
-    audioEntry?.type?.let { fields.add(SummaryField("Codec", it)) }
-    audioEntry?.fields?.find { it.name == "samplerate" }?.let { fields.add(SummaryField("Sample Rate", "${it.value} Hz")) }
-    audioEntry?.fields?.find { it.name == "channelcount" }?.let { fields.add(SummaryField("Channels", it.value)) }
-    return if (fields.isNotEmpty()) SummarySection("Audio Track Detail", fields) else null
+    audioEntry?.type?.let { fields.add(SummaryField("Format", CODEC_DISPLAY_NAMES[it] ?: it)) }
+    audioEntry?.fields?.find { it.name == "samplerate" }?.let { fields.add(SummaryField("Sampling Rate", "${it.value} Hz")) }
+    audioEntry?.fields?.find { it.name == "channelcount" }?.let { fields.add(SummaryField("Channel(s)", it.value)) }
+    return if (fields.isNotEmpty()) SummarySection("Audio", fields) else null
 }
 
 private fun formatDuration(seconds: Double): String {
