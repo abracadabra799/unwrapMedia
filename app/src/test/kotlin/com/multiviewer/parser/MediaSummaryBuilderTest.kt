@@ -431,4 +431,75 @@ class MediaSummaryBuilderTest {
         val gpsSection = summary.sections.first { it.title == "GPS Location" }
         assertEquals("N", gpsSection.fields.first { it.label == "Latitude Ref" }.value)
     }
+
+    @Test
+    fun `a PNG-shaped tree (IHDR as a direct root child) produces Resolution, Format PNG, and Color Space`() {
+        val ihdr = BoxNode(
+            type = "IHDR", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(
+                BoxField("width", "1920", 0, 4),
+                BoxField("height", "1080", 0, 4),
+                BoxField("color_type", "6", 0, 1),
+            ),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ihdr))
+        val file = File.createTempFile("png-summary-test", ".png")
+        file.deleteOnExit()
+        file.writeBytes(ByteArray(2000))
+
+        val basicInfo = buildMediaSummary(root, file).sections.first { it.title == "Basic Info" }
+        assertEquals("1920x1080", basicInfo.fields.first { it.label == "Resolution" }.value)
+        assertEquals("PNG", basicInfo.fields.first { it.label == "Format" }.value)
+        assertEquals("Truecolor+Alpha", basicInfo.fields.first { it.label == "Color Space" }.value)
+    }
+
+    @Test
+    fun `a PNG's eXIf chunk populates Camera Info and GPS Location exactly like a TIFF's IFD0`() {
+        val gps = BoxNode(
+            type = "GPS", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("GPSLatitudeRef", "N", 0, 1)),
+        )
+        val ifd0 = BoxNode(
+            type = "IFD0", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("Make", "PngCam", 0, 6), BoxField("Model", "P900", 0, 4)),
+            children = listOf(gps),
+        )
+        val exifChunk = BoxNode(type = "eXIf", offset = 0, headerSize = 0, size = 0, children = listOf(ifd0))
+        val ihdr = BoxNode(
+            type = "IHDR", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("width", "640", 0, 4), BoxField("height", "480", 0, 4), BoxField("color_type", "2", 0, 1)),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ihdr, exifChunk))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val cameraInfo = summary.sections.first { it.title == "Camera Info" }
+        assertEquals("PngCam", cameraInfo.fields.first { it.label == "Make" }.value)
+        assertEquals("P900", cameraInfo.fields.first { it.label == "Model" }.value)
+
+        val gpsSection = summary.sections.first { it.title == "GPS Location" }
+        assertEquals("N", gpsSection.fields.first { it.label == "Latitude Ref" }.value)
+    }
+
+    @Test
+    fun `a BMP-shaped tree produces Resolution and Format BMP, with no Color Space or Camera Info sections`() {
+        val fileHeader = BoxNode(type = "BITMAPFILEHEADER", offset = 0, headerSize = 0, size = 0)
+        val infoHeader = BoxNode(
+            type = "BITMAPINFOHEADER", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("width", "100", 0, 4), BoxField("height", "-50", 0, 4)),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(fileHeader, infoHeader))
+        val file = File.createTempFile("bmp-summary-test", ".bmp")
+        file.deleteOnExit()
+        file.writeBytes(ByteArray(500))
+
+        val summary = buildMediaSummary(root, file)
+
+        assertEquals(1, summary.sections.size)
+        val basicInfo = summary.sections[0]
+        assertEquals("Basic Info", basicInfo.title)
+        assertEquals("100x50", basicInfo.fields.first { it.label == "Resolution" }.value)
+        assertEquals("BMP", basicInfo.fields.first { it.label == "Format" }.value)
+        assertEquals(null, basicInfo.fields.find { it.label == "Color Space" })
+    }
 }

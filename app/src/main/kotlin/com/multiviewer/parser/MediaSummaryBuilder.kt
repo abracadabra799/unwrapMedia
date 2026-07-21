@@ -1,6 +1,7 @@
 package com.multiviewer.parser
 
 import java.io.File
+import kotlin.math.abs
 
 fun buildMediaSummary(root: BoxNode, file: File): MediaSummary {
     val category = detectCategory(root)
@@ -122,6 +123,8 @@ private fun buildImageBasicInfo(root: BoxNode, file: File): SummarySection {
     val fields = mutableListOf<SummaryField>()
     val isJpeg = root.children.any { it.type == "SOI" }
     val isTiff = root.children.any { it.type == "IFD0" }
+    val isPng = root.children.any { it.type == "IHDR" }
+    val isBmp = root.children.any { it.type == "BITMAPFILEHEADER" }
     val sof = findFirst(root) { it.type.startsWith("SOF") }
     val ispe = findPrimaryItemProperty(root, "ispe") ?: findFirst(root) { it.type == "ispe" }
     val sofOrIspe = sof ?: ispe
@@ -139,6 +142,20 @@ private fun buildImageBasicInfo(root: BoxNode, file: File): SummarySection {
         if (width != null && height != null) {
             fields.add(SummaryField("Resolution", "${width}x${height}"))
         }
+    } else if (isPng) {
+        val ihdr = root.children.find { it.type == "IHDR" }
+        val width = ihdr?.fields?.find { it.name == "width" }?.value
+        val height = ihdr?.fields?.find { it.name == "height" }?.value
+        if (width != null && height != null) {
+            fields.add(SummaryField("Resolution", "${width}x${height}"))
+        }
+    } else if (isBmp) {
+        val infoHeader = root.children.find { it.type == "BITMAPINFOHEADER" }
+        val width = infoHeader?.fields?.find { it.name == "width" }?.value
+        val height = infoHeader?.fields?.find { it.name == "height" }?.value?.toIntOrNull()
+        if (width != null && height != null) {
+            fields.add(SummaryField("Resolution", "${width}x${abs(height)}"))
+        }
     }
 
     fields.add(SummaryField("File Size", formatFileSize(file.length())))
@@ -147,6 +164,10 @@ private fun buildImageBasicInfo(root: BoxNode, file: File): SummarySection {
         "JPEG"
     } else if (isTiff) {
         "TIFF"
+    } else if (isPng) {
+        "PNG"
+    } else if (isBmp) {
+        "BMP"
     } else {
         root.children.find { it.type == "ftyp" }?.fields?.find { it.name == "major_brand" }?.value ?: "Unknown"
     }
@@ -161,6 +182,10 @@ private fun buildImageBasicInfo(root: BoxNode, file: File): SummarySection {
             1 -> "Grayscale"
             else -> "Unknown"
         }
+    } else if (isPng) {
+        val ihdr = root.children.find { it.type == "IHDR" }
+        val colorType = ihdr?.fields?.find { it.name == "color_type" }?.value?.toIntOrNull()
+        colorType?.let { PNG_COLOR_TYPE_NAMES[it] }
     } else {
         null
     }
