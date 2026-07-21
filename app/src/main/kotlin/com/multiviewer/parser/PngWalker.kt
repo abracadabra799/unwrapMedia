@@ -33,6 +33,9 @@ fun parsePngChunks(reader: ByteReader, start: Long, end: Long): List<BoxNode> {
 private fun decodePngChunk(reader: ByteReader, type: String, offset: Long, dataStart: Long, length: Long, totalSize: Long): BoxNode =
     when (type) {
         "IHDR" -> decodeIhdr(reader, offset, dataStart, totalSize)
+        "pHYs" -> decodePhys(reader, offset, dataStart, totalSize)
+        "tEXt" -> decodeText(reader, offset, dataStart, length, totalSize)
+        "eXIf" -> decodeExifChunk(reader, offset, dataStart, dataStart + length, totalSize)
         else -> BoxNode(type = type, offset = offset, headerSize = 8, size = totalSize)
     }
 
@@ -61,4 +64,46 @@ private fun decodeIhdr(reader: ByteReader, offset: Long, dataStart: Long, totalS
         ),
         summary = "${width}x${height}, $colorTypeName, ${bitDepth}-bit",
     )
+}
+
+private fun decodePhys(reader: ByteReader, offset: Long, dataStart: Long, totalSize: Long): BoxNode {
+    if (totalSize < 21) { // 8 (length+type) + 9 (pHYs body) + 4 (crc)
+        return BoxNode(type = "pHYs", offset = offset, headerSize = 8, size = totalSize, warnings = listOf("pHYs chunk too short to contain all fields"))
+    }
+    val ppuX = reader.readUInt32(dataStart)
+    val ppuY = reader.readUInt32(dataStart + 4)
+    val unitSpecifier = reader.readUInt8(dataStart + 8)
+    val unitLabel = if (unitSpecifier == 1) "meter" else "unknown"
+    return BoxNode(
+        type = "pHYs", offset = offset, headerSize = 8, size = totalSize,
+        fields = listOf(
+            BoxField("pixels_per_unit_x", ppuX.toString(), dataStart, 4),
+            BoxField("pixels_per_unit_y", ppuY.toString(), dataStart + 4, 4),
+            BoxField("unit_specifier", unitLabel, dataStart + 8, 1),
+        ),
+        summary = "${ppuX}x${ppuY} px/$unitLabel",
+    )
+}
+
+private fun decodeText(reader: ByteReader, offset: Long, dataStart: Long, length: Long, totalSize: Long): BoxNode {
+    val bytes = reader.readBytes(dataStart, length.toInt())
+    val nullIndex = bytes.indexOf(0)
+    if (nullIndex < 0) {
+        return BoxNode(type = "tEXt", offset = offset, headerSize = 8, size = totalSize, warnings = listOf("Missing keyword/text separator"))
+    }
+    val keyword = String(bytes, 0, nullIndex, Charsets.ISO_8859_1)
+    val text = String(bytes, nullIndex + 1, bytes.size - nullIndex - 1, Charsets.ISO_8859_1)
+    return BoxNode(
+        type = "tEXt", offset = offset, headerSize = 8, size = totalSize,
+        fields = listOf(
+            BoxField("keyword", keyword, dataStart, nullIndex.toLong()),
+            BoxField("text", text, dataStart + nullIndex + 1, (bytes.size - nullIndex - 1).toLong()),
+        ),
+        summary = "$keyword: $text",
+    )
+}
+
+private fun decodeExifChunk(reader: ByteReader, offset: Long, dataStart: Long, dataEnd: Long, totalSize: Long): BoxNode {
+    val children = decodeTiff(reader, dataStart, dataEnd)
+    return BoxNode(type = "eXIf", offset = offset, headerSize = 8, size = totalSize, children = children, summary = "Exif metadata")
 }
