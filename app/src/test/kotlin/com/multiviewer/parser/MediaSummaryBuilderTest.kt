@@ -369,4 +369,28 @@ class MediaSummaryBuilderTest {
 
         assertEquals(null, summary.motionPhotoVideoSections)
     }
+
+    @Test
+    fun `an AVIF-shaped tree (ftyp major_brand avif) produces correct Resolution, Format, and File Size`() {
+        val ftyp = BoxNode(
+            type = "ftyp", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("major_brand", "avif", 0, 4)),
+        )
+        val ispe = BoxNode(
+            type = "ispe", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("image_width", "1920", 0, 4), BoxField("image_height", "1080", 0, 4)),
+        )
+        val ipco = BoxNode(type = "ipco", offset = 0, headerSize = 0, size = 0, children = listOf(ispe))
+        val iprp = BoxNode(type = "iprp", offset = 0, headerSize = 0, size = 0, children = listOf(ipco))
+        val meta = BoxNode(type = "meta", offset = 0, headerSize = 0, size = 0, children = listOf(iprp))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ftyp, meta))
+        val file = File.createTempFile("avif-summary-test", ".avif")
+        file.deleteOnExit()
+        file.writeBytes(ByteArray(500_000))
+
+        val basicInfo = buildMediaSummary(root, file).sections.first { it.title == "Basic Info" }
+        assertEquals("1920x1080", basicInfo.fields.first { it.label == "Resolution" }.value)
+        assertEquals("avif", basicInfo.fields.first { it.label == "Format" }.value)
+        assertEquals("500.0 KB", basicInfo.fields.first { it.label == "File Size" }.value)
+    }
 }
