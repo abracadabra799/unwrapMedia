@@ -8,11 +8,13 @@ fun parseFile(path: File): BoxNode {
         val isJpeg = reader.length >= 2 && reader.readUInt8(0) == 0xFF && reader.readUInt8(1) == 0xD8
         val isPng = !isJpeg && isPngMagic(reader)
         val isBmp = !isJpeg && !isPng && isBmpMagic(reader)
-        val isTiff = !isJpeg && !isPng && !isBmp && isTiffMagic(reader)
+        val isGif = !isJpeg && !isPng && !isBmp && isGifMagic(reader)
+        val isTiff = !isJpeg && !isPng && !isBmp && !isGif && isTiffMagic(reader)
         val children = when {
             isJpeg -> parseJpegSegments(reader, 0, reader.length)
             isPng -> parsePngChunks(reader, 8, reader.length)
             isBmp -> parseBmpHeaders(reader, 0, reader.length)
+            isGif -> parseGifBlocks(reader, 6, reader.length)
             isTiff -> decodeTiff(reader, 0, reader.length)
             else -> parseBoxes(reader, 0, reader.length)
         }
@@ -31,6 +33,12 @@ private fun isBmpMagic(reader: ByteReader): Boolean {
     if (reader.length < 2) return false
     val bytes = reader.readBytes(0, 2)
     return bytes[0] == 'B'.code.toByte() && bytes[1] == 'M'.code.toByte()
+}
+
+private fun isGifMagic(reader: ByteReader): Boolean {
+    if (reader.length < 6) return false
+    val text = String(reader.readBytes(0, 6), Charsets.US_ASCII)
+    return text == "GIF87a" || text == "GIF89a"
 }
 
 private fun isTiffMagic(reader: ByteReader): Boolean {

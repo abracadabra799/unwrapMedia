@@ -130,6 +130,21 @@ class ParseFileIntegrationTest {
 
         assertEquals(listOf("BITMAPFILEHEADER", "BITMAPINFOHEADER"), root.children.map { it.type })
     }
+
+    @Test
+    fun `parses a GIF file via the block walker, not the ISOBMFF or TIFF path`() {
+        val header = "GIF89a".toByteArray(Charsets.US_ASCII)
+        val logicalScreenDescriptor = uint16LE(4) + uint16LE(4) + byteArrayOf(0x00, 0x00, 0x00)
+        val trailer = byteArrayOf(0x3B)
+        val bytes = header + logicalScreenDescriptor + trailer
+        val tmp = File.createTempFile("multiviewer-gif", ".gif")
+        tmp.deleteOnExit()
+        tmp.writeBytes(bytes)
+
+        val root = parseFile(tmp)
+
+        assertEquals(listOf("LogicalScreenDescriptor", "Trailer"), root.children.map { it.type })
+    }
 }
 
 private fun uint32(value: Long): ByteArray = byteArrayOf(
