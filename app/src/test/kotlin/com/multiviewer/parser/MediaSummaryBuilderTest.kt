@@ -542,4 +542,67 @@ class MediaSummaryBuilderTest {
         val videoDetail = summary.sections.first { it.title == "Video" }
         assertEquals("s263", videoDetail.fields.first { it.label == "Format" }.value)
     }
+
+    @Test
+    fun `a GIF-shaped tree (LogicalScreenDescriptor as a direct root child) produces Width, Height, Format GIF, and Frame Count`() {
+        val lsd = BoxNode(
+            type = "LogicalScreenDescriptor", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("width", "320", 0, 2), BoxField("height", "240", 0, 2)),
+        )
+        val imageDescriptor = BoxNode(type = "ImageDescriptor", offset = 0, headerSize = 0, size = 0)
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(lsd, imageDescriptor))
+        val file = File.createTempFile("gif-summary-test", ".gif")
+        file.deleteOnExit()
+        file.writeBytes(ByteArray(1000))
+
+        val summary = buildMediaSummary(root, file)
+
+        val general = summary.sections.first { it.title == "General" }
+        assertEquals("GIF", general.fields.first { it.label == "Format" }.value)
+
+        val image = summary.sections.first { it.title == "Image" }
+        assertEquals("320", image.fields.first { it.label == "Width" }.value)
+        assertEquals("240", image.fields.first { it.label == "Height" }.value)
+        assertEquals("1", image.fields.first { it.label == "Frame Count" }.value)
+        assertEquals(null, image.fields.find { it.label == "Loop Count" })
+    }
+
+    @Test
+    fun `an animated GIF-shaped tree with a Netscape loop_count of 0 shows Frame Count and an Infinite Loop Count`() {
+        val lsd = BoxNode(
+            type = "LogicalScreenDescriptor", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("width", "100", 0, 2), BoxField("height", "80", 0, 2)),
+        )
+        val appExtension = BoxNode(
+            type = "ApplicationExtension", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("application_identifier", "NETSCAPE2.0", 0, 11), BoxField("loop_count", "0", 0, 2)),
+        )
+        val frames = List(3) { BoxNode(type = "ImageDescriptor", offset = 0, headerSize = 0, size = 0) }
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(lsd, appExtension) + frames)
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val image = summary.sections.first { it.title == "Image" }
+        assertEquals("3", image.fields.first { it.label == "Frame Count" }.value)
+        assertEquals("Infinite", image.fields.first { it.label == "Loop Count" }.value)
+    }
+
+    @Test
+    fun `a finite Netscape loop_count shows as its raw number, not Infinite`() {
+        val lsd = BoxNode(
+            type = "LogicalScreenDescriptor", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("width", "100", 0, 2), BoxField("height", "80", 0, 2)),
+        )
+        val appExtension = BoxNode(
+            type = "ApplicationExtension", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("application_identifier", "NETSCAPE2.0", 0, 11), BoxField("loop_count", "5", 0, 2)),
+        )
+        val frames = List(2) { BoxNode(type = "ImageDescriptor", offset = 0, headerSize = 0, size = 0) }
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(lsd, appExtension) + frames)
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val image = summary.sections.first { it.title == "Image" }
+        assertEquals("5", image.fields.first { it.label == "Loop Count" }.value)
+    }
 }

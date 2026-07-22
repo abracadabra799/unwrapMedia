@@ -133,6 +133,7 @@ private fun buildImageGeneral(root: BoxNode, file: File): SummarySection {
     val isTiff = root.children.any { it.type == "IFD0" }
     val isPng = root.children.any { it.type == "IHDR" }
     val isBmp = root.children.any { it.type == "BITMAPFILEHEADER" }
+    val isGif = root.children.any { it.type == "LogicalScreenDescriptor" }
 
     val format = if (isJpeg) {
         "JPEG"
@@ -142,6 +143,8 @@ private fun buildImageGeneral(root: BoxNode, file: File): SummarySection {
         "PNG"
     } else if (isBmp) {
         "BMP"
+    } else if (isGif) {
+        "GIF"
     } else {
         root.children.find { it.type == "ftyp" }?.fields?.find { it.name == "major_brand" }?.value ?: "Unknown"
     }
@@ -157,6 +160,7 @@ private fun buildImageDetail(root: BoxNode): SummarySection? {
     val isTiff = root.children.any { it.type == "IFD0" }
     val isPng = root.children.any { it.type == "IHDR" }
     val isBmp = root.children.any { it.type == "BITMAPFILEHEADER" }
+    val isGif = root.children.any { it.type == "LogicalScreenDescriptor" }
     val sof = findFirst(root) { it.type.startsWith("SOF") }
     val ispe = findPrimaryItemProperty(root, "ispe") ?: findFirst(root) { it.type == "ispe" }
     val sofOrIspe = sof ?: ispe
@@ -192,6 +196,14 @@ private fun buildImageDetail(root: BoxNode): SummarySection? {
             fields.add(SummaryField("Width", width))
             fields.add(SummaryField("Height", abs(height).toString()))
         }
+    } else if (isGif) {
+        val lsd = root.children.find { it.type == "LogicalScreenDescriptor" }
+        val width = lsd?.fields?.find { it.name == "width" }?.value
+        val height = lsd?.fields?.find { it.name == "height" }?.value
+        if (width != null && height != null) {
+            fields.add(SummaryField("Width", width))
+            fields.add(SummaryField("Height", height))
+        }
     }
 
     val colr = findPrimaryItemProperty(root, "colr") ?: findFirst(root) { it.type == "colr" }
@@ -217,6 +229,17 @@ private fun buildImageDetail(root: BoxNode): SummarySection? {
     val captureDate = exif?.fields?.find { it.name == "DateTimeOriginal" }?.value
         ?: ifd0?.fields?.find { it.name == "DateTime" }?.value
     captureDate?.let { fields.add(SummaryField("Capture Date", it)) }
+
+    val frameCount = root.children.count { it.type == "ImageDescriptor" }
+    if (frameCount > 0) {
+        fields.add(SummaryField("Frame Count", frameCount.toString()))
+    }
+
+    val loopCount = root.children.find { it.type == "ApplicationExtension" }
+        ?.fields?.find { it.name == "loop_count" }?.value?.toIntOrNull()
+    if (loopCount != null) {
+        fields.add(SummaryField("Loop Count", if (loopCount == 0) "Infinite" else loopCount.toString()))
+    }
 
     return if (fields.isNotEmpty()) SummarySection("Image", fields) else null
 }
