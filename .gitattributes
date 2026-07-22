@@ -1,0 +1,12 @@
+# Normalize line endings so switching between macOS/Linux and Windows
+# (e.g. VS Code on Windows) doesn't produce noisy whitespace-only diffs.
+* text=auto eol=lf
+
+# Windows batch launcher needs CRLF to run reliably from cmd.exe/PowerShell.
+*.bat text eol=crlf
+
+# Shell scripts must stay LF even when checked out on Windows (e.g. via WSL/Git Bash).
+gradlew text eol=lf
+
+# Binary files — do not touch line endings, do not diff as text.
+*.jar binary
