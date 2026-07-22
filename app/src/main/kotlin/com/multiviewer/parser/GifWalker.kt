@@ -3,6 +3,8 @@ package com.multiviewer.parser
 private const val EXTENSION_INTRODUCER = 0x21
 private const val IMAGE_DESCRIPTOR_INTRODUCER = 0x2C
 private const val TRAILER = 0x3B
+private const val GRAPHIC_CONTROL_LABEL = 0xF9
+private const val APPLICATION_LABEL = 0xFF
 private const val COMMENT_LABEL = 0xFE
 private const val PLAIN_TEXT_LABEL = 0x01
 
@@ -66,6 +68,8 @@ fun parseGifBlocks(reader: ByteReader, start: Long, end: Long): List<BoxNode> {
 
 private fun decodeExtension(reader: ByteReader, label: Int, offset: Long, end: Long): Pair<BoxNode, Long>? =
     when (label) {
+        GRAPHIC_CONTROL_LABEL -> decodeGraphicControlExtension(reader, offset, end)
+        APPLICATION_LABEL -> decodeApplicationExtension(reader, offset, end)
         COMMENT_LABEL -> decodeGenericSubBlockExtension(reader, "CommentExtension", offset, end)
         PLAIN_TEXT_LABEL -> decodeGenericSubBlockExtension(reader, "PlainTextExtension", offset, end)
         else -> decodeGenericSubBlockExtension(reader, "Extension_0x${label.toString(16).padStart(2, '0').uppercase()}", offset, end)
@@ -74,6 +78,47 @@ private fun decodeExtension(reader: ByteReader, label: Int, offset: Long, end: L
 private fun decodeGenericSubBlockExtension(reader: ByteReader, type: String, offset: Long, end: Long): Pair<BoxNode, Long>? {
     val (_, nextPos) = readSubBlocks(reader, offset + 2, end) ?: return null
     return BoxNode(type = type, offset = offset, headerSize = 2, size = nextPos - offset) to nextPos
+}
+
+private fun decodeGraphicControlExtension(reader: ByteReader, offset: Long, end: Long): Pair<BoxNode, Long>? {
+    val (blocks, nextPos) = readSubBlocks(reader, offset + 2, end) ?: return null
+    val data = blocks.firstOrNull()
+    if (data == null || data.size < 4) {
+        return BoxNode("GraphicControlExtension", offset, 2, nextPos - offset, warnings = listOf("Graphic Control Extension missing its data sub-block")) to nextPos
+    }
+    val packed = data[0].toInt() and 0xFF
+    val disposalMethod = (packed shr 2) and 0x07
+    val transparentColorFlag = packed and 0x01
+    val delayTime = (data[1].toInt() and 0xFF) or ((data[2].toInt() and 0xFF) shl 8)
+    val transparentColorIndex = data[3].toInt() and 0xFF
+    return BoxNode(
+        type = "GraphicControlExtension", offset = offset, headerSize = 2, size = nextPos - offset,
+        fields = listOf(
+            BoxField("disposal_method", disposalMethod.toString(), offset + 3, 1),
+            BoxField("transparent_color_flag", transparentColorFlag.toString(), offset + 3, 1),
+            BoxField("delay_time", delayTime.toString(), offset + 4, 2),
+            BoxField("transparent_color_index", transparentColorIndex.toString(), offset + 6, 1),
+        ),
+    ) to nextPos
+}
+
+private fun decodeApplicationExtension(reader: ByteReader, offset: Long, end: Long): Pair<BoxNode, Long>? {
+    val (blocks, nextPos) = readSubBlocks(reader, offset + 2, end) ?: return null
+    val header = blocks.firstOrNull()
+    if (header == null || header.size < 11) {
+        return BoxNode("ApplicationExtension", offset, 2, nextPos - offset, warnings = listOf("Application Extension missing its identifier sub-block")) to nextPos
+    }
+    val identifier = String(header, 0, 11, Charsets.US_ASCII)
+    val fields = mutableListOf(BoxField("application_identifier", identifier, offset + 3, 11))
+    if (identifier == "NETSCAPE2.0") {
+        val loopBlock = blocks.getOrNull(1)
+        if (loopBlock != null && loopBlock.size >= 3) {
+            val loopCount = (loopBlock[1].toInt() and 0xFF) or ((loopBlock[2].toInt() and 0xFF) shl 8)
+            // offset+3..+13: 11-byte identifier; offset+14: loop sub-block's size byte; offset+15: sub-block ID byte; offset+16: loop count value
+            fields.add(BoxField("loop_count", loopCount.toString(), offset + 16, 2))
+        }
+    }
+    return BoxNode(type = "ApplicationExtension", offset = offset, headerSize = 2, size = nextPos - offset, fields = fields) to nextPos
 }
 
 private fun decodeLogicalScreenDescriptor(reader: ByteReader, offset: Long): BoxNode {

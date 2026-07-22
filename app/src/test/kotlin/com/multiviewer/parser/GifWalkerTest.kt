@@ -161,4 +161,52 @@ class GifWalkerTest {
             assertTrue(nodes[0].warnings.isNotEmpty())
         }
     }
+
+    @Test
+    fun `decodes Graphic Control Extension fields`() {
+        // packed = 0x09 = 0b00001001 -> disposal_method (bits 4-2) = 2, transparent_color_flag (bit 0) = 1
+        val gceData = subBlock(byteArrayOf(0x09, 0x0A, 0x00, 0x05)) + SUB_BLOCK_TERMINATOR
+        val bytes = logicalScreenDescriptor(width = 4, height = 4, globalColorTableFlag = false, globalColorTableSize = 0) +
+            byteArrayOf(0x21, 0xF9.toByte()) + gceData +
+            byteArrayOf(0x3B)
+        readerOver(bytes, "gif-walker-gce").use { reader ->
+            val nodes = parseGifBlocks(reader, 0, bytes.size.toLong())
+            val gce = nodes.first { it.type == "GraphicControlExtension" }
+            assertEquals("2", gce.fields.first { it.name == "disposal_method" }.value)
+            assertEquals("1", gce.fields.first { it.name == "transparent_color_flag" }.value)
+            assertEquals("10", gce.fields.first { it.name == "delay_time" }.value)
+            assertEquals("5", gce.fields.first { it.name == "transparent_color_index" }.value)
+        }
+    }
+
+    @Test
+    fun `decodes an Application Extension's Netscape loop count`() {
+        val appHeader = subBlock("NETSCAPE2.0".toByteArray(Charsets.US_ASCII)) // 11 bytes
+        val loopSubBlock = subBlock(byteArrayOf(0x01, 0x00, 0x00)) // sub-block ID 1, loop count = 0 (infinite)
+        val appData = appHeader + loopSubBlock + SUB_BLOCK_TERMINATOR
+        val bytes = logicalScreenDescriptor(width = 4, height = 4, globalColorTableFlag = false, globalColorTableSize = 0) +
+            byteArrayOf(0x21, 0xFF.toByte()) + appData +
+            byteArrayOf(0x3B)
+        readerOver(bytes, "gif-walker-netscape").use { reader ->
+            val nodes = parseGifBlocks(reader, 0, bytes.size.toLong())
+            val app = nodes.first { it.type == "ApplicationExtension" }
+            assertEquals("NETSCAPE2.0", app.fields.first { it.name == "application_identifier" }.value)
+            assertEquals("0", app.fields.first { it.name == "loop_count" }.value)
+        }
+    }
+
+    @Test
+    fun `an Application Extension with a non-Netscape identifier has no loop_count field`() {
+        val appHeader = subBlock("XYZAPP1.0X0".toByteArray(Charsets.US_ASCII)) // 11 bytes, arbitrary
+        val appData = appHeader + SUB_BLOCK_TERMINATOR
+        val bytes = logicalScreenDescriptor(width = 4, height = 4, globalColorTableFlag = false, globalColorTableSize = 0) +
+            byteArrayOf(0x21, 0xFF.toByte()) + appData +
+            byteArrayOf(0x3B)
+        readerOver(bytes, "gif-walker-non-netscape").use { reader ->
+            val nodes = parseGifBlocks(reader, 0, bytes.size.toLong())
+            val app = nodes.first { it.type == "ApplicationExtension" }
+            assertEquals("XYZAPP1.0X0", app.fields.first { it.name == "application_identifier" }.value)
+            assertEquals(null, app.fields.find { it.name == "loop_count" })
+        }
+    }
 }
