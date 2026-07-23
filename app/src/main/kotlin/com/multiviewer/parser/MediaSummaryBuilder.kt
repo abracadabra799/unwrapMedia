@@ -22,7 +22,8 @@ fun buildMediaSummary(root: BoxNode, file: File): MediaSummary {
     } else {
         null
     }
-    return MediaSummary(category, sections, motionPhotoVideoSections)
+    val thumbnail = if (category == MediaCategory.IMAGE) buildThumbnail(root, file) else null
+    return MediaSummary(category, sections, motionPhotoVideoSections, thumbnail)
 }
 
 private fun buildMotionPhotoVideoSummary(root: BoxNode, file: File): List<SummarySection>? {
@@ -35,6 +36,17 @@ private fun buildMotionPhotoVideoSummary(root: BoxNode, file: File): List<Summar
                 size = video.end - video.start, children = videoBoxes,
             )
             buildVideoSummary(videoRoot, video.end - video.start)
+        }
+    } catch (e: Exception) {
+        null
+    }
+}
+
+private fun buildThumbnail(root: BoxNode, file: File): ByteArray? {
+    val thumbnailNode = findFirst(root) { it.type == "ThumbnailImage" } ?: return null
+    return try {
+        ByteReader.open(file).use { reader ->
+            reader.readBytes(thumbnailNode.offset, thumbnailNode.size.toInt())
         }
     } catch (e: Exception) {
         null

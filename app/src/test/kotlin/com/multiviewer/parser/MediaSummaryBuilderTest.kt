@@ -3,6 +3,7 @@ package com.multiviewer.parser
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class MediaSummaryBuilderTest {
     private fun tempFile(bytes: Int = 0): File {
@@ -604,5 +605,38 @@ class MediaSummaryBuilderTest {
 
         val image = summary.sections.first { it.title == "Image" }
         assertEquals("5", image.fields.first { it.label == "Loop Count" }.value)
+    }
+
+    @Test
+    fun `a JPEG-shaped tree with a ThumbnailImage node populates MediaSummary#thumbnail with the exact bytes`() {
+        val thumbnailBytes = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xd9.toByte())
+        val file = File.createTempFile("thumbnail-summary-test", ".jpg")
+        file.deleteOnExit()
+        file.writeBytes(ByteArray(20) + thumbnailBytes)
+        val thumbnailOffset = 20L
+
+        val thumbnailNode = BoxNode(type = "ThumbnailImage", offset = thumbnailOffset, headerSize = 0, size = thumbnailBytes.size.toLong())
+        val ifd1 = BoxNode(type = "IFD1", offset = 0, headerSize = 0, size = 0, children = listOf(thumbnailNode))
+        val ifd0 = BoxNode(type = "IFD0", offset = 0, headerSize = 0, size = 0)
+        val app1 = BoxNode(type = "APP1", offset = 0, headerSize = 4, size = 0, children = listOf(ifd0, ifd1))
+        val root = BoxNode(
+            type = "root", offset = 0, headerSize = 0, size = 0,
+            children = listOf(BoxNode(type = "SOI", offset = 0, headerSize = 2, size = 2), app1),
+        )
+
+        val summary = buildMediaSummary(root, file)
+
+        assertTrue(summary.thumbnail != null)
+        assertTrue(thumbnailBytes.contentEquals(summary.thumbnail!!))
+    }
+
+    @Test
+    fun `an image tree with no ThumbnailImage node leaves MediaSummary#thumbnail null`() {
+        val root = BoxNode(
+            type = "root", offset = 0, headerSize = 0, size = 0,
+            children = listOf(BoxNode(type = "SOI", offset = 0, headerSize = 2, size = 2)),
+        )
+        val summary = buildMediaSummary(root, tempFile())
+        assertEquals(null, summary.thumbnail)
     }
 }
