@@ -51,7 +51,13 @@ fun MediaSummaryView(summary: MediaSummary?) {
 
 @Composable
 private fun ThumbnailPreview(bytes: ByteArray) {
-    val bitmap = remember(bytes) { loadImageBitmap(ByteArrayInputStream(bytes)) }
+    val bitmap = remember(bytes) {
+        try {
+            loadImageBitmap(ByteArrayInputStream(bytes))
+        } catch (e: Exception) {
+            null
+        }
+    } ?: return
     Box(
         modifier = Modifier
             .fillMaxWidth()
