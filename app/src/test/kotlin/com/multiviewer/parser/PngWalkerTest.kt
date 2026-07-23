@@ -95,15 +95,15 @@ class PngWalkerTest {
 
     @Test
     fun `decodes tEXt keyword and text`() {
-        val textData = "Comment\u0000Made with multiViewer".toByteArray(Charsets.ISO_8859_1)
+        val textData = "Comment\u0000Made with unwrapMedia".toByteArray(Charsets.ISO_8859_1)
         val bytes = pngChunk("tEXt", textData)
         readerOver(bytes, "png-walker-text").use { reader ->
             val nodes = parsePngChunks(reader, 0, bytes.size.toLong())
             val text = nodes[0]
             assertEquals("tEXt", text.type)
             assertEquals("Comment", text.fields.first { it.name == "keyword" }.value)
-            assertEquals("Made with multiViewer", text.fields.first { it.name == "text" }.value)
-            assertEquals("Comment: Made with multiViewer", text.summary)
+            assertEquals("Made with unwrapMedia", text.fields.first { it.name == "text" }.value)
+            assertEquals("Comment: Made with unwrapMedia", text.summary)
         }
     }
 

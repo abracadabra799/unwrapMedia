@@ -15,5 +15,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "multiViewer"
+rootProject.name = "unwrapMedia"
 include(":app")

@@ -24,10 +24,10 @@ tasks.test {
 compose.desktop {
     application {
         mainClass = "com.multiviewer.MainKt"
-        jvmArgs += listOf("-Dapple.awt.application.name=multiViewer")
+        jvmArgs += listOf("-Dapple.awt.application.name=unwrapMedia")
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "multiViewer"
+            packageName = "unwrapMedia"
             packageVersion = "1.0.0"
         }
     }

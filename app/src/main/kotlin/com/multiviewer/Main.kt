@@ -143,7 +143,7 @@ private fun DraggableDivider(
 fun main() = application {
     val appState = remember { AppState() }
 
-    Window(onCloseRequest = ::exitApplication, title = "multiViewer") {
+    Window(onCloseRequest = ::exitApplication, title = "unwrapMedia") {
         MenuBar {
             Menu("File") {
                 Item(
