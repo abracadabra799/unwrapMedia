@@ -4,6 +4,8 @@ private const val TAG_EXIF_IFD_POINTER = 0x8769
 private const val TAG_GPS_IFD_POINTER = 0x8825
 private const val TAG_INTEROP_IFD_POINTER = 0xA005
 private const val TAG_MAKER_NOTE = 0x927C
+private const val TAG_JPEG_INTERCHANGE_FORMAT = 0x0201
+private const val TAG_JPEG_INTERCHANGE_FORMAT_LENGTH = 0x0202
 
 private val TIFF_TYPE_SIZES = mapOf(
     1 to 1, 2 to 1, 3 to 2, 4 to 4, 5 to 8, 6 to 1, 7 to 1, 8 to 2, 9 to 4, 10 to 8, 11 to 4, 12 to 8,
@@ -100,9 +102,18 @@ fun decodeTiff(reader: ByteReader, tiffStart: Long, itemEnd: Long): List<BoxNode
     val ifd0Offset = readUInt32Endian(reader, tiffStart + 4, littleEndian)
     val ifd0AbsoluteOffset = tiffStart + ifd0Offset
     val visitedOffsets = mutableSetOf<Long>()
-    return listOf(
-        decodeIfd(reader, tiffStart, ifd0AbsoluteOffset, itemEnd, littleEndian, "IFD0", TAG_NAMES_IFD0, visitedOffsets),
-    )
+    val ifd0Node = decodeIfd(reader, tiffStart, ifd0AbsoluteOffset, itemEnd, littleEndian, "IFD0", TAG_NAMES_IFD0, visitedOffsets)
+
+    val ifds = mutableListOf(ifd0Node)
+    val nextIfdOffsetPos = ifd0Node.offset + ifd0Node.size
+    if (nextIfdOffsetPos + 4 <= itemEnd) {
+        val nextIfdOffset = readUInt32Endian(reader, nextIfdOffsetPos, littleEndian)
+        if (nextIfdOffset != 0L) {
+            val ifd1AbsoluteOffset = tiffStart + nextIfdOffset
+            ifds.add(decodeIfd(reader, tiffStart, ifd1AbsoluteOffset, itemEnd, littleEndian, "IFD1", TAG_NAMES_IFD0, visitedOffsets))
+        }
+    }
+    return ifds
 }
 
 private fun decodeIfd(
@@ -124,6 +135,8 @@ private fun decodeIfd(
     val entryCount = readUInt16Endian(reader, ifdOffset, littleEndian)
     val fields = mutableListOf<BoxField>()
     val children = mutableListOf<BoxNode>()
+    var jpegThumbnailOffset: Long? = null
+    var jpegThumbnailLength: Long? = null
     var pos = ifdOffset + 2
     for (i in 0 until entryCount) {
         if (pos + 12 > itemEnd) break
@@ -163,6 +176,12 @@ private fun decodeIfd(
                     children.add(decodeMakerNote(reader, tiffStart, valueAbsolutePos, count.toInt(), littleEndian, itemEnd))
                 }
             }
+            TAG_JPEG_INTERCHANGE_FORMAT -> {
+                jpegThumbnailOffset = readUInt32Endian(reader, valueOffsetPos, littleEndian)
+            }
+            TAG_JPEG_INTERCHANGE_FORMAT_LENGTH -> {
+                jpegThumbnailLength = readUInt32Endian(reader, valueOffsetPos, littleEndian)
+            }
             else -> {
                 val name = tagNames[tag] ?: "Tag 0x${tag.toString(16).padStart(4, '0')}"
                 if (valueAbsolutePos < 0 || valueAbsolutePos + totalSize > itemEnd) {
@@ -175,6 +194,18 @@ private fun decodeIfd(
         }
         pos += 12
     }
+
+    val thumbnailOffset = jpegThumbnailOffset
+    val thumbnailLength = jpegThumbnailLength
+    if (thumbnailOffset != null && thumbnailLength != null && thumbnailLength > 0) {
+        val thumbnailAbsoluteOffset = tiffStart + thumbnailOffset
+        if (thumbnailAbsoluteOffset >= 0 && thumbnailAbsoluteOffset + thumbnailLength <= itemEnd) {
+            children.add(
+                BoxNode(type = "ThumbnailImage", offset = thumbnailAbsoluteOffset, headerSize = 0, size = thumbnailLength, summary = "$thumbnailLength bytes"),
+            )
+        }
+    }
+
     return BoxNode(
         type = label, offset = ifdOffset, headerSize = 2, size = pos - ifdOffset,
         fields = fields, children = children,
