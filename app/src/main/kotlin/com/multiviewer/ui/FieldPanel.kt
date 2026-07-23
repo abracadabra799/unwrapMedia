@@ -11,7 +11,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.multiviewer.parser.BoxNode
-import com.multiviewer.parser.GridData
 
 @Composable
 fun FieldPanel(node: BoxNode?) {
@@ -55,21 +54,5 @@ fun MetadataRow(label: String, value: String) {
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
         Text("$label: ", modifier = Modifier.padding(end = 4.dp))
         Text(value)
-    }
-}
-
-@Composable
-private fun GridDisplay(grid: GridData) {
-    Column(modifier = Modifier.padding(top = 8.dp)) {
-        for (row in 0 until grid.rows) {
-            Row {
-                for (col in 0 until grid.columns) {
-                    Text(
-                        grid.values[row * grid.columns + col].padStart(4),
-                        modifier = Modifier.padding(horizontal = 4.dp),
-                    )
-                }
-            }
-        }
     }
 }

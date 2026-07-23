@@ -1,0 +1,33 @@
+# Task: Modern Media Inspector Implementation
+
+- [x] UI Infrastructure & Styling
+    - [x] Define Neon Color Palette & Typography
+    - [x] Create `DashboardLayout` (3-column modular structure)
+- [x] Image Forensic Inspector
+    - [x] Implement `ImageAnalyzer` (Histogram, DQT Heatmap logic)
+    - [x] Create `PixelInspectorPreview` (Hover coordinates/RGB)
+    - [x] Create `ForensicCharts` (Histogram & Heatmap)
+    - [x] Create `ImageInspectorUI`
+- [x] Video Modern Inspector
+    - [x] Implement `VideoAnalyzer` (VBR Bitrate, Box Treemap logic)
+    - [x] Create `BitrateVisualizer` (Neon line chart)
+    - [x] Create `BoxBlockView` (Treemap)
+    - [x] Create `InfographicMetadata` (Camera LCD style)
+    - [x] Create `VideoInspectorUI`
+- [x] Integration & Refinement
+    - [x] Update `TabState` to handle multi-type data
+    - [x] Update `Main.kt` to route based on file type
+    - [x] Verify Hex-sync across all views
+- [x] Motion Photo & Summary Integration
+    - [x] Refactor `CoreMetadataDisplay` for general usage
+    - [x] Create `SummaryBox` component for Image Inspector
+    - [x] Implement scrollable Dashboard in `ImageInspectorUI`
+    - [x] Integrate Motion Photo video sections
+- [x] Video Dashboard & Summary Integration
+    - [x] Create shared UI components (SummaryBox)
+    - [x] Refactor `VideoInspectorUI` to use `LazyColumn`
+    - [x] Integrate `MediaSummary` into Video Inspector dashboard
+- [x] Image Inspector Redesign (Media Summary focus)
+    - [x] Remove Histogram/DQT from Image Inspector
+    - [x] Update `ImageInspectorUI` to prioritize `SummaryBox` sections
+    - [x] Ensure Motion Photo summary is clearly visible

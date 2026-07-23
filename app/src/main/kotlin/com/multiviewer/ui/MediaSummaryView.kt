@@ -20,9 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.loadImageBitmap
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.multiviewer.parser.MediaSummary
 import com.multiviewer.parser.SummarySection
 import java.io.ByteArrayInputStream
@@ -42,8 +40,8 @@ fun MediaSummaryView(summary: MediaSummary?) {
                 SummaryBox("🎬 동영상 (모션포토)", videoSections)
             }
         } else {
-            items(summary.sections) { section ->
-                SectionContent(section)
+            item {
+                SummaryBox("General Info", summary.sections)
             }
         }
     }
@@ -73,38 +71,4 @@ private fun ThumbnailPreview(bytes: ByteArray) {
         )
     }
     Spacer(modifier = Modifier.height(12.dp))
-}
-
-@Composable
-private fun SummaryBox(title: String, sections: List<SummarySection>) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
-            .padding(12.dp),
-    ) {
-        Text(
-            title,
-            modifier = Modifier.padding(bottom = 8.dp),
-            fontWeight = FontWeight.Bold,
-            fontSize = 16.sp,
-        )
-        sections.forEach { section -> SectionContent(section) }
-    }
-}
-
-@Composable
-private fun SectionContent(section: SummarySection) {
-    Column(modifier = Modifier.padding(bottom = 12.dp)) {
-        Text(
-            section.title,
-            modifier = Modifier.padding(bottom = 6.dp),
-            fontWeight = FontWeight.Bold,
-            fontSize = 15.sp,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        section.fields.forEach { field ->
-            MetadataRow(field.label, field.value)
-        }
-    }
 }

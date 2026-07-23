@@ -4,20 +4,45 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import com.multiviewer.parser.BoxNode
-import com.multiviewer.parser.EmbeddedVideo
-import com.multiviewer.parser.MediaSummary
-import com.multiviewer.parser.buildMediaSummary
-import com.multiviewer.parser.findEmbeddedVideo
-import com.multiviewer.parser.findMotionPhotoPreview
-import com.multiviewer.parser.parseFile
+import androidx.compose.ui.graphics.ImageBitmap
+import com.multiviewer.parser.*
 import java.io.File
 
 private const val MAX_OPEN_FILES = 2
 
+enum class MediaType {
+    IMAGE, VIDEO, UNKNOWN
+}
+
+data class HistogramData(
+    val r: FloatArray,
+    val g: FloatArray,
+    val b: FloatArray,
+    val y: FloatArray
+)
+
+data class ImageForensicData(
+    val bitmap: ImageBitmap? = null,
+    val histogram: HistogramData? = null,
+    val dqtQuality: Int = 0,
+    val software: String? = null,
+    val isModified: Boolean = false
+)
+
+data class BitratePoint(val timestampSeconds: Double, val kbps: Double)
+
+data class VideoAnalysisData(
+    val bitratePoints: List<BitratePoint> = emptyList(),
+    val boxWeights: Map<String, Long> = emptyMap()
+)
+
 class TabState(val file: File) {
+    var type by mutableStateOf(MediaType.UNKNOWN)
     var root: BoxNode? by mutableStateOf(null)
     var mediaSummary: MediaSummary? by mutableStateOf(null)
+    var imageForensic: ImageForensicData? by mutableStateOf(null)
+    var videoAnalysis: VideoAnalysisData? by mutableStateOf(null)
+    
     var embeddedVideo: EmbeddedVideo? by mutableStateOf(null)
     var motionPhotoPreview: EmbeddedVideo? by mutableStateOf(null)
     var error: String? by mutableStateOf(null)
@@ -50,6 +75,14 @@ class AppState {
         try {
             val root = parseFile(file)
             tab.root = root
+            
+            // Detect Type
+            tab.type = when {
+                file.extension.lowercase() in listOf("jpg", "jpeg", "png", "bmp", "gif") -> MediaType.IMAGE
+                file.extension.lowercase() in listOf("mp4", "mov", "m4v") -> MediaType.VIDEO
+                else -> MediaType.UNKNOWN
+            }
+
             tab.mediaSummary = try {
                 buildMediaSummary(root, file)
             } catch (e: Exception) {
@@ -65,6 +98,14 @@ class AppState {
             } catch (e: Exception) {
                 null
             }
+            
+            // Trigger analysis based on type
+            when (tab.type) {
+                MediaType.IMAGE -> tab.imageForensic = ImageAnalyzer.analyze(file, root)
+                MediaType.VIDEO -> tab.videoAnalysis = VideoAnalyzer.analyze(file, root)
+                else -> {}
+            }
+            
         } catch (e: Exception) {
             tab.error = e.message ?: "Failed to open file"
         }
