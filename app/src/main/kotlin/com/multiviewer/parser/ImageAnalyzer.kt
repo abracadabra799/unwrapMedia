@@ -9,11 +9,17 @@ import java.io.File
 object ImageAnalyzer {
     fun analyze(file: File, root: BoxNode): ImageForensicData {
         val bytes = file.readBytes()
-        val skiaImage = try {
+        var skiaImage = try {
             Image.makeFromEncoded(bytes)
         } catch (e: Exception) {
             null
         }
+        
+        // HEIC Fallback: Try to find primary item if direct loading fails
+        if (skiaImage == null && file.extension.lowercase() in listOf("heic", "heif", "avif")) {
+            skiaImage = tryExtractHeicPreview(file, root)
+        }
+
         val bitmap = skiaImage?.toComposeImageBitmap()
         
         val histogram = if (skiaImage != null) calculateHistogram(skiaImage) else null
@@ -49,6 +55,16 @@ object ImageAnalyzer {
             software = software,
             isModified = isModified
         )
+    }
+
+    private fun tryExtractHeicPreview(file: File, root: BoxNode): Image? {
+        // HEIC is ISOBMFF based. We look for 'iloc' items.
+        // This is a simplified extraction of the first large item (usually the primary image)
+        val iloc = findFirst(root) { it.type == "iloc" } ?: return null
+        // If we can't decode the HEVC bitstream via Skia directly, 
+        // we might be out of luck without a native HEIF decoder library.
+        // However, many HEIC files contain a JPEG thumbnail in a 'thmb' or similar box.
+        return null // Placeholder: Real HEVC decoding usually requires a specialized library like libheif
     }
 
     private fun calculateHistogram(image: Image): HistogramData {

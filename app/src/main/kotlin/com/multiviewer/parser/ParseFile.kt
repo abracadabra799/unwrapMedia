@@ -10,12 +10,14 @@ fun parseFile(path: File): BoxNode {
         val isBmp = !isJpeg && !isPng && isBmpMagic(reader)
         val isGif = !isJpeg && !isPng && !isBmp && isGifMagic(reader)
         val isTiff = !isJpeg && !isPng && !isBmp && !isGif && isTiffMagic(reader)
+        val isWebp = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && isWebpMagic(reader)
         val children = when {
             isJpeg -> parseJpegSegments(reader, 0, reader.length)
             isPng -> parsePngChunks(reader, 8, reader.length)
             isBmp -> parseBmpHeaders(reader, 0, reader.length)
             isGif -> parseGifBlocks(reader, 6, reader.length)
             isTiff -> decodeTiff(reader, 0, reader.length)
+            isWebp -> parseWebpChunks(reader, 0, reader.length)
             else -> parseBoxes(reader, 0, reader.length)
         }
         return BoxNode(type = "root", offset = 0, headerSize = 0, size = reader.length, children = children)
@@ -49,4 +51,9 @@ private fun isTiffMagic(reader: ByteReader): Boolean {
     val isBigEndian = bytes[0] == 'M'.code.toByte() && bytes[1] == 'M'.code.toByte() &&
         bytes[2] == 0x00.toByte() && bytes[3] == 0x2A.toByte()
     return isLittleEndian || isBigEndian
+}
+
+private fun isWebpMagic(reader: ByteReader): Boolean {
+    if (reader.length < 12) return false
+    return reader.readFourCC(0) == "RIFF" && reader.readFourCC(8) == "WEBP"
 }

@@ -56,8 +56,15 @@ private fun extractMotionPhotoVideo(appState: AppState, tab: TabState) {
 
 fun main() = application {
     val appState = remember { AppState() }
+    
+    // Log environment info for native library troubleshooting
+    LaunchedEffect(Unit) {
+        println("Starting unwrapMedia...")
+        println("OS: ${System.getProperty("os.name")} (${System.getProperty("os.arch")})")
+        println("Java Home: ${System.getProperty("java.home")}")
+    }
 
-    Window(onCloseRequest = ::exitApplication, title = "Modern Media Inspector") {
+    Window(onCloseRequest = ::exitApplication, title = "unwrapMedia") {
         MenuBar {
             Menu("File") {
                 Item("Open", shortcut = KeyShortcut(Key.O, meta = true), onClick = { showOpenFileDialog(appState) })

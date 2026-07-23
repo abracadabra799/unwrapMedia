@@ -1,34 +1,43 @@
-# Implementation Plan - Video Dashboard & Summary Integration
+# Implementation Plan - Self-contained Multi-platform Packaging with VLC
 
-Refactor the **Video Inspector**'s central area to match the scrollable, MediaInfo-style dashboard layout used in the Image Inspector.
+Enable unwrapMedia to be distributed as a standalone application for Windows and Linux by bundling VLC native libraries and setting up an automated GitHub Actions build pipeline.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - **Scrollable Video Dashboard**: The center panel will switch to a `LazyColumn` containing:
->     1. Visual Preview (Fixed height or scrollable)
->     2. Bitrate Analysis & Box Treemap
->     3. MediaInfo-style Summary Cards (General, Video, Audio)
-> - **Consistency**: This mirrors the "Image/Motion Photo" structure, ensuring a unified user experience across different media types.
+> - **Package Size**: Each installer (.msi, .deb, .dmg) will increase in size by approximately **100MB-150MB** due to the inclusion of VLC codecs and libraries.
+> - **GitHub Actions**: The builds will happen on GitHub's cloud servers. You will need to push the code to your repository and download the results from the "Actions" or "Releases" tab.
 
 ## Proposed Changes
 
-### [Component: UI]
+### [Component: Build Configuration]
 
-#### [MODIFY] [VideoInspectorUI.kt](file:///Users/dong.kim/AndroidStudioProjects/multiViewer/app/src/main/kotlin/com/multiviewer/ui/VideoInspectorUI.kt)
-- Update `centerPanel` to use a `LazyColumn`.
-- **Item 1: Visual Preview**: Keep the black preview placeholder at the top.
-- **Item 2: Analysis Row**: Place `BitrateVisualizer` and `BoxBlockView` in a row within the `LazyColumn`.
-- **Item 3: Media Summary**: Use the `SummaryBox` component (to be made shared or duplicated) to display General, Track List, Video, and Audio sections.
+#### [MODIFY] [app/build.gradle.kts](file:///Users/dong.kim/AndroidStudioProjects/multiViewer/app/build.gradle.kts)
+- Add the following dependencies to ensure native libraries for all platforms are available at runtime:
+    - `implementation("uk.co.caprica:vlcj-natives-windows-x86-64:4.8.0")`
+    - `implementation("uk.co.caprica:vlcj-natives-linux-x86-64:4.8.0")`
+    - `implementation("uk.co.caprica:vlcj-natives-macos-all:4.8.0")`
 
-#### [MODIFY] [ImageInspectorUI.kt](file:///Users/dong.kim/AndroidStudioProjects/multiViewer/app/src/main/kotlin/com/multiviewer/ui/ImageInspectorUI.kt)
-- Extract the `SummaryBox` and `PropertyRow` (if shared) to a common UI file if appropriate, or ensure they are available for `VideoInspectorUI`.
+### [Component: UI - Video Player]
+
+#### [MODIFY] [VlcVideoPlayer.kt](file:///Users/dong.kim/AndroidStudioProjects/multiViewer/app/src/main/kotlin/com/multiviewer/ui/VlcVideoPlayer.kt)
+- Update discovery logic to gracefully handle bundled natives if system-wide VLC is missing.
+
+### [Component: CI/CD]
+
+#### [NEW] [.github/workflows/package.yml](file:///Users/dong.kim/AndroidStudioProjects/multiViewer/.github/workflows/package.yml)
+- Create a multi-platform build matrix:
+    - `os: [windows-latest, ubuntu-latest, macos-latest]`
+- Steps:
+    1. Checkout code.
+    2. Set up JDK 21.
+    3. Run `./gradlew :app:packageDistributionForCurrentOS`.
+    4. Upload the generated installers as artifacts.
 
 ## Verification Plan
 
-### Automated Tests
-- Confirm successful build with `:app:classes`.
-
 ### Manual Verification
-- Open a 4K MOV file: Verify that the bitrate chart and summary cards (General, Video, Audio) appear in a scrollable list.
-- Verify that the right-side "Detailed Properties" panel correctly reflects the selected Box from the left tree.
+1. Push the changes to the `v2` branch.
+2. Monitor the "Package unwrapMedia" workflow on GitHub.
+3. Download the resulting Windows `.msi` and Linux `.deb`.
+4. Run them on target machines to confirm "out-of-the-box" video playback.

@@ -55,6 +55,10 @@ private fun buildThumbnail(root: BoxNode, file: File): ByteArray? {
 
 private fun detectCategory(root: BoxNode): MediaCategory {
     if (root.children.any { it.type == "SOI" }) return MediaCategory.IMAGE
+    val ftyp = root.children.find { it.type == "ftyp" }
+    val majorBrand = ftyp?.fields?.find { it.name == "major_brand" }?.value
+    if (majorBrand == "avif" || majorBrand == "avis" || majorBrand == "heic") return MediaCategory.IMAGE
+    
     val moov = root.children.find { it.type == "moov" } ?: return MediaCategory.IMAGE
     val hasVideoOrAudioTrack = moov.children.filter { it.type == "trak" }.any { trak ->
         val handlerType = findFirst(trak) { it.type == "hdlr" }?.fields?.find { it.name == "handler_type" }?.value
@@ -146,6 +150,7 @@ private fun buildImageGeneral(root: BoxNode, file: File): SummarySection {
     val isPng = root.children.any { it.type == "IHDR" }
     val isBmp = root.children.any { it.type == "BITMAPFILEHEADER" }
     val isGif = root.children.any { it.type == "LogicalScreenDescriptor" }
+    val isWebp = root.children.any { it.type == "RIFF" }
 
     val format = if (isJpeg) {
         "JPEG"
@@ -157,6 +162,8 @@ private fun buildImageGeneral(root: BoxNode, file: File): SummarySection {
         "BMP"
     } else if (isGif) {
         "GIF"
+    } else if (isWebp) {
+        "WebP"
     } else {
         root.children.find { it.type == "ftyp" }?.fields?.find { it.name == "major_brand" }?.value ?: "Unknown"
     }
@@ -173,13 +180,16 @@ private fun buildImageDetail(root: BoxNode): SummarySection? {
     val isPng = root.children.any { it.type == "IHDR" }
     val isBmp = root.children.any { it.type == "BITMAPFILEHEADER" }
     val isGif = root.children.any { it.type == "LogicalScreenDescriptor" }
+    
     val sof = findFirst(root) { it.type.startsWith("SOF") }
     val ispe = findPrimaryItemProperty(root, "ispe") ?: findFirst(root) { it.type == "ispe" }
-    val sofOrIspe = sof ?: ispe
+    val webpInfo = findFirst(root) { it.type in listOf("VP8X", "VP8 ", "VP8L") }
+    
+    val infoNode = sof ?: ispe ?: webpInfo
 
-    if (sofOrIspe != null) {
-        val width = sofOrIspe.fields.find { it.name == "width" || it.name == "image_width" }?.value
-        val height = sofOrIspe.fields.find { it.name == "height" || it.name == "image_height" }?.value
+    if (infoNode != null) {
+        val width = infoNode.fields.find { it.name == "width" || it.name == "image_width" }?.value
+        val height = infoNode.fields.find { it.name == "height" || it.name == "image_height" }?.value
         if (width != null && height != null) {
             fields.add(SummaryField("Width", width))
             fields.add(SummaryField("Height", height))
@@ -221,8 +231,8 @@ private fun buildImageDetail(root: BoxNode): SummarySection? {
     val colr = findPrimaryItemProperty(root, "colr") ?: findFirst(root) { it.type == "colr" }
     val colorSpace = if (colr != null) {
         colr.summary ?: "Unknown"
-    } else if (sofOrIspe != null && isJpeg) {
-        when (sofOrIspe.fields.find { it.name == "num_components" }?.value?.toIntOrNull()) {
+    } else if (infoNode != null && isJpeg) {
+        when (infoNode.fields.find { it.name == "num_components" }?.value?.toIntOrNull()) {
             3 -> "Color (YCbCr)"
             1 -> "Grayscale"
             else -> "Unknown"

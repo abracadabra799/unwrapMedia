@@ -22,6 +22,9 @@ object AppColors {
     val TextPrimary = Color(0xFFC9D1D9)
     val TextSecondary = Color(0xFF8B949E)
     val TextMuted = Color(0xFF484F58)
+    
+    val Selection = Color(0xFF264F78)
+    val Highlight = Color(0xFFD4BB00).copy(alpha = 0.4f)
 }
 
 val AppTypography = Typography(

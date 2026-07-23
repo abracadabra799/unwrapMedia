@@ -3,9 +3,11 @@ package com.multiviewer.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -16,26 +18,45 @@ fun ImageInspectorUI(
 ) {
     val forensic = tab.imageForensic ?: return
     val summary = tab.mediaSummary
+    var containerHeightPx by remember { mutableStateOf(0) }
+    var verticalSplit by remember { mutableStateOf(0.5f) }
     
     DashboardLayout(
         leftPanel = leftPanel,
         centerPanel = {
-            Column(modifier = Modifier.fillMaxSize()) {
-                // Top: Visual Preview (Main Focal Point)
-                Box(modifier = Modifier.height(350.dp).fillMaxWidth()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .onGloballyPositioned { containerHeightPx = it.size.height }
+            ) {
+                // Top: Visual Preview (Resizable)
+                Box(
+                    modifier = Modifier
+                        .weight(verticalSplit)
+                        .fillMaxWidth()
+                ) {
                     forensic.bitmap?.let { PixelInspectorPreview(it) }
                 }
                 
-                // Bottom: Scrollable Analysis Dashboard (Media Summary focused)
-                LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    // Item 1: Image Summary Box (General, Image, Camera Info cards)
+                // Resizable Divider
+                DraggableDivider(
+                    orientation = Orientation.Horizontal,
+                    containerSizePx = containerHeightPx,
+                    getSplit = { verticalSplit },
+                    setSplit = { verticalSplit = it }
+                )
+                
+                // Bottom: Scrollable Analysis Dashboard
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f - verticalSplit)
+                        .fillMaxWidth()
+                ) {
                     item {
                         if (summary != null) {
                             SummaryBox("📷 이미지", summary.sections)
                         }
                     }
-                    
-                    // Item 2: Motion Photo Video Summary Box
                     item {
                         val videoSections = summary?.motionPhotoVideoSections
                         if (videoSections != null) {
@@ -43,7 +64,6 @@ fun ImageInspectorUI(
                             SummaryBox("🎬 동영상 (모션포토)", videoSections)
                         }
                     }
-                    
                     item {
                         Spacer(Modifier.height(32.dp))
                     }
@@ -68,10 +88,16 @@ fun ImageInspectorUI(
                             PropertyRow(field.name, field.value)
                         }
                         
-                        // New: Display Grid Data (e.g. Quantization Tables)
                         selectedNode.grid?.let { grid ->
                             item {
                                 GridDisplay(grid)
+                            }
+                        }
+
+                        // Embedded Table Data
+                        selectedNode.table?.let { table ->
+                            item {
+                                EmbeddedTableView(tab.file, table)
                             }
                         }
 

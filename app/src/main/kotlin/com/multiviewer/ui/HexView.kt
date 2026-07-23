@@ -41,7 +41,7 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
                         val isHighlighted = highlightRange?.contains(byteOffset) == true
                         val hex = "%02X ".format(buf[i])
                         if (isHighlighted) {
-                            withStyle(SpanStyle(background = Color.Yellow)) { append(hex) }
+                            withStyle(SpanStyle(background = AppColors.Highlight)) { append(hex) }
                         } else {
                             append(hex)
                         }
@@ -56,7 +56,7 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
                     val byteValue = buf[i].toInt() and 0xFF
                     val char = if (byteValue in 0x20..0x7E) byteValue.toChar() else '.'
                     if (isHighlighted) {
-                        withStyle(SpanStyle(background = Color.Yellow)) { append(char) }
+                        withStyle(SpanStyle(background = AppColors.Highlight)) { append(char) }
                     } else {
                         append(char)
                     }

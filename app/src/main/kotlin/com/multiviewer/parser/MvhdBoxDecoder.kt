@@ -24,17 +24,31 @@ object MvhdBoxDecoder : BoxDecoder {
             return BoxNode(type, offset, headerSize, size, warnings = w)
         }
         var pos = payloadStart + 4
-        pos += timeFieldWidth // creation_time (not surfaced)
-        pos += timeFieldWidth // modification_time (not surfaced)
+        val creationTime = readUIntOfWidth(reader, pos, timeFieldWidth)
+        pos += timeFieldWidth
+        val modificationTime = readUIntOfWidth(reader, pos, timeFieldWidth)
+        pos += timeFieldWidth
         val timescaleOffset = pos
         val timescale = reader.readUInt32(pos)
         pos += 4
         val durationOffset = pos
         val duration = readUIntOfWidth(reader, pos, timeFieldWidth)
+        pos += timeFieldWidth
+        pos += 4 // rate
+        pos += 2 // volume
+        pos += 10 // reserved
+        pos += 36 // matrix
+        pos += 24 // predefined
+        val nextTrackIdOffset = pos
+        val nextTrackId = reader.readUInt32(pos)
+        
         val fields = listOf(
             BoxField("version", version.toString(), payloadStart, 1),
+            BoxField("creation_time", formatMp4Time(creationTime), payloadStart + 4, timeFieldWidth.toLong()),
+            BoxField("modification_time", formatMp4Time(modificationTime), payloadStart + 4 + timeFieldWidth, timeFieldWidth.toLong()),
             BoxField("timescale", timescale.toString(), timescaleOffset, 4),
             BoxField("duration", duration.toString(), durationOffset, timeFieldWidth.toLong()),
+            BoxField("next_track_ID", nextTrackId.toString(), nextTrackIdOffset, 4),
         )
         val summary = if (timescale > 0) {
             "timescale=$timescale, duration=${"%.3f".format(duration.toDouble() / timescale.toDouble())}s"

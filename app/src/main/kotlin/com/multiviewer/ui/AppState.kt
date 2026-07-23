@@ -78,7 +78,7 @@ class AppState {
             
             // Detect Type
             tab.type = when {
-                file.extension.lowercase() in listOf("jpg", "jpeg", "png", "bmp", "gif") -> MediaType.IMAGE
+                file.extension.lowercase() in listOf("jpg", "jpeg", "png", "bmp", "gif", "webp", "avif", "heic") -> MediaType.IMAGE
                 file.extension.lowercase() in listOf("mp4", "mov", "m4v") -> MediaType.VIDEO
                 else -> MediaType.UNKNOWN
             }

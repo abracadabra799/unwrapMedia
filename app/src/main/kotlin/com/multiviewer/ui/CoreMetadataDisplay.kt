@@ -26,7 +26,7 @@ fun CoreMetadataDisplay(sections: List<SummarySection>, modifier: Modifier = Mod
     ) {
         sections.forEach { section ->
             // Filter sections to show only General, Video, Audio or Image specific core ones
-            if (section.title in listOf("General", "Video", "Audio", "Image", "Camera Info", "Track List")) {
+            if (section.title in listOf("General", "Video", "Audio", "Image", "Camera Info")) {
                 MetadataCard(section, modifier = Modifier.weight(1f))
             }
         }

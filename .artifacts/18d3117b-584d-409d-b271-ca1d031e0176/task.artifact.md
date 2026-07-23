@@ -1,4 +1,4 @@
-# Task: Modern Media Inspector Implementation
+# Task: unwrapMedia Implementation
 
 - [x] UI Infrastructure & Styling
     - [x] Define Neon Color Palette & Typography
@@ -31,3 +31,47 @@
     - [x] Remove Histogram/DQT from Image Inspector
     - [x] Update `ImageInspectorUI` to prioritize `SummaryBox` sections
     - [x] Ensure Motion Photo summary is clearly visible
+- [x] Video Playback Integration
+    - [x] Add `vlcj` dependency to `build.gradle.kts`
+    - [x] Implement `VlcVideoPlayer` component using `SwingPanel`
+    - [x] Replace placeholder in `VideoInspectorUI` with real player
+    - [x] Implement play/pause and resource release logic
+- [x] WebP & AVIF Format Support
+    - [x] Implement `WebpWalker.kt` (RIFF chunk parsing)
+    - [x] Update `ParseFile.kt` for WebP detection
+    - [x] Update `MediaSummaryBuilder.kt` for AVIF categorization
+    - [x] Update `AppState.kt` for new image extensions
+- [x] VLC Discovery Fix & Diagnostics
+    - [x] Update `VlcVideoPlayer.kt` with custom search strategy
+    - [x] Implement diagnostic UI for missing libraries
+    - [x] Add system property logging to `Main.kt`
+    - [x] Verify discovery on macOS standard paths
+- [x] VLC Architecture Diagnostics Refinement
+    - [x] Add explicit architecture mismatch detection logic
+    - [x] Update `VlcErrorDisplay` with specific guides for Intel/ARM conflicts
+- [x] VLC Playback Debug & Fix (Black Screen)
+    - [x] Set `VLC_PLUGIN_PATH` for macOS in `VlcVideoPlayer.kt`
+    - [x] Add `MediaPlayerEventListener` for diagnostic logging
+    - [x] Implement video output detection logic
+    - [x] Verify playback with verbose console logs
+- [x] Video Layout Refinement & Player Fix
+    - [x] Add VLC OSD/Title-disable args in `VlcVideoPlayer.kt`
+    - [x] Create reusable `DraggableDivider` in `Components.kt`
+    - [x] Remove charts and implement resizable split in `VideoInspectorUI.kt`
+    - [x] Verify resizable layout functionality
+- [x] Enhanced Resizing & Deep Box Parsing
+    - [x] Create `EmbeddedTableView` in `Components.kt`
+    - [x] Update `MvhdBoxDecoder` & `TkhdBoxDecoder` for more fields
+    - [x] Implement resizable split in `ImageInspectorUI.kt`
+    - [x] Integrate tabular data display in right Properties panel
+- [x] Visual Refinement & Critical Fixes
+    - [x] Update `Theme.kt` with softer selection colors
+    - [x] Apply new highlight colors to `HexView` and `BoxTreeView`
+    - [x] Remove "Track List" from Video Dashboard
+    - [x] Add macOS-specific VLC rendering args (`--vout=macosx`)
+    - [x] Implement HEIC preview fallback in `ImageAnalyzer`
+- [x] Self-contained Multi-platform Packaging
+    - [x] Add `vlcj-natives` to `build.gradle.kts`
+    - [x] Create GitHub Actions workflow (`package.yml`)
+    - [x] Update `VlcVideoPlayer.kt` for bundled library support
+    - [x] Update README with download instructions

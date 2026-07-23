@@ -40,7 +40,7 @@ fun BoxTreeView(root: BoxNode, selected: BoxNode?, onSelect: (BoxNode) -> Unit) 
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(IntrinsicSize.Min)
-                    .background(if (isSelected) Color.LightGray else Color.Transparent)
+                    .background(if (isSelected) AppColors.Selection else Color.Transparent)
                     .clickable {
                         onSelect(row.node)
                         if (row.node.children.isNotEmpty()) {
@@ -69,10 +69,10 @@ fun BoxTreeView(root: BoxNode, selected: BoxNode?, onSelect: (BoxNode) -> Unit) 
                     contentAlignment = Alignment.Center,
                 ) {
                     if (row.node.children.isNotEmpty()) {
-                        Text(if (isExpanded) "▼" else "▶")
+                        Text(if (isExpanded) "▼" else "▶", color = AppColors.TextPrimary)
                     }
                 }
-                Text(text = buildLabel(row.node))
+                Text(text = buildLabel(row.node), color = if (isSelected) Color.White else AppColors.TextPrimary)
             }
         }
     }

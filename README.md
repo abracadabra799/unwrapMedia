@@ -1,4 +1,4 @@
-# unwrapMedia (Modern Media Inspector)
+# unwrapMedia
 
 **unwrapMedia** is a professional-grade media analysis and forensic tool built with Kotlin and Compose Multiplatform for Desktop. It transforms complex binary data from image and video files into intuitive, high-visibility dashboards.
 
@@ -29,6 +29,20 @@ Inspect MP4 and MOV containers with advanced visualizers:
 - **Box/Marker Tree**: Hierarchical view of the file's internal structure.
 - **Hex Syncing**: Clicking any structure element instantly scrolls the Hex viewer to the exact binary offset.
 - **Color Coding**: Visual cues for different data types (Video=Green, Audio=Blue, Meta=Purple).
+
+---
+
+## 💾 Download & Installation
+
+The application is automatically built for Windows, Linux, and macOS. You can download the latest installers from the **GitHub Actions** tab:
+
+1. Go to the [Actions](https://github.com/abracadabra799/unwrapMedia/actions) page.
+2. Select the most recent **"Package unwrapMedia"** run.
+3. Scroll down to the **Artifacts** section.
+4. Download the version corresponding to your OS:
+    - **Windows**: `.msi` (includes bundled VLC)
+    - **Linux**: `.deb` (includes bundled VLC)
+    - **macOS**: `.dmg` (uses system-installed VLC)
 
 ---
 
