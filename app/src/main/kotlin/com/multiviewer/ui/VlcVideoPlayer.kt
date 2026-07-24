@@ -43,10 +43,13 @@ fun VlcVideoPlayer(file: File, modifier: Modifier = Modifier) {
         NativeDiscovery().discover()
         try {
             val vlcArgs = arrayOf(
-                "--no-video-title-show", 
-                "--no-osd", 
-                "--quiet", 
+                "--no-video-title-show",
+                "--no-osd",
+                "--quiet",
                 "--avcodec-hw=none",
+                "--no-videotoolbox", // VideoToolbox's CVPX output can't be rotated by the transform
+                                     // filter (needed for portrait phone videos), causing an
+                                     // endless vout-creation retry loop; force software decode.
                 "--no-audio" // Mute for inspector usage
             )
             val factory = MediaPlayerFactory(*vlcArgs)
@@ -76,7 +79,7 @@ fun VlcVideoPlayer(file: File, modifier: Modifier = Modifier) {
                     if (byteBuffer.remaining() >= currentBuffer.size) {
                         byteBuffer.get(currentBuffer)
                         byteBuffer.rewind()
-                        
+
                         // We must update the state on the AWT thread, but the copy should be fast
                         java.awt.EventQueue.invokeLater {
                             try {
@@ -95,8 +98,19 @@ fun VlcVideoPlayer(file: File, modifier: Modifier = Modifier) {
                 override fun attach(mediaPlayer: MediaPlayer?, videoSurfaceHandle: Long) {}
             }))
             
+            var hasAutoPaused = false
             mediaPlayer.events().addMediaPlayerEventListener(object : MediaPlayerEventAdapter() {
-                override fun playing(mediaPlayer: MediaPlayer?) { isPlaying = true }
+                override fun playing(mediaPlayer: MediaPlayer?) {
+                    isPlaying = true
+                    // Auto-pause once real playback has actually started, so at least one frame
+                    // reaches the render callback first. Pausing synchronously right after play()
+                    // (the old approach) raced VLC's own startup and could pause before any frame
+                    // was ever decoded, leaving the panel permanently black.
+                    if (!hasAutoPaused) {
+                        hasAutoPaused = true
+                        mediaPlayer?.controls()?.pause()
+                    }
+                }
                 override fun paused(mediaPlayer: MediaPlayer?) { isPlaying = false }
                 override fun stopped(mediaPlayer: MediaPlayer?) { isPlaying = false }
             })
@@ -120,9 +134,7 @@ fun VlcVideoPlayer(file: File, modifier: Modifier = Modifier) {
     DisposableEffect(file) {
         println("VLC Engine: Loading ${file.name}")
         mediaPlayer.media().play(file.absolutePath)
-        // Auto-pause at start to show first frame
-        mediaPlayer.controls().setPause(true)
-        
+
         onDispose {
             println("VLC Engine: Releasing resources")
             mediaPlayer.release()
