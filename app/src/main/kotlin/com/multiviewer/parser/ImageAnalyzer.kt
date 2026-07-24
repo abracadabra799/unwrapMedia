@@ -15,17 +15,19 @@ object ImageAnalyzer {
             null
         }
         
-        // HEIC/AVIF/MP4 Fallback: Try to find embedded JPEG if direct loading fails
+        // Trace box hierarchy for debugging
+        println("File Structure Trace: ${file.name}")
+        traceNodes(root, 0)
+
+        // HEIC/AVIF/MP4 Fallback: Try to find primary item or embedded JPEG
         if (skiaImage == null) {
-            println("Skia failed to decode ${file.extension}, attempting targeted JPEG extraction from container...")
+            println("Skia failed to decode ${file.extension}, attempting targeted JPEG extraction...")
             skiaImage = tryExtractEmbeddedJpeg(file, root)
         }
 
         val bitmap = skiaImage?.toComposeImageBitmap()
-        
         val histogram = if (skiaImage != null) calculateHistogram(skiaImage) else null
         
-        // Analyze DQT from BoxNode tree
         var quality = 0
         var isModified = false
         var software: String? = null
@@ -58,6 +60,12 @@ object ImageAnalyzer {
         )
     }
 
+    private fun traceNodes(node: BoxNode, depth: Int) {
+        val indent = "  ".repeat(depth)
+        println("$indent- ${node.type} (${node.size} bytes) ${node.summary ?: ""}")
+        node.children.forEach { traceNodes(it, depth + 1) }
+    }
+
     private fun tryExtractEmbeddedJpeg(file: File, root: BoxNode): Image? {
         val meta = findFirst(root) { it.type == "meta" } ?: return null
         val pitm = findFirst(meta) { it.type == "pitm" }
@@ -68,14 +76,13 @@ object ImageAnalyzer {
         
         // 1. Map item IDs to types via iinf
         val itemTypes = mutableMapOf<Long, String>()
-        println("iinf: Found ${iinf?.children?.size} items")
         iinf?.children?.forEach { infe ->
             if (infe.type == "infe") {
                 val id = infe.fields.find { it.name == "item_ID" }?.value?.toLongOrNull()
                 val type = infe.fields.find { it.name == "item_type" }?.value
                 if (id != null && type != null) {
                     itemTypes[id] = type
-                    println("  - Item ID $id: type=$type")
+                    println("  [iinf] Found Item ID $id: type=$type")
                 }
             }
         }
@@ -89,47 +96,47 @@ object ImageAnalyzer {
                     val toIds = ref.fields.filter { it.name.startsWith("to_item_ID") }.mapNotNull { it.value.toLongOrNull() }
                     if (toIds.contains(primaryId) && fromId != null) {
                         potentialThumbIds.add(fromId)
+                        println("  [iref] Item $fromId is a thumbnail for primary item $primaryId")
                     }
                 }
             }
         }
         
-        // 3. Collect all JPEG items
         val jpegItemIds = itemTypes.filter { it.value.lowercase() == "jpeg" || it.value.lowercase() == "jpg" }.keys
-        
         val idat = findFirst(root) { it.type == "idat" }
         val idatPayloadOffset = if (idat != null) idat.offset + idat.headerSize else 0L
 
         ByteReader.open(file).use { reader ->
-            // Phase A: Try explicit thumbnails identified by iref
+            // Try identified thumbnails first
             for (id in potentialThumbIds) {
                 val img = extractItemById(reader, iloc, id, idatPayloadOffset)
-                if (img != null) {
-                    println("Successfully extracted JPEG thumbnail via iref (ID: $id)")
-                    return img
-                }
+                if (img != null) return img
             }
             
-            // Phase B: Try any items declared as JPEG in iinf
+            // Try any JPEG items found in iinf
             for (id in jpegItemIds) {
                 if (id in potentialThumbIds) continue
                 val img = extractItemById(reader, iloc, id, idatPayloadOffset)
-                if (img != null) {
-                    println("Successfully extracted JPEG item found in iinf (ID: $id)")
-                    return img
-                }
+                if (img != null) return img
             }
             
-            // Phase C: Brute force scan all items in iloc for JPEG magic bytes
-            for (item in iloc.children) {
-                val itemId = item.type.removePrefix("item_").toLongOrNull() ?: continue
-                if (itemId in potentialThumbIds || itemId in jpegItemIds) continue
-                
-                val img = extractItemById(reader, iloc, itemId, idatPayloadOffset)
-                if (img != null) {
-                    println("Successfully extracted JPEG via brute-force scan (ID: $itemId)")
-                    return img
+            // Aggressive Scan: Look for JPEG magic bytes in the first 2MB if everything else fails
+            println("Attempting aggressive JPEG magic byte scan...")
+            val scanLimit = minOf(reader.length, 2_000_000L)
+            var scanPos = 0L
+            while (scanPos < scanLimit - 4) {
+                // Match FF D8 FF
+                if (reader.readUInt8(scanPos) == 0xFF && reader.readUInt8(scanPos + 1) == 0xD8) {
+                    try {
+                        val header = reader.readBytes(scanPos, 100)
+                        val possibleImg = Image.makeFromEncoded(reader.readBytes(scanPos, (reader.length - scanPos).toInt().coerceAtMost(1_000_000)))
+                        if (possibleImg != null) {
+                            println("Success: Found JPEG via magic byte scan at offset $scanPos")
+                            return possibleImg
+                        }
+                    } catch (e: Exception) {}
                 }
+                scanPos += 1
             }
         }
         return null
@@ -143,22 +150,17 @@ object ImageAnalyzer {
         for (extent in itemNode.children) {
             val offsetVal = extent.fields.find { it.name == "offset" || it.name == "idat_relative_offset" }?.value?.toLongOrNull() ?: continue
             val length = extent.fields.find { it.name == "length" }?.value?.toLongOrNull() ?: continue
-            
-            if (length < 4) continue
+            if (length < 100) continue // Too small to be a real image
             
             val absoluteOffset = if (method == 1) idatBase + offsetVal else offsetVal
-            
             try {
-                val header = reader.readBytes(absoluteOffset, 2)
-                if (header[0] == 0xFF.toByte() && header[1] == 0xD8.toByte()) {
-                    println("Extracting JPEG from item $itemId at absolute offset $absoluteOffset")
-                    val jpegBytes = reader.readBytes(absoluteOffset, length.toInt())
-                    val img = Image.makeFromEncoded(jpegBytes)
-                    if (img != null) return img
+                val jpegBytes = reader.readBytes(absoluteOffset, length.toInt())
+                val img = Image.makeFromEncoded(jpegBytes)
+                if (img != null) {
+                    println("Success: Extracted JPEG from item $itemId at offset $absoluteOffset")
+                    return img
                 }
-            } catch (e: Exception) {
-                // Ignore
-            }
+            } catch (e: Exception) {}
         }
         return null
     }
@@ -168,30 +170,23 @@ object ImageAnalyzer {
         val g = FloatArray(256)
         val b = FloatArray(256)
         val y = FloatArray(256)
-        
-        // Simple pixel sampling for performance
         val bitmap = org.jetbrains.skia.Bitmap.makeFromImage(image)
         val width = bitmap.width
         val height = bitmap.height
-        val step = (width * height / 10000).coerceAtLeast(1) // Sample ~10k pixels
-        
+        val step = (width * height / 10000).coerceAtLeast(1)
         for (i in 0 until width * height step step) {
             val px = i % width
             val py = i / width
             val color = bitmap.getColor(px, py)
-            
             val cr = (color shr 16) and 0xFF
             val cg = (color shr 8) and 0xFF
             val cb = color and 0xFF
             val cy = (0.299 * cr + 0.587 * cg + 0.114 * cb).toInt().coerceIn(0, 255)
-            
             r[cr]++
             g[cg]++
             b[cb]++
             y[cy]++
         }
-        
-        // Normalize
         val max = listOf(r.maxOrNull() ?: 1f, g.maxOrNull() ?: 1f, b.maxOrNull() ?: 1f, y.maxOrNull() ?: 1f).max()
         if (max > 0) {
             for (i in 0..255) {
@@ -201,7 +196,6 @@ object ImageAnalyzer {
                 y[i] /= max
             }
         }
-        
         return HistogramData(r, g, b, y)
     }
 }

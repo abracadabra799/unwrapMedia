@@ -12,6 +12,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.jetbrains.skia.*
@@ -23,7 +25,7 @@ import uk.co.caprica.vlcj.player.embedded.videosurface.CallbackVideoSurface
 import uk.co.caprica.vlcj.player.embedded.videosurface.VideoSurfaceAdapter
 import uk.co.caprica.vlcj.player.embedded.videosurface.callback.BufferFormat
 import uk.co.caprica.vlcj.player.embedded.videosurface.callback.BufferFormatCallbackAdapter
-import uk.co.caprica.vlcj.player.embedded.videosurface.callback.RenderCallbackAdapter
+import uk.co.caprica.vlcj.player.embedded.videosurface.callback.RenderCallback
 import uk.co.caprica.vlcj.player.embedded.videosurface.callback.format.RV32BufferFormat
 import java.io.File
 import java.nio.ByteBuffer
@@ -62,16 +64,15 @@ fun VlcVideoPlayer(file: File, modifier: Modifier = Modifier) {
             val factory = MediaPlayerFactory(*vlcArgs)
             val mediaPlayer = factory.mediaPlayers().newEmbeddedMediaPlayer()
             
-            var skiaBitmap = Bitmap()
-            var videoBuffer = IntArray(0)
-            var w = 0
-            var h = 0
+            var skiaBitmap: Bitmap? = null
+            var sharedBuffer: ByteArray? = null
+            var frameCount = 0L
 
             val bufferFormatCallback = object : BufferFormatCallbackAdapter() {
                 override fun getBufferFormat(sourceWidth: Int, sourceHeight: Int): BufferFormat {
-                    w = sourceWidth
-                    h = sourceHeight
-                    videoBuffer = IntArray(w * h)
+                    val w = sourceWidth
+                    val h = sourceHeight
+                    sharedBuffer = ByteArray(w * h * 4)
                     skiaBitmap = Bitmap().apply {
                         allocPixels(ImageInfo.makeN32Premul(w, h))
                     }
@@ -79,23 +80,29 @@ fun VlcVideoPlayer(file: File, modifier: Modifier = Modifier) {
                 }
             }
 
-            val renderCallback = object : RenderCallbackAdapter(videoBuffer) {
-                override fun onDisplay(mediaPlayer: MediaPlayer?, nativeBuffer: IntArray?) {
-                    if (nativeBuffer == null || w <= 0 || h <= 0) return
+            val renderCallback = object : RenderCallback {
+                override fun lock(mediaPlayer: MediaPlayer?) {}
+                override fun display(mediaPlayer: MediaPlayer, nativeBuffers: Array<out ByteBuffer>, bufferFormat: BufferFormat, displayWidth: Int, displayHeight: Int) {
+                    val byteBuffer = nativeBuffers[0]
+                    val currentBuffer = sharedBuffer ?: return
+                    val currentBitmap = skiaBitmap ?: return
                     
-                    val pixelCount = w * h
-                    val bytes = ByteArray(pixelCount * 4)
-                    for (i in 0 until pixelCount) {
-                        val argb = nativeBuffer[i]
-                        bytes[i * 4] = (argb and 0xFF).toByte()
-                        bytes[i * 4 + 1] = ((argb shr 8) and 0xFF).toByte()
-                        bytes[i * 4 + 2] = ((argb shr 16) and 0xFF).toByte()
-                        bytes[i * 4 + 3] = ((argb shr 24) and 0xFF).toByte()
+                    if (byteBuffer.remaining() >= currentBuffer.size) {
+                        byteBuffer.get(currentBuffer)
+                        byteBuffer.rewind()
+                        
+                        frameCount++
+                        if (frameCount % 300 == 0L) {
+                            println("VLC Frame Processed: $frameCount")
+                        }
+
+                        java.awt.EventQueue.invokeLater {
+                            currentBitmap.installPixels(currentBitmap.imageInfo, currentBuffer, currentBitmap.width * 4)
+                            videoBitmap = currentBitmap.asComposeImageBitmap()
+                        }
                     }
-                    
-                    skiaBitmap.installPixels(skiaBitmap.imageInfo, bytes, w * 4)
-                    videoBitmap = skiaBitmap.asComposeImageBitmap()
                 }
+                override fun unlock(mediaPlayer: MediaPlayer?) {}
             }
 
             val videoSurface = CallbackVideoSurface(bufferFormatCallback, renderCallback, true, object : VideoSurfaceAdapter {
@@ -109,6 +116,7 @@ fun VlcVideoPlayer(file: File, modifier: Modifier = Modifier) {
                 }
                 override fun error(mediaPlayer: MediaPlayer?) {
                     playbackStatus = "Error"
+                    initError = "VLC Playback Error"
                 }
             })
             
