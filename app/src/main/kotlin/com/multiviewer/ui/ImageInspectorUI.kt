@@ -14,6 +14,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.multiviewer.parser.EmbeddedVideo
+import com.multiviewer.parser.extractEmbeddedVideo
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
 
 @Composable
 fun ImageInspectorUI(
@@ -59,7 +64,7 @@ fun ImageInspectorUI(
                         )
                     }
                     
-                    // Right Panel: Primary Image View
+                    // Middle Panel: Primary Image View
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -75,11 +80,31 @@ fun ImageInspectorUI(
                             color = if (forensic.isDecodingFallback) AppColors.TextSecondary else AppColors.NeonRed,
                             fontSize = 12.sp,
                         )
-                        
-                        Text("PRIMARY IMAGE VIEW", 
-                            modifier = Modifier.align(Alignment.TopStart).padding(4.dp), 
+
+                        Text("PRIMARY IMAGE VIEW",
+                            modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
                             style = AppTypography.labelLarge.copy(fontSize = 9.sp, color = AppColors.NeonGreen)
                         )
+                    }
+
+                    // Right Panel: Motion Photo Video (only when the file has an embedded motion video)
+                    val embeddedVideo = tab.embeddedVideo
+                    if (embeddedVideo != null) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .border(0.5.dp, AppColors.Border)
+                                .background(Color.Black),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            MotionPhotoVideoPreview(tab, embeddedVideo)
+
+                            Text("MOTION PHOTO VIDEO",
+                                modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
+                                style = AppTypography.labelLarge.copy(fontSize = 9.sp, color = AppColors.NeonPurple)
+                            )
+                        }
                     }
                 }
                 
@@ -118,6 +143,32 @@ fun ImageInspectorUI(
         },
         bottomPanel = bottomPanel
     )
+}
+
+@Composable
+private fun MotionPhotoVideoPreview(tab: TabState, video: EmbeddedVideo) {
+    var extractedFile by remember(tab.file, video) { mutableStateOf<File?>(null) }
+
+    LaunchedEffect(tab.file, video) {
+        val temp = withContext(Dispatchers.IO) {
+            val dest = File.createTempFile("motion-photo-preview-", ".${video.extension}")
+            dest.deleteOnExit()
+            extractEmbeddedVideo(tab.file, video, dest)
+            dest
+        }
+        extractedFile = temp
+    }
+
+    DisposableEffect(tab.file, video) {
+        onDispose { extractedFile?.delete() }
+    }
+
+    val file = extractedFile
+    if (file != null) {
+        VlcVideoPlayer(file, modifier = Modifier.fillMaxSize())
+    } else {
+        Text("Extracting motion video...", color = Color.Gray, fontSize = 12.sp)
+    }
 }
 
 @Composable
