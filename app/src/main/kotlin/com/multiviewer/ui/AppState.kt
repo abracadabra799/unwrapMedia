@@ -27,7 +27,9 @@ data class ImageForensicData(
     val histogram: HistogramData? = null,
     val dqtQuality: Int = 0,
     val software: String? = null,
-    val isModified: Boolean = false
+    val isModified: Boolean = false,
+    val hasThumbnailReference: Boolean = false,
+    val isDecodingFallback: Boolean = false,
 )
 
 data class BitratePoint(val timestampSeconds: Double, val kbps: Double)

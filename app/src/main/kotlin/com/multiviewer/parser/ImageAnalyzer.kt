@@ -6,6 +6,8 @@ import com.multiviewer.ui.ImageForensicData
 import org.jetbrains.skia.Image
 import java.io.File
 
+private data class ThumbnailExtractionResult(val image: Image?, val hasThumbnailReference: Boolean)
+
 object ImageAnalyzer {
     fun analyze(file: File, root: BoxNode): ImageForensicData {
         val bytes = file.readBytes()
@@ -21,10 +23,10 @@ object ImageAnalyzer {
         traceNodes(root, 0)
 
         // 2. Extract Embedded Thumbnail (Regardless of primary success)
-        val thumbnail = tryExtractEmbeddedJpeg(file, root)
+        val thumbnailResult = tryExtractEmbeddedJpeg(file, root)
 
         val primaryBitmap = primaryImage?.toComposeImageBitmap()
-        val thumbBitmap = thumbnail?.toComposeImageBitmap()
+        val thumbBitmap = thumbnailResult.image?.toComposeImageBitmap()
         
         val histogram = if (primaryImage != null) calculateHistogram(primaryImage) else null
         
@@ -53,7 +55,8 @@ object ImageAnalyzer {
             histogram = histogram,
             dqtQuality = quality,
             software = software,
-            isModified = isModified
+            isModified = isModified,
+            hasThumbnailReference = thumbnailResult.hasThumbnailReference,
         )
     }
 
@@ -63,7 +66,7 @@ object ImageAnalyzer {
         node.children.forEach { traceNodes(it, depth + 1) }
     }
 
-    private fun tryExtractEmbeddedJpeg(file: File, root: BoxNode): Image? {
+    private fun tryExtractEmbeddedJpeg(file: File, root: BoxNode): ThumbnailExtractionResult {
         val meta = findFirst(root) { it.type == "meta" }
         val iloc = if (meta != null) findFirst(meta) { it.type == "iloc" } else null
         val iinf = if (meta != null) findFirst(meta) { it.type == "iinf" } else null
@@ -71,7 +74,21 @@ object ImageAnalyzer {
         val pitm = if (meta != null) findFirst(meta) { it.type == "pitm" } else null
         val primaryId = pitm?.fields?.find { it.name == "primary_item_ID" }?.value?.toLongOrNull()
 
-        ByteReader.open(file).use { reader ->
+        // Identify thumbnail item IDs via iref — this is a structural fact about the file
+        // (used for hasThumbnailReference) independent of whether we can decode those items' bytes.
+        val thumbIds = mutableSetOf<Long>()
+        if (primaryId != null && iref != null) {
+            for (ref in iref.children) {
+                if (ref.type == "thmb") {
+                    val fromId = ref.fields.find { it.name == "from_item_ID" }?.value?.toLongOrNull()
+                    val toIds = ref.fields.filter { it.name.startsWith("to_item_ID") }.mapNotNull { it.value.toLongOrNull() }
+                    if (toIds.contains(primaryId) && fromId != null) thumbIds.add(fromId)
+                }
+            }
+        }
+        val hasThumbnailReference = thumbIds.isNotEmpty()
+
+        val image = ByteReader.open(file).use { reader ->
             // --- Strategy 1: ISOBMFF Metadata (HEIC/AVIF/MP4) ---
             if (iloc != null) {
                 // Map item IDs to types
@@ -84,33 +101,21 @@ object ImageAnalyzer {
                     }
                 }
 
-                // Identify thumbnail IDs via iref
-                val thumbIds = mutableSetOf<Long>()
-                if (primaryId != null && iref != null) {
-                    for (ref in iref.children) {
-                        if (ref.type == "thmb") {
-                            val fromId = ref.fields.find { it.name == "from_item_ID" }?.value?.toLongOrNull()
-                            val toIds = ref.fields.filter { it.name.startsWith("to_item_ID") }.mapNotNull { it.value.toLongOrNull() }
-                            if (toIds.contains(primaryId) && fromId != null) thumbIds.add(fromId)
-                        }
-                    }
-                }
-
                 val idat = findFirst(root) { it.type == "idat" }
                 val idatBase = if (idat != null) idat.offset + idat.headerSize else 0L
 
                 // Try identified thumbnails first
                 for (id in thumbIds) {
                     val img = extractItemById(reader, iloc, id, idatBase)
-                    if (img != null) return img
+                    if (img != null) return@use img
                 }
-                
+
                 // Try any JPEG items found in iinf
                 for ((id, type) in itemTypes) {
                     if (id in thumbIds) continue
                     if (type.lowercase() == "jpeg" || type.lowercase() == "jpg") {
                         val img = extractItemById(reader, iloc, id, idatBase)
-                        if (img != null) return img
+                        if (img != null) return@use img
                     }
                 }
             }
@@ -125,7 +130,7 @@ object ImageAnalyzer {
                     if (reader.readUInt8(scanPos) == 0xFF && reader.readUInt8(scanPos + 1) == 0xD8) {
                         try {
                             val possibleImg = Image.makeFromEncoded(reader.readBytes(scanPos, (limit - scanPos).toInt().coerceAtMost(1_000_000)))
-                            if (possibleImg != null && possibleImg.width > 10) return possibleImg
+                            if (possibleImg != null && possibleImg.width > 10) return@use possibleImg
                         } catch (e: Exception) {}
                     }
                     scanPos++
@@ -139,13 +144,15 @@ object ImageAnalyzer {
                 if (reader.readUInt8(pos) == 0xFF && reader.readUInt8(pos + 1) == 0xD8) {
                     try {
                         val possibleImg = Image.makeFromEncoded(reader.readBytes(pos, (reader.length - pos).toInt().coerceAtMost(1_000_000)))
-                        if (possibleImg != null && possibleImg.width > 10) return possibleImg
+                        if (possibleImg != null && possibleImg.width > 10) return@use possibleImg
                     } catch (e: Exception) {}
                 }
                 pos++
             }
+            null
         }
-        return null
+
+        return ThumbnailExtractionResult(image, hasThumbnailReference)
     }
 
     private fun extractItemById(reader: ByteReader, iloc: BoxNode, itemId: Long, idatBase: Long): Image? {
