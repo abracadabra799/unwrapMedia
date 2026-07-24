@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.MenuBar
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
+import com.multiviewer.parser.EmbeddedVideo
 import com.multiviewer.parser.extractEmbeddedVideo
 import com.multiviewer.ui.*
 import java.awt.FileDialog
@@ -37,10 +38,9 @@ private fun showOpenFileDialog(appState: AppState) {
     }
 }
 
-private fun extractMotionPhotoVideo(appState: AppState, tab: TabState) {
-    val video = tab.embeddedVideo ?: return
+private fun extractVideoToFile(appState: AppState, tab: TabState, video: EmbeddedVideo, fileNameSuffix: String) {
     val dialog = FileDialog(null as Frame?, "Save extracted video", FileDialog.SAVE)
-    dialog.file = "${tab.file.nameWithoutExtension}_motion.${video.extension}"
+    dialog.file = "${tab.file.nameWithoutExtension}_$fileNameSuffix.${video.extension}"
     dialog.isVisible = true
     val fileName = dialog.file
     val directory = dialog.directory
@@ -52,6 +52,16 @@ private fun extractMotionPhotoVideo(appState: AppState, tab: TabState) {
     } catch (e: Exception) {
         "Failed to save: ${e.message ?: e.toString()}"
     }
+}
+
+private fun extractMotionPhotoVideo(appState: AppState, tab: TabState) {
+    val video = tab.embeddedVideo ?: return
+    extractVideoToFile(appState, tab, video, "motion")
+}
+
+private fun extractMotionPhotoPreviewVideo(appState: AppState, tab: TabState) {
+    val video = tab.motionPhotoPreview ?: return
+    extractVideoToFile(appState, tab, video, "preview")
 }
 
 fun main() = application {
@@ -69,6 +79,19 @@ fun main() = application {
             Menu("File") {
                 Item("Open", shortcut = KeyShortcut(Key.O, meta = true), onClick = { showOpenFileDialog(appState) })
                 Item("Close", enabled = appState.tabs.isNotEmpty(), shortcut = KeyShortcut(Key.W, meta = true), onClick = { appState.closeTab(appState.selectedTabIndex) })
+            }
+            Menu("모션포토") {
+                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                Item(
+                    "모션포토 동영상 추출",
+                    enabled = currentTab?.embeddedVideo != null,
+                    onClick = { currentTab?.let { extractMotionPhotoVideo(appState, it) } },
+                )
+                Item(
+                    "모션포토 미리보기 재생용 비디오 추출",
+                    enabled = currentTab?.motionPhotoPreview != null,
+                    onClick = { currentTab?.let { extractMotionPhotoPreviewVideo(appState, it) } },
+                )
             }
         }
 
