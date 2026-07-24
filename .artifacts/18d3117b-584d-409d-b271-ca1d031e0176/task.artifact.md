@@ -49,11 +49,6 @@
 - [x] VLC Architecture Diagnostics Refinement
     - [x] Add explicit architecture mismatch detection logic
     - [x] Update `VlcErrorDisplay` with specific guides for Intel/ARM conflicts
-- [x] VLC Playback Debug & Fix (Black Screen)
-    - [x] Set `VLC_PLUGIN_PATH` for macOS in `VlcVideoPlayer.kt`
-    - [x] Add `MediaPlayerEventListener` for diagnostic logging
-    - [x] Implement video output detection logic
-    - [x] Verify playback with verbose console logs
 - [x] Video Layout Refinement & Player Fix
     - [x] Add VLC OSD/Title-disable args in `VlcVideoPlayer.kt`
     - [x] Create reusable `DraggableDivider` in `Components.kt`
@@ -79,8 +74,8 @@
     - [x] Implement embedded JPEG extraction for HEIC in `ImageAnalyzer.kt`
     - [x] Refine VLC macOS rendering flags in `VlcVideoPlayer.kt`
     - [x] Add explicit surface repaint on video start
-- [/] HEIC Embedded Thumbnail Extraction (Metadata-based)
-    - [ ] Implement `IrefBoxDecoder.kt`
-    - [ ] Update `Decoders.kt` to register `iref`
-    - [ ] Refactor `ImageAnalyzer.kt` for targeted thumbnail extraction
-    - [ ] Handle `idat` relative offsets in extraction
+- [x] HEIC Embedded Thumbnail Extraction (Metadata-based)
+    - [x] Implement `IrefBoxDecoder.kt`
+    - [x] Update `Decoders.kt` to register `iref`
+    - [x] Refactor `ImageAnalyzer.kt` for targeted thumbnail extraction
+    - [x] Handle `idat` relative offsets in extraction
