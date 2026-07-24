@@ -42,16 +42,25 @@ fun VlcVideoPlayer(file: File, modifier: Modifier = Modifier) {
     val playerState = remember {
         NativeDiscovery().discover()
         try {
-            val vlcArgs = arrayOf(
-                "--no-video-title-show",
-                "--no-osd",
-                "--quiet",
-                "--avcodec-hw=none",
-                "--no-videotoolbox", // VideoToolbox's CVPX output can't be rotated by the transform
-                                     // filter (needed for portrait phone videos), causing an
-                                     // endless vout-creation retry loop; force software decode.
-                "--no-audio" // Mute for inspector usage
-            )
+            val vlcArgs = buildList {
+                add("--no-video-title-show")
+                add("--no-osd")
+                add("--quiet")
+                add("--avcodec-hw=none")
+                // "videotoolbox" is a macOS-only decoder module (CoreVideo/VideoToolbox), so
+                // "--no-videotoolbox" only exists as a recognized option on macOS builds of VLC.
+                // On Windows/Linux the module isn't compiled in, and libvlc's option parser
+                // treats an unrecognized "--no-X" as fatal (confirmed on this machine: passing
+                // an unknown option makes libvlc_new fail outright, not just warn) — so this must
+                // stay OS-gated, not unconditional, or video playback breaks entirely on those
+                // platforms. VideoToolbox's CVPX output can't be rotated by the transform filter
+                // (needed for portrait phone videos), causing an endless vout-creation retry loop
+                // on macOS; forcing software decode there avoids it.
+                if (System.getProperty("os.name")?.contains("Mac", ignoreCase = true) == true) {
+                    add("--no-videotoolbox")
+                }
+                add("--no-audio") // Mute for inspector usage
+            }.toTypedArray()
             val factory = MediaPlayerFactory(*vlcArgs)
             val mediaPlayer = factory.mediaPlayers().newEmbeddedMediaPlayer()
             
