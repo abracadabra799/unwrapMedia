@@ -30,6 +30,18 @@ compose.desktop {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "unwrapMedia"
             packageVersion = "1.0.0"
+
+            windows {
+                // Without these, jpackage's MSI installs the app with no Start Menu entry and
+                // no desktop icon -- it's on disk but unreachable from the UI.
+                shortcut = true
+                menuGroup = "unwrapMedia"
+                menu = true
+            }
+
+            linux {
+                shortcut = true
+            }
         }
     }
 }
