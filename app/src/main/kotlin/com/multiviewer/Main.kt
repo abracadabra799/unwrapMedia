@@ -96,7 +96,20 @@ fun main() = application {
         }
 
         LaunchedEffect(Unit) {
-            window.contentPane.dropTarget = DropTarget(window.contentPane, object : DropTargetAdapter() {
+            // Compose Desktop renders into a deeply-nested Skiko SkiaLayer several levels below
+            // `window` (window -> JRootPane -> JLayeredPane -> ... -> SkiaLayer) -- that SkiaLayer
+            // is the only real heavyweight/native surface actually receiving OS drag events.
+            // Attaching a DropTarget to `window` or `window.contentPane` alone never sees a drag
+            // at all (confirmed: dragEnter never fired). Attaching recursively to every component
+            // in the tree reaches the SkiaLayer regardless of Compose Desktop's internal structure,
+            // without depending on that structure by name/type.
+            val listener = object : DropTargetAdapter() {
+                override fun dragEnter(dtde: java.awt.dnd.DropTargetDragEvent) {
+                    if (dtde.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) dtde.acceptDrag(DnDConstants.ACTION_COPY) else dtde.rejectDrag()
+                }
+                override fun dragOver(dtde: java.awt.dnd.DropTargetDragEvent) {
+                    if (dtde.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) dtde.acceptDrag(DnDConstants.ACTION_COPY) else dtde.rejectDrag()
+                }
                 override fun drop(event: DropTargetDropEvent) {
                     if (!event.transferable.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
                         event.rejectDrop()
@@ -112,7 +125,15 @@ fun main() = application {
                         event.dropComplete(false)
                     }
                 }
-            })
+            }
+
+            fun attachRecursively(component: java.awt.Component) {
+                component.dropTarget = DropTarget(component, listener)
+                if (component is java.awt.Container) {
+                    for (child in component.components) attachRecursively(child)
+                }
+            }
+            attachRecursively(window)
         }
 
         MaterialTheme(colorScheme = darkColorScheme(background = AppColors.Background), typography = AppTypography) {
