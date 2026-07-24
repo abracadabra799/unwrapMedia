@@ -39,7 +39,13 @@ fun VideoInspectorUI(
                         .background(Color.Black),
                     contentAlignment = Alignment.Center
                 ) {
-                    VlcVideoPlayer(tab.file)
+                    val forensic = tab.imageForensic
+                    if (forensic?.bitmap != null) {
+                        // Show extracted thumbnail as preview if available
+                        PixelInspectorPreview(forensic.bitmap)
+                    } else {
+                        VlcVideoPlayer(tab.file)
+                    }
                 }
                 
                 // Resizable Divider

@@ -102,7 +102,11 @@ class AppState {
             // Trigger analysis based on type
             when (tab.type) {
                 MediaType.IMAGE -> tab.imageForensic = ImageAnalyzer.analyze(file, root)
-                MediaType.VIDEO -> tab.videoAnalysis = VideoAnalyzer.analyze(file, root)
+                MediaType.VIDEO -> {
+                    tab.videoAnalysis = VideoAnalyzer.analyze(file, root)
+                    // Attempt to extract thumbnail for video files too
+                    tab.imageForensic = ImageAnalyzer.analyze(file, root)
+                }
                 else -> {}
             }
             

@@ -15,9 +15,9 @@ object ImageAnalyzer {
             null
         }
         
-        // HEIC/AVIF Fallback: Try to find primary item or embedded JPEG if direct loading fails
-        if (skiaImage == null && file.extension.lowercase() in listOf("heic", "heif", "avif")) {
-            println("Skia failed to decode ${file.extension}, attempting targeted JPEG extraction...")
+        // HEIC/AVIF/MP4 Fallback: Try to find embedded JPEG if direct loading fails
+        if (skiaImage == null) {
+            println("Skia failed to decode ${file.extension}, attempting targeted JPEG extraction from container...")
             skiaImage = tryExtractEmbeddedJpeg(file, root)
         }
 
@@ -64,8 +64,23 @@ object ImageAnalyzer {
         val primaryId = pitm?.fields?.find { it.name == "primary_item_ID" }?.value?.toLongOrNull()
         val iref = findFirst(meta) { it.type == "iref" }
         val iloc = findFirst(meta) { it.type == "iloc" } ?: return null
+        val iinf = findFirst(meta) { it.type == "iinf" }
         
-        // 1. Identify potential thumbnail IDs
+        // 1. Map item IDs to types via iinf
+        val itemTypes = mutableMapOf<Long, String>()
+        println("iinf: Found ${iinf?.children?.size} items")
+        iinf?.children?.forEach { infe ->
+            if (infe.type == "infe") {
+                val id = infe.fields.find { it.name == "item_ID" }?.value?.toLongOrNull()
+                val type = infe.fields.find { it.name == "item_type" }?.value
+                if (id != null && type != null) {
+                    itemTypes[id] = type
+                    println("  - Item ID $id: type=$type")
+                }
+            }
+        }
+        
+        // 2. Identify potential thumbnail IDs via iref
         val potentialThumbIds = mutableSetOf<Long>()
         if (primaryId != null && iref != null) {
             for (ref in iref.children) {
@@ -74,30 +89,47 @@ object ImageAnalyzer {
                     val toIds = ref.fields.filter { it.name.startsWith("to_item_ID") }.mapNotNull { it.value.toLongOrNull() }
                     if (toIds.contains(primaryId) && fromId != null) {
                         potentialThumbIds.add(fromId)
-                        println("Identified thumbnail ID $fromId for primary ID $primaryId")
                     }
                 }
             }
         }
         
-        // 2. Find 'idat' box offset for construction method 1
+        // 3. Collect all JPEG items
+        val jpegItemIds = itemTypes.filter { it.value.lowercase() == "jpeg" || it.value.lowercase() == "jpg" }.keys
+        
         val idat = findFirst(root) { it.type == "idat" }
         val idatPayloadOffset = if (idat != null) idat.offset + idat.headerSize else 0L
 
         ByteReader.open(file).use { reader ->
-            // Try potential thumbnails first
+            // Phase A: Try explicit thumbnails identified by iref
             for (id in potentialThumbIds) {
                 val img = extractItemById(reader, iloc, id, idatPayloadOffset)
-                if (img != null) return img
+                if (img != null) {
+                    println("Successfully extracted JPEG thumbnail via iref (ID: $id)")
+                    return img
+                }
             }
             
-            // Fallback: Scan all items in iloc for JPEG
+            // Phase B: Try any items declared as JPEG in iinf
+            for (id in jpegItemIds) {
+                if (id in potentialThumbIds) continue
+                val img = extractItemById(reader, iloc, id, idatPayloadOffset)
+                if (img != null) {
+                    println("Successfully extracted JPEG item found in iinf (ID: $id)")
+                    return img
+                }
+            }
+            
+            // Phase C: Brute force scan all items in iloc for JPEG magic bytes
             for (item in iloc.children) {
                 val itemId = item.type.removePrefix("item_").toLongOrNull() ?: continue
-                if (itemId in potentialThumbIds) continue // Already tried
+                if (itemId in potentialThumbIds || itemId in jpegItemIds) continue
                 
                 val img = extractItemById(reader, iloc, itemId, idatPayloadOffset)
-                if (img != null) return img
+                if (img != null) {
+                    println("Successfully extracted JPEG via brute-force scan (ID: $itemId)")
+                    return img
+                }
             }
         }
         return null

@@ -1,43 +1,37 @@
-# Implementation Plan - HEIC Embedded Thumbnail Extraction
+# Implementation Plan - Reliable Media Rendering (Callback Player & HEIC Fix)
 
-Resolve the black preview issue for HEIC files by implementing a targeted search for embedded JPEG thumbnails using ISOBMFF metadata structures.
+Transition to a high-reliability "Callback Rendering" approach for video and further refine the HEIC thumbnail extraction to solve the persistent black screen issues on macOS.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - **Decoding Limitation**: Since Skia does not natively support HEVC, we are relying on the existence of a compatible embedded JPEG thumbnail. Most HEIC files from modern smartphones include this.
-> - **Metadata Depth**: This implementation adds support for the `iref` box to formally identify thumbnail relationships rather than blindly scanning for JPEG magic bytes.
+> - **Video Performance**: Callback rendering involves copying pixel data from VLC to the JVM and then to the GPU. For 4K files, this may increase CPU usage. We will use a fast buffer-copy strategy to mitigate this.
+> - **Threading**: Rendering must happen on the main UI thread, while VLC decodes on its own threads. Proper synchronization is critical to avoid crashes.
 
 ## Proposed Changes
 
-### [Component: Parser - ISOBMFF Decoders]
+### [Component: UI - Video Player]
 
-#### [NEW] [IrefBoxDecoder.kt](file:///Users/dong.kim/AndroidStudioProjects/multiViewer/app/src/main/kotlin/com/multiviewer/parser/IrefBoxDecoder.kt)
-- Decode the Item Reference box.
-- Parse `SingleItemTypeReferenceBox` entries (like `thmb`, `cdsc`).
-- Surface `from_item_ID` and `to_item_ID` relationships.
+#### [MODIFY] [VlcVideoPlayer.kt](file:///Users/dong.kim/AndroidStudioProjects/multiViewer/app/src/main/kotlin/com/multiviewer/ui/VlcVideoPlayer.kt)
+- **Architectural Shift**: Replace `EmbeddedMediaPlayerComponent` (native window) with `CallbackMediaPlayerComponent` (memory buffer).
+- **Buffer Management**:
+    - Implement `BufferFormatCallback` to negotiate the frame size and pixel format (RV32/ARGB).
+    - Implement `RenderCallback` to receive a `ByteBuffer` of the decoded frame.
+- **Compose Bridge**:
+    - Convert the raw `IntArray` or `ByteBuffer` into a `Bitmap` (Skia).
+    - Update a `mutableStateOf<ImageBitmap?>` to trigger Compose recomposition for every frame.
+- **Cleanup**: Remove `SwingPanel` and replace it with a standard Compose `Image`.
 
-#### [MODIFY] [Decoders.kt](file:///Users/dong.kim/AndroidStudioProjects/multiViewer/app/src/main/kotlin/com/multiviewer/parser/Decoders.kt)
-- Register `iref` using `IrefBoxDecoder`.
-
-### [Component: Parser - Image Analysis]
+### [Component: Parser - HEIC Extraction]
 
 #### [MODIFY] [ImageAnalyzer.kt](file:///Users/dong.kim/AndroidStudioProjects/multiViewer/app/src/main/kotlin/com/multiviewer/parser/ImageAnalyzer.kt)
-- **Primary Item Detection**: Read the `pitm` value to know which item is the master image.
-- **Reference Tracking**: Search the `iref` results for a `thmb` reference pointing to the primary item.
-- **Absolute Offset Resolution**:
-    - Find the file offset of the `idat` box.
-    - If an item in `iloc` uses `construction_method=1`, add the `idat` payload start to its relative offset.
-- **Optimized JPEG Extraction**: Prioritize the item identified via `iref` as the thumbnail.
+- **Deep Debugging**: Add exhaustive logging for every item ID and type found in the `iinf` box.
+- **Item Extraction Fix**: Ensure that for HEIC, we are looking for the *correct* `jpeg` item (some files have multiple tiny icons and one large preview).
+- **Fallback to Main Item**: If no JPEG is found, log the specific error from Skia when trying to decode the main `hvc1` item.
 
 ## Verification Plan
 
-### Automated Tests
-- Test `IrefBoxDecoder` with a sample reference box.
-- Test the new offset resolution logic in `ImageAnalyzer`.
-
 ### Manual Verification
-- Open a HEIC file:
-    - Verify the `iref` box appears in the structure tree.
-    - Verify that the preview area shows the thumbnail instead of a black screen.
-- Check console logs for "Thumbnail found via iref for item X".
+- **MP4 Playback**: Open a video and confirm that frames are visible and fluid. Check CPU usage in Activity Monitor.
+- **HEIC Previews**: Open multiple HEIC files and verify if the "Found JPEG item..." log appears and the image is displayed.
+- **UI Overlay**: Confirm that the "Video Active" status text is clearly visible *over* the video (proving it's a standard Compose component now).

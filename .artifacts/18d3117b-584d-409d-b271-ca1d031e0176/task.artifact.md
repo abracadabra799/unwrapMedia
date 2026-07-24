@@ -79,3 +79,8 @@
     - [x] Update `Decoders.kt` to register `iref`
     - [x] Refactor `ImageAnalyzer.kt` for targeted thumbnail extraction
     - [x] Handle `idat` relative offsets in extraction
+- [ ] Reliable Media Rendering (Callback Player)
+    - [ ] Implement `CallbackMediaPlayerComponent` in `VlcVideoPlayer.kt`
+    - [ ] Create pixel buffer to `ImageBitmap` conversion logic
+    - [ ] Replace `SwingPanel` with Compose `Image` for 100% visibility
+    - [ ] Add deep diagnostic logging for HEIC item identification
