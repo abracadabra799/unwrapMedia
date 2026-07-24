@@ -68,9 +68,13 @@ fun ImageInspectorUI(
                             .background(Color.Black),
                         contentAlignment = Alignment.Center
                     ) {
-                        forensic.bitmap?.let { 
-                            PixelInspectorPreview(it) 
-                        } ?: Text("Primary Image Decoding Failed", color = AppColors.NeonRed, fontSize = 12.sp)
+                        forensic.bitmap?.let {
+                            PixelInspectorPreview(it)
+                        } ?: Text(
+                            if (forensic.isDecodingFallback) "Decoding via VLC..." else "Primary Image Decoding Failed",
+                            color = if (forensic.isDecodingFallback) AppColors.TextSecondary else AppColors.NeonRed,
+                            fontSize = 12.sp,
+                        )
                         
                         Text("PRIMARY IMAGE VIEW", 
                             modifier = Modifier.align(Alignment.TopStart).padding(4.dp), 
