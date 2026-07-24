@@ -18,7 +18,12 @@ object AppColors {
     val NeonPurple = Color(0xFFBC13FE)
     val NeonRed = Color(0xFFFF3131)
     val NeonYellow = Color(0xFFFFF01F)
-    
+
+    val BadgeAmber = Color(0xFFFFB74D)    // Container
+    val BadgeTeal = Color(0xFF4DD0C4)     // Table data
+    val BadgeLavender = Color(0xFFCE93D8) // Image/grid data
+    val BadgeSky = Color(0xFF64B5F6)      // Metadata / leaf (catch-all)
+
     val TextPrimary = Color(0xFFC9D1D9)
     val TextSecondary = Color(0xFF8B949E)
     val TextMuted = Color(0xFF484F58)
