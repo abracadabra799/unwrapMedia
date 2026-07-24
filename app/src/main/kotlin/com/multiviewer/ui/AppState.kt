@@ -104,7 +104,24 @@ class AppState {
             
             // Trigger analysis based on type
             when (tab.type) {
-                MediaType.IMAGE -> tab.imageForensic = ImageAnalyzer.analyze(file, root)
+                MediaType.IMAGE -> {
+                    val forensic = ImageAnalyzer.analyze(file, root)
+                    if (forensic.bitmap == null) {
+                        // Skia has no HEIF/HEVC decoder — fall back to VLC, async so the UI never blocks.
+                        tab.imageForensic = forensic.copy(isDecodingFallback = true)
+                        VlcImageSnapshotDecoder.decodeFirstFrameAsync(file) { bitmap ->
+                            val current = tab.imageForensic ?: forensic
+                            tab.imageForensic = current.copy(
+                                bitmap = bitmap,
+                                embeddedThumbnail = current.embeddedThumbnail
+                                    ?: (bitmap.takeIf { current.hasThumbnailReference }),
+                                isDecodingFallback = false,
+                            )
+                        }
+                    } else {
+                        tab.imageForensic = forensic
+                    }
+                }
                 MediaType.VIDEO -> {
                     tab.videoAnalysis = VideoAnalyzer.analyze(file, root)
                     // Attempt to extract thumbnail for video files too

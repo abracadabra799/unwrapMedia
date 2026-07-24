@@ -154,4 +154,34 @@ class AppStateTest {
         assertEquals(listOf("a.bin"), appState.tabs.map { it.file.name })
         assertEquals(0, appState.selectedTabIndex)
     }
+
+    @Test
+    fun `openFile on an undecodable IMAGE-type file synchronously sets isDecodingFallback before the VLC callback resolves`() {
+        val file = File.createTempFile("appstate-heic-fallback-test", ".heic")
+        file.deleteOnExit()
+        file.writeBytes(ByteArray(300)) // garbage — Skia's Image.makeFromEncoded will return null
+
+        val appState = AppState()
+        appState.openFile(file)
+
+        val tab = appState.tabs.single()
+        assertEquals(MediaType.IMAGE, tab.type)
+        assertEquals(null, tab.imageForensic?.bitmap)
+        assertEquals(true, tab.imageForensic?.isDecodingFallback)
+    }
+
+    @Test
+    fun `openFile on a VIDEO-type file never sets isDecodingFallback, even though its Skia decode also fails`() {
+        val file = File.createTempFile("appstate-video-no-fallback-test", ".mp4")
+        file.deleteOnExit()
+        file.writeBytes(ByteArray(300)) // garbage — Skia's Image.makeFromEncoded will also return null here
+
+        val appState = AppState()
+        appState.openFile(file)
+
+        val tab = appState.tabs.single()
+        assertEquals(MediaType.VIDEO, tab.type)
+        assertEquals(null, tab.imageForensic?.bitmap)
+        assertEquals(false, tab.imageForensic?.isDecodingFallback)
+    }
 }
