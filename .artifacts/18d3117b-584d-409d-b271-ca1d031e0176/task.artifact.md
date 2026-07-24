@@ -75,3 +75,12 @@
     - [x] Create GitHub Actions workflow (`package.yml`)
     - [x] Update `VlcVideoPlayer.kt` for bundled library support
     - [x] Update README with download instructions
+- [x] Definitive Preview Fixes (HEIC & Video)
+    - [x] Implement embedded JPEG extraction for HEIC in `ImageAnalyzer.kt`
+    - [x] Refine VLC macOS rendering flags in `VlcVideoPlayer.kt`
+    - [x] Add explicit surface repaint on video start
+- [/] HEIC Embedded Thumbnail Extraction (Metadata-based)
+    - [ ] Implement `IrefBoxDecoder.kt`
+    - [ ] Update `Decoders.kt` to register `iref`
+    - [ ] Refactor `ImageAnalyzer.kt` for targeted thumbnail extraction
+    - [ ] Handle `idat` relative offsets in extraction

@@ -48,18 +48,19 @@ fun VlcVideoPlayer(file: File, modifier: Modifier = Modifier) {
         NativeDiscovery().discover()
         
         try {
-            // Add OSD and Title disable args to help with black screen issues on macOS
-            // Also force vout to macosx
-            val component = object : EmbeddedMediaPlayerComponent(
+            // Refined args for macOS embedding stability
+            val vlcArgs = arrayOf(
                 "--no-video-title-show",
                 "--no-osd",
                 "--no-snapshot-preview",
                 "--quiet",
                 "--vout=macosx",
-                "--avcodec-hw=none"
-            ) {
+                "--avcodec-hw=none" // Disable HW accel to rule out black screen
+            )
+            
+            val component = object : EmbeddedMediaPlayerComponent(*vlcArgs) {
                 override fun mediaPlayerReady(mediaPlayer: MediaPlayer) {
-                    println("MediaPlayer Ready")
+                    println("VLC MediaPlayer Ready")
                 }
             }
             
@@ -75,9 +76,10 @@ fun VlcVideoPlayer(file: File, modifier: Modifier = Modifier) {
                     initError = "VLC Playback Error"
                 }
                 override fun videoOutput(mediaPlayer: MediaPlayer?, newCount: Int) {
+                    println("VLC Video Output: $newCount")
                     if (newCount > 0) {
                         playbackStatus = "Video Active"
-                        // Request UI update on the AWT component
+                        // Force UI refresh on the AWT thread
                         java.awt.EventQueue.invokeLater {
                             component.revalidate()
                             component.repaint()
@@ -101,13 +103,20 @@ fun VlcVideoPlayer(file: File, modifier: Modifier = Modifier) {
     LaunchedEffect(file) {
         coroutineScope.launch {
             var attempts = 0
-            while (isActive && !mediaPlayerComponent.isDisplayable && attempts < 20) {
+            while (isActive && !mediaPlayerComponent.isDisplayable && attempts < 30) {
                 delay(100)
                 attempts++
             }
             
             if (mediaPlayerComponent.isDisplayable) {
+                println("VLC Surface ready, playing: ${file.name}")
                 mediaPlayerComponent.mediaPlayer().media().play(file.absolutePath)
+                
+                // Extra kick to ensure rendering starts
+                delay(500)
+                java.awt.EventQueue.invokeLater {
+                    mediaPlayerComponent.repaint()
+                }
             } else {
                 initError = "Video surface timed out"
             }
@@ -192,7 +201,7 @@ private fun VlcErrorDisplay(os: String, arch: String, java: String, error: Strin
 @Composable
 private fun DiagnosticLine(label: String, value: String) {
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-        Text("$label: ", color = AppColors.TextSecondary, style = AppTypography.labelLarge, modifier = Modifier.width(130.dp))
+        Text("$label: ", color = AppColors.TextSecondary, style = AppTypography.labelLarge, modifier = Modifier.width(120.dp))
         Text(value, color = AppColors.NeonBlue, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
     }
 }

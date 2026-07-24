@@ -15,9 +15,10 @@ object ImageAnalyzer {
             null
         }
         
-        // HEIC Fallback: Try to find primary item if direct loading fails
+        // HEIC/AVIF Fallback: Try to find primary item or embedded JPEG if direct loading fails
         if (skiaImage == null && file.extension.lowercase() in listOf("heic", "heif", "avif")) {
-            skiaImage = tryExtractHeicPreview(file, root)
+            println("Skia failed to decode ${file.extension}, attempting targeted JPEG extraction...")
+            skiaImage = tryExtractEmbeddedJpeg(file, root)
         }
 
         val bitmap = skiaImage?.toComposeImageBitmap()
@@ -57,14 +58,77 @@ object ImageAnalyzer {
         )
     }
 
-    private fun tryExtractHeicPreview(file: File, root: BoxNode): Image? {
-        // HEIC is ISOBMFF based. We look for 'iloc' items.
-        // This is a simplified extraction of the first large item (usually the primary image)
-        val iloc = findFirst(root) { it.type == "iloc" } ?: return null
-        // If we can't decode the HEVC bitstream via Skia directly, 
-        // we might be out of luck without a native HEIF decoder library.
-        // However, many HEIC files contain a JPEG thumbnail in a 'thmb' or similar box.
-        return null // Placeholder: Real HEVC decoding usually requires a specialized library like libheif
+    private fun tryExtractEmbeddedJpeg(file: File, root: BoxNode): Image? {
+        val meta = findFirst(root) { it.type == "meta" } ?: return null
+        val pitm = findFirst(meta) { it.type == "pitm" }
+        val primaryId = pitm?.fields?.find { it.name == "primary_item_ID" }?.value?.toLongOrNull()
+        val iref = findFirst(meta) { it.type == "iref" }
+        val iloc = findFirst(meta) { it.type == "iloc" } ?: return null
+        
+        // 1. Identify potential thumbnail IDs
+        val potentialThumbIds = mutableSetOf<Long>()
+        if (primaryId != null && iref != null) {
+            for (ref in iref.children) {
+                if (ref.type == "thmb") {
+                    val fromId = ref.fields.find { it.name == "from_item_ID" }?.value?.toLongOrNull()
+                    val toIds = ref.fields.filter { it.name.startsWith("to_item_ID") }.mapNotNull { it.value.toLongOrNull() }
+                    if (toIds.contains(primaryId) && fromId != null) {
+                        potentialThumbIds.add(fromId)
+                        println("Identified thumbnail ID $fromId for primary ID $primaryId")
+                    }
+                }
+            }
+        }
+        
+        // 2. Find 'idat' box offset for construction method 1
+        val idat = findFirst(root) { it.type == "idat" }
+        val idatPayloadOffset = if (idat != null) idat.offset + idat.headerSize else 0L
+
+        ByteReader.open(file).use { reader ->
+            // Try potential thumbnails first
+            for (id in potentialThumbIds) {
+                val img = extractItemById(reader, iloc, id, idatPayloadOffset)
+                if (img != null) return img
+            }
+            
+            // Fallback: Scan all items in iloc for JPEG
+            for (item in iloc.children) {
+                val itemId = item.type.removePrefix("item_").toLongOrNull() ?: continue
+                if (itemId in potentialThumbIds) continue // Already tried
+                
+                val img = extractItemById(reader, iloc, itemId, idatPayloadOffset)
+                if (img != null) return img
+            }
+        }
+        return null
+    }
+
+    private fun extractItemById(reader: ByteReader, iloc: BoxNode, itemId: Long, idatBase: Long): Image? {
+        val itemNode = iloc.children.find { it.type == "item_$itemId" } ?: return null
+        val methodField = itemNode.fields.find { it.name == "construction_method" }
+        val method = methodField?.value?.toIntOrNull() ?: 0
+        
+        for (extent in itemNode.children) {
+            val offsetVal = extent.fields.find { it.name == "offset" || it.name == "idat_relative_offset" }?.value?.toLongOrNull() ?: continue
+            val length = extent.fields.find { it.name == "length" }?.value?.toLongOrNull() ?: continue
+            
+            if (length < 4) continue
+            
+            val absoluteOffset = if (method == 1) idatBase + offsetVal else offsetVal
+            
+            try {
+                val header = reader.readBytes(absoluteOffset, 2)
+                if (header[0] == 0xFF.toByte() && header[1] == 0xD8.toByte()) {
+                    println("Extracting JPEG from item $itemId at absolute offset $absoluteOffset")
+                    val jpegBytes = reader.readBytes(absoluteOffset, length.toInt())
+                    val img = Image.makeFromEncoded(jpegBytes)
+                    if (img != null) return img
+                }
+            } catch (e: Exception) {
+                // Ignore
+            }
+        }
+        return null
     }
 
     private fun calculateHistogram(image: Image): HistogramData {

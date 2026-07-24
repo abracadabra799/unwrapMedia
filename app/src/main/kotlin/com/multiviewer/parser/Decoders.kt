@@ -31,6 +31,7 @@ fun registerAllDecoders() {
 
     BoxRegistry.register("stsd", ContainerBoxDecoder(childOffsetInPayload = 8, summarize = true))
     BoxRegistry.register("meta", MetaBoxDecoder)
+    BoxRegistry.register("iref", IrefBoxDecoder)
     for (containerType in listOf("moov", "trak", "mdia", "minf", "dinf", "edts", "udta", "stbl", "iprp", "ipco", "mpvd")) {
         BoxRegistry.register(containerType, ContainerBoxDecoder())
     }

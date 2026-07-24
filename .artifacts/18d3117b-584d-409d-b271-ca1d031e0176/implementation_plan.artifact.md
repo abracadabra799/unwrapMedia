@@ -1,43 +1,43 @@
-# Implementation Plan - Self-contained Multi-platform Packaging with VLC
+# Implementation Plan - HEIC Embedded Thumbnail Extraction
 
-Enable unwrapMedia to be distributed as a standalone application for Windows and Linux by bundling VLC native libraries and setting up an automated GitHub Actions build pipeline.
+Resolve the black preview issue for HEIC files by implementing a targeted search for embedded JPEG thumbnails using ISOBMFF metadata structures.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - **Package Size**: Each installer (.msi, .deb, .dmg) will increase in size by approximately **100MB-150MB** due to the inclusion of VLC codecs and libraries.
-> - **GitHub Actions**: The builds will happen on GitHub's cloud servers. You will need to push the code to your repository and download the results from the "Actions" or "Releases" tab.
+> - **Decoding Limitation**: Since Skia does not natively support HEVC, we are relying on the existence of a compatible embedded JPEG thumbnail. Most HEIC files from modern smartphones include this.
+> - **Metadata Depth**: This implementation adds support for the `iref` box to formally identify thumbnail relationships rather than blindly scanning for JPEG magic bytes.
 
 ## Proposed Changes
 
-### [Component: Build Configuration]
+### [Component: Parser - ISOBMFF Decoders]
 
-#### [MODIFY] [app/build.gradle.kts](file:///Users/dong.kim/AndroidStudioProjects/multiViewer/app/build.gradle.kts)
-- Add the following dependencies to ensure native libraries for all platforms are available at runtime:
-    - `implementation("uk.co.caprica:vlcj-natives-windows-x86-64:4.8.0")`
-    - `implementation("uk.co.caprica:vlcj-natives-linux-x86-64:4.8.0")`
-    - `implementation("uk.co.caprica:vlcj-natives-macos-all:4.8.0")`
+#### [NEW] [IrefBoxDecoder.kt](file:///Users/dong.kim/AndroidStudioProjects/multiViewer/app/src/main/kotlin/com/multiviewer/parser/IrefBoxDecoder.kt)
+- Decode the Item Reference box.
+- Parse `SingleItemTypeReferenceBox` entries (like `thmb`, `cdsc`).
+- Surface `from_item_ID` and `to_item_ID` relationships.
 
-### [Component: UI - Video Player]
+#### [MODIFY] [Decoders.kt](file:///Users/dong.kim/AndroidStudioProjects/multiViewer/app/src/main/kotlin/com/multiviewer/parser/Decoders.kt)
+- Register `iref` using `IrefBoxDecoder`.
 
-#### [MODIFY] [VlcVideoPlayer.kt](file:///Users/dong.kim/AndroidStudioProjects/multiViewer/app/src/main/kotlin/com/multiviewer/ui/VlcVideoPlayer.kt)
-- Update discovery logic to gracefully handle bundled natives if system-wide VLC is missing.
+### [Component: Parser - Image Analysis]
 
-### [Component: CI/CD]
-
-#### [NEW] [.github/workflows/package.yml](file:///Users/dong.kim/AndroidStudioProjects/multiViewer/.github/workflows/package.yml)
-- Create a multi-platform build matrix:
-    - `os: [windows-latest, ubuntu-latest, macos-latest]`
-- Steps:
-    1. Checkout code.
-    2. Set up JDK 21.
-    3. Run `./gradlew :app:packageDistributionForCurrentOS`.
-    4. Upload the generated installers as artifacts.
+#### [MODIFY] [ImageAnalyzer.kt](file:///Users/dong.kim/AndroidStudioProjects/multiViewer/app/src/main/kotlin/com/multiviewer/parser/ImageAnalyzer.kt)
+- **Primary Item Detection**: Read the `pitm` value to know which item is the master image.
+- **Reference Tracking**: Search the `iref` results for a `thmb` reference pointing to the primary item.
+- **Absolute Offset Resolution**:
+    - Find the file offset of the `idat` box.
+    - If an item in `iloc` uses `construction_method=1`, add the `idat` payload start to its relative offset.
+- **Optimized JPEG Extraction**: Prioritize the item identified via `iref` as the thumbnail.
 
 ## Verification Plan
 
+### Automated Tests
+- Test `IrefBoxDecoder` with a sample reference box.
+- Test the new offset resolution logic in `ImageAnalyzer`.
+
 ### Manual Verification
-1. Push the changes to the `v2` branch.
-2. Monitor the "Package unwrapMedia" workflow on GitHub.
-3. Download the resulting Windows `.msi` and Linux `.deb`.
-4. Run them on target machines to confirm "out-of-the-box" video playback.
+- Open a HEIC file:
+    - Verify the `iref` box appears in the structure tree.
+    - Verify that the preview area shows the thumbnail instead of a black screen.
+- Check console logs for "Thumbnail found via iref for item X".
