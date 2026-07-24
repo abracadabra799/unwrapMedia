@@ -23,6 +23,7 @@ data class HistogramData(
 
 data class ImageForensicData(
     val bitmap: ImageBitmap? = null,
+    val embeddedThumbnail: ImageBitmap? = null,
     val histogram: HistogramData? = null,
     val dqtQuality: Int = 0,
     val software: String? = null,

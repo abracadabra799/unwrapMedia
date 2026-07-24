@@ -4,16 +4,19 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asComposeImageBitmap
+import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.jetbrains.skia.*
@@ -32,51 +35,36 @@ import java.nio.ByteBuffer
 
 @Composable
 fun VlcVideoPlayer(file: File, modifier: Modifier = Modifier) {
-    val osName = remember { System.getProperty("os.name") }
-    val osArch = remember { System.getProperty("os.arch") }
-    
-    var initError by remember { mutableStateOf<String?>(null) }
-    var playbackStatus by remember { mutableStateOf("Initializing...") }
-    var videoBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+    // neverEqualPolicy ensures we recompose on EVERY frame update
+    var videoBitmap by remember { mutableStateOf<ImageBitmap?>(null, neverEqualPolicy()) }
+    var isPlaying by remember { mutableStateOf(false) }
     
     val playerState = remember {
-        if (osName.contains("Mac", ignoreCase = true)) {
-            val vlcPluginsPath = "/Applications/VLC.app/Contents/MacOS/plugins"
-            if (File(vlcPluginsPath).exists()) {
-                System.setProperty("VLC_PLUGIN_PATH", vlcPluginsPath)
-            }
-            val vlcLibPath = "/Applications/VLC.app/Contents/MacOS/lib"
-            if (File(vlcLibPath).exists()) {
-                System.setProperty("jna.library.path", vlcLibPath)
-            }
-        }
-
         NativeDiscovery().discover()
-        
         try {
             val vlcArgs = arrayOf(
-                "--no-video-title-show",
-                "--no-osd",
-                "--quiet",
-                "--avcodec-hw=none"
+                "--no-video-title-show", 
+                "--no-osd", 
+                "--quiet", 
+                "--avcodec-hw=none",
+                "--no-audio" // Mute for inspector usage
             )
-            
             val factory = MediaPlayerFactory(*vlcArgs)
             val mediaPlayer = factory.mediaPlayers().newEmbeddedMediaPlayer()
             
-            var skiaBitmap: Bitmap? = null
-            var sharedBuffer: ByteArray? = null
-            var frameCount = 0L
-
+            var skiaBitmap = Bitmap()
+            var pixelBuffer: ByteArray? = null
+            var w = 0
+            
             val bufferFormatCallback = object : BufferFormatCallbackAdapter() {
                 override fun getBufferFormat(sourceWidth: Int, sourceHeight: Int): BufferFormat {
-                    val w = sourceWidth
-                    val h = sourceHeight
-                    sharedBuffer = ByteArray(w * h * 4)
+                    w = sourceWidth
+                    pixelBuffer = ByteArray(sourceWidth * sourceHeight * 4)
                     skiaBitmap = Bitmap().apply {
-                        allocPixels(ImageInfo.makeN32Premul(w, h))
+                        allocPixels(ImageInfo(ColorInfo(ColorType.BGRA_8888, ColorAlphaType.PREMUL, ColorSpace.sRGB), sourceWidth, sourceHeight))
                     }
-                    return RV32BufferFormat(w, h)
+                    println("VLC Engine: Format Negotiated ${sourceWidth}x${sourceHeight}")
+                    return RV32BufferFormat(sourceWidth, sourceHeight)
                 }
             }
 
@@ -84,116 +72,92 @@ fun VlcVideoPlayer(file: File, modifier: Modifier = Modifier) {
                 override fun lock(mediaPlayer: MediaPlayer?) {}
                 override fun display(mediaPlayer: MediaPlayer, nativeBuffers: Array<out ByteBuffer>, bufferFormat: BufferFormat, displayWidth: Int, displayHeight: Int) {
                     val byteBuffer = nativeBuffers[0]
-                    val currentBuffer = sharedBuffer ?: return
-                    val currentBitmap = skiaBitmap ?: return
-                    
+                    val currentBuffer = pixelBuffer ?: return
                     if (byteBuffer.remaining() >= currentBuffer.size) {
                         byteBuffer.get(currentBuffer)
                         byteBuffer.rewind()
                         
-                        frameCount++
-                        if (frameCount % 300 == 0L) {
-                            println("VLC Frame Processed: $frameCount")
-                        }
-
+                        // We must update the state on the AWT thread, but the copy should be fast
                         java.awt.EventQueue.invokeLater {
-                            currentBitmap.installPixels(currentBitmap.imageInfo, currentBuffer, currentBitmap.width * 4)
-                            videoBitmap = currentBitmap.asComposeImageBitmap()
+                            try {
+                                skiaBitmap.installPixels(skiaBitmap.imageInfo, currentBuffer, w * 4)
+                                // Snapshot for safe thread-handover
+                                val snapshot = Image.makeFromBitmap(skiaBitmap)
+                                videoBitmap = snapshot.toComposeImageBitmap()
+                            } catch (e: Exception) {}
                         }
                     }
                 }
                 override fun unlock(mediaPlayer: MediaPlayer?) {}
             }
 
-            val videoSurface = CallbackVideoSurface(bufferFormatCallback, renderCallback, true, object : VideoSurfaceAdapter {
+            mediaPlayer.videoSurface().set(CallbackVideoSurface(bufferFormatCallback, renderCallback, true, object : VideoSurfaceAdapter {
                 override fun attach(mediaPlayer: MediaPlayer?, videoSurfaceHandle: Long) {}
-            })
-            mediaPlayer.videoSurface().set(videoSurface)
+            }))
             
             mediaPlayer.events().addMediaPlayerEventListener(object : MediaPlayerEventAdapter() {
-                override fun playing(mediaPlayer: MediaPlayer?) {
-                    playbackStatus = "Playing"
-                }
-                override fun error(mediaPlayer: MediaPlayer?) {
-                    playbackStatus = "Error"
-                    initError = "VLC Playback Error"
-                }
+                override fun playing(mediaPlayer: MediaPlayer?) { isPlaying = true }
+                override fun paused(mediaPlayer: MediaPlayer?) { isPlaying = false }
+                override fun stopped(mediaPlayer: MediaPlayer?) { isPlaying = false }
             })
             
             Pair(factory, mediaPlayer)
         } catch (e: Throwable) {
-            initError = e.message ?: e.toString()
+            println("VLC Engine: Initialization Failed: ${e.message}")
             null
         }
     }
 
     if (playerState == null) {
-        VlcErrorDisplay(osName, osArch, initError, modifier)
+        Box(modifier.fillMaxSize().background(Color.DarkGray), contentAlignment = Alignment.Center) {
+            Text("VLC Initialization Failed", color = Color.White)
+        }
         return
     }
 
     val (factory, mediaPlayer) = playerState
 
     DisposableEffect(file) {
+        println("VLC Engine: Loading ${file.name}")
         mediaPlayer.media().play(file.absolutePath)
+        // Auto-pause at start to show first frame
+        mediaPlayer.controls().setPause(true)
+        
         onDispose {
+            println("VLC Engine: Releasing resources")
             mediaPlayer.release()
             factory.release()
         }
     }
 
     Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(Color.Black)
-            .clickable {
-                if (mediaPlayer.status().isPlaying) {
-                    mediaPlayer.controls().pause()
-                } else {
-                    mediaPlayer.controls().play()
-                }
-            },
+        modifier = modifier.fillMaxSize().background(Color.Black),
         contentAlignment = Alignment.Center
     ) {
-        val bitmap = videoBitmap
-        if (bitmap != null) {
-            Image(
-                bitmap = bitmap,
-                contentDescription = "Video Frame",
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Fit
-            )
+        val currentFrame = videoBitmap
+        if (currentFrame != null) {
+            Image(bitmap = currentFrame, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
         } else {
-            Text("Connecting to stream...", color = Color.Gray)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Decoding stream...", color = Color.Gray)
+                Text("File: ${file.name}", color = Color.DarkGray, fontSize = 10.sp)
+            }
         }
         
-        Text(
-            text = playbackStatus,
-            color = AppColors.NeonBlue.copy(alpha = 0.5f),
-            fontSize = 10.sp,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp)
-        )
-    }
-}
-
-@Composable
-private fun VlcErrorDisplay(os: String, arch: String, error: String?, modifier: Modifier) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(Color(0xFF1A1A1A))
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text("⚠️ VLC Player Initialization Failed", color = AppColors.NeonRed, style = AppTypography.headlineSmall)
-        Spacer(Modifier.height(16.dp))
-        Text("Video playback requires VLC Media Player installed.", color = Color.White, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-        Spacer(Modifier.height(24.dp))
-        Column(modifier = Modifier.background(Color.Black.copy(alpha = 0.5f)).padding(12.dp)) {
-            Text("OS: $os", color = Color.Gray)
-            Text("JVM Arch: $arch", color = Color.Gray)
-            error?.let { Text("Error: $it", color = Color.Gray) }
+        // Play Button Overlay
+        if (!isPlaying) {
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .clickable { mediaPlayer.controls().play() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Filled.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(48.dp))
+            }
+        } else {
+            Box(modifier = Modifier.fillMaxSize().clickable { mediaPlayer.controls().pause() })
         }
     }
 }
