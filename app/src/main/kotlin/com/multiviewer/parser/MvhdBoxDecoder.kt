@@ -40,16 +40,18 @@ object MvhdBoxDecoder : BoxDecoder {
         pos += 36 // matrix
         pos += 24 // predefined
         val nextTrackIdOffset = pos
-        val nextTrackId = reader.readUInt32(pos)
-        
-        val fields = listOf(
+
+        val fields = mutableListOf(
             BoxField("version", version.toString(), payloadStart, 1),
             BoxField("creation_time", formatMp4Time(creationTime), payloadStart + 4, timeFieldWidth.toLong()),
             BoxField("modification_time", formatMp4Time(modificationTime), payloadStart + 4 + timeFieldWidth, timeFieldWidth.toLong()),
             BoxField("timescale", timescale.toString(), timescaleOffset, 4),
             BoxField("duration", duration.toString(), durationOffset, timeFieldWidth.toLong()),
-            BoxField("next_track_ID", nextTrackId.toString(), nextTrackIdOffset, 4),
         )
+        if (nextTrackIdOffset + 4 <= payloadEnd) {
+            val nextTrackId = reader.readUInt32(nextTrackIdOffset)
+            fields.add(BoxField("next_track_ID", nextTrackId.toString(), nextTrackIdOffset, 4))
+        }
         val summary = if (timescale > 0) {
             "timescale=$timescale, duration=${"%.3f".format(duration.toDouble() / timescale.toDouble())}s"
         } else {
