@@ -71,7 +71,7 @@ fun ImageInspectorUI(
                         forensic.bitmap?.let {
                             PixelInspectorPreview(it)
                         } ?: Text(
-                            if (forensic.isDecodingFallback) "Decoding via VLC..." else "Primary Image Decoding Failed",
+                            if (forensic.isDecodingFallback) "Decoding via ffmpeg..." else "Primary Image Decoding Failed",
                             color = if (forensic.isDecodingFallback) AppColors.TextSecondary else AppColors.NeonRed,
                             fontSize = 12.sp,
                         )

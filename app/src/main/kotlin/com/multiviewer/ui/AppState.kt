@@ -107,9 +107,9 @@ class AppState {
                 MediaType.IMAGE -> {
                     val forensic = ImageAnalyzer.analyze(file, root)
                     if (forensic.bitmap == null) {
-                        // Skia has no HEIF/HEVC decoder — fall back to VLC, async so the UI never blocks.
+                        // Skia has no HEIF/HEVC decoder — fall back to ffmpeg, async so the UI never blocks.
                         tab.imageForensic = forensic.copy(isDecodingFallback = true)
-                        VlcImageSnapshotDecoder.decodeFirstFrameAsync(file) { bitmap ->
+                        FfmpegImageSnapshotDecoder.decodeFirstFrameAsync(file) { bitmap ->
                             val current = tab.imageForensic ?: forensic
                             tab.imageForensic = current.copy(
                                 bitmap = bitmap,
