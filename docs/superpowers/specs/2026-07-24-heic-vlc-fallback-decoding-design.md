@@ -1,4 +1,4 @@
-# HEIC/HEVC Primary Image Decoding via VLC Fallback — Design
+# HEIC/HEVC Primary Image Decoding via ffmpeg Fallback — Design
 
 ## Background
 
@@ -9,22 +9,27 @@ For HEIC files, both boxes currently fail. Investigation (systematic-debugging p
 - Skiko (JetBrains' Skia build used by Compose Multiplatform Desktop) has no HEIF/HEVC decoder. `Image.makeFromEncoded` returns `null` for any HEIC byte stream, regardless of how well-formed it is.
 - `tryExtractEmbeddedJpeg`'s three strategies (ISOBMFF `iloc`/`iinf`/`iref`/`pitm` metadata, `Exif`/`APP1` byte scanning, brute-force magic-byte scanning) are all built around finding and decoding a literal embedded **JPEG** byte stream. Verified against a real HEIC sample (`strings` + hex dump on `/Library/User Pictures/Flowers/Whiterose.heic`): the file's only image data is `hvc1` (HEVC), and it contains zero JPEG bytes anywhere. Even when Strategy 1 correctly locates a `thmb`-referenced item via `iref`, that item's bytes fail the `0xFF 0xD8` JPEG magic check and are discarded. The box parser itself (`IlocBoxDecoder`, `IinfBoxDecoder`, `InfeBoxDecoder`, `IrefBoxDecoder`, `PitmBoxDecoder`, `MetaBoxDecoder`) is correct and unaffected by this design.
 
-The app already has a working HEVC decode path: `VlcVideoPlayer.kt` drives `libvlc` (via vlcj) through a `CallbackVideoSurface`/`RenderCallback` pair to render video frames into a Skia `Bitmap`, with no visible native window required — the callback delivers raw RGBA pixels directly. VLC (via its bundled `libavformat`/`libheif` support) can open a `.heic` file the same way it opens a video file, demuxing and decoding the primary HEVC item as a single displayable frame. This design reuses that mechanism as a fallback source of pixels when Skia's `Image.makeFromEncoded` fails, scoped generically (any format, not just `.heic`) so `.avif` and similar HEIF-family stills that hit the same Skia gap benefit without a separate change.
+**Revision history:** the first version of this design (implemented, reviewed, and merged the same day) used `libvlc` (via vlcj) as the fallback decoder, reusing `VlcVideoPlayer.kt`'s existing `CallbackVideoSurface`/`RenderCallback` pattern. Manual end-to-end verification against the installed `VLC.app` on this machine (both the confirmed-HEVC-only `Whiterose.heic` sample and a real, `grid`-tiled Samsung-originated HEIC) showed the fallback always timing out — "Primary Image Decoding Failed" every time. Bypassing the app entirely and running the VLC CLI directly against both files confirmed the root cause: this VLC build has **no HEIF demuxer at all** (`vlc --list | grep -i heif` returns nothing; `vlc file.heic` fails with `mov demux error: moov atom not found`, since VLC's `mov`/`avcodec` demuxer expects a video-shaped ISOBMFF file and HEIC's `meta`/`iloc`/`pitm` structure isn't one). The core premise of that design — "VLC can open a HEIC file the way it opens a video" — does not hold on this platform's VLC build, so it was not a fixable bug within that architecture; the fallback decoder itself needed to change.
+
+A standalone `ffmpeg` binary (installed via Homebrew for this verification: `brew install ffmpeg`, version 8.1.2) was tested against the same two files and succeeded on both: `ffmpeg -y -i in.heic -frames:v 1 -update 1 out.png` produced a correct, full-resolution PNG in both cases (512×512 for the simple non-tiled sample; 2252×4000 for the real grid-tiled photo — ffmpeg's `mov` demuxer correctly reassembled all 40 tiles referenced via the file's `iref`/`dimg` entries). Both output PNGs were visually confirmed to be the correct, undistorted photos. This design replaces the VLC-based fallback with a `ffmpeg` subprocess call, keeping every other piece of the original design (the `ImageForensicData` fields, the `AppState.openFile` wiring, the UI loading state) unchanged.
 
 ## Goal
 
-Opening a HEIC (or any image format Skia's `Image.makeFromEncoded` cannot decode) shows the decoded primary image in the right-hand "PRIMARY IMAGE VIEW" panel, decoded via VLC as a fallback. The left-hand "EMBEDDED EXIF THUMBNAIL" panel shows the same decoded image when the file structurally references a `thmb` item (even though that item's own bytes can't be independently decoded), and shows "No Embedded Thumbnail" when it doesn't. The UI never blocks while VLC decodes; a loading state is shown until the frame arrives or decoding definitively fails.
+Opening a HEIC (or any image format Skia's `Image.makeFromEncoded` cannot decode) shows the decoded primary image in the right-hand "PRIMARY IMAGE VIEW" panel, decoded via a `ffmpeg` subprocess as a fallback. The left-hand "EMBEDDED EXIF THUMBNAIL" panel shows the same decoded image when the file structurally references a `thmb` item (even though that item's own bytes can't be independently decoded), and shows "No Embedded Thumbnail" when it doesn't. The UI never blocks while ffmpeg decodes; a loading state is shown until the frame arrives or decoding definitively fails.
 
 ## Non-Goals
 
 - No independent decode of the *actual* `thmb` item bytes (a separate, smaller HEVC-coded image distinct from the primary item). The left panel reuses the primary image's decoded bitmap as a stand-in whenever a `thmb` reference exists — confirmed acceptable with the user, since most HEIC thumbnails are visually near-identical to the primary image at the preview sizes this panel renders.
 - No change to `tryExtractEmbeddedJpeg`'s three existing strategies — they remain exactly as-is for JPEG/TIFF/PNG files where they already work. This design only adds a fallback for when the *whole pipeline* (Skia primary decode) fails.
-- No VLC fallback for `MediaType.VIDEO` tabs. `AppState.kt` already calls `ImageAnalyzer.analyze` for video tabs to attempt a thumbnail, but `tab.imageForensic` is never read anywhere in `VideoInspectorUI.kt` (confirmed by search) — it's dead output today. Adding VLC decoding there would spin up a redundant `libvlc` instance for no visible effect, and could contend with the real `VlcVideoPlayer` already playing that same file. Fallback is gated to `MediaType.IMAGE` only.
-- No shared/pooled VLC instance. Each fallback decode creates its own `MediaPlayerFactory`/`MediaPlayer` and releases it immediately after capturing one frame (or timing out) — confirmed acceptable given `MAX_OPEN_FILES = 2`.
+- No fallback for `MediaType.VIDEO` tabs. `AppState.kt` already calls `ImageAnalyzer.analyze` for video tabs to attempt a thumbnail, but `tab.imageForensic` is never read anywhere in `VideoInspectorUI.kt` (confirmed by search) — it's dead output today. Fallback is gated to `MediaType.IMAGE` only.
+- No bundling of a platform-specific `ffmpeg` binary into the packaged app (DMG/MSI/DEB). This design shells out to whatever `ffmpeg` is found on the system `PATH` — the user must have it installed (e.g. via Homebrew, apt, or an official Windows build). Bundling static per-platform binaries into `nativeDistributions` is real, additional packaging work (binary acquisition/licensing/path resolution) explicitly deferred to a future increment; confirmed acceptable with the user for this iteration.
+- No differentiated error messaging for "ffmpeg not found on PATH" vs. "ffmpeg failed to decode this file" vs. "timed out" — all three collapse to the same existing "Primary Image Decoding Failed" text, consistent with how the rest of `ImageInspectorUI` already reports failures without a reason string.
 
 ## Design
 
 ### 1. `ImageForensicData` gains two fields (`AppState.kt`)
+
+*(Unchanged from the original design — already implemented and merged.)*
 
 ```kotlin
 data class ImageForensicData(
@@ -40,123 +45,90 @@ data class ImageForensicData(
 ```
 
 - `hasThumbnailReference`: true if the box tree has an `iref` `thmb` entry pointing at the primary item, regardless of whether that item's bytes could be decoded as JPEG. Purely structural — no byte decoding involved.
-- `isDecodingFallback`: true while a VLC fallback decode is in flight for this tab, so the UI can distinguish "still trying" from "gave up."
+- `isDecodingFallback`: true while a fallback decode is in flight for this tab, so the UI can distinguish "still trying" from "gave up."
 
 ### 2. `ImageAnalyzer.kt` — surface `hasThumbnailReference`
 
-`tryExtractEmbeddedJpeg` already computes `thumbIds` (the set of item IDs referenced via `iref` `thmb` entries pointing at the primary item) inside its ISOBMFF strategy block. Restructure so `analyze()` can see whether that set was non-empty, without changing any of the three strategies' extraction logic:
+*(Unchanged from the original design — already implemented and merged.)* `tryExtractEmbeddedJpeg` returns a `ThumbnailExtractionResult(image: Image?, hasThumbnailReference: Boolean)`; `analyze()` unpacks both fields into `ImageForensicData`.
+
+### 3. New file: `FfmpegImageSnapshotDecoder.kt` (`com.multiviewer.ui`)
+
+Replaces `VlcImageSnapshotDecoder.kt` (deleted, along with its test — the VLC-based approach doesn't work on this platform's VLC build, see Background). A headless, one-shot decoder that shells out to `ffmpeg` to extract exactly one decoded frame as a temporary PNG, then hands its bytes to Skia (the same decoder every other supported format in this app already goes through).
 
 ```kotlin
-private data class ThumbnailExtractionResult(val image: Image?, val hasThumbnailReference: Boolean)
+package com.multiviewer.ui
 
-private fun tryExtractEmbeddedJpeg(file: File, root: BoxNode): ThumbnailExtractionResult {
-    // ... existing logic unchanged ...
-    // thumbIds computed as today; capture `thumbIds.isNotEmpty()` before returning
-}
-```
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.toComposeImageBitmap
+import org.jetbrains.skia.Image
+import java.awt.EventQueue
+import java.io.File
+import java.util.concurrent.TimeUnit
 
-`analyze()` unpacks this into the two `ImageForensicData` fields it already needs (`thumbBitmap` via `.image`, plus the new `hasThumbnailReference` via `.hasThumbnailReference`).
-
-### 3. New file: `VlcImageSnapshotDecoder.kt` (`com.multiviewer.ui`)
-
-A headless, one-shot sibling to `VlcVideoPlayer`'s continuous player — same `CallbackVideoSurface`/`BufferFormatCallbackAdapter`/`RenderCallback` wiring, but captures exactly one frame and tears everything down.
-
-```kotlin
-object VlcImageSnapshotDecoder {
-    private const val TIMEOUT_MS = 5000L
+/**
+ * Headless, one-shot fallback for images Skia's Image.makeFromEncoded can't decode (HEIC/HEVC and
+ * other HEIF-family stills). Shells out to a system `ffmpeg` (must be on PATH) to extract the
+ * primary frame as a temporary PNG, then decodes that PNG via Skia like any other supported image.
+ */
+object FfmpegImageSnapshotDecoder {
+    private const val TIMEOUT_MS = 8000L
 
     fun decodeFirstFrameAsync(file: File, onResult: (ImageBitmap?) -> Unit) {
         Thread {
-            NativeDiscovery().discover()
-            val vlcArgs = arrayOf("--no-video-title-show", "--no-osd", "--quiet", "--avcodec-hw=none", "--no-audio")
-            val resultLatch = CountDownLatch(1)
-            val delivered = AtomicBoolean(false)
-            var result: ImageBitmap? = null
-
-            fun deliver(bitmap: ImageBitmap?) {
-                if (delivered.compareAndSet(false, true)) {
-                    result = bitmap
-                    resultLatch.countDown()
-                }
-            }
-
-            val factory = try {
-                MediaPlayerFactory(*vlcArgs)
-            } catch (e: Throwable) {
+            val tempPng = try {
+                File.createTempFile("ffmpeg-snapshot-", ".png")
+            } catch (e: Exception) {
                 EventQueue.invokeLater { onResult(null) }
                 return@Thread
             }
-            val mediaPlayer = factory.mediaPlayers().newEmbeddedMediaPlayer()
+            tempPng.deleteOnExit()
 
-            var skiaBitmap = Bitmap()
-            var pixelBuffer: ByteArray? = null
-            var w = 0
+            val result = try {
+                val process = ProcessBuilder(
+                    "ffmpeg", "-y", "-i", file.absolutePath,
+                    "-frames:v", "1", "-update", "1",
+                    tempPng.absolutePath,
+                )
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD)
+                    .start()
 
-            val bufferFormatCallback = object : BufferFormatCallbackAdapter() {
-                override fun getBufferFormat(sourceWidth: Int, sourceHeight: Int): BufferFormat {
-                    w = sourceWidth
-                    pixelBuffer = ByteArray(sourceWidth * sourceHeight * 4)
-                    skiaBitmap = Bitmap().apply {
-                        allocPixels(ImageInfo(ColorInfo(ColorType.BGRA_8888, ColorAlphaType.PREMUL, ColorSpace.sRGB), sourceWidth, sourceHeight))
-                    }
-                    return RV32BufferFormat(sourceWidth, sourceHeight)
+                val finished = process.waitFor(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                if (!finished) {
+                    process.destroyForcibly()
+                    null
+                } else if (process.exitValue() != 0 || tempPng.length() == 0L) {
+                    null
+                } else {
+                    Image.makeFromEncoded(tempPng.readBytes()).toComposeImageBitmap()
                 }
+            } catch (e: Exception) {
+                // ProcessBuilder.start() throws IOException when `ffmpeg` isn't on PATH.
+                null
+            } finally {
+                tempPng.delete()
             }
 
-            val renderCallback = object : RenderCallback {
-                override fun lock(mediaPlayer: MediaPlayer?) {}
-                override fun display(mediaPlayer: MediaPlayer, nativeBuffers: Array<out ByteBuffer>, bufferFormat: BufferFormat, displayWidth: Int, displayHeight: Int) {
-                    val byteBuffer = nativeBuffers[0]
-                    val currentBuffer = pixelBuffer ?: return
-                    if (byteBuffer.remaining() >= currentBuffer.size) {
-                        byteBuffer.get(currentBuffer)
-                        byteBuffer.rewind()
-                        try {
-                            skiaBitmap.installPixels(skiaBitmap.imageInfo, currentBuffer, w * 4)
-                            deliver(Image.makeFromBitmap(skiaBitmap).toComposeImageBitmap())
-                        } catch (e: Exception) {
-                            deliver(null)
-                        }
-                    }
-                }
-                override fun unlock(mediaPlayer: MediaPlayer?) {}
-            }
-
-            mediaPlayer.videoSurface().set(CallbackVideoSurface(bufferFormatCallback, renderCallback, true, object : VideoSurfaceAdapter {
-                override fun attach(mediaPlayer: MediaPlayer?, videoSurfaceHandle: Long) {}
-            }))
-
-            try {
-                mediaPlayer.media().play(file.absolutePath)
-            } catch (e: Throwable) {
-                deliver(null)
-            }
-
-            // Single teardown point: blocks this background thread (not the caller) until
-            // the render callback delivers a frame, the timeout elapses, or play() throws.
-            resultLatch.await(TIMEOUT_MS, TimeUnit.MILLISECONDS)
-            deliver(null) // no-op if display() already delivered a result
-            mediaPlayer.controls().stop()
-            mediaPlayer.release()
-            factory.release()
             EventQueue.invokeLater { onResult(result) }
         }.apply { isDaemon = true }.start()
     }
 }
 ```
 
-Single teardown point: the background thread blocks on `resultLatch` (frame delivered, or `TIMEOUT_MS` elapses) before releasing VLC resources and posting the final result — `deliver` is idempotent (`AtomicBoolean.compareAndSet`) so a late `display()` callback arriving after timeout can't double-count. `onResult` is guaranteed to fire exactly once, on the AWT event thread, within `TIMEOUT_MS` of the call.
+No native library, no callback/render-surface wiring, no cross-thread pixel buffer, no idempotent-delivery bookkeeping — `waitFor(TIMEOUT_MS, ...)` blocks this single background thread synchronously (never the caller), so there is exactly one linear path to exactly one `onResult` call, posted via `EventQueue.invokeLater` to match the rest of the app's Compose-state-from-background-thread convention (`VlcVideoPlayer.kt` uses the same handover). The temp file is deleted in a `finally` block regardless of outcome; `deleteOnExit()` is a backstop in case the JVM is killed before that runs.
 
-New imports beyond what `VlcVideoPlayer.kt` already uses: `java.util.concurrent.CountDownLatch`, `java.util.concurrent.TimeUnit`, `java.util.concurrent.atomic.AtomicBoolean`.
+**Timeout:** 8000 ms (`TIMEOUT_MS`) — raised from the original VLC design's 5000 ms. Measured against a real 4000×2252, 40-tile grid HEIC on this machine, `ffmpeg` took 1.44 s; 8 s leaves headroom for slower hardware or larger files while still failing fast rather than hanging.
 
 ### 4. `AppState.kt` — wire the fallback into `openFile`
+
+Identical structure to the original design; only the object name changes.
 
 ```kotlin
 MediaType.IMAGE -> {
     val forensic = ImageAnalyzer.analyze(file, root)
     if (forensic.bitmap == null) {
         tab.imageForensic = forensic.copy(isDecodingFallback = true)
-        VlcImageSnapshotDecoder.decodeFirstFrameAsync(file) { bitmap ->
+        FfmpegImageSnapshotDecoder.decodeFirstFrameAsync(file) { bitmap ->
             val current = tab.imageForensic ?: forensic
             tab.imageForensic = current.copy(
                 bitmap = bitmap,
@@ -171,17 +143,17 @@ MediaType.IMAGE -> {
 }
 ```
 
-Reading `tab.imageForensic` (rather than the closed-over `forensic`) inside the callback guards against the tab having been closed/replaced by the time VLC's async result arrives — matches the existing app's `TabState` being a live mutable object rather than a snapshot.
+Reading `tab.imageForensic` (rather than the closed-over `forensic`) inside the callback guards against the tab having been closed/replaced by the time the async result arrives — matches the existing app's `TabState` being a live mutable object rather than a snapshot.
 
 ### 5. `ImageInspectorUI.kt` — loading state
 
-Right panel's "no bitmap" branch splits into two cases:
+Only the loading-state copy changes (VLC → ffmpeg); logic and color rules are unchanged.
 
 ```kotlin
 forensic.bitmap?.let {
     PixelInspectorPreview(it)
 } ?: Text(
-    if (forensic.isDecodingFallback) "Decoding via VLC..." else "Primary Image Decoding Failed",
+    if (forensic.isDecodingFallback) "Decoding via ffmpeg..." else "Primary Image Decoding Failed",
     color = if (forensic.isDecodingFallback) AppColors.TextSecondary else AppColors.NeonRed,
     fontSize = 12.sp,
 )
@@ -191,11 +163,13 @@ Left panel is unaffected by this design directly — it already renders `forensi
 
 ## Error Handling
 
-- VLC/`libvlc` unavailable in the runtime environment (matches `VlcVideoPlayer`'s existing "VLC Initialization Failed" case): `MediaPlayerFactory` construction throws, `deliver(null)` fires immediately, panel falls back to "Primary Image Decoding Failed."
-- File opens in VLC but never produces a frame (corrupt file, genuinely unsupported codec): the 5-second timeout guard calls `deliver(null)`, same end state.
-- Both failure paths converge on `isDecodingFallback = false, bitmap = null` — the UI text distinguishes only "trying" vs. "gave up," not the specific failure reason, consistent with how the rest of `ImageInspectorUI` already reports failures.
+- `ffmpeg` not installed / not on `PATH`: `ProcessBuilder.start()` throws `IOException`, caught, delivers `null` — panel falls back to "Primary Image Decoding Failed."
+- `ffmpeg` runs but fails to decode the file (corrupt file, genuinely unsupported codec/container): non-zero exit code, delivers `null`, same end state.
+- `ffmpeg` hangs or takes longer than `TIMEOUT_MS`: `waitFor` returns `false`, the process is force-killed via `destroyForcibly()`, delivers `null`, same end state.
+- All failure paths converge on `isDecodingFallback = false, bitmap = null` — the UI text distinguishes only "trying" vs. "gave up," not the specific failure reason, consistent with how the rest of `ImageInspectorUI` already reports failures.
 
 ## Testing
 
-- Unit: `ImageAnalyzer`'s restructured thumbnail extraction — a synthetic ISOBMFF tree with an `iref` `thmb` entry but a non-JPEG item payload asserts `hasThumbnailReference == true` and `embeddedThumbnail == null`; a tree with no `iref` box at all asserts `hasThumbnailReference == false`.
-- Manual: open the confirmed-HEVC-only macOS sample (`Whiterose.heic`, no `thmb` reference) — expect right panel to show the VLC-decoded image, left panel to show "No Embedded Thumbnail." Open a real iPhone-originated HEIC (typically has a `thmb` reference) — expect both panels to show the same decoded image. Open a normal JPEG — expect zero behavior change (Skia succeeds, VLC path never triggers). Temporarily rename/corrupt a HEIC file's extension-matching content to confirm the timeout path resolves to "Primary Image Decoding Failed" rather than hanging.
+- Unit: `ImageAnalyzer`'s restructured thumbnail extraction (already implemented, unaffected by this revision) — a synthetic ISOBMFF tree with an `iref` `thmb` entry but a non-JPEG item payload asserts `hasThumbnailReference == true` and `embeddedThumbnail == null`; a tree with no `iref` box at all asserts `hasThumbnailReference == false`.
+- `FfmpegImageSnapshotDecoder`: a garbage (non-media) input file asserts `onResult(null)` fires within the timeout window (ffmpeg will exit non-zero quickly for unrecognized content, so this should resolve well under `TIMEOUT_MS`, not by exhausting the full timeout the way the old VLC-based test had to). This test requires `ffmpeg` to be installed and on `PATH` in the environment running it, matching this codebase's existing convention of testing VLC-dependent code (`VlcVideoPlayer.kt`) against the real native dependency rather than mocking it.
+- Manual: open the confirmed-HEVC-only macOS sample (`Whiterose.heic`, no `thmb` reference) — expect right panel to show the ffmpeg-decoded image, left panel to show "No Embedded Thumbnail." Open the real Samsung-originated grid-tiled HEIC at `/Users/dong.kim/Downloads/20260715_223835.heic` (has a `thmb` reference per its `iref` box) — expect both panels to show the same correctly-assembled, full-resolution decoded image. Open a normal JPEG — expect zero behavior change (Skia succeeds, the fallback path never triggers).
