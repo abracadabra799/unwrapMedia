@@ -78,6 +78,7 @@ Output is a continuous stream of `width * height * 4` byte BGRA frames (matches 
 fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier) {
     var videoBitmap by remember(file) { mutableStateOf<ImageBitmap?>(null, neverEqualPolicy()) }
     var isPlaying by remember(file) { mutableStateOf(false) }
+    var loadError by remember(file) { mutableStateOf(false) }
 
     val info = remember(file) { probeVideo(file) }
 
@@ -98,6 +99,11 @@ fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier) {
         } catch (e: Exception) {
             null
         }
+        // probeVideo() already succeeded, so ffmpeg/ffprobe are known to work in general -- if this
+        // second, separate process still fails to start, that's a genuine (if rare) failure to
+        // surface, not silent: without this flag, the UI would otherwise sit on "Decoding stream..."
+        // forever, since nothing would ever deliver a frame or any other terminal state.
+        if (process == null) loadError = true
 
         val stopped = AtomicBoolean(false)
 
@@ -153,7 +159,9 @@ fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier) {
 
     Box(modifier = modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
         val currentFrame = videoBitmap
-        if (currentFrame != null) {
+        if (loadError) {
+            Text("Could not start ffmpeg playback", color = Color.White)
+        } else if (currentFrame != null) {
             Image(bitmap = currentFrame, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
         } else {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -180,7 +188,7 @@ The reader thread's loop condition reads `isPlaying` directly — the same Compo
 
 **Resource cleanup**: `onDispose` sets `stopped`, interrupts the reader thread (unblocks it if mid-`Thread.sleep`), and force-destroys the ffmpeg process — mirrors `VlcVideoPlayer`'s `onDispose { mediaPlayer.release(); factory.release() }` pattern, adapted for a subprocess instead of a native player handle.
 
-**Error handling**: `probeVideo` returning `null` (ffmpeg/ffprobe not on PATH, corrupt file, `ProcessBuilder.start()` throwing) shows a clear "Could not read video" message immediately, without ever starting the frame-streaming process — mirrors `VlcVideoPlayer`'s `playerState == null` → "VLC Initialization Failed" branch.
+**Error handling**: `probeVideo` returning `null` (ffmpeg/ffprobe not on PATH, corrupt file, `ProcessBuilder.start()` throwing) shows a clear "Could not read video" message immediately, without ever starting the frame-streaming process — mirrors `VlcVideoPlayer`'s `playerState == null` → "VLC Initialization Failed" branch. Separately, if `probeVideo` succeeds but the second `ProcessBuilder(...).start()` call for the raw-frame-streaming process itself throws, `loadError` surfaces a distinct "Could not start ffmpeg playback" message — without this, the UI would otherwise be stuck showing "Decoding stream..." forever, since no frame and no other terminal state would ever arrive.
 
 ## Testing
 
