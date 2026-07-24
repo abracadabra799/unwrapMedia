@@ -19,7 +19,7 @@ fun probeVideo(file: File): VideoInfo? {
             "ffprobe", "-v", "error", "-select_streams", "v:0",
             "-show_entries", "stream=width,height,avg_frame_rate,r_frame_rate",
             "-of", "csv=p=0", file.absolutePath,
-        ).redirectErrorStream(false).start()
+        ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD).start()
         val line = process.inputStream.bufferedReader().readLine()
         process.waitFor(5, TimeUnit.SECONDS)
         if (line == null) return null
