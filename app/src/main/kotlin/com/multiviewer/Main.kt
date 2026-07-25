@@ -197,12 +197,16 @@ fun main() = application {
                             )
                         }
 
-                        when (currentTab.type) {
-                            MediaType.IMAGE -> ImageInspectorUI(currentTab, leftPanel, bottomPanel)
-                            MediaType.VIDEO -> VideoInspectorUI(currentTab, leftPanel, bottomPanel)
-                            else -> {
-                                // Fallback to original structure view if needed
-                                Text("Unsupported Format", modifier = Modifier.padding(16.dp))
+                        if (currentTab.isLoading) {
+                            Text("Analyzing ${currentTab.file.name}...", modifier = Modifier.padding(16.dp))
+                        } else {
+                            when (currentTab.type) {
+                                MediaType.IMAGE -> ImageInspectorUI(currentTab, leftPanel, bottomPanel)
+                                MediaType.VIDEO -> VideoInspectorUI(currentTab, leftPanel, bottomPanel)
+                                else -> {
+                                    // Fallback to original structure view if needed
+                                    Text("Unsupported Format", modifier = Modifier.padding(16.dp))
+                                }
                             }
                         }
                     }

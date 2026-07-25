@@ -13,6 +13,17 @@ class AppStateTest {
         return tmp
     }
 
+    // openFile() now analyzes files on a background thread (to keep the UI responsive — see
+    // AppState.kt) and marshals results back via EventQueue.invokeLater. Tests that assert on
+    // analysis results must wait for that to land instead of reading state immediately.
+    private fun waitForLoad(tab: TabState, timeoutMs: Long = 5000) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (tab.isLoading) {
+            check(System.currentTimeMillis() < deadline) { "Timed out waiting for ${tab.file.name} to finish loading" }
+            Thread.sleep(10)
+        }
+    }
+
     @Test
     fun `openFile rejects a third distinct file and sets statusMessage`() {
         val appState = AppState()
@@ -64,6 +75,7 @@ class AppStateTest {
         appState.openFile(file)
 
         val tab = appState.tabs.single()
+        waitForLoad(tab)
         assertEquals(null, tab.error)
         assertEquals(24L, tab.embeddedVideo?.start)
         assertEquals(40L, tab.embeddedVideo?.end)
@@ -84,6 +96,7 @@ class AppStateTest {
         appState.openFile(file)
 
         val tab = appState.tabs.single()
+        waitForLoad(tab)
         assertEquals(null, tab.error)
         assertEquals(null, tab.embeddedVideo)
     }
@@ -156,7 +169,7 @@ class AppStateTest {
     }
 
     @Test
-    fun `openFile on an undecodable IMAGE-type file synchronously sets isDecodingFallback before the VLC callback resolves`() {
+    fun `openFile on an undecodable IMAGE-type file sets isDecodingFallback before the ffmpeg callback resolves`() {
         val file = File.createTempFile("appstate-heic-fallback-test", ".heic")
         file.deleteOnExit()
         file.writeBytes(ByteArray(300)) // garbage — Skia's Image.makeFromEncoded will return null
@@ -165,6 +178,11 @@ class AppStateTest {
         appState.openFile(file)
 
         val tab = appState.tabs.single()
+        waitForLoad(tab)
+        // The background analysis thread's EventQueue.invokeLater callback sets isDecodingFallback
+        // = true and only *afterward* kicks off the separate ffmpeg decode thread — so immediately
+        // after isLoading flips false, the fallback flag must already be set and the decode must
+        // not have resolved yet (it needs to spawn a process, which takes longer than this check).
         assertEquals(MediaType.IMAGE, tab.type)
         assertEquals(null, tab.imageForensic?.bitmap)
         assertEquals(true, tab.imageForensic?.isDecodingFallback)
@@ -180,6 +198,7 @@ class AppStateTest {
         appState.openFile(file)
 
         val tab = appState.tabs.single()
+        waitForLoad(tab)
         assertEquals(MediaType.VIDEO, tab.type)
         assertEquals(null, tab.imageForensic?.bitmap)
         assertEquals(false, tab.imageForensic?.isDecodingFallback)
