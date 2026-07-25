@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -189,6 +190,11 @@ fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier) {
                 Text("File: ${file.name}", color = Color.DarkGray, fontSize = 10.sp)
             }
         }
+
+        Text("${info.width}x${info.height}",
+            modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
+            style = AppTypography.labelLarge.copy(fontSize = 9.sp, color = AppColors.TextSecondary)
+        )
 
         if (!isPlaying) {
             Box(
