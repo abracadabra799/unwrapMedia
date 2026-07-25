@@ -2,6 +2,7 @@ package com.multiviewer.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -15,6 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.multiviewer.parser.BoxNode
 import com.multiviewer.parser.EmbeddedVideo
 import com.multiviewer.parser.extractEmbeddedVideo
 import kotlinx.coroutines.Dispatchers
@@ -203,6 +205,18 @@ private fun MotionPhotoVideoPreview(tab: TabState, video: EmbeddedVideo) {
     }
 }
 
+data class WarningEntry(val node: BoxNode, val warning: String)
+
+fun collectWarnings(root: BoxNode): List<WarningEntry> {
+    val entries = mutableListOf<WarningEntry>()
+    fun walk(node: BoxNode) {
+        node.warnings.forEach { entries.add(WarningEntry(node, it)) }
+        node.children.forEach { walk(it) }
+    }
+    walk(root)
+    return entries.sortedBy { it.node.offset }
+}
+
 @Composable
 fun DetailedPropertiesPanel(tab: TabState) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
@@ -247,7 +261,40 @@ fun DetailedPropertiesPanel(tab: TabState) {
                 }
             }
         } else {
-            Text("Select a marker to view details", style = AppTypography.bodyLarge.copy(color = AppColors.TextSecondary))
+            val root = tab.root
+            val warnings = if (root != null) remember(root) { collectWarnings(root) } else emptyList()
+            if (warnings.isNotEmpty()) {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    item {
+                        Text(
+                            "⚠ ${warnings.size}개의 구조적 이상 징후",
+                            style = AppTypography.labelLarge.copy(color = AppColors.NeonRed),
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    items(warnings) { entry ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .clickable { tab.selected = entry.node },
+                        ) {
+                            Column {
+                                Text(
+                                    "${entry.node.type} — 0x${entry.node.offset.toString(16).uppercase()}",
+                                    style = AppTypography.labelLarge.copy(color = AppColors.TextPrimary, fontSize = 11.sp),
+                                )
+                                Text(
+                                    entry.warning,
+                                    style = AppTypography.bodyLarge.copy(color = AppColors.NeonRed, fontSize = 11.sp),
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                Text("✓ 구조적 이상 없음", style = AppTypography.bodyLarge.copy(color = AppColors.NeonGreen))
+            }
         }
     }
 }
