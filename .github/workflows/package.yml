@@ -1,11 +1,9 @@
 name: Package unwrapMedia
-
 on:
   push:
-    branches: [ v2 ]
+    branches: [v2]
   pull_request:
-    branches: [ v2 ]
-
+    branches: [v2]
 jobs:
   package:
     name: Package for ${{ matrix.os }}
@@ -13,11 +11,10 @@ jobs:
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-
+        
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
@@ -28,27 +25,22 @@ jobs:
       - name: Grant Execute Permission for Gradlew
         if: matrix.os != 'windows-latest'
         run: chmod +x gradlew
-
-      - name: Package Distribution
-        run: ./gradlew :app:packageDistributionForCurrentOS
-
-      - name: Upload Artifacts (Windows)
+        
+      - name: Download and bundle ffmpeg (Windows)
         if: matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: unwrapMedia-windows
-          path: app/build/compose/binaries/main/msi/*.msi
-
-      - name: Upload Artifacts (Linux)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-lgpl-8.1.zip" -OutFile ffmpeg.zip
+          Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg-extracted
+          New-Item -ItemType Directory -Force -Path app/resources/windows/bin | Out-Null
+          Copy-Item (Get-ChildItem -Path ffmpeg-extracted -Recurse -Filter ffmpeg.exe).FullName app/resources/windows/bin/ffmpeg.exe
+          Copy-Item (Get-ChildItem -Path ffmpeg-extracted -Recurse -Filter ffprobe.exe).FullName app/resources/windows/bin/ffprobe.exe
+          
+      - name: Download and bundle ffmpeg (Linux)
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: unwrapMedia-linux
-          path: app/build/compose/binaries/main/deb/*.deb
-
-      - name: Upload Artifacts (macOS)
-        if: matrix.os == 'macos-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: unwrapMedia-macos
-          path: app/build/compose/binaries/main/dmg/*.dmg
+        run: |
+          curl -sL -o ffmpeg.tar.xz "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-lgpl-8.1.tar.xz"
+          mkdir -p ffmpeg-extracted
+          tar -xf ffmpeg.tar.xz -C ffmpeg-extracted --strip-components=1
+          mkdir -p app/resources/linux/bin
+          cp ffmpeg-extracted/bin/ffmpeg app/resources/linux/bin/ffmpeg
