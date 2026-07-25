@@ -639,4 +639,55 @@ class MediaSummaryBuilderTest {
         val summary = buildMediaSummary(root, tempFile())
         assertEquals(null, summary.thumbnail)
     }
+
+    @Test
+    fun `mergeStreamCodecDetails appends fields onto the existing Video and Audio sections`() {
+        val summary = MediaSummary(
+            category = MediaCategory.VIDEO,
+            sections = listOf(
+                SummarySection("General", listOf(SummaryField("Duration", "0:00:03"))),
+                SummarySection("Video", listOf(SummaryField("Format", "HEVC"), SummaryField("Width", "1752"))),
+                SummarySection("Audio", listOf(SummaryField("Format", "AAC"))),
+            ),
+        )
+
+        val merged = mergeStreamCodecDetails(
+            summary,
+            videoFields = listOf(SummaryField("Profile", "Main"), SummaryField("Bit Depth", "8 bit")),
+            audioFields = listOf(SummaryField("Profile", "LC")),
+        )
+
+        assertEquals(3, merged.sections.size)
+        assertEquals("General", merged.sections[0].title)
+        assertEquals(listOf(SummaryField("Duration", "0:00:03")), merged.sections[0].fields)
+        assertEquals("Video", merged.sections[1].title)
+        assertEquals(
+            listOf(
+                SummaryField("Format", "HEVC"), SummaryField("Width", "1752"),
+                SummaryField("Profile", "Main"), SummaryField("Bit Depth", "8 bit"),
+            ),
+            merged.sections[1].fields,
+        )
+        assertEquals("Audio", merged.sections[2].title)
+        assertEquals(
+            listOf(SummaryField("Format", "AAC"), SummaryField("Profile", "LC")),
+            merged.sections[2].fields,
+        )
+    }
+
+    @Test
+    fun `mergeStreamCodecDetails leaves a summary with no Video or Audio section unchanged`() {
+        val summary = MediaSummary(
+            category = MediaCategory.VIDEO,
+            sections = listOf(SummarySection("General", listOf(SummaryField("Duration", "0:00:03")))),
+        )
+
+        val merged = mergeStreamCodecDetails(
+            summary,
+            videoFields = listOf(SummaryField("Profile", "Main")),
+            audioFields = listOf(SummaryField("Profile", "LC")),
+        )
+
+        assertEquals(summary, merged)
+    }
 }
