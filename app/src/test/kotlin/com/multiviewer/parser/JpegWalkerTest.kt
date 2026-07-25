@@ -86,6 +86,37 @@ class JpegWalkerTest {
     }
 
     @Test
+    fun `SOS scan-data skip over a large region is correct and completes well under a second`() {
+        // Regression guard: this loop used to call reader.readUInt8() once per byte of scan data
+        // (a seek+read syscall pair each), which took roughly a million calls -- and 800ms+ even on
+        // a fast local SSD -- for a real multi-MB JPEG. It now reads the whole region once and scans
+        // it in memory, so a multi-MB scan region should finish in milliseconds, not seconds.
+        val scanDataSize = 3_000_000
+        val scanData = ByteArray(scanDataSize) { 0x3f } // arbitrary bytes, no 0xFF anywhere
+        val bytes = byteArrayOf(
+            0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xda.toByte(), 0x00, 0x08, 0x01, 0x01,
+            0x00, 0x00, 0x3f, 0x00,
+        ) + scanData + byteArrayOf(0xff.toByte(), 0xd9.toByte())
+        val reader = byteReaderOf(bytes)
+
+        val start = System.nanoTime()
+        val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
+        val elapsedMs = (System.nanoTime() - start) / 1_000_000.0
+
+        assertEquals(listOf("SOI", "SOS", "EOI"), segments.map { it.type })
+        val sos = segments[1]
+        assertEquals(2L, sos.offset)
+        assertEquals((10 + scanDataSize).toLong(), sos.size)
+        val eoi = segments[2]
+        assertEquals((12 + scanDataSize).toLong(), eoi.offset)
+        assertTrue(
+            elapsedMs < 2000,
+            "Expected the scan-data skip over a 3MB region to run well under 2s, took ${elapsedMs}ms",
+        )
+        reader.close()
+    }
+
+    @Test
     fun `a byte that is not 0xFF where a marker is expected produces a warning and stops`() {
         val bytes = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0x00, 0x01)
         val reader = byteReaderOf(bytes)

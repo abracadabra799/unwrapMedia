@@ -125,34 +125,41 @@ object ImageAnalyzer {
             if (exifNode != null) {
                 // Search for JPEG magic bytes in the EXIF/APP1 payload
                 val limit = exifNode.offset + exifNode.size
-                var scanPos = exifNode.offset
-                while (scanPos < limit - 4) {
-                    if (reader.readUInt8(scanPos) == 0xFF && reader.readUInt8(scanPos + 1) == 0xD8) {
-                        try {
-                            val possibleImg = Image.makeFromEncoded(reader.readBytes(scanPos, (limit - scanPos).toInt().coerceAtMost(1_000_000)))
-                            if (possibleImg != null && possibleImg.width > 10) return@use possibleImg
-                        } catch (e: Exception) {}
-                    }
-                    scanPos++
+                for (scanPos in findJpegMagicOffsets(reader, exifNode.offset, limit)) {
+                    try {
+                        val possibleImg = Image.makeFromEncoded(reader.readBytes(scanPos, (limit - scanPos).toInt().coerceAtMost(1_000_000)))
+                        if (possibleImg != null && possibleImg.width > 10) return@use possibleImg
+                    } catch (e: Exception) {}
                 }
             }
 
             // --- Strategy 3: Brute Force Magic Byte Scan (Last Ditch) ---
             val scanLimit = minOf(reader.length, 4_000_000L)
-            var pos = 0L
-            while (pos < scanLimit - 4) {
-                if (reader.readUInt8(pos) == 0xFF && reader.readUInt8(pos + 1) == 0xD8) {
-                    try {
-                        val possibleImg = Image.makeFromEncoded(reader.readBytes(pos, (reader.length - pos).toInt().coerceAtMost(1_000_000)))
-                        if (possibleImg != null && possibleImg.width > 10) return@use possibleImg
-                    } catch (e: Exception) {}
-                }
-                pos++
+            for (pos in findJpegMagicOffsets(reader, 0L, scanLimit)) {
+                try {
+                    val possibleImg = Image.makeFromEncoded(reader.readBytes(pos, (reader.length - pos).toInt().coerceAtMost(1_000_000)))
+                    if (possibleImg != null && possibleImg.width > 10) return@use possibleImg
+                } catch (e: Exception) {}
             }
             null
         }
 
         return ThumbnailExtractionResult(image, hasThumbnailReference)
+    }
+
+    // Finds every 0xFFD8 (JPEG SOI) magic-byte offset in [start, end) by reading the region into
+    // memory once and scanning in place, instead of one readUInt8() syscall pair per byte position
+    // (which took up to several million individual seek+read calls on multi-MB files).
+    private fun findJpegMagicOffsets(reader: ByteReader, start: Long, end: Long): List<Long> {
+        if (end <= start) return emptyList()
+        val bytes = reader.readBytes(start, (end - start).toInt())
+        val offsets = mutableListOf<Long>()
+        for (i in 0 until bytes.size - 1) {
+            if (bytes[i].toInt() and 0xFF == 0xFF && bytes[i + 1].toInt() and 0xFF == 0xD8) {
+                offsets.add(start + i)
+            }
+        }
+        return offsets
     }
 
     private fun extractItemById(reader: ByteReader, iloc: BoxNode, itemId: Long, idatBase: Long): Image? {
