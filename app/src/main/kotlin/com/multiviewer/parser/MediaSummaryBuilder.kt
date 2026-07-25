@@ -378,6 +378,7 @@ private fun formatBitrate(bitsPerSecond: Double): String = when {
 }
 
 fun mergeStreamCodecDetails(summary: MediaSummary, videoFields: List<SummaryField>, audioFields: List<SummaryField>): MediaSummary {
+    if (summary.category != MediaCategory.VIDEO) return summary
     val mergedSections = summary.sections.map { section ->
         when (section.title) {
             "Video" -> section.copy(fields = section.fields + videoFields)

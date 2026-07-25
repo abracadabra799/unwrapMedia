@@ -46,7 +46,7 @@ private fun MetadataCard(section: SummarySection, modifier: Modifier = Modifier)
             style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = AppColors.NeonBlue)
         )
         Spacer(Modifier.height(8.dp))
-        section.fields.take(5).forEach { field ->
+        section.fields.forEach { field ->
             Row(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
