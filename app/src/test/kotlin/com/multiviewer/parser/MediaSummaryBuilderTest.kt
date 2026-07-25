@@ -690,4 +690,23 @@ class MediaSummaryBuilderTest {
 
         assertEquals(summary, merged)
     }
+
+    @Test
+    fun `mergeStreamCodecDetails is a no-op for a non-VIDEO category summary even if it has a Video-titled section`() {
+        val summary = MediaSummary(
+            category = MediaCategory.IMAGE,
+            sections = listOf(
+                SummarySection("General", listOf(SummaryField("Format", "HEIC"))),
+                SummarySection("Video", listOf(SummaryField("Format", "HEVC"), SummaryField("Width", "1752"))),
+            ),
+        )
+
+        val merged = mergeStreamCodecDetails(
+            summary,
+            videoFields = listOf(SummaryField("Profile", "Main"), SummaryField("Bit Depth", "8 bit")),
+            audioFields = listOf(SummaryField("Profile", "LC")),
+        )
+
+        assertEquals(summary, merged)
+    }
 }
