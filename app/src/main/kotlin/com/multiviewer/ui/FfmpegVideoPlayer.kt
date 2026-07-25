@@ -54,7 +54,7 @@ fun probeVideo(file: File): VideoInfo? {
     return try {
         val process = ProcessBuilder(
             FfmpegLocator.ffprobePath(), "-v", "error", "-select_streams", "v:0",
-            "-show_entries", "stream=width,height,avg_frame_rate,r_frame_rate",
+            "-show_entries", "stream=width,height,avg_frame_rate,r_frame_rate:stream_side_data=rotation",
             "-of", "csv=p=0", file.absolutePath,
         ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD).start()
         val line = process.inputStream.bufferedReader().readLine()
@@ -62,9 +62,18 @@ fun probeVideo(file: File): VideoInfo? {
         if (line == null) return null
         val parts = line.split(",")
         if (parts.size < 4) return null
-        val width = parts[0].toIntOrNull() ?: return null
-        val height = parts[1].toIntOrNull() ?: return null
+        var width = parts[0].toIntOrNull() ?: return null
+        var height = parts[1].toIntOrNull() ?: return null
         val fps = parseFrameRate(parts[2]) ?: parseFrameRate(parts[3]) ?: 30.0
+        // ffmpeg auto-applies rotation side-data when transcoding to rawvideo, so the
+        // actual piped frame dimensions are swapped from ffprobe's raw stream dimensions
+        // whenever the stream is rotated a quarter turn.
+        val rotation = parts.getOrNull(4)?.toIntOrNull() ?: 0
+        if (Math.abs(rotation) == 90 || Math.abs(rotation) == 270) {
+            val tmp = width
+            width = height
+            height = tmp
+        }
         VideoInfo(width, height, fps)
     } catch (e: Exception) {
         null
