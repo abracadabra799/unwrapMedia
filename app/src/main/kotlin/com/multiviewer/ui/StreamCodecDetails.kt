@@ -19,7 +19,7 @@ fun probeStreamDetails(file: File): StreamCodecDetails? {
         val process = ProcessBuilder(
             FfmpegLocator.ffprobePath(), "-v", "error",
             "-show_entries",
-            "stream=index,codec_type,profile,level,pix_fmt,color_space,color_transfer,color_primaries,color_range,bit_rate,r_frame_rate,avg_frame_rate,channel_layout",
+            "stream=index,codec_type,profile,level,pix_fmt,color_space,color_transfer,color_primaries,color_range,bit_rate,r_frame_rate,avg_frame_rate,channel_layout,duration,nb_frames",
             "-of", "default=noprint_wrappers=1", file.absolutePath,
         ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD).start()
         val lines = process.inputStream.bufferedReader().readLines()
@@ -59,6 +59,8 @@ private fun buildVideoFields(values: Map<String, String>): List<SummaryField> {
     val fields = mutableListOf<SummaryField>()
     values["profile"]?.let { fields.add(SummaryField("Profile", it)) }
     values["level"]?.let { fields.add(SummaryField("Level", it)) }
+    values["duration"]?.toDoubleOrNull()?.let { fields.add(SummaryField("Duration", formatCodecDuration(it))) }
+    values["nb_frames"]?.toIntOrNull()?.let { fields.add(SummaryField("Frame Count", it.toString())) }
     values["bit_rate"]?.toDoubleOrNull()?.let { fields.add(SummaryField("Bit Rate", formatCodecBitrate(it))) }
     values["pix_fmt"]?.let { pixFmt ->
         fields.add(SummaryField("Chroma Subsampling", chromaSubsamplingFrom(pixFmt)))
@@ -79,6 +81,8 @@ private fun buildVideoFields(values: Map<String, String>): List<SummaryField> {
 private fun buildAudioFields(values: Map<String, String>): List<SummaryField> {
     val fields = mutableListOf<SummaryField>()
     values["profile"]?.let { fields.add(SummaryField("Profile", it)) }
+    values["duration"]?.toDoubleOrNull()?.let { fields.add(SummaryField("Duration", formatCodecDuration(it))) }
+    values["nb_frames"]?.toIntOrNull()?.let { fields.add(SummaryField("Frame Count", it.toString())) }
     values["bit_rate"]?.toDoubleOrNull()?.let { fields.add(SummaryField("Bit Rate", formatCodecBitrate(it))) }
     values["channel_layout"]?.let { fields.add(SummaryField("Channel Layout", it)) }
     return fields
@@ -88,6 +92,14 @@ private fun formatCodecBitrate(bitsPerSecond: Double): String = when {
     bitsPerSecond >= 1_000_000 -> "%.1f Mbps".format(bitsPerSecond / 1_000_000)
     bitsPerSecond >= 1_000 -> "%.1f Kbps".format(bitsPerSecond / 1_000)
     else -> "%.0f bps".format(bitsPerSecond)
+}
+
+private fun formatCodecDuration(seconds: Double): String {
+    val totalSeconds = seconds.toLong()
+    val h = totalSeconds / 3600
+    val m = (totalSeconds % 3600) / 60
+    val s = totalSeconds % 60
+    return "%d:%02d:%02d".format(h, m, s)
 }
 
 private fun chromaSubsamplingFrom(pixFmt: String): String = when {
