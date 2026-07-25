@@ -53,7 +53,7 @@ fun parseFrameRate(fraction: String): Double? {
 fun probeVideo(file: File): VideoInfo? {
     return try {
         val process = ProcessBuilder(
-            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            FfmpegLocator.ffprobePath(), "-v", "error", "-select_streams", "v:0",
             "-show_entries", "stream=width,height,avg_frame_rate,r_frame_rate",
             "-of", "csv=p=0", file.absolutePath,
         ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD).start()
@@ -89,7 +89,7 @@ fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier) {
     DisposableEffect(file) {
         val process = try {
             ProcessBuilder(
-                "ffmpeg", "-i", file.absolutePath,
+                FfmpegLocator.ffmpegPath(), "-i", file.absolutePath,
                 "-f", "rawvideo", "-pix_fmt", "bgra", "-an",
                 "-r", info.fps.toString(), "-",
             ).redirectError(ProcessBuilder.Redirect.DISCARD).start()
