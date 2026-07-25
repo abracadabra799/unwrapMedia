@@ -172,7 +172,7 @@ private fun MotionPhotoVideoPreview(tab: TabState, video: EmbeddedVideo) {
     val file = extractedFile
     val error = extractError
     if (file != null) {
-        VlcVideoPlayer(file, modifier = Modifier.fillMaxSize())
+        FfmpegVideoPlayer(file, modifier = Modifier.fillMaxSize())
     } else if (error != null) {
         Text("Could not extract motion video: $error", color = AppColors.NeonRed, fontSize = 12.sp)
     } else {

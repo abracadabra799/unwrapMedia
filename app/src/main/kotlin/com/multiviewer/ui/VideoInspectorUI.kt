@@ -40,7 +40,7 @@ fun VideoInspectorUI(
                         .background(Color.Black),
                     contentAlignment = Alignment.Center
                 ) {
-                    VlcVideoPlayer(tab.file)
+                    FfmpegVideoPlayer(tab.file)
                     
                     Text("LIVE PLAYER", 
                         modifier = Modifier.align(Alignment.TopStart).padding(4.dp), 
