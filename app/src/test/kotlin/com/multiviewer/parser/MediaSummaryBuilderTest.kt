@@ -709,4 +709,24 @@ class MediaSummaryBuilderTest {
 
         assertEquals(summary, merged)
     }
+
+    @Test
+    fun `mergeStreamCodecDetailsIntoSections appends fields onto matching-titled sections directly`() {
+        val sections = listOf(
+            SummarySection("General", listOf(SummaryField("Format", "MOV"))),
+            SummarySection("Video", listOf(SummaryField("Format", "HEVC"))),
+            SummarySection("Audio", listOf(SummaryField("Format", "AAC"))),
+        )
+
+        val merged = mergeStreamCodecDetailsIntoSections(
+            sections,
+            videoFields = listOf(SummaryField("Profile", "Main")),
+            audioFields = listOf(SummaryField("Profile", "LC")),
+        )
+
+        assertEquals(3, merged.size)
+        assertEquals(listOf(SummaryField("Format", "MOV")), merged[0].fields)
+        assertEquals(listOf(SummaryField("Format", "HEVC"), SummaryField("Profile", "Main")), merged[1].fields)
+        assertEquals(listOf(SummaryField("Format", "AAC"), SummaryField("Profile", "LC")), merged[2].fields)
+    }
 }
