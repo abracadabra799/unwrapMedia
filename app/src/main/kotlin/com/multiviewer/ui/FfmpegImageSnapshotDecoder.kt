@@ -27,7 +27,7 @@ object FfmpegImageSnapshotDecoder {
 
             val result = try {
                 val process = ProcessBuilder(
-                    "ffmpeg", "-y", "-i", file.absolutePath,
+                    FfmpegLocator.ffmpegPath(), "-y", "-i", file.absolutePath,
                     "-frames:v", "1", "-update", "1",
                     tempPng.absolutePath,
                 )
