@@ -1,5 +1,6 @@
 package com.multiviewer.ui
 
+import androidx.compose.foundation.HorizontalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,6 +16,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -80,6 +83,7 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit) {
                 )
             }
             else -> {
+                val listState = rememberLazyListState()
                 Column(modifier = Modifier.fillMaxSize()) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
@@ -91,9 +95,10 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit) {
                     }
 
                     val maxSize = frames.maxOf { it.sizeBytes }.coerceAtLeast(1)
-                    val graphAreaHeight = GOP_GRAPH_HEIGHT_DP - 32
+                    val graphAreaHeight = GOP_GRAPH_HEIGHT_DP - 32 - 16
                     LazyRow(
-                        modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+                        state = listState,
+                        modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(FRAME_BAR_SPACING_DP.dp),
                     ) {
                         items(frames) { frame ->
@@ -116,6 +121,14 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit) {
                             }
                         }
                     }
+
+                    // LazyRow scrolls via drag/trackpad regardless, but with potentially thousands
+                    // of frames a visible scrollbar is the only way to see how far through the
+                    // video the current view is, and to jump around quickly.
+                    HorizontalScrollbar(
+                        adapter = rememberScrollbarAdapter(listState),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    )
                 }
             }
         }
