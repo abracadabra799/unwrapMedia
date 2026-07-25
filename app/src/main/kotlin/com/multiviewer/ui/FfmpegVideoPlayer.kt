@@ -85,6 +85,12 @@ fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier) {
     var videoBitmap by remember(file) { mutableStateOf<ImageBitmap?>(null, neverEqualPolicy()) }
     var isPlaying by remember(file) { mutableStateOf(false) }
     var loadError by remember(file) { mutableStateOf(false) }
+    // ffmpeg's rawvideo pipe is one-shot -- once it hits EOF, that process is done and can't be
+    // rewound. Reaching the end sets hasEnded and stops isPlaying (below); clicking play again
+    // while hasEnded bumps restartTrigger, which re-keys the DisposableEffect to tear down and
+    // spawn a fresh ffmpeg process from the start of the file.
+    var hasEnded by remember(file) { mutableStateOf(false) }
+    var restartTrigger by remember(file) { mutableStateOf(0) }
 
     val info = remember(file) { probeVideo(file) }
 
@@ -95,7 +101,7 @@ fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier) {
         return
     }
 
-    DisposableEffect(file) {
+    DisposableEffect(file, restartTrigger) {
         val process = try {
             ProcessBuilder(
                 FfmpegLocator.ffmpegPath(), "-i", file.absolutePath,
@@ -145,7 +151,13 @@ fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier) {
                         continue
                     }
                     val start = System.currentTimeMillis()
-                    if (!readFrame()) break // EOF
+                    if (!readFrame()) {
+                        EventQueue.invokeLater {
+                            isPlaying = false
+                            hasEnded = true
+                        }
+                        break // EOF
+                    }
                     deliver()
                     val remaining = frameDurationMs - (System.currentTimeMillis() - start)
                     if (remaining > 0) Thread.sleep(remaining)
@@ -184,7 +196,13 @@ fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier) {
                     .size(64.dp)
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.5f))
-                    .clickable { isPlaying = true },
+                    .clickable {
+                        if (hasEnded) {
+                            hasEnded = false
+                            restartTrigger++
+                        }
+                        isPlaying = true
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(Icons.Filled.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(48.dp))
