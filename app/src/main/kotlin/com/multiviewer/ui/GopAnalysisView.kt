@@ -1,14 +1,17 @@
 package com.multiviewer.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -20,14 +23,31 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-private const val GOP_GRAPH_HEIGHT_DP = 120
-private const val FRAME_BAR_WIDTH_DP = 3
+private const val GOP_GRAPH_HEIGHT_DP = 180
+private const val FRAME_BAR_WIDTH_DP = 10
+private const val FRAME_BAR_SPACING_DP = 3
 
 private fun colorForFrameType(type: Char) = when (type) {
     'I' -> AppColors.NeonRed
     'P' -> AppColors.NeonGreen
     'B' -> AppColors.NeonBlue
     else -> AppColors.TextSecondary
+}
+
+@Composable
+private fun FrameTypeLegendEntry(type: Char, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .background(colorForFrameType(type))
+                .border(0.5.dp, AppColors.Border),
+        )
+        Text(
+            "  $label",
+            style = AppTypography.bodyLarge.copy(color = AppColors.TextSecondary, fontSize = 10.sp),
+        )
+    }
 }
 
 @Composable
@@ -60,24 +80,40 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit) {
                 )
             }
             else -> {
-                val maxSize = frames.maxOf { it.sizeBytes }.coerceAtLeast(1)
-                LazyRow(modifier = Modifier.fillMaxSize().padding(8.dp)) {
-                    items(frames) { frame ->
-                        val barHeightDp = ((frame.sizeBytes.toFloat() / maxSize) * (GOP_GRAPH_HEIGHT_DP - 16)).coerceAtLeast(1f)
-                        Column(
-                            modifier = Modifier.width(FRAME_BAR_WIDTH_DP.dp).fillMaxSize(),
-                            verticalArrangement = Arrangement.Bottom,
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .width(FRAME_BAR_WIDTH_DP.dp)
-                                    .height(barHeightDp.dp)
-                                    .background(colorForFrameType(frame.type))
-                                    .clickable {
-                                        tab.selectedFrame = frame
-                                        tab.selected = null
-                                    },
-                            )
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        FrameTypeLegendEntry('I', "I-frame")
+                        FrameTypeLegendEntry('P', "P-frame")
+                        FrameTypeLegendEntry('B', "B-frame")
+                    }
+
+                    val maxSize = frames.maxOf { it.sizeBytes }.coerceAtLeast(1)
+                    val graphAreaHeight = GOP_GRAPH_HEIGHT_DP - 32
+                    LazyRow(
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(FRAME_BAR_SPACING_DP.dp),
+                    ) {
+                        items(frames) { frame ->
+                            val barHeightDp = ((frame.sizeBytes.toFloat() / maxSize) * graphAreaHeight).coerceAtLeast(2f)
+                            Column(
+                                modifier = Modifier.width(FRAME_BAR_WIDTH_DP.dp).fillMaxSize(),
+                                verticalArrangement = Arrangement.Bottom,
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(FRAME_BAR_WIDTH_DP.dp)
+                                        .height(barHeightDp.dp)
+                                        .background(colorForFrameType(frame.type))
+                                        .border(0.5.dp, AppColors.Border)
+                                        .clickable {
+                                            tab.selectedFrame = frame
+                                            tab.selected = null
+                                        },
+                                )
+                            }
                         }
                     }
                 }
