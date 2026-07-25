@@ -30,6 +30,7 @@ compose.desktop {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "unwrapMedia"
             packageVersion = "1.0.0"
+            appResourcesRootDir.set(project.layout.projectDirectory.dir("resources"))
 
             windows {
                 // Without these, jpackage's MSI installs the app with no Start Menu entry and
