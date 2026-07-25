@@ -47,15 +47,26 @@ jobs:
           cp ffmpeg-extracted/bin/ffprobe app/resources/linux/bin/ffprobe
           chmod +x app/resources/linux/bin/ffmpeg app/resources/linux/bin/ffprobe
           
-      - name: Package Distribution
+      - name: Package Distribution (Windows)
+        if: matrix.os == 'windows-latest'
+        run: ./gradlew :app:createDistributable
+
+      - name: Package Distribution (macOS/Linux)
+        if: matrix.os != 'windows-latest'
         run: ./gradlew :app:packageDistributionForCurrentOS
+
+      - name: Compile Windows Installer (Inno Setup)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\windows\installer.iss
         
       - name: Upload Artifacts (Windows)
         if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
           name: unwrapMedia-windows
-          path: app/build/compose/binaries/main/msi/*.msi
+          path: packaging/windows/Output/*.exe
           
       - name: Upload Artifacts (Linux)
         if: matrix.os == 'ubuntu-latest'
