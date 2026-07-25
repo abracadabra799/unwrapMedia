@@ -56,14 +56,21 @@ fun ImageInspectorUI(
                             .background(Color.Black),
                         contentAlignment = Alignment.Center
                     ) {
-                        forensic.embeddedThumbnail?.let { 
-                            PixelInspectorPreview(it) 
+                        forensic.embeddedThumbnail?.let {
+                            PixelInspectorPreview(it)
                         } ?: Text("No Embedded Thumbnail", color = Color.Gray, fontSize = 12.sp)
-                        
-                        Text("EMBEDDED EXIF THUMBNAIL", 
-                            modifier = Modifier.align(Alignment.TopStart).padding(4.dp), 
+
+                        Text("EMBEDDED EXIF THUMBNAIL",
+                            modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
                             style = AppTypography.labelLarge.copy(fontSize = 9.sp, color = AppColors.NeonBlue)
                         )
+
+                        forensic.embeddedThumbnail?.let {
+                            Text("${it.width}x${it.height}",
+                                modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
+                                style = AppTypography.labelLarge.copy(fontSize = 9.sp, color = AppColors.TextSecondary)
+                            )
+                        }
                     }
                     
                     // Middle Panel: Primary Image View
@@ -87,6 +94,13 @@ fun ImageInspectorUI(
                             modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
                             style = AppTypography.labelLarge.copy(fontSize = 9.sp, color = AppColors.NeonGreen)
                         )
+
+                        forensic.bitmap?.let {
+                            Text("${it.width}x${it.height}",
+                                modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
+                                style = AppTypography.labelLarge.copy(fontSize = 9.sp, color = AppColors.TextSecondary)
+                            )
+                        }
                     }
 
                     // Right Panel: Motion Photo Video (only when the file has an embedded motion video)
