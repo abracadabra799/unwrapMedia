@@ -24,6 +24,38 @@ class AppStateTest {
         }
     }
 
+    private fun waitForFrameAnalysis(tab: TabState, timeoutMs: Long = 15000) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (tab.isAnalyzingFrames) {
+            check(System.currentTimeMillis() < deadline) { "Timed out waiting for frame analysis of ${tab.file.name}" }
+            Thread.sleep(10)
+        }
+    }
+
+    @Test
+    fun `analyzeFrames populates gopFrames from a real synthetic video without blocking`() {
+        val video = File.createTempFile("appstate-frame-analysis-test-", ".mp4")
+        video.deleteOnExit()
+        val generate = ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=2:size=64x48:rate=10",
+            video.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start()
+        generate.waitFor()
+
+        val appState = AppState()
+        val tab = TabState(video)
+
+        appState.analyzeFrames(tab)
+        assertEquals(true, tab.isAnalyzingFrames)
+
+        waitForFrameAnalysis(tab)
+
+        assertEquals(false, tab.isAnalyzingFrames)
+        assertEquals(20, tab.gopFrames?.size)
+        assertEquals('I', tab.gopFrames?.first()?.type)
+        video.delete()
+    }
+
     @Test
     fun `openFile rejects a third distinct file and sets statusMessage`() {
         val appState = AppState()
