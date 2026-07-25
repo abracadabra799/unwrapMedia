@@ -50,7 +50,7 @@ OutputDir=Output
 OutputBaseFilename=unwrapMedia-Setup
 Compression=lzma2
 SolidCompression=yes
-SetupIconFile=..\..\icons\app.ico
+SetupIconFile=..\..\app\icons\app.ico
 UninstallDisplayIcon={app}\unwrapMedia.exe
 
 [Languages]

@@ -217,7 +217,7 @@ OutputDir=Output
 OutputBaseFilename=unwrapMedia-Setup
 Compression=lzma2
 SolidCompression=yes
-SetupIconFile=..\..\icons\app.ico
+SetupIconFile=..\..\app\icons\app.ico
 UninstallDisplayIcon={app}\unwrapMedia.exe
 
 [Languages]
@@ -240,7 +240,7 @@ Filename: "{app}\unwrapMedia.exe"; Description: "{cm:LaunchProgram,unwrapMedia}"
 Notes for whoever reviews this — every value here is deliberate, not a placeholder:
 - `AppId`'s GUID must stay exactly `2D73CA07-DCD4-4B4E-B6A3-B9DA2BC41A9D` forever (see Global Constraints).
 - No `unchecked` flag on the `[Tasks]` or `[Run]` entries — Inno Setup's default is checked, which is what both checkboxes need to be.
-- `..\..\icons\app.ico` and `..\..\app\build\compose\binaries\main\app\unwrapMedia\*` are relative to this script's own location (`packaging/windows/`), pointing back up to `app/icons/app.ico` and Task 1's `createDistributable` output.
+- `..\..\app\icons\app.ico` and `..\..\app\build\compose\binaries\main\app\unwrapMedia\*` are relative to this script's own location (`packaging/windows/`), pointing back up to `app/icons/app.ico` and Task 1's `createDistributable` output.
 
 - [ ] **Step 2: Split the shared "Package Distribution" CI step by OS**
 
