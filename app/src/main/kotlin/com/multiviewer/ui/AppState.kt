@@ -53,6 +53,14 @@ class TabState(val file: File) {
     var gopFrames: List<FrameInfo>? by mutableStateOf(null)
     var isAnalyzingFrames: Boolean by mutableStateOf(false)
     var selectedFrame: FrameInfo? by mutableStateOf(null)
+
+    // Motion Photo Video codec-detail enrichment (see StreamCodecDetails.kt) -- button-triggered
+    // since, unlike the main video, this requires extracting the embedded video to a temp file
+    // before ffprobe can see it. motionPhotoVideoSections is already non-null before this runs
+    // (built by buildMediaSummary), so unlike gopFrames its nullability can't signal "not yet
+    // asked" -- a separate flag is needed.
+    var isAnalyzingMotionPhotoCodec: Boolean by mutableStateOf(false)
+    var motionPhotoCodecDetailsLoaded: Boolean by mutableStateOf(false)
 }
 
 class AppState {
@@ -184,6 +192,34 @@ class AppState {
             EventQueue.invokeLater {
                 tab.gopFrames = frames ?: emptyList()
                 tab.isAnalyzingFrames = false
+            }
+        }.apply { isDaemon = true }.start()
+    }
+
+    fun analyzeMotionPhotoCodecDetails(tab: TabState) {
+        val video = tab.embeddedVideo ?: return
+        if (tab.isAnalyzingMotionPhotoCodec || tab.motionPhotoCodecDetailsLoaded) return
+        tab.isAnalyzingMotionPhotoCodec = true
+        Thread {
+            val temp = try {
+                val dest = File.createTempFile("motion-photo-codec-probe-", ".${video.extension}")
+                dest.deleteOnExit()
+                extractEmbeddedVideo(tab.file, video, dest)
+                dest
+            } catch (e: Exception) {
+                null
+            }
+            val details = temp?.let { probeStreamDetails(it) }
+            temp?.delete()
+            EventQueue.invokeLater {
+                val summary = tab.mediaSummary
+                if (details != null && summary != null) {
+                    val currentSections = summary.motionPhotoVideoSections ?: emptyList()
+                    val merged = mergeStreamCodecDetailsIntoSections(currentSections, details.videoFields, details.audioFields)
+                    tab.mediaSummary = summary.copy(motionPhotoVideoSections = merged)
+                }
+                tab.motionPhotoCodecDetailsLoaded = true
+                tab.isAnalyzingMotionPhotoCodec = false
             }
         }.apply { isDaemon = true }.start()
     }

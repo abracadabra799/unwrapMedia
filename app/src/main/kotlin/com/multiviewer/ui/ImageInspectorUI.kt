@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,6 +23,7 @@ import java.io.File
 
 @Composable
 fun ImageInspectorUI(
+    appState: AppState,
     tab: TabState,
     leftPanel: @Composable ColumnScope.() -> Unit,
     bottomPanel: @Composable ColumnScope.() -> Unit
@@ -131,6 +133,13 @@ fun ImageInspectorUI(
                         val videoSections = summary?.motionPhotoVideoSections
                         if (videoSections != null) {
                             Spacer(Modifier.height(16.dp))
+                            if (tab.isAnalyzingMotionPhotoCodec) {
+                                Text("분석 중...", color = AppColors.TextSecondary, fontSize = 12.sp)
+                            } else if (!tab.motionPhotoCodecDetailsLoaded) {
+                                Button(onClick = { appState.analyzeMotionPhotoCodecDetails(tab) }) {
+                                    Text("코덱 상세정보 분석")
+                                }
+                            }
                             SummaryBox("🎬 동영상 (모션포토)", videoSections)
                         }
                     }

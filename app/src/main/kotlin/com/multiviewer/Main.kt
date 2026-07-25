@@ -204,7 +204,7 @@ fun main() = application {
                             Text("Analyzing ${currentTab.file.name}...", modifier = Modifier.padding(16.dp))
                         } else {
                             when (currentTab.type) {
-                                MediaType.IMAGE -> ImageInspectorUI(currentTab, leftPanel, bottomPanel)
+                                MediaType.IMAGE -> ImageInspectorUI(appState, currentTab, leftPanel, bottomPanel)
                                 MediaType.VIDEO -> VideoInspectorUI(appState, currentTab, leftPanel, bottomPanel)
                                 else -> {
                                     // Fallback to original structure view if needed
