@@ -82,15 +82,21 @@ fun parseJpegSegments(reader: ByteReader, start: Long, end: Long): List<BoxNode>
 
         var totalSize = declaredSize
         if (marker == 0xDA) {
-            var scanPos = pos + declaredSize
-            while (scanPos + 2 <= end) {
-                if (reader.readUInt8(scanPos) == 0xFF) {
-                    val next = reader.readUInt8(scanPos + 1)
+            // The compressed scan data has no length prefix -- the only way to find where it ends
+            // is to scan for the next real marker. Reading the whole remaining region into memory
+            // once and scanning that (instead of one readUInt8() syscall per byte) turns what was
+            // up to ~1M individual seek+read calls on a multi-MB JPEG into a single bulk read.
+            val scanRegionStart = pos + declaredSize
+            val scanBytes = reader.readBytes(scanRegionStart, (end - scanRegionStart).toInt())
+            var localPos = 0
+            while (localPos + 2 <= scanBytes.size) {
+                if (scanBytes[localPos].toInt() and 0xFF == 0xFF) {
+                    val next = scanBytes[localPos + 1].toInt() and 0xFF
                     if (next != 0x00 && next != 0xFF && next !in 0xD0..0xD7) break
                 }
-                scanPos += 1
+                localPos += 1
             }
-            if (scanPos + 2 > end) scanPos = end
+            val scanPos = if (localPos + 2 > scanBytes.size) end else scanRegionStart + localPos
             totalSize = scanPos - pos
         }
 
