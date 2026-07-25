@@ -97,6 +97,19 @@ class AppState {
                 } catch (e: Exception) {
                     null
                 }
+                // ffprobe -show_entries stream=... is one fast call whose cost doesn't scale with
+                // video length (unlike GOP frame analysis), so it's safe to run automatically here
+                // on the same background thread, same as probeVideo already does elsewhere.
+                val enrichedMediaSummary = if (type == MediaType.VIDEO && mediaSummary != null) {
+                    val details = probeStreamDetails(file)
+                    if (details != null) {
+                        mergeStreamCodecDetails(mediaSummary, details.videoFields, details.audioFields)
+                    } else {
+                        mediaSummary
+                    }
+                } else {
+                    mediaSummary
+                }
                 val embeddedVideo = try {
                     findEmbeddedVideo(root)
                 } catch (e: Exception) {
@@ -122,7 +135,7 @@ class AppState {
                 EventQueue.invokeLater {
                     tab.root = root
                     tab.type = type
-                    tab.mediaSummary = mediaSummary
+                    tab.mediaSummary = enrichedMediaSummary
                     tab.embeddedVideo = embeddedVideo
                     tab.motionPhotoPreview = motionPhotoPreview
                     tab.isLoading = false

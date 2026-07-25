@@ -376,3 +376,14 @@ private fun formatBitrate(bitsPerSecond: Double): String = when {
     bitsPerSecond >= 1_000 -> "%.1f Kbps".format(bitsPerSecond / 1_000)
     else -> "%.0f bps".format(bitsPerSecond)
 }
+
+fun mergeStreamCodecDetails(summary: MediaSummary, videoFields: List<SummaryField>, audioFields: List<SummaryField>): MediaSummary {
+    val mergedSections = summary.sections.map { section ->
+        when (section.title) {
+            "Video" -> section.copy(fields = section.fields + videoFields)
+            "Audio" -> section.copy(fields = section.fields + audioFields)
+            else -> section
+        }
+    }
+    return summary.copy(sections = mergedSections)
+}
