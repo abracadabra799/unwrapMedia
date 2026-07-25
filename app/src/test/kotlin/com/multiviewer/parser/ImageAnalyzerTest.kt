@@ -1,11 +1,50 @@
 package com.multiviewer.parser
 
+import java.awt.Color
+import java.awt.image.BufferedImage
 import java.io.File
+import javax.imageio.ImageIO
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class ImageAnalyzerTest {
+    @Test
+    fun `histogram is populated from a real decodable JPEG without re-rasterizing the same image twice`() {
+        // Regression guard for the calculateHistogram(Bitmap) refactor: it must read pixel data
+        // from the already-rasterized primaryBitmap (via asSkiaBitmap()) instead of a second,
+        // redundant Bitmap.makeFromImage() rasterization of the original Image. Uses a real,
+        // ImageIO-encoded JPEG (not garbage bytes) so Skia actually decodes it and this path runs.
+        val width = 64
+        val height = 48
+        val image = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
+        val graphics = image.createGraphics()
+        graphics.color = Color.RED
+        graphics.fillRect(0, 0, width / 2, height)
+        graphics.color = Color.BLUE
+        graphics.fillRect(width / 2, 0, width / 2, height)
+        graphics.dispose()
+
+        val file = File.createTempFile("image-analyzer-histogram-test", ".jpg")
+        file.deleteOnExit()
+        ImageIO.write(image, "jpg", file)
+
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = file.length())
+
+        val forensic = ImageAnalyzer.analyze(file, root)
+
+        assertTrue(forensic.bitmap != null, "Expected Skia to decode this real JPEG")
+        val histogram = forensic.histogram
+        assertTrue(histogram != null, "Expected a histogram for a successfully decoded image")
+        assertEquals(256, histogram.r.size)
+        assertEquals(256, histogram.b.size)
+        // Half red, half blue: the red channel's histogram should have real mass away from bin 0,
+        // and the blue channel's histogram should too -- proves real pixel data was read, not a
+        // zeroed/garbage buffer from a broken bitmap handoff.
+        assertTrue(histogram.r.drop(1).any { it > 0f }, "Expected non-trivial red channel data")
+        assertTrue(histogram.b.drop(1).any { it > 0f }, "Expected non-trivial blue channel data")
+    }
+
     @Test
     fun `hasThumbnailReference is true when iref has a thmb entry, even if that item's bytes are not JPEG`() {
         // File content is all zero bytes — the "thumbnail item" payload (at offset 40, length 150)
