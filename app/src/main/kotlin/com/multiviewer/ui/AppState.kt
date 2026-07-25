@@ -33,21 +33,13 @@ data class ImageForensicData(
     val isDecodingFallback: Boolean = false,
 )
 
-data class BitratePoint(val timestampSeconds: Double, val kbps: Double)
-
-data class VideoAnalysisData(
-    val bitratePoints: List<BitratePoint> = emptyList(),
-    val boxWeights: Map<String, Long> = emptyMap()
-)
-
 class TabState(val file: File) {
     var isLoading: Boolean by mutableStateOf(true)
     var type by mutableStateOf(MediaType.UNKNOWN)
     var root: BoxNode? by mutableStateOf(null)
     var mediaSummary: MediaSummary? by mutableStateOf(null)
     var imageForensic: ImageForensicData? by mutableStateOf(null)
-    var videoAnalysis: VideoAnalysisData? by mutableStateOf(null)
-    
+
     var embeddedVideo: EmbeddedVideo? by mutableStateOf(null)
     var motionPhotoPreview: EmbeddedVideo? by mutableStateOf(null)
     var error: String? by mutableStateOf(null)
@@ -55,6 +47,12 @@ class TabState(val file: File) {
     var verticalSplit: Float by mutableStateOf(0.5f)
     var horizontalSplit: Float by mutableStateOf(1f / 1.3f)
     var summaryTabIndex: Int by mutableStateOf(0)
+
+    // GOP / frame-type analysis (see FrameTypeAnalyzer.kt) -- null gopFrames means "never asked";
+    // an empty (non-null) list means "asked, ffprobe found nothing".
+    var gopFrames: List<FrameInfo>? by mutableStateOf(null)
+    var isAnalyzingFrames: Boolean by mutableStateOf(false)
+    var selectedFrame: FrameInfo? by mutableStateOf(null)
 }
 
 class AppState {
@@ -111,11 +109,9 @@ class AppState {
                 }
 
                 var imageForensic: ImageForensicData? = null
-                var videoAnalysis: VideoAnalysisData? = null
                 when (type) {
                     MediaType.IMAGE -> imageForensic = ImageAnalyzer.analyze(file, root)
                     MediaType.VIDEO -> {
-                        videoAnalysis = VideoAnalyzer.analyze(file, root)
                         // Attempt to extract thumbnail for video files too
                         imageForensic = ImageAnalyzer.analyze(file, root)
                     }
@@ -129,7 +125,6 @@ class AppState {
                     tab.mediaSummary = mediaSummary
                     tab.embeddedVideo = embeddedVideo
                     tab.motionPhotoPreview = motionPhotoPreview
-                    tab.videoAnalysis = videoAnalysis
                     tab.isLoading = false
 
                     if (type == MediaType.IMAGE && finalImageForensic != null && finalImageForensic.bitmap == null) {
@@ -166,5 +161,17 @@ class AppState {
             index == selectedTabIndex -> index.coerceAtMost(tabs.size - 1)
             else -> selectedTabIndex
         }
+    }
+
+    fun analyzeFrames(tab: TabState) {
+        if (tab.isAnalyzingFrames || tab.gopFrames != null) return
+        tab.isAnalyzingFrames = true
+        Thread {
+            val frames = probeFrameTypes(tab.file)
+            EventQueue.invokeLater {
+                tab.gopFrames = frames ?: emptyList()
+                tab.isAnalyzingFrames = false
+            }
+        }.apply { isDaemon = true }.start()
     }
 }
