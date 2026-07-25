@@ -26,17 +26,17 @@ compose.desktop {
         mainClass = "com.multiviewer.MainKt"
         jvmArgs += listOf("-Dapple.awt.application.name=unwrapMedia")
         nativeDistributions {
-            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
+            targetFormats(TargetFormat.Dmg, TargetFormat.Deb)
             packageName = "unwrapMedia"
             packageVersion = "1.0.0"
             appResourcesRootDir.set(project.layout.projectDirectory.dir("resources"))
 
             windows {
-                // Without these, jpackage's MSI installs the app with no Start Menu entry and
-                // no desktop icon -- it's on disk but unreachable from the UI.
-                shortcut = true
-                menuGroup = "unwrapMedia"
-                menu = true
+                // No jpackage-produced installer for Windows anymore (see targetFormats above) --
+                // an Inno Setup script wraps the createDistributable app-image instead and owns
+                // shortcuts/Start Menu/desktop icon. This icon still gets baked into the .exe
+                // itself by jpackage regardless of which installer wraps it.
+                iconFile.set(project.layout.projectDirectory.file("icons/app.ico"))
             }
 
             linux {
