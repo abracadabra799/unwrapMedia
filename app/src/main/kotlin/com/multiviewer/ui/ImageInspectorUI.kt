@@ -148,15 +148,21 @@ fun ImageInspectorUI(
 @Composable
 private fun MotionPhotoVideoPreview(tab: TabState, video: EmbeddedVideo) {
     var extractedFile by remember(tab.file, video) { mutableStateOf<File?>(null) }
+    var extractError by remember(tab.file, video) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(tab.file, video) {
-        val temp = withContext(Dispatchers.IO) {
-            val dest = File.createTempFile("motion-photo-preview-", ".${video.extension}")
-            dest.deleteOnExit()
-            extractEmbeddedVideo(tab.file, video, dest)
-            dest
+        try {
+            val temp = withContext(Dispatchers.IO) {
+                val dest = File.createTempFile("motion-photo-preview-", ".${video.extension}")
+                dest.deleteOnExit()
+                extractEmbeddedVideo(tab.file, video, dest)
+                dest
+            }
+            extractedFile = temp
+        } catch (e: Exception) {
+            println("MotionPhotoVideoPreview: extraction failed for ${tab.file.name}: $e")
+            extractError = e.message ?: e.toString()
         }
-        extractedFile = temp
     }
 
     DisposableEffect(tab.file, video) {
@@ -164,8 +170,11 @@ private fun MotionPhotoVideoPreview(tab: TabState, video: EmbeddedVideo) {
     }
 
     val file = extractedFile
+    val error = extractError
     if (file != null) {
         VlcVideoPlayer(file, modifier = Modifier.fillMaxSize())
+    } else if (error != null) {
+        Text("Could not extract motion video: $error", color = AppColors.NeonRed, fontSize = 12.sp)
     } else {
         Text("Extracting motion video...", color = Color.Gray, fontSize = 12.sp)
     }
