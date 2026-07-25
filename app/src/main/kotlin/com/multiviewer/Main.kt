@@ -183,7 +183,10 @@ fun main() = application {
                                 BoxTreeView(
                                     root = rootNode,
                                     selected = currentTab.selected,
-                                    onSelect = { currentTab.selected = it },
+                                    onSelect = {
+                                        currentTab.selected = it
+                                        currentTab.selectedFrame = null
+                                    },
                                 )
                             }
                         }
@@ -202,7 +205,7 @@ fun main() = application {
                         } else {
                             when (currentTab.type) {
                                 MediaType.IMAGE -> ImageInspectorUI(currentTab, leftPanel, bottomPanel)
-                                MediaType.VIDEO -> VideoInspectorUI(currentTab, leftPanel, bottomPanel)
+                                MediaType.VIDEO -> VideoInspectorUI(appState, currentTab, leftPanel, bottomPanel)
                                 else -> {
                                     // Fallback to original structure view if needed
                                     Text("Unsupported Format", modifier = Modifier.padding(16.dp))
