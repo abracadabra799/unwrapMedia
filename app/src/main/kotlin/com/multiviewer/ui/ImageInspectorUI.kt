@@ -185,7 +185,16 @@ fun DetailedPropertiesPanel(tab: TabState) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         PanelHeader("Detailed Properties")
         Spacer(Modifier.height(16.dp))
-        
+
+        val selectedFrame = tab.selectedFrame
+        if (selectedFrame != null) {
+            PropertyRow("Frame #", selectedFrame.index.toString())
+            PropertyRow("Type", selectedFrame.type.toString())
+            PropertyRow("Size", "${selectedFrame.sizeBytes} bytes")
+            PropertyRow("PTS", "${selectedFrame.ptsSeconds}s")
+            return@Column
+        }
+
         val selectedNode = tab.selected
         if (selectedNode != null) {
             LazyColumn(modifier = Modifier.fillMaxSize()) {

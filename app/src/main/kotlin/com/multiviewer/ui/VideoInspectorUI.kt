@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.sp
 
 @Composable
 fun VideoInspectorUI(
+    appState: AppState,
     tab: TabState,
     leftPanel: @Composable ColumnScope.() -> Unit,
     bottomPanel: @Composable ColumnScope.() -> Unit
@@ -48,6 +49,8 @@ fun VideoInspectorUI(
                     )
                 }
                 
+                GopAnalysisView(tab, onAnalyze = { appState.analyzeFrames(tab) })
+
                 // Resizable Divider
                 DraggableDivider(
                     orientation = Orientation.Horizontal,
