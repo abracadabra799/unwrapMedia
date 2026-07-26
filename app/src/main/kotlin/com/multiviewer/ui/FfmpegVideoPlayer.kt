@@ -111,7 +111,13 @@ fun probeVideo(file: File): VideoInfo? {
 }
 
 @Composable
-fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier, onElapsedChanged: (Double) -> Unit = {}) {
+fun FfmpegVideoPlayer(
+    file: File,
+    modifier: Modifier = Modifier,
+    onElapsedChanged: (Double) -> Unit = {},
+    seekRequestSeconds: Double = 0.0,
+    seekRequestTick: Int = 0,
+) {
     var videoBitmap by remember(file) { mutableStateOf<ImageBitmap?>(null, neverEqualPolicy()) }
     var isPlaying by remember(file) { mutableStateOf(false) }
     var loadError by remember(file) { mutableStateOf(false) }
@@ -122,6 +128,23 @@ fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier, onElapsedChange
     var hasEnded by remember(file) { mutableStateOf(false) }
     var restartTrigger by remember(file) { mutableStateOf(0) }
     var framesDelivered by remember(file) { mutableStateOf(0) }
+    // Where the currently-running ffmpeg process started decoding from -- 0.0 for a normal replay
+    // from the beginning, or a GOP-frame-click seek target otherwise. Piping raw frames from a
+    // fresh ffmpeg process is the only way to "seek" (see restartTrigger above), and -ss before -i
+    // resets the piped stream's own pts to ~0, so this offset is added back to framesDelivered/fps
+    // everywhere elapsed position is reported, keeping it in absolute video time.
+    var startFromSeconds by remember(file) { mutableStateOf(0.0) }
+    var lastHandledSeekTick by remember(file) { mutableStateOf(0) }
+
+    LaunchedEffect(seekRequestTick) {
+        if (seekRequestTick != lastHandledSeekTick) {
+            lastHandledSeekTick = seekRequestTick
+            startFromSeconds = seekRequestSeconds
+            hasEnded = false
+            isPlaying = false // seek-and-pause: show the requested frame rather than resuming playback
+            restartTrigger++
+        }
+    }
 
     val info = remember(file) { probeVideo(file) }
 
@@ -134,11 +157,15 @@ fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier, onElapsedChange
 
     DisposableEffect(file, restartTrigger) {
         framesDelivered = 0
+        val seekSeconds = startFromSeconds
+        val seekArgs = if (seekSeconds > 0.0) listOf("-ss", seekSeconds.toString()) else emptyList()
         val process = try {
             ProcessBuilder(
-                FfmpegLocator.ffmpegPath(), "-i", file.absolutePath,
-                "-f", "rawvideo", "-pix_fmt", "bgra", "-an",
-                "-r", info.fps.toString(), "-",
+                listOf(FfmpegLocator.ffmpegPath()) + seekArgs + listOf(
+                    "-i", file.absolutePath,
+                    "-f", "rawvideo", "-pix_fmt", "bgra", "-an",
+                    "-r", info.fps.toString(), "-",
+                ),
             ).redirectError(ProcessBuilder.Redirect.DISCARD).start()
         } catch (e: Exception) {
             null
@@ -232,7 +259,7 @@ fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier, onElapsedChange
         )
 
         if (info.duration > 0) {
-            val elapsedSeconds = (framesDelivered / info.fps).coerceIn(0.0, info.duration)
+            val elapsedSeconds = (startFromSeconds + framesDelivered / info.fps).coerceIn(0.0, info.duration)
             LaunchedEffect(elapsedSeconds) { onElapsedChanged(elapsedSeconds) }
             PreviewCaption(
                 "${formatMmSs(elapsedSeconds)} / ${formatMmSs(info.duration)}",
@@ -255,6 +282,7 @@ fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier, onElapsedChange
                     .clickable {
                         if (hasEnded) {
                             hasEnded = false
+                            startFromSeconds = 0.0
                             restartTrigger++
                         }
                         isPlaying = true
