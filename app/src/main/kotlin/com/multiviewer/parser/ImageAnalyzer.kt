@@ -64,7 +64,7 @@ object ImageAnalyzer {
             dqtQuality = quality,
             software = software,
             isModified = isModified,
-            orientation = orientationCode?.let { orientationLabel(it) },
+            orientation = orientationCode?.let { "${orientationLabel(it)} ($it)" },
             hasThumbnailReference = thumbnailResult.hasThumbnailReference,
         )
     }
@@ -78,7 +78,7 @@ object ImageAnalyzer {
         6 -> "90° 회전"
         7 -> "좌우 반전 + 90° 회전"
         8 -> "270° 회전"
-        else -> "알 수 없음 ($code)"
+        else -> "알 수 없음"
     }
 
     private fun traceNodes(node: BoxNode, depth: Int) {

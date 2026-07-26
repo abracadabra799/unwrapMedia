@@ -191,7 +191,7 @@ fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier) {
             }
         }
 
-        val rotationSuffix = if (info.rotation != 0) " · ${info.rotation}° 회전" else ""
+        val rotationSuffix = if (info.rotation != 0) " · 회전 (${info.rotation}°)" else ""
         Text("${info.width}x${info.height}$rotationSuffix",
             modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
             style = AppTypography.labelLarge.copy(fontSize = 9.sp, color = AppColors.TextSecondary)
