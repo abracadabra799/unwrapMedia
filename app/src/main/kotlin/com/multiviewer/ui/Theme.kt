@@ -8,9 +8,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 object AppColors {
-    val Background = Color(0xFF12151A)
-    val Surface = Color(0xFF1C2128)
-    val Panel = Color(0xFF22272E)
+    val Background = Color(0xFF1A1D22)
+    val Surface = Color(0xFF242930)
+    val Panel = Color(0xFF2A2F36)
     val Border = Color(0xFF30363D)
     
     val NeonGreen = Color(0xFF39FF14)
