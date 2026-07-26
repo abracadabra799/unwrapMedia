@@ -75,19 +75,24 @@ fun SummaryBox(
     }
 }
 
+// A hairline divider below each row -- with many fields stacked in a plain LazyColumn (only
+// vertical padding between them) it was hard to tell where one field ended and the next began.
 @Composable
 fun PropertyRow(label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(label, style = AppTypography.labelLarge, modifier = Modifier.weight(1f))
-        Text(
-            value,
-            style = AppTypography.bodyLarge,
-            modifier = Modifier.weight(1f),
-            textAlign = TextAlign.End
-        )
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(label, style = AppTypography.labelLarge, modifier = Modifier.weight(1f))
+            Text(
+                value,
+                style = AppTypography.bodyLarge,
+                modifier = Modifier.weight(1f),
+                textAlign = TextAlign.End
+            )
+        }
+        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AppColors.Border.copy(alpha = 0.5f)))
     }
 }
 
