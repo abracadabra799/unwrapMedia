@@ -146,6 +146,13 @@ fun main() = application {
 
         MaterialTheme(colorScheme = darkColorScheme(background = AppColors.Background), typography = AppTypography) {
           CompositionLocalProvider(LocalScrollbarStyle provides AppScrollbarStyle) {
+            appState.pendingRawPixelFile?.let { pendingFile ->
+                RawPixelOpenDialog(
+                    file = pendingFile,
+                    onConfirm = { width, height, format -> appState.confirmRawPixelFile(width, height, format) },
+                    onCancel = { appState.cancelRawPixelFile() },
+                )
+            }
             Surface(modifier = Modifier.fillMaxSize(), color = AppColors.Background) {
                 if (appState.tabs.isEmpty()) {
                     Box(
