@@ -24,6 +24,10 @@ data class RawPixelParams(
     val format: RawPixelFormat,
     val byteOrder: RawPixelByteOrder,
     val frameCount: Int,
+    // Raw dumps carry no frame-rate metadata either -- user-supplied like everything else, and
+    // only meaningful (asked for in the dialog) once frameCount > 1 makes this a video stream
+    // rather than a single image.
+    val fps: Double,
 )
 
 data class HistogramData(
@@ -87,6 +91,7 @@ class TabState(val file: File) {
     // Headerless raw pixel dump state (see RawPixelInspectorUI) -- null unless type == RAW_PIXEL.
     var rawPixelParams: RawPixelParams? by mutableStateOf(null)
     var rawPixelFrameIndex: Int by mutableStateOf(0)
+    var rawPixelIsPlaying: Boolean by mutableStateOf(false)
 }
 
 private val RAW_PIXEL_EXTENSIONS = listOf("raw", "rgb", "rgba", "yuv")
@@ -105,7 +110,7 @@ class AppState {
         pendingRawPixelFile = null
     }
 
-    fun confirmRawPixelFile(width: Int, height: Int, format: RawPixelFormat, byteOrder: RawPixelByteOrder) {
+    fun confirmRawPixelFile(width: Int, height: Int, format: RawPixelFormat, byteOrder: RawPixelByteOrder, fps: Double) {
         val file = pendingRawPixelFile ?: return
         pendingRawPixelFile = null
         val existingIndex = tabs.indexOfFirst { it.file.absolutePath == file.absolutePath }
@@ -126,7 +131,7 @@ class AppState {
             val bitmap = if (frameCount > 0) decodeRawPixelFile(file, width, height, format, byteOrder, frameIndex = 0) else null
             EventQueue.invokeLater {
                 tab.type = MediaType.RAW_PIXEL
-                tab.rawPixelParams = RawPixelParams(width, height, format, byteOrder, frameCount)
+                tab.rawPixelParams = RawPixelParams(width, height, format, byteOrder, frameCount, fps)
                 tab.rawPixelFrameIndex = 0
                 tab.root = BoxNode(
                     type = "root", offset = 0, headerSize = 0, size = file.length(),
@@ -138,7 +143,7 @@ class AppState {
                                 BoxField("Width", width.toString(), 0, file.length()),
                                 BoxField("Height", height.toString(), 0, file.length()),
                                 BoxField("Frame Count", frameCount.toString(), 0, file.length()),
-                            ),
+                            ) + (if (frameCount > 1) listOf(BoxField("Frame Rate", "$fps fps", 0, file.length())) else emptyList()),
                             summary = "${width}x$height, ${format.label}, $frameCount frame(s)",
                         ),
                     ),
