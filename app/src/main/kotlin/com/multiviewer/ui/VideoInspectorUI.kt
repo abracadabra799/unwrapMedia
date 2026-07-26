@@ -44,7 +44,12 @@ fun VideoInspectorUI(
                         .background(Color.Black),
                     contentAlignment = Alignment.Center
                 ) {
-                    FfmpegVideoPlayer(tab.file, onElapsedChanged = { tab.playbackElapsedSeconds = it })
+                    FfmpegVideoPlayer(
+                        tab.file,
+                        onElapsedChanged = { tab.playbackElapsedSeconds = it },
+                        seekRequestSeconds = tab.seekTargetSeconds,
+                        seekRequestTick = tab.seekRequestTick,
+                    )
                     
                     Text("LIVE PLAYER", 
                         modifier = Modifier.align(Alignment.TopStart).padding(4.dp), 

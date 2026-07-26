@@ -59,6 +59,12 @@ class TabState(val file: File) {
     // highlight and auto-scroll to the frame currently on screen while the video plays.
     var playbackElapsedSeconds: Double by mutableStateOf(0.0)
 
+    // Clicking a GOP frame requests FfmpegVideoPlayer seek to that timestamp. seekRequestTick is
+    // bumped on every request (even to the same timestamp twice) since seekTargetSeconds alone
+    // wouldn't change identity for a repeat click on the same frame.
+    var seekTargetSeconds: Double by mutableStateOf(0.0)
+    var seekRequestTick: Int by mutableStateOf(0)
+
     // Motion Photo Video codec-detail enrichment (see StreamCodecDetails.kt) -- button-triggered
     // since, unlike the main video, this requires extracting the embedded video to a temp file
     // before ffprobe can see it. motionPhotoVideoSections is already non-null before this runs

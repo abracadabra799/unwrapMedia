@@ -134,6 +134,8 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit) {
                                         .clickable {
                                             tab.selectedFrame = frame
                                             tab.selected = null
+                                            tab.seekTargetSeconds = frame.ptsSeconds
+                                            tab.seekRequestTick++
                                         },
                                 )
                             }
