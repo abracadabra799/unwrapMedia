@@ -52,6 +52,33 @@ class FfmpegVideoPlayerTest {
     }
 
     @Test
+    fun `probeVideo picks avg_frame_rate over r_frame_rate when they differ`() {
+        // Regression test: ffprobe's csv=p=0 output does not preserve the field order given in
+        // -show_entries -- it emits fields in the stream struct's internal order, so for videos
+        // where r_frame_rate (a container timebase artifact) differs from avg_frame_rate (the
+        // true playback rate), csv put r_frame_rate in the column probeVideo assumed was
+        // avg_frame_rate. That mis-paced real playback at the wrong frame rate (e.g. 120fps
+        // instead of ~30fps), causing ffmpeg to quadruple-duplicate frames and playback to fall
+        // permanently behind schedule. A variable-frame-rate source (60fps decimated to every
+        // 6th frame) reproduces the same avg/r_frame_rate mismatch deterministically.
+        val video = File.createTempFile("ffmpeg-player-vfr-test-", ".mp4")
+        video.deleteOnExit()
+        val generate = ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=3:size=64x48:rate=60",
+            "-vf", "select='not(mod(n\\,6))'", "-vsync", "vfr",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", video.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start()
+        generate.waitFor()
+
+        val info = probeVideo(video)
+
+        // r_frame_rate for this fixture is exactly 10.0; avg_frame_rate is ~10.2857 (72/7).
+        // Picking up r_frame_rate instead would produce exactly 10.0 here.
+        assertTrue(info != null && Math.abs(info.fps - 10.0) > 0.01, "expected fps near 10.2857 (avg_frame_rate), got ${info?.fps}")
+        video.delete()
+    }
+
+    @Test
     fun `raw BGRA frames can be read from ffmpeg's stdout at the exact expected byte size`() {
         val video = File.createTempFile("ffmpeg-player-frames-test-", ".mp4")
         video.deleteOnExit()
