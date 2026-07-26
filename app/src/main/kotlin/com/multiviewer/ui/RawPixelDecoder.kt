@@ -29,17 +29,19 @@ enum class RawPixelByteOrder(val label: String) {
 // camera capture) differ only in whether the interleaved chroma plane is U-then-V or V-then-U,
 // which swaps red/blue if you pick the wrong one, so both are offered explicitly rather than
 // guessing.
+// Declaration order is also display order in RawPixelOpenDialog's format list -- YUV variants
+// listed first since they're what most raw-dump users are looking for (camera/video frame dumps).
 enum class RawPixelFormat(val label: String, val ffmpegPixFmt: String?, val needsByteOrder: Boolean = false) {
+    YUV420P("YUV420p (I420, Y-U-V)", "yuv420p"),
+    YV12("YUV420p (YV12, Y-V-U)", null),
+    YUV420SP_NV12("YUV420sp (NV12, UV)", "nv12"),
+    YUV420SP_NV21("YUV420sp (NV21, VU)", "nv21"),
     RGB565("RGB565 (16-bit)", null, needsByteOrder = true),
     BGR565("BGR565 (16-bit)", null, needsByteOrder = true),
     RGB888("RGB888 (24-bit)", null),
     BGR888("BGR888 (24-bit)", null),
     RGBA8888("RGBA8888 (32-bit)", null),
     ARGB8888("ARGB8888 (32-bit)", null),
-    YUV420P("YUV420p (I420, Y-U-V)", "yuv420p"),
-    YV12("YUV420p (YV12, Y-V-U)", null),
-    YUV420SP_NV12("YUV420sp (NV12, UV)", "nv12"),
-    YUV420SP_NV21("YUV420sp (NV21, VU)", "nv21"),
 }
 
 // 4:2:0 chroma subsampling covers each plane at ceil(dim/2), not floor(dim/2) -- verified
