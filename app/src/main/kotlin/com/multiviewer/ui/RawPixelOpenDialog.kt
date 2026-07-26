@@ -59,7 +59,18 @@ fun RawPixelOpenDialog(
         0
     }
     val fps = fpsText.toDoubleOrNull()
-    val canOpen = width != null && width > 0 && height != null && height > 0 && (frameCount <= 1 || (fps != null && fps > 0))
+    val resolutionHardBlock = if (width != null && height != null && width > 0 && height > 0) {
+        hardResolutionRejectionMessage(width, height)
+    } else {
+        null
+    }
+    val resolutionWarning = if (resolutionHardBlock == null && width != null && height != null && width > 0 && height > 0) {
+        resolutionWarningMessage(width, height, continuousPlayback = frameCount > 1)
+    } else {
+        null
+    }
+    val canOpen = width != null && width > 0 && height != null && height > 0 &&
+        (frameCount <= 1 || (fps != null && fps > 0)) && resolutionHardBlock == null
 
     Dialog(onDismissRequest = onCancel) {
         Column(
@@ -144,6 +155,20 @@ fun RawPixelOpenDialog(
                 )
             }
             Spacer(Modifier.height(8.dp))
+
+            if (resolutionHardBlock != null) {
+                Text(
+                    resolutionHardBlock,
+                    style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = AppColors.NeonRed),
+                )
+                Spacer(Modifier.height(8.dp))
+            } else if (resolutionWarning != null) {
+                Text(
+                    "⚠ $resolutionWarning",
+                    style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = AppColors.NeonYellow),
+                )
+                Spacer(Modifier.height(8.dp))
+            }
 
             if (expectedSize != null) {
                 val matches = expectedSize == fileSize

@@ -2,6 +2,7 @@ package com.multiviewer.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
@@ -41,6 +42,32 @@ fun PreviewCaption(text: String, modifier: Modifier = Modifier) {
             .padding(horizontal = 5.dp, vertical = 2.dp),
         style = AppTypography.labelLarge.copy(fontSize = 12.sp, color = Color.White),
     )
+}
+
+// Non-blocking notice for a resolution above the soft warning threshold (see
+// AppState.resolutionWarningMessage) -- shown once at the top of the inspector, dismissible so it
+// doesn't permanently eat vertical space once acknowledged.
+@Composable
+fun ResolutionWarningBanner(message: String, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(AppColors.NeonYellow.copy(alpha = 0.12f))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "⚠ $message",
+            style = AppTypography.labelLarge.copy(fontSize = 11.sp, color = AppColors.NeonYellow),
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            "✕",
+            style = AppTypography.labelLarge.copy(fontSize = 11.sp, color = AppColors.NeonYellow),
+            modifier = Modifier.padding(start = 8.dp).clickable(onClick = onDismiss),
+        )
+    }
 }
 
 @Composable

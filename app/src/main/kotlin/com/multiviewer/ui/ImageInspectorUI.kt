@@ -47,6 +47,9 @@ fun ImageInspectorUI(
                     .fillMaxSize()
                     .onGloballyPositioned { containerHeightPx = it.size.height }
             ) {
+                tab.largeResolutionWarning?.let { warning ->
+                    ResolutionWarningBanner(warning, onDismiss = { tab.largeResolutionWarning = null })
+                }
                 // Top: Dual Preview (50/50 Split)
                 Row(
                     modifier = Modifier

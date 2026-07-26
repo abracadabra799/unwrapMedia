@@ -36,6 +36,9 @@ fun VideoInspectorUI(
                     .fillMaxSize()
                     .onGloballyPositioned { containerHeightPx = it.size.height }
             ) {
+                tab.largeResolutionWarning?.let { warning ->
+                    ResolutionWarningBanner(warning, onDismiss = { tab.largeResolutionWarning = null })
+                }
                 // Top: Full-width Live Player
                 Box(
                     modifier = Modifier
