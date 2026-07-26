@@ -2,7 +2,6 @@ package com.multiviewer.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,23 +16,24 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 // Dedicated, intentionally minimal UI for headerless raw pixel dumps (.raw/.rgb/.rgba/.yuv) --
 // unlike ImageInspectorUI (thumbnail/primary/motion-photo triple preview + media summary), a raw
@@ -51,16 +51,31 @@ fun RawPixelInspectorUI(
     val params = tab.rawPixelParams
 
     if (params != null && params.frameCount > 1) {
+        // Decodes and waits for each frame before advancing, rather than firing off a seek every
+        // tick regardless of whether the previous decode finished. The fire-and-forget version
+        // (AppState.seekRawPixelFrame, still used for manual prev/next/scrub) let the frame index
+        // race ahead of decoding -- especially for the ffmpeg-backed YUV formats, where every frame
+        // spawns a fresh subprocess -- so slow decodes were silently dropped by the stale-result
+        // guard and playback visually skipped through content faster than intended.
         LaunchedEffect(tab.rawPixelIsPlaying, tab.file) {
             if (!tab.rawPixelIsPlaying) return@LaunchedEffect
             val frameDurationMs = (1000.0 / params.fps).toLong().coerceAtLeast(1)
             while (tab.rawPixelIsPlaying) {
-                delay(frameDurationMs)
-                if (tab.rawPixelFrameIndex >= params.frameCount - 1) {
+                val nextIndex = tab.rawPixelFrameIndex + 1
+                if (nextIndex > params.frameCount - 1) {
                     tab.rawPixelIsPlaying = false
                     break
                 }
-                appState.seekRawPixelFrame(tab, tab.rawPixelFrameIndex + 1)
+                val start = System.currentTimeMillis()
+                val bitmap = withContext(Dispatchers.IO) {
+                    decodeRawPixelFile(tab.file, params.width, params.height, params.format, params.byteOrder, nextIndex)
+                }
+                if (!tab.rawPixelIsPlaying) break
+                tab.rawPixelFrameIndex = nextIndex
+                tab.imageForensic = (tab.imageForensic ?: ImageForensicData()).copy(bitmap = bitmap)
+                val elapsed = System.currentTimeMillis() - start
+                val remaining = frameDurationMs - elapsed
+                if (remaining > 0) delay(remaining)
             }
         }
     }
@@ -97,47 +112,54 @@ fun RawPixelInspectorUI(
                             )
                         }
                     }
-
-                    if (params != null && params.frameCount > 1) {
-                        if (!tab.rawPixelIsPlaying) {
-                            Box(
-                                modifier = Modifier
-                                    .size(64.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.Black.copy(alpha = 0.5f))
-                                    .clickable {
-                                        if (tab.rawPixelFrameIndex >= params.frameCount - 1) {
-                                            appState.seekRawPixelFrame(tab, 0)
-                                        }
-                                        tab.rawPixelIsPlaying = true
-                                    },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(Icons.Filled.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(48.dp))
-                            }
-                        } else {
-                            Box(modifier = Modifier.fillMaxSize().clickable { tab.rawPixelIsPlaying = false })
-                        }
-                    }
                 }
 
                 if (params != null && params.frameCount > 1) {
-                    val progress = tab.rawPixelFrameIndex.toFloat() / (params.frameCount - 1).toFloat()
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(10.dp)
-                            .background(AppColors.Panel)
-                            .pointerInput(params.frameCount) {
-                                detectTapGestures { offset ->
-                                    tab.rawPixelIsPlaying = false
-                                    val fraction = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
-                                    val target = (fraction * (params.frameCount - 1)).toInt()
-                                    appState.seekRawPixelFrame(tab, target)
-                                }
-                            },
+                    // Play/pause lives as a small button at the start of the progress bar instead
+                    // of a large overlay on top of the preview -- it stayed out of the way while
+                    // still being reachable next to the scrub target it controls.
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Box(modifier = Modifier.fillMaxHeight().fillMaxWidth(progress).background(AppColors.NeonGreen))
+                        IconButton(
+                            onClick = {
+                                if (!tab.rawPixelIsPlaying && tab.rawPixelFrameIndex >= params.frameCount - 1) {
+                                    appState.seekRawPixelFrame(tab, 0)
+                                }
+                                tab.rawPixelIsPlaying = !tab.rawPixelIsPlaying
+                            },
+                            modifier = Modifier.size(28.dp),
+                        ) {
+                            if (tab.rawPixelIsPlaying) {
+                                Text("⏸", fontSize = 14.sp, color = AppColors.TextPrimary)
+                            } else {
+                                Icon(
+                                    Icons.Filled.PlayArrow,
+                                    contentDescription = "Play",
+                                    tint = AppColors.TextPrimary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                        Spacer(Modifier.width(4.dp))
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(10.dp)
+                                .background(AppColors.Panel)
+                                .pointerInput(params.frameCount) {
+                                    detectTapGestures { offset ->
+                                        tab.rawPixelIsPlaying = false
+                                        val fraction = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                                        val target = (fraction * (params.frameCount - 1)).toInt()
+                                        appState.seekRawPixelFrame(tab, target)
+                                    }
+                                },
+                        ) {
+                            val progress = tab.rawPixelFrameIndex.toFloat() / (params.frameCount - 1).toFloat()
+                            Box(modifier = Modifier.fillMaxHeight().fillMaxWidth(progress).background(AppColors.NeonGreen))
+                        }
                     }
 
                     Row(
