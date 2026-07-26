@@ -37,7 +37,7 @@ fun MediaSummaryView(summary: MediaSummary?) {
             item {
                 SummaryBox("📷 이미지", summary.sections)
                 Spacer(modifier = Modifier.height(12.dp))
-                SummaryBox("🎬 동영상 (모션포토)", videoSections)
+                SummaryBox("🎬 동영상(모션포토) 분석 요약", videoSections)
             }
         } else {
             item {

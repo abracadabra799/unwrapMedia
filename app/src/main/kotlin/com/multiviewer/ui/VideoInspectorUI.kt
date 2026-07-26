@@ -80,7 +80,7 @@ fun VideoInspectorUI(
                     ) {
                         item {
                             if (summary != null) {
-                                SummaryBox("🎬 비디오 분석 요약", summary.sections)
+                                SummaryBox("🎬 동영상 분석 요약", summary.sections)
                             }
                         }
                         item { Spacer(Modifier.height(32.dp)) }
