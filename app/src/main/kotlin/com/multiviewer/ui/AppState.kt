@@ -12,8 +12,19 @@ import java.io.File
 private const val MAX_OPEN_FILES = 2
 
 enum class MediaType {
-    IMAGE, VIDEO, UNKNOWN
+    IMAGE, VIDEO, RAW_PIXEL, UNKNOWN
 }
+
+// Params used to decode the currently-open headerless raw pixel dump, kept around (rather than
+// discarded after the initial decode) so RawPixelInspectorUI can re-decode a different frame on
+// seek. frameCount > 1 means the file holds a sequence, not a single image.
+data class RawPixelParams(
+    val width: Int,
+    val height: Int,
+    val format: RawPixelFormat,
+    val byteOrder: RawPixelByteOrder,
+    val frameCount: Int,
+)
 
 data class HistogramData(
     val r: FloatArray,
@@ -72,6 +83,10 @@ class TabState(val file: File) {
     // asked" -- a separate flag is needed.
     var isAnalyzingMotionPhotoCodec: Boolean by mutableStateOf(false)
     var motionPhotoCodecDetailsLoaded: Boolean by mutableStateOf(false)
+
+    // Headerless raw pixel dump state (see RawPixelInspectorUI) -- null unless type == RAW_PIXEL.
+    var rawPixelParams: RawPixelParams? by mutableStateOf(null)
+    var rawPixelFrameIndex: Int by mutableStateOf(0)
 }
 
 private val RAW_PIXEL_EXTENSIONS = listOf("raw", "rgb", "rgba", "yuv")
@@ -107,9 +122,12 @@ class AppState {
         tabs.add(tab)
         selectedTabIndex = tabs.size - 1
         Thread {
-            val bitmap = decodeRawPixelFile(file, width, height, format, byteOrder)
+            val frameCount = rawPixelFrameCount(file.length(), width, height, format)
+            val bitmap = if (frameCount > 0) decodeRawPixelFile(file, width, height, format, byteOrder, frameIndex = 0) else null
             EventQueue.invokeLater {
-                tab.type = MediaType.IMAGE
+                tab.type = MediaType.RAW_PIXEL
+                tab.rawPixelParams = RawPixelParams(width, height, format, byteOrder, frameCount)
+                tab.rawPixelFrameIndex = 0
                 tab.root = BoxNode(
                     type = "root", offset = 0, headerSize = 0, size = file.length(),
                     children = listOf(
@@ -119,8 +137,9 @@ class AppState {
                                 BoxField("Format", format.label, 0, file.length()),
                                 BoxField("Width", width.toString(), 0, file.length()),
                                 BoxField("Height", height.toString(), 0, file.length()),
+                                BoxField("Frame Count", frameCount.toString(), 0, file.length()),
                             ),
-                            summary = "${width}x$height, ${format.label}",
+                            summary = "${width}x$height, ${format.label}, $frameCount frame(s)",
                         ),
                     ),
                 )
@@ -128,6 +147,24 @@ class AppState {
                 tab.isLoading = false
                 if (bitmap == null) {
                     tab.error = "지정한 해상도/포맷으로 픽셀 데이터를 해석할 수 없습니다 (파일 크기가 너무 작음)."
+                }
+            }
+        }.apply { isDaemon = true }.start()
+    }
+
+    // Re-decodes a different frame of the currently-open raw pixel sequence. Runs on a background
+    // thread like the initial decode -- for the ffmpeg-backed YUV formats especially, decoding is
+    // a real subprocess call, not a cheap operation to do on the UI thread.
+    fun seekRawPixelFrame(tab: TabState, frameIndex: Int) {
+        val params = tab.rawPixelParams ?: return
+        val clamped = frameIndex.coerceIn(0, (params.frameCount - 1).coerceAtLeast(0))
+        if (clamped == tab.rawPixelFrameIndex) return
+        tab.rawPixelFrameIndex = clamped
+        Thread {
+            val bitmap = decodeRawPixelFile(tab.file, params.width, params.height, params.format, params.byteOrder, clamped)
+            EventQueue.invokeLater {
+                if (tab.rawPixelFrameIndex == clamped) {
+                    tab.imageForensic = (tab.imageForensic ?: ImageForensicData()).copy(bitmap = bitmap)
                 }
             }
         }.apply { isDaemon = true }.start()

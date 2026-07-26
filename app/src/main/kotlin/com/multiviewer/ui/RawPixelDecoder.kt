@@ -10,6 +10,7 @@ import org.jetbrains.skia.ColorType
 import org.jetbrains.skia.Image
 import org.jetbrains.skia.ImageInfo
 import java.io.File
+import java.io.RandomAccessFile
 import java.util.concurrent.TimeUnit
 
 // Whether byte 0 of a 16-bit RGB565/BGR565 pixel holds the low or high 8 bits of that pixel's
@@ -63,26 +64,52 @@ fun expectedRawFileSize(width: Int, height: Int, format: RawPixelFormat): Long {
     }
 }
 
+// A raw dump this much bigger than one frame is a sequence, not a single oversized image (e.g. a
+// burst of sensor captures, or a raw video test file) -- RawPixelInspectorUI steps through them
+// like a slideshow. Trailing bytes that don't fill a whole extra frame are ignored.
+fun rawPixelFrameCount(fileLength: Long, width: Int, height: Int, format: RawPixelFormat): Int {
+    val frameSize = expectedRawFileSize(width, height, format)
+    if (frameSize <= 0) return 0
+    return (fileLength / frameSize).toInt()
+}
+
+// Reads exactly one frame's bytes from its position in a (possibly multi-frame) file, instead of
+// decodeRawPixelFile's earlier behavior of reading the entire file regardless of frameIndex --
+// that read the whole file into memory on every seek, which for a large multi-frame dump meant
+// re-reading gigabytes just to look at frame 2.
+private fun readFrameBytes(file: File, frameSize: Long, frameIndex: Int): ByteArray? {
+    val offset = frameSize * frameIndex
+    if (frameIndex < 0 || offset < 0 || offset + frameSize > file.length()) return null
+    RandomAccessFile(file, "r").use { raf ->
+        raf.seek(offset)
+        val buf = ByteArray(frameSize.toInt())
+        raf.readFully(buf)
+        return buf
+    }
+}
+
 fun decodeRawPixelFile(
     file: File,
     width: Int,
     height: Int,
     format: RawPixelFormat,
     byteOrder: RawPixelByteOrder = RawPixelByteOrder.LITTLE_ENDIAN,
+    frameIndex: Int = 0,
 ): ImageBitmap? {
     if (width <= 0 || height <= 0) return null
+    val frameSize = expectedRawFileSize(width, height, format)
+    val bytes = readFrameBytes(file, frameSize, frameIndex) ?: return null
     return when (format) {
-        RawPixelFormat.RGB565 -> decode565(file, width, height, swapRedBlue = false, byteOrder)
-        RawPixelFormat.BGR565 -> decode565(file, width, height, swapRedBlue = true, byteOrder)
-        RawPixelFormat.RGB888 -> decodeRgb888(file, width, height, swapRedBlue = false)
-        RawPixelFormat.BGR888 -> decodeRgb888(file, width, height, swapRedBlue = true)
-        RawPixelFormat.RGBA8888 -> decodeRgba8888(file, width, height)
-        RawPixelFormat.ARGB8888 -> decodeArgb8888(file, width, height)
-        RawPixelFormat.YV12 -> decodeYv12(file, width, height)
+        RawPixelFormat.RGB565 -> decode565(bytes, width, height, swapRedBlue = false, byteOrder)
+        RawPixelFormat.BGR565 -> decode565(bytes, width, height, swapRedBlue = true, byteOrder)
+        RawPixelFormat.RGB888 -> decodeRgb888(bytes, width, height, swapRedBlue = false)
+        RawPixelFormat.BGR888 -> decodeRgb888(bytes, width, height, swapRedBlue = true)
+        RawPixelFormat.RGBA8888 -> decodeRgba8888(bytes, width, height)
+        RawPixelFormat.ARGB8888 -> decodeArgb8888(bytes, width, height)
+        RawPixelFormat.YV12 -> decodeYv12(bytes, width, height)
         else -> {
             val pixFmt = format.ffmpegPixFmt ?: return null
-            if (file.length() < expectedRawFileSize(width, height, format)) return null
-            decodeYuvFamily(file.readBytes(), width, height, pixFmt)
+            decodeYuvFamily(bytes, width, height, pixFmt)
         }
     }
 }
@@ -95,16 +122,13 @@ private fun expandedToRgba8888Bitmap(width: Int, height: Int, rgba: ByteArray): 
     return Image.makeFromBitmap(bitmap).toComposeImageBitmap()
 }
 
-private fun decodeRgba8888(file: File, width: Int, height: Int): ImageBitmap? {
-    val expected = width * height * 4
-    val bytes = file.readBytes()
-    if (bytes.size < expected) return null
+private fun decodeRgba8888(bytes: ByteArray, width: Int, height: Int): ImageBitmap? {
+    if (bytes.size < width * height * 4) return null
     return expandedToRgba8888Bitmap(width, height, bytes)
 }
 
-private fun decodeArgb8888(file: File, width: Int, height: Int): ImageBitmap? {
+private fun decodeArgb8888(bytes: ByteArray, width: Int, height: Int): ImageBitmap? {
     val expected = width * height * 4
-    val bytes = file.readBytes()
     if (bytes.size < expected) return null
     val reordered = ByteArray(expected)
     for (i in 0 until width * height) {
@@ -120,10 +144,8 @@ private fun decodeArgb8888(file: File, width: Int, height: Int): ImageBitmap? {
     return expandedToRgba8888Bitmap(width, height, reordered)
 }
 
-private fun decodeRgb888(file: File, width: Int, height: Int, swapRedBlue: Boolean): ImageBitmap? {
-    val expected = width * height * 3
-    val bytes = file.readBytes()
-    if (bytes.size < expected) return null
+private fun decodeRgb888(bytes: ByteArray, width: Int, height: Int, swapRedBlue: Boolean): ImageBitmap? {
+    if (bytes.size < width * height * 3) return null
     // Skia has no tightly-packed 24-bit-per-pixel ColorType, so this expands each pixel to 4
     // bytes (opaque alpha) and reuses the RGBA_8888 path either way.
     val expanded = ByteArray(width * height * 4)
@@ -149,10 +171,8 @@ private fun decodeRgb888(file: File, width: Int, height: Int, swapRedBlue: Boole
 // high 8 bits of that 16-bit value is exactly the "byte order" ambiguity RawPixelByteOrder exists
 // for. Each 5/6-bit channel is scaled up to 8 bits by bit replication (v*255/max), the standard
 // technique for extending a narrow channel without darkening the top of its range.
-private fun decode565(file: File, width: Int, height: Int, swapRedBlue: Boolean, byteOrder: RawPixelByteOrder): ImageBitmap? {
-    val expected = width * height * 2
-    val bytes = file.readBytes()
-    if (bytes.size < expected) return null
+private fun decode565(bytes: ByteArray, width: Int, height: Int, swapRedBlue: Boolean, byteOrder: RawPixelByteOrder): ImageBitmap? {
+    if (bytes.size < width * height * 2) return null
     val expanded = ByteArray(width * height * 4)
     for (i in 0 until width * height) {
         val byte0 = bytes[i * 2].toInt() and 0xFF
@@ -178,11 +198,10 @@ private fun decode565(file: File, width: Int, height: Int, swapRedBlue: Boolean,
 // planar format ffmpeg's rawvideo demuxer actually understands by name -- is Y, then U, then V.
 // Swapping the two chroma plane blocks converts one into the other; the pixel values themselves
 // aren't touched, so this is exact, not an approximation.
-private fun decodeYv12(file: File, width: Int, height: Int): ImageBitmap? {
+private fun decodeYv12(bytes: ByteArray, width: Int, height: Int): ImageBitmap? {
     val ySize = width * height
     val chromaSize = subsampledChromaDimension(width) * subsampledChromaDimension(height)
     val expected = ySize + chromaSize * 2
-    val bytes = file.readBytes()
     if (bytes.size < expected) return null
     val reordered = ByteArray(expected)
     System.arraycopy(bytes, 0, reordered, 0, ySize)
