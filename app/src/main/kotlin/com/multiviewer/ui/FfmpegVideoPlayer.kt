@@ -5,7 +5,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -41,7 +44,12 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
-data class VideoInfo(val width: Int, val height: Int, val fps: Double, val rotation: Int = 0)
+data class VideoInfo(val width: Int, val height: Int, val fps: Double, val rotation: Int = 0, val duration: Double = 0.0)
+
+fun formatMmSs(seconds: Double): String {
+    val total = seconds.toLong()
+    return "%d:%02d".format(total / 60, total % 60)
+}
 
 fun parseFrameRate(fraction: String): Double? {
     val parts = fraction.split("/")
@@ -55,27 +63,28 @@ fun probeVideo(file: File): VideoInfo? {
     return try {
         val process = ProcessBuilder(
             FfmpegLocator.ffprobePath(), "-v", "error", "-select_streams", "v:0",
-            "-show_entries", "stream=width,height,avg_frame_rate,r_frame_rate:stream_side_data=rotation",
+            "-show_entries", "stream=width,height,avg_frame_rate,r_frame_rate,duration:stream_side_data=rotation",
             "-of", "csv=p=0", file.absolutePath,
         ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD).start()
         val line = process.inputStream.bufferedReader().readLine()
         process.waitFor(5, TimeUnit.SECONDS)
         if (line == null) return null
         val parts = line.split(",")
-        if (parts.size < 4) return null
+        if (parts.size < 5) return null
         var width = parts[0].toIntOrNull() ?: return null
         var height = parts[1].toIntOrNull() ?: return null
         val fps = parseFrameRate(parts[2]) ?: parseFrameRate(parts[3]) ?: 30.0
+        val duration = parts[4].toDoubleOrNull() ?: 0.0
         // ffmpeg auto-applies rotation side-data when transcoding to rawvideo, so the
         // actual piped frame dimensions are swapped from ffprobe's raw stream dimensions
         // whenever the stream is rotated a quarter turn.
-        val rotation = parts.getOrNull(4)?.toIntOrNull() ?: 0
+        val rotation = parts.getOrNull(5)?.toIntOrNull() ?: 0
         if (Math.abs(rotation) == 90 || Math.abs(rotation) == 270) {
             val tmp = width
             width = height
             height = tmp
         }
-        VideoInfo(width, height, fps, rotation)
+        VideoInfo(width, height, fps, rotation, duration)
     } catch (e: Exception) {
         null
     }
@@ -92,6 +101,7 @@ fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier) {
     // spawn a fresh ffmpeg process from the start of the file.
     var hasEnded by remember(file) { mutableStateOf(false) }
     var restartTrigger by remember(file) { mutableStateOf(0) }
+    var framesDelivered by remember(file) { mutableStateOf(0) }
 
     val info = remember(file) { probeVideo(file) }
 
@@ -103,6 +113,7 @@ fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier) {
     }
 
     DisposableEffect(file, restartTrigger) {
+        framesDelivered = 0
         val process = try {
             ProcessBuilder(
                 FfmpegLocator.ffmpegPath(), "-i", file.absolutePath,
@@ -136,16 +147,19 @@ fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier) {
                     return true
                 }
 
-                fun deliver() {
+                fun deliver(countsAsElapsed: Boolean) {
                     val bitmap = Bitmap().apply {
                         allocPixels(ImageInfo(ColorInfo(ColorType.BGRA_8888, ColorAlphaType.PREMUL, ColorSpace.sRGB), info.width, info.height))
                         installPixels(imageInfo, buffer, info.width * 4)
                     }
                     val snapshot = Image.makeFromBitmap(bitmap).toComposeImageBitmap()
-                    EventQueue.invokeLater { videoBitmap = snapshot }
+                    EventQueue.invokeLater {
+                        videoBitmap = snapshot
+                        if (countsAsElapsed) framesDelivered++
+                    }
                 }
 
-                if (readFrame()) deliver() // first frame, shown immediately while paused
+                if (readFrame()) deliver(countsAsElapsed = false) // first frame, shown immediately while paused
                 while (!stopped.get()) {
                     if (!isPlaying) {
                         Thread.sleep(50)
@@ -159,7 +173,7 @@ fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier) {
                         }
                         break // EOF
                     }
-                    deliver()
+                    deliver(countsAsElapsed = true)
                     val remaining = frameDurationMs - (System.currentTimeMillis() - start)
                     if (remaining > 0) Thread.sleep(remaining)
                 }
@@ -196,6 +210,21 @@ fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier) {
             modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
             style = AppTypography.labelLarge.copy(fontSize = 9.sp, color = AppColors.TextSecondary)
         )
+
+        if (info.duration > 0) {
+            val elapsedSeconds = (framesDelivered / info.fps).coerceIn(0.0, info.duration)
+            Text(
+                "${formatMmSs(elapsedSeconds)} / ${formatMmSs(info.duration)}",
+                modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),
+                style = AppTypography.labelLarge.copy(fontSize = 9.sp, color = AppColors.TextSecondary)
+            )
+            val progress = (elapsedSeconds / info.duration).toFloat().coerceIn(0f, 1f)
+            Box(
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp).background(Color.White.copy(alpha = 0.15f)),
+            ) {
+                Box(modifier = Modifier.fillMaxHeight().fillMaxWidth(progress).background(AppColors.NeonGreen))
+            }
+        }
 
         if (!isPlaying) {
             Box(
