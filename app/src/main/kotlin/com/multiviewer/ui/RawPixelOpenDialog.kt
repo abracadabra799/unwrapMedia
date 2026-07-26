@@ -39,7 +39,7 @@ fun RawPixelOpenDialog(
 ) {
     var widthText by remember { mutableStateOf("") }
     var heightText by remember { mutableStateOf("") }
-    var format by remember { mutableStateOf(RawPixelFormat.RGB888) }
+    var format by remember { mutableStateOf(RawPixelFormat.entries.first()) }
     var byteOrder by remember { mutableStateOf(RawPixelByteOrder.LITTLE_ENDIAN) }
     var fpsText by remember { mutableStateOf("30") }
 
