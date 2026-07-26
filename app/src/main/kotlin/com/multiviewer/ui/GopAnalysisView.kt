@@ -30,13 +30,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 private const val GOP_GRAPH_HEIGHT_DP = 180
-private const val FRAME_BAR_WIDTH_DP = 10
-private const val FRAME_BAR_SPACING_DP = 3
+private const val FRAME_BAR_WIDTH_DP = 16
+private const val FRAME_BAR_SPACING_DP = 2
+
+// Muted, desaturated palette instead of the app's full-saturation neon accents -- neon reads fine
+// for a single small badge but was overwhelming across a wide row of adjacent bars.
+private val IFrameColor = Color(0xFFE06C75)
+private val PFrameColor = Color(0xFF7EC699)
+private val BFrameColor = Color(0xFF6CA6E0)
 
 private fun colorForFrameType(type: Char) = when (type) {
-    'I' -> AppColors.NeonRed
-    'P' -> AppColors.NeonGreen
-    'B' -> AppColors.NeonBlue
+    'I' -> IFrameColor
+    'P' -> PFrameColor
+    'B' -> BFrameColor
     else -> AppColors.TextSecondary
 }
 
@@ -159,7 +165,7 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit) {
                                         .width(FRAME_BAR_WIDTH_DP.dp)
                                         .height(barHeightDp.dp)
                                         .background(colorForFrameType(frame.type))
-                                        .border(if (isCurrent) 2.dp else 0.5.dp, if (isCurrent) Color.White else AppColors.Border)
+                                        .let { if (isCurrent) it.border(2.dp, Color.White) else it }
                                         .clickable { selectFrame(frame) },
                                 )
                             }
