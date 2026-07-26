@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,6 +30,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import java.io.File
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RawPixelOpenDialog(
     file: File,
@@ -64,24 +67,29 @@ fun RawPixelOpenDialog(
 
             Text("포맷", style = AppTypography.labelLarge)
             Spacer(Modifier.height(4.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                RawPixelFormat.entries.chunked(3).forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        row.forEach { candidate ->
-                            val selected = format == candidate
-                            Box(
-                                modifier = Modifier
-                                    .border(1.dp, if (selected) AppColors.NeonBlue else AppColors.Border, RoundedCornerShape(4.dp))
-                                    .clickable { format = candidate }
-                                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                            ) {
-                                Text(
-                                    candidate.label,
-                                    fontSize = 11.sp,
-                                    color = if (selected) AppColors.NeonBlue else AppColors.TextPrimary,
-                                )
-                            }
-                        }
+            // One format per line -- a wrapping chip layout let selections land almost anywhere
+            // in the block depending on label length, which read as confusing/hard to scan.
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                RawPixelFormat.entries.forEach { candidate ->
+                    val selected = format == candidate
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, if (selected) AppColors.NeonBlue else AppColors.Border, RoundedCornerShape(4.dp))
+                            .clickable { format = candidate }
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            if (selected) "●" else "○",
+                            fontSize = 11.sp,
+                            color = if (selected) AppColors.NeonBlue else AppColors.TextSecondary,
+                        )
+                        Text(
+                            candidate.label,
+                            fontSize = 11.sp,
+                            color = if (selected) AppColors.NeonBlue else AppColors.TextPrimary,
+                        )
                     }
                 }
             }
@@ -90,7 +98,7 @@ fun RawPixelOpenDialog(
             if (format.needsByteOrder) {
                 Text("Byte order", style = AppTypography.labelLarge)
                 Spacer(Modifier.height(4.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     RawPixelByteOrder.entries.forEach { candidate ->
                         val selected = byteOrder == candidate
                         Box(
