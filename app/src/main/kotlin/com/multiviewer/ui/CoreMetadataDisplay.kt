@@ -43,7 +43,7 @@ private fun MetadataCard(section: SummarySection, modifier: Modifier = Modifier)
     ) {
         Text(
             text = section.title.uppercase(),
-            style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = AppColors.NeonBlue)
+            style = AppTypography.labelLarge.copy(fontSize = 11.sp, color = AppColors.NeonBlue)
         )
         Spacer(Modifier.height(8.dp))
         section.fields.forEach { field ->
@@ -51,8 +51,8 @@ private fun MetadataCard(section: SummarySection, modifier: Modifier = Modifier)
                 modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(field.label, style = AppTypography.labelLarge.copy(fontSize = 11.sp))
-                Text(field.value, style = AppTypography.bodyLarge.copy(fontSize = 11.sp), color = AppColors.TextPrimary)
+                Text(field.label, style = AppTypography.labelLarge.copy(fontSize = 12.sp))
+                Text(field.value, style = AppTypography.bodyLarge.copy(fontSize = 12.sp), color = AppColors.TextPrimary)
             }
         }
     }

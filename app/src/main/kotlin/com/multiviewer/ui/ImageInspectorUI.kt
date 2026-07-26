@@ -63,18 +63,18 @@ fun ImageInspectorUI(
                     ) {
                         forensic.embeddedThumbnail?.let {
                             PixelInspectorPreview(it)
-                        } ?: Text("No Embedded Thumbnail", color = Color.Gray, fontSize = 12.sp)
+                        } ?: Text("No Embedded Thumbnail", color = Color.Gray, fontSize = 13.sp)
 
                         Text("EMBEDDED EXIF THUMBNAIL",
                             modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
-                            style = AppTypography.labelLarge.copy(fontSize = 9.sp, color = AppColors.NeonBlue)
+                            style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = AppColors.NeonBlue)
                         )
 
                         forensic.embeddedThumbnail?.let {
                             val orientationSuffix = forensic.orientation?.let { o -> " · $o" } ?: ""
-                            Text("${it.width}x${it.height}$orientationSuffix",
+                            PreviewCaption(
+                                "${it.width}x${it.height}$orientationSuffix",
                                 modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
-                                style = AppTypography.labelLarge.copy(fontSize = 9.sp, color = AppColors.TextSecondary)
                             )
                         }
                     }
@@ -93,19 +93,19 @@ fun ImageInspectorUI(
                         } ?: Text(
                             if (forensic.isDecodingFallback) "Decoding via ffmpeg..." else "Primary Image Decoding Failed",
                             color = if (forensic.isDecodingFallback) AppColors.TextSecondary else AppColors.NeonRed,
-                            fontSize = 12.sp,
+                            fontSize = 13.sp,
                         )
 
                         Text("PRIMARY IMAGE VIEW",
                             modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
-                            style = AppTypography.labelLarge.copy(fontSize = 9.sp, color = AppColors.NeonGreen)
+                            style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = AppColors.NeonGreen)
                         )
 
                         forensic.bitmap?.let {
                             val orientationSuffix = forensic.orientation?.let { o -> " · $o" } ?: ""
-                            Text("${it.width}x${it.height}$orientationSuffix",
+                            PreviewCaption(
+                                "${it.width}x${it.height}$orientationSuffix",
                                 modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
-                                style = AppTypography.labelLarge.copy(fontSize = 9.sp, color = AppColors.TextSecondary)
                             )
                         }
                     }
@@ -125,7 +125,7 @@ fun ImageInspectorUI(
 
                             Text("MOTION PHOTO VIDEO",
                                 modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
-                                style = AppTypography.labelLarge.copy(fontSize = 9.sp, color = AppColors.NeonPurple)
+                                style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = AppColors.NeonPurple)
                             )
                         }
                     }
@@ -160,7 +160,7 @@ fun ImageInspectorUI(
                         if (videoSections != null) {
                             Spacer(Modifier.height(16.dp))
                             if (tab.isAnalyzingMotionPhotoCodec) {
-                                Text("분석 중...", color = AppColors.TextSecondary, fontSize = 12.sp)
+                                Text("분석 중...", color = AppColors.TextSecondary, fontSize = 13.sp)
                             } else if (!tab.motionPhotoCodecDetailsLoaded) {
                                 Button(onClick = { appState.analyzeMotionPhotoCodecDetails(tab) }) {
                                     Text("코덱 상세정보 분석")
@@ -214,9 +214,9 @@ private fun MotionPhotoVideoPreview(tab: TabState, video: EmbeddedVideo) {
     if (file != null) {
         FfmpegVideoPlayer(file, modifier = Modifier.fillMaxSize())
     } else if (error != null) {
-        Text("Could not extract motion video: $error", color = AppColors.NeonRed, fontSize = 12.sp)
+        Text("Could not extract motion video: $error", color = AppColors.NeonRed, fontSize = 13.sp)
     } else {
-        Text("Extracting motion video...", color = Color.Gray, fontSize = 12.sp)
+        Text("Extracting motion video...", color = Color.Gray, fontSize = 13.sp)
     }
 }
 
@@ -297,11 +297,11 @@ fun DetailedPropertiesPanel(tab: TabState) {
                             Column {
                                 Text(
                                     "${entry.node.type} — 0x${entry.node.offset.toString(16).uppercase()}",
-                                    style = AppTypography.labelLarge.copy(color = AppColors.TextPrimary, fontSize = 11.sp),
+                                    style = AppTypography.labelLarge.copy(color = AppColors.TextPrimary, fontSize = 12.sp),
                                 )
                                 Text(
                                     entry.warning,
-                                    style = AppTypography.bodyLarge.copy(color = AppColors.NeonRed, fontSize = 11.sp),
+                                    style = AppTypography.bodyLarge.copy(color = AppColors.NeonRed, fontSize = 12.sp),
                                 )
                             }
                         }

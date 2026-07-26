@@ -48,7 +48,7 @@ private fun FrameTypeLegendEntry(type: Char, label: String) {
         )
         Text(
             "  $label",
-            style = AppTypography.bodyLarge.copy(color = AppColors.TextSecondary, fontSize = 10.sp),
+            style = AppTypography.bodyLarge.copy(color = AppColors.TextSecondary, fontSize = 11.sp),
         )
     }
 }

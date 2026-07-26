@@ -22,7 +22,7 @@ fun CameraLCDPanel(make: String, model: String, lens: String, settings: String) 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = "$make $model",
-                style = AppTypography.headlineSmall.copy(color = AppColors.NeonYellow, fontSize = 20.sp)
+                style = AppTypography.headlineSmall.copy(color = AppColors.NeonYellow, fontSize = 21.sp)
             )
             Spacer(Modifier.weight(1f))
             Text(text = "AF-ON", color = AppColors.TextMuted)
@@ -41,12 +41,12 @@ fun CameraLCDPanel(make: String, model: String, lens: String, settings: String) 
 @Composable
 private fun LCDField(label: String, value: String) {
     Column {
-        Text(label, style = AppTypography.labelLarge.copy(fontSize = 10.sp))
+        Text(label, style = AppTypography.labelLarge.copy(fontSize = 11.sp))
         Text(
             value,
             style = AppTypography.headlineSmall.copy(
                 fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                fontSize = 24.sp,
+                fontSize = 25.sp,
                 color = AppColors.NeonGreen
             )
         )

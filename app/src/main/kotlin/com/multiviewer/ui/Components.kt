@@ -13,6 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -28,6 +29,20 @@ import java.io.File
 
 private const val TABLE_PAGE_SIZE = 50
 
+// Overlay caption for preview panels (resolution/orientation/playback time) -- these sit directly
+// on top of arbitrary image/video content, so plain text alone can disappear against a bright
+// background. A dark scrim behind the text guarantees contrast regardless of what's underneath.
+@Composable
+fun PreviewCaption(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        modifier = modifier
+            .background(AppColors.Background.copy(alpha = 0.75f), RoundedCornerShape(3.dp))
+            .padding(horizontal = 5.dp, vertical = 2.dp),
+        style = AppTypography.labelLarge.copy(fontSize = 12.sp, color = Color.White),
+    )
+}
+
 @Composable
 fun SummaryBox(title: String, sections: List<SummarySection>) {
     Column(
@@ -42,7 +57,7 @@ fun SummaryBox(title: String, sections: List<SummarySection>) {
             modifier = Modifier.padding(bottom = 8.dp),
             style = AppTypography.headlineSmall.copy(
                 fontWeight = FontWeight.Bold,
-                fontSize = 16.sp,
+                fontSize = 17.sp,
                 color = AppColors.NeonBlue
             )
         )
@@ -77,7 +92,7 @@ fun GridDisplay(grid: GridData) {
     ) {
         Text(
             "Matrix Data (${grid.columns}x${grid.rows})",
-            style = AppTypography.labelLarge.copy(color = AppColors.NeonGreen, fontSize = 10.sp),
+            style = AppTypography.labelLarge.copy(color = AppColors.NeonGreen, fontSize = 11.sp),
             modifier = Modifier.padding(bottom = 8.dp)
         )
         for (row in 0 until grid.rows) {
@@ -88,7 +103,7 @@ fun GridDisplay(grid: GridData) {
                         value.padStart(3),
                         style = AppTypography.bodyLarge.copy(
                             fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
+                            fontSize = 12.sp,
                             color = AppColors.TextPrimary
                         ),
                         modifier = Modifier.width(24.dp),
@@ -161,7 +176,7 @@ fun EmbeddedTableView(file: File, table: TableData) {
     ) {
         Text(
             "Entries (${table.entryCount} total)",
-            style = AppTypography.labelLarge.copy(color = AppColors.NeonBlue, fontSize = 10.sp),
+            style = AppTypography.labelLarge.copy(color = AppColors.NeonBlue, fontSize = 11.sp),
             modifier = Modifier.padding(bottom = 8.dp)
         )
         
@@ -169,7 +184,7 @@ fun EmbeddedTableView(file: File, table: TableData) {
             table.columns.forEach { col ->
                 Text(
                     col.uppercase(), 
-                    style = AppTypography.labelLarge.copy(fontSize = 9.sp),
+                    style = AppTypography.labelLarge.copy(fontSize = 10.sp),
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -181,7 +196,7 @@ fun EmbeddedTableView(file: File, table: TableData) {
                     row.forEach { cell ->
                         Text(
                             cell.toString(),
-                            style = AppTypography.bodyLarge.copy(fontSize = 11.sp),
+                            style = AppTypography.bodyLarge.copy(fontSize = 12.sp),
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -200,16 +215,16 @@ fun EmbeddedTableView(file: File, table: TableData) {
                 modifier = Modifier.height(24.dp),
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
             ) {
-                Text("PREV", fontSize = 9.sp)
+                Text("PREV", fontSize = 10.sp)
             }
-            Text("PAGE ${page + 1} / $pageCount", style = AppTypography.labelLarge.copy(fontSize = 10.sp))
+            Text("PAGE ${page + 1} / $pageCount", style = AppTypography.labelLarge.copy(fontSize = 11.sp))
             Button(
                 onClick = { page = (page + 1).coerceAtMost(pageCount - 1) },
                 enabled = page < pageCount - 1,
                 modifier = Modifier.height(24.dp),
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
             ) {
-                Text("NEXT", fontSize = 9.sp)
+                Text("NEXT", fontSize = 10.sp)
             }
         }
     }

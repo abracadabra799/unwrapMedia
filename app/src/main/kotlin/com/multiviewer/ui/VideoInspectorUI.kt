@@ -48,7 +48,7 @@ fun VideoInspectorUI(
                     
                     Text("LIVE PLAYER", 
                         modifier = Modifier.align(Alignment.TopStart).padding(4.dp), 
-                        style = AppTypography.labelLarge.copy(fontSize = 9.sp, color = AppColors.NeonGreen)
+                        style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = AppColors.NeonGreen)
                     )
                 }
                 
