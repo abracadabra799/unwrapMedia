@@ -1,11 +1,14 @@
 package com.multiviewer.ui
 
+import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
@@ -137,14 +140,19 @@ fun ImageInspectorUI(
                 )
                 
                 // Bottom: Scrollable Analysis Dashboard
-                LazyColumn(
+                val summaryScrollState = rememberLazyListState()
+                Box(
                     modifier = Modifier
                         .weight(1f - verticalSplit)
                         .fillMaxWidth()
                 ) {
+                LazyColumn(
+                    state = summaryScrollState,
+                    modifier = Modifier.fillMaxSize()
+                ) {
                     item {
                         if (summary != null) {
-                            SummaryBox("📷 이미지", summary.sections)
+                            SummaryBox("📷 이미지 분석 요약", summary.sections)
                         }
                     }
                     item {
@@ -162,6 +170,11 @@ fun ImageInspectorUI(
                         }
                     }
                     item { Spacer(Modifier.height(32.dp)) }
+                }
+                VerticalScrollbar(
+                    adapter = rememberScrollbarAdapter(summaryScrollState),
+                    modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
+                )
                 }
             }
         },

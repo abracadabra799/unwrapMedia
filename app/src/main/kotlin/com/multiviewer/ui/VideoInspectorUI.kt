@@ -1,10 +1,13 @@
 package com.multiviewer.ui
 
+import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -60,17 +63,27 @@ fun VideoInspectorUI(
                 )
 
                 // Bottom: Scrollable Analysis Dashboard
-                LazyColumn(
+                val summaryScrollState = rememberLazyListState()
+                Box(
                     modifier = Modifier
                         .weight(1f - verticalSplit)
                         .fillMaxWidth()
                 ) {
-                    item {
-                        if (summary != null) {
-                            SummaryBox("🎬 비디오 분석 요약", summary.sections)
+                    LazyColumn(
+                        state = summaryScrollState,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        item {
+                            if (summary != null) {
+                                SummaryBox("🎬 비디오 분석 요약", summary.sections)
+                            }
                         }
+                        item { Spacer(Modifier.height(32.dp)) }
                     }
-                    item { Spacer(Modifier.height(32.dp)) }
+                    VerticalScrollbar(
+                        adapter = rememberScrollbarAdapter(summaryScrollState),
+                        modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
+                    )
                 }
             }
         },
