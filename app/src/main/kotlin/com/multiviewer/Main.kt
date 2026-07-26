@@ -12,9 +12,12 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyShortcut
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.window.MenuBar
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
+import androidx.compose.ui.window.rememberWindowState
 import com.multiviewer.parser.EmbeddedVideo
 import com.multiviewer.parser.extractEmbeddedVideo
 import com.multiviewer.ui.*
@@ -75,7 +78,11 @@ fun main() = application {
         println("Java Home: ${System.getProperty("java.home")}")
     }
 
-    Window(onCloseRequest = ::exitApplication, title = "unwrapMedia") {
+    val windowState = rememberWindowState(
+        position = WindowPosition(Alignment.Center),
+        size = DpSize(1600.dp, 1000.dp),
+    )
+    Window(onCloseRequest = ::exitApplication, title = "unwrapMedia", state = windowState) {
         MenuBar {
             Menu("File") {
                 Item("Open", shortcut = KeyShortcut(Key.O, meta = true), onClick = { showOpenFileDialog(appState) })

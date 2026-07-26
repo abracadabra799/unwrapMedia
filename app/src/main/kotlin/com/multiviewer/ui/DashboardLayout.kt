@@ -3,6 +3,7 @@ package com.multiviewer.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -12,8 +13,34 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+
+private const val LEFT_PANEL_MIN_WIDTH_DP = 180f
+private const val LEFT_PANEL_MAX_WIDTH_DP = 700f
+private const val RIGHT_PANEL_MIN_WIDTH_DP = 350f
+private const val RIGHT_PANEL_MAX_WIDTH_DP = 1000f
+
+// Thin draggable strip between two side-by-side panels. onDragDeltaDp receives the horizontal
+// drag delta in dp -- the caller decides which panel (and which sign) that delta grows.
+@Composable
+private fun VerticalResizeHandle(onDragDeltaDp: (Float) -> Unit) {
+    val density = LocalDensity.current
+    Box(
+        modifier = Modifier
+            .width(6.dp)
+            .fillMaxHeight()
+            .background(AppColors.Border)
+            .pointerInput(Unit) {
+                detectDragGestures { change, dragAmount ->
+                    change.consume()
+                    onDragDeltaDp(with(density) { dragAmount.x.toDp().value })
+                }
+            },
+    )
+}
 
 @Composable
 fun DashboardLayout(
@@ -26,6 +53,11 @@ fun DashboardLayout(
     // 0.75f roughly matches the old fixed 250dp bottom panel on a typical window size, but is now
     // a user-draggable ratio instead of a fixed pixel height.
     var verticalSplit by remember { mutableStateOf(0.75f) }
+    // Left (Structure) and right (Detailed Properties) panels start at their old fixed widths but
+    // the user can drag either wider -- e.g. pretty-printed XMP in the right panel needs much more
+    // horizontal room than 350dp to avoid wrapping mid-line.
+    var leftPanelWidthDp by remember { mutableStateOf(300f) }
+    var rightPanelWidthDp by remember { mutableStateOf(RIGHT_PANEL_MIN_WIDTH_DP) }
 
     Column(
         modifier = Modifier
@@ -37,14 +69,18 @@ fun DashboardLayout(
             // Left Panel (Structure)
             Column(
                 modifier = Modifier
-                    .width(300.dp)
+                    .width(leftPanelWidthDp.dp)
                     .fillMaxHeight()
                     .border(1.dp, AppColors.Border)
                     .background(AppColors.Surface)
             ) {
                 leftPanel()
             }
-            
+
+            VerticalResizeHandle { deltaDp ->
+                leftPanelWidthDp = (leftPanelWidthDp + deltaDp).coerceIn(LEFT_PANEL_MIN_WIDTH_DP, LEFT_PANEL_MAX_WIDTH_DP)
+            }
+
             // Center Panel (Visual Canvas)
             Column(
                 modifier = Modifier
@@ -54,11 +90,15 @@ fun DashboardLayout(
             ) {
                 centerPanel()
             }
-            
+
+            VerticalResizeHandle { deltaDp ->
+                rightPanelWidthDp = (rightPanelWidthDp - deltaDp).coerceIn(RIGHT_PANEL_MIN_WIDTH_DP, RIGHT_PANEL_MAX_WIDTH_DP)
+            }
+
             // Right Panel (Properties)
             Column(
                 modifier = Modifier
-                    .width(350.dp)
+                    .width(rightPanelWidthDp.dp)
                     .fillMaxHeight()
                     .border(1.dp, AppColors.Border)
                     .background(AppColors.Surface)
@@ -66,7 +106,7 @@ fun DashboardLayout(
                 rightPanel()
             }
         }
-        
+
         DraggableDivider(
             orientation = Orientation.Horizontal,
             containerSizePx = containerHeightPx,
