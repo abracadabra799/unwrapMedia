@@ -1,13 +1,17 @@
 package com.multiviewer.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -15,14 +19,20 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import java.awt.Toolkit
+import java.awt.datatransfer.StringSelection
 import java.io.File
 import java.io.RandomAccessFile
 
@@ -48,6 +58,15 @@ private fun charIndexToByteIndex(charIndex: Int, rowByteCount: Int): Int? {
 
 private val SelectedByteHighlight = Color(0xFF39FF14).copy(alpha = 0.35f)
 
+private fun copyBytesAsHex(raf: RandomAccessFile, range: LongRange) {
+    val length = (range.last - range.first + 1).toInt()
+    val buf = ByteArray(length)
+    raf.seek(range.first)
+    raf.readFully(buf)
+    val hexText = buf.joinToString(" ") { "%02X".format(it) }
+    Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(hexText), null)
+}
+
 @Composable
 fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
     val raf = remember(file) { RandomAccessFile(file, "r") }
@@ -55,18 +74,42 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
         onDispose { raf.close() }
     }
     val rowCount = ((raf.length() + BYTES_PER_ROW - 1) / BYTES_PER_ROW).toInt()
-    var selectedOffset by remember(file) { mutableStateOf<Long?>(null) }
+    // A click without Shift starts a new single-byte selection (anchor == end); Shift-click
+    // extends the existing selection from anchor to the newly clicked byte. Cross-row ranges work
+    // naturally since both clicks are resolved independently by their own row's layout -- no need
+    // to track pointer position across row boundaries the way a continuous drag would.
+    var selectionAnchor by remember(file) { mutableStateOf<Long?>(null) }
+    var selectionEnd by remember(file) { mutableStateOf<Long?>(null) }
+    val selectedRange = if (selectionAnchor != null && selectionEnd != null) {
+        minOf(selectionAnchor!!, selectionEnd!!)..maxOf(selectionAnchor!!, selectionEnd!!)
+    } else {
+        null
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        selectedOffset?.let { offset ->
-            raf.seek(offset)
-            val value = raf.read()
-            val asciiSuffix = if (value in 0x20..0x7E) "  '${value.toChar()}'" else ""
-            Text(
-                "Selected byte -- offset $offset (0x${offset.toString(16).uppercase()}), value 0x${"%02X".format(value)} ($value)$asciiSuffix",
-                style = AppTypography.labelLarge.copy(color = AppColors.NeonGreen),
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            )
+        selectedRange?.let { range ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val byteCount = range.last - range.first + 1
+                val text = if (byteCount == 1L) {
+                    raf.seek(range.first)
+                    val value = raf.read()
+                    val asciiSuffix = if (value in 0x20..0x7E) "  '${value.toChar()}'" else ""
+                    "Selected byte -- offset ${range.first} (0x${range.first.toString(16).uppercase()}), value 0x${"%02X".format(value)} ($value)$asciiSuffix"
+                } else {
+                    "Selected range -- offset ${range.first} to ${range.last} (0x${range.first.toString(16).uppercase()}-0x${range.last.toString(16).uppercase()}), $byteCount bytes"
+                }
+                Text(
+                    text,
+                    style = AppTypography.labelLarge.copy(color = AppColors.NeonGreen),
+                    modifier = Modifier.padding(end = 8.dp),
+                )
+                Button(onClick = { copyBytesAsHex(raf, range) }) {
+                    Text("Copy Hex", fontSize = 11.sp)
+                }
+            }
         }
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             items(rowCount) { rowIndex ->
@@ -86,7 +129,7 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
                                 val byteOffset = rowStart + i
                                 val hex = "%02X ".format(buf[i])
                                 when {
-                                    selectedOffset == byteOffset ->
+                                    selectedRange?.contains(byteOffset) == true ->
                                         withStyle(SpanStyle(background = SelectedByteHighlight)) { append(hex) }
                                     highlightRange?.contains(byteOffset) == true ->
                                         withStyle(SpanStyle(background = AppColors.Highlight)) { append(hex) }
@@ -102,7 +145,7 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
                             val byteValue = buf[i].toInt() and 0xFF
                             val char = if (byteValue in 0x20..0x7E) byteValue.toChar() else '.'
                             when {
-                                selectedOffset == byteOffset ->
+                                selectedRange?.contains(byteOffset) == true ->
                                     withStyle(SpanStyle(background = SelectedByteHighlight)) { append(char) }
                                 highlightRange?.contains(byteOffset) == true ->
                                     withStyle(SpanStyle(background = AppColors.Highlight)) { append(char) }
@@ -112,10 +155,18 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
                     },
                     onTextLayout = { layoutResult = it },
                     modifier = Modifier.pointerInput(rowStart, buf.size) {
-                        detectTapGestures { tapPosition ->
-                            val charIndex = layoutResult?.getOffsetForPosition(tapPosition) ?: return@detectTapGestures
-                            val byteIndex = charIndexToByteIndex(charIndex, buf.size) ?: return@detectTapGestures
-                            selectedOffset = rowStart + byteIndex
+                        awaitEachGesture {
+                            val down = awaitFirstDown(pass = PointerEventPass.Main)
+                            val isShiftExtend = currentEvent.keyboardModifiers.isShiftPressed && selectionAnchor != null
+                            val charIndex = layoutResult?.getOffsetForPosition(down.position) ?: return@awaitEachGesture
+                            val byteIndex = charIndexToByteIndex(charIndex, buf.size) ?: return@awaitEachGesture
+                            val clickedOffset = rowStart + byteIndex
+                            if (isShiftExtend) {
+                                selectionEnd = clickedOffset
+                            } else {
+                                selectionAnchor = clickedOffset
+                                selectionEnd = clickedOffset
+                            }
                         }
                     },
                 )
