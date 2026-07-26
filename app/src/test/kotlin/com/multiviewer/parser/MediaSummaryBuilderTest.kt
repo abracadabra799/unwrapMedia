@@ -206,7 +206,7 @@ class MediaSummaryBuilderTest {
         assertEquals(4, summary.sections.size)
 
         val general = summary.sections.first { it.title == "General" }
-        assertEquals("0:00:20", general.fields.first { it.label == "Duration" }.value)
+        assertEquals("0:00:20.000", general.fields.first { it.label == "Duration" }.value)
         assertEquals("isom", general.fields.first { it.label == "Format" }.value)
         assertEquals("500.0 Kbps", general.fields.first { it.label == "Overall Bit Rate" }.value)
         assertEquals(null, general.fields.find { it.label == "Width" })
@@ -359,7 +359,7 @@ class MediaSummaryBuilderTest {
         val videoSections = summary.motionPhotoVideoSections
         assertEquals(true, videoSections != null)
         val videoGeneral = videoSections!!.first { it.title == "General" }
-        assertEquals("0:00:02", videoGeneral.fields.first { it.label == "Duration" }.value)
+        assertEquals("0:00:02.000", videoGeneral.fields.first { it.label == "Duration" }.value)
         assertEquals("52 bytes", videoGeneral.fields.first { it.label == "File Size" }.value)
     }
 
