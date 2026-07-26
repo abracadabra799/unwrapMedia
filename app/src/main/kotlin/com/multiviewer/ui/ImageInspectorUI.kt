@@ -68,7 +68,8 @@ fun ImageInspectorUI(
                         )
 
                         forensic.embeddedThumbnail?.let {
-                            Text("${it.width}x${it.height}",
+                            val orientationSuffix = forensic.orientation?.let { o -> " · $o" } ?: ""
+                            Text("${it.width}x${it.height}$orientationSuffix",
                                 modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
                                 style = AppTypography.labelLarge.copy(fontSize = 9.sp, color = AppColors.TextSecondary)
                             )
@@ -98,7 +99,8 @@ fun ImageInspectorUI(
                         )
 
                         forensic.bitmap?.let {
-                            Text("${it.width}x${it.height}",
+                            val orientationSuffix = forensic.orientation?.let { o -> " · $o" } ?: ""
+                            Text("${it.width}x${it.height}$orientationSuffix",
                                 modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
                                 style = AppTypography.labelLarge.copy(fontSize = 9.sp, color = AppColors.TextSecondary)
                             )

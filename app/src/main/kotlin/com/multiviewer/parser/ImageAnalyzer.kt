@@ -39,7 +39,8 @@ object ImageAnalyzer {
         var quality = 0
         var isModified = false
         var software: String? = null
-        
+        var orientationCode: Int? = null
+
         fun traverse(node: BoxNode) {
             if (node.type == "QuantizationTable") {
                 val qStr = node.fields.find { it.name == "quality_estimate" }?.value
@@ -47,12 +48,13 @@ object ImageAnalyzer {
             }
             if (node.type == "IFD0" || node.type == "Exif") {
                 software = node.fields.find { it.name == "Software" }?.value ?: software
+                orientationCode = node.fields.find { it.name == "Orientation" }?.value?.toIntOrNull() ?: orientationCode
             }
             node.children.forEach { traverse(it) }
         }
         traverse(root)
-        
-        if (software?.contains("Photoshop", ignoreCase = true) == true || 
+
+        if (software?.contains("Photoshop", ignoreCase = true) == true ||
             software?.contains("Adobe", ignoreCase = true) == true) isModified = true
 
         return ImageForensicData(
@@ -62,8 +64,21 @@ object ImageAnalyzer {
             dqtQuality = quality,
             software = software,
             isModified = isModified,
+            orientation = orientationCode?.let { orientationLabel(it) },
             hasThumbnailReference = thumbnailResult.hasThumbnailReference,
         )
+    }
+
+    private fun orientationLabel(code: Int): String = when (code) {
+        1 -> "정상"
+        2 -> "좌우 반전"
+        3 -> "180° 회전"
+        4 -> "상하 반전"
+        5 -> "좌우 반전 + 270° 회전"
+        6 -> "90° 회전"
+        7 -> "좌우 반전 + 90° 회전"
+        8 -> "270° 회전"
+        else -> "알 수 없음 ($code)"
     }
 
     private fun traceNodes(node: BoxNode, depth: Int) {
