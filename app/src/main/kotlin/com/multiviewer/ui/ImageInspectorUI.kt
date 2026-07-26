@@ -12,6 +12,7 @@ import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -159,14 +160,18 @@ fun ImageInspectorUI(
                         val videoSections = summary?.motionPhotoVideoSections
                         if (videoSections != null) {
                             Spacer(Modifier.height(16.dp))
-                            if (tab.isAnalyzingMotionPhotoCodec) {
-                                Text("분석 중...", color = AppColors.TextSecondary, fontSize = 13.sp)
-                            } else if (!tab.motionPhotoCodecDetailsLoaded) {
-                                Button(onClick = { appState.analyzeMotionPhotoCodecDetails(tab) }) {
-                                    Text("코덱 상세정보 분석")
-                                }
-                            }
-                            SummaryBox("🎬 동영상 (모션포토)", videoSections)
+                            SummaryBox(
+                                "🎬 동영상 (모션포토)", videoSections,
+                                titleTrailingContent = {
+                                    if (tab.isAnalyzingMotionPhotoCodec) {
+                                        Text("분석 중...", color = AppColors.TextSecondary, fontSize = 12.sp)
+                                    } else if (!tab.motionPhotoCodecDetailsLoaded) {
+                                        TextButton(onClick = { appState.analyzeMotionPhotoCodecDetails(tab) }) {
+                                            Text("코덱 상세정보 분석", fontSize = 12.sp)
+                                        }
+                                    }
+                                },
+                            )
                         }
                     }
                     item { Spacer(Modifier.height(32.dp)) }

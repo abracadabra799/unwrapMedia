@@ -44,7 +44,11 @@ fun PreviewCaption(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun SummaryBox(title: String, sections: List<SummarySection>) {
+fun SummaryBox(
+    title: String,
+    sections: List<SummarySection>,
+    titleTrailingContent: (@Composable RowScope.() -> Unit)? = null,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -52,15 +56,21 @@ fun SummaryBox(title: String, sections: List<SummarySection>) {
             .border(1.dp, AppColors.Border, RoundedCornerShape(8.dp))
             .padding(12.dp),
     ) {
-        Text(
-            title,
-            modifier = Modifier.padding(bottom = 8.dp),
-            style = AppTypography.headlineSmall.copy(
-                fontWeight = FontWeight.Bold,
-                fontSize = 17.sp,
-                color = AppColors.NeonBlue
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                title,
+                style = AppTypography.headlineSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp,
+                    color = AppColors.NeonBlue
+                )
             )
-        )
+            titleTrailingContent?.invoke(this)
+        }
         CoreMetadataDisplay(sections = sections)
     }
 }
