@@ -21,9 +21,14 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -34,6 +39,9 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+
+private fun formatFps(fps: Double): String =
+    if (fps == fps.toLong().toDouble()) fps.toLong().toString() else fps.toString()
 
 // Dedicated, intentionally minimal UI for headerless raw pixel dumps (.raw/.rgb/.rgba/.yuv) --
 // unlike ImageInspectorUI (thumbnail/primary/motion-photo triple preview + media summary), a raw
@@ -59,13 +67,16 @@ fun RawPixelInspectorUI(
         // guard and playback visually skipped through content faster than intended.
         LaunchedEffect(tab.rawPixelIsPlaying, tab.file) {
             if (!tab.rawPixelIsPlaying) return@LaunchedEffect
-            val frameDurationMs = (1000.0 / params.fps).toLong().coerceAtLeast(1)
             while (tab.rawPixelIsPlaying) {
                 val nextIndex = tab.rawPixelFrameIndex + 1
                 if (nextIndex > params.frameCount - 1) {
                     tab.rawPixelIsPlaying = false
                     break
                 }
+                // Read fresh each iteration so live edits to tab.rawPixelFps (via the field in the
+                // controls row below) take effect on the very next frame instead of requiring a
+                // pause/resume.
+                val frameDurationMs = (1000.0 / tab.rawPixelFps).toLong().coerceAtLeast(1)
                 val start = System.currentTimeMillis()
                 val bitmap = withContext(Dispatchers.IO) {
                     decodeRawPixelFile(tab.file, params.width, params.height, params.format, params.byteOrder, nextIndex)
@@ -176,9 +187,27 @@ fun RawPixelInspectorUI(
                         ) { Text("◀ 이전 프레임", fontSize = 11.sp) }
                         Spacer(Modifier.width(12.dp))
                         Text(
-                            "프레임 ${tab.rawPixelFrameIndex + 1} / ${params.frameCount} · ${params.fps} fps",
+                            "프레임 ${tab.rawPixelFrameIndex + 1} / ${params.frameCount} ·",
                             style = AppTypography.labelLarge.copy(fontSize = 11.sp, color = AppColors.TextSecondary),
                         )
+                        Spacer(Modifier.width(4.dp))
+                        // Raw dumps carry no frame-rate metadata, so the dialog's up-front value is
+                        // only ever a starting guess -- editable here too, without reopening the
+                        // file, and live playback picks up the change on the next frame.
+                        var fpsText by remember(tab) { mutableStateOf(formatFps(tab.rawPixelFps)) }
+                        OutlinedTextField(
+                            value = fpsText,
+                            onValueChange = { input ->
+                                val filtered = input.filter { c -> c.isDigit() || c == '.' }
+                                fpsText = filtered
+                                filtered.toDoubleOrNull()?.let { if (it > 0) tab.rawPixelFps = it }
+                            },
+                            singleLine = true,
+                            textStyle = AppTypography.labelLarge.copy(fontSize = 11.sp),
+                            modifier = Modifier.width(64.dp),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text("fps", style = AppTypography.labelLarge.copy(fontSize = 11.sp, color = AppColors.TextSecondary))
                         Spacer(Modifier.width(12.dp))
                         Button(
                             onClick = {
