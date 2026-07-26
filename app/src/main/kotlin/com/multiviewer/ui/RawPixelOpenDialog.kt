@@ -31,12 +31,13 @@ import java.io.File
 @Composable
 fun RawPixelOpenDialog(
     file: File,
-    onConfirm: (width: Int, height: Int, format: RawPixelFormat) -> Unit,
+    onConfirm: (width: Int, height: Int, format: RawPixelFormat, byteOrder: RawPixelByteOrder) -> Unit,
     onCancel: () -> Unit,
 ) {
     var widthText by remember { mutableStateOf("") }
     var heightText by remember { mutableStateOf("") }
-    var format by remember { mutableStateOf(RawPixelFormat.RGB24) }
+    var format by remember { mutableStateOf(RawPixelFormat.RGB888) }
+    var byteOrder by remember { mutableStateOf(RawPixelByteOrder.LITTLE_ENDIAN) }
 
     val width = widthText.toIntOrNull()
     val height = heightText.toIntOrNull()
@@ -51,7 +52,7 @@ fun RawPixelOpenDialog(
     Dialog(onDismissRequest = onCancel) {
         Column(
             modifier = Modifier
-                .width(360.dp)
+                .width(420.dp)
                 .background(AppColors.Surface, RoundedCornerShape(8.dp))
                 .border(1.dp, AppColors.Border, RoundedCornerShape(8.dp))
                 .padding(20.dp),
@@ -63,24 +64,51 @@ fun RawPixelOpenDialog(
 
             Text("포맷", style = AppTypography.labelLarge)
             Spacer(Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                RawPixelFormat.entries.forEach { candidate ->
-                    val selected = format == candidate
-                    Box(
-                        modifier = Modifier
-                            .border(1.dp, if (selected) AppColors.NeonBlue else AppColors.Border, RoundedCornerShape(4.dp))
-                            .clickable { format = candidate }
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                    ) {
-                        Text(
-                            candidate.label,
-                            fontSize = 11.sp,
-                            color = if (selected) AppColors.NeonBlue else AppColors.TextPrimary,
-                        )
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                RawPixelFormat.entries.chunked(3).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        row.forEach { candidate ->
+                            val selected = format == candidate
+                            Box(
+                                modifier = Modifier
+                                    .border(1.dp, if (selected) AppColors.NeonBlue else AppColors.Border, RoundedCornerShape(4.dp))
+                                    .clickable { format = candidate }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                            ) {
+                                Text(
+                                    candidate.label,
+                                    fontSize = 11.sp,
+                                    color = if (selected) AppColors.NeonBlue else AppColors.TextPrimary,
+                                )
+                            }
+                        }
                     }
                 }
             }
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(12.dp))
+
+            if (format.needsByteOrder) {
+                Text("Byte order", style = AppTypography.labelLarge)
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    RawPixelByteOrder.entries.forEach { candidate ->
+                        val selected = byteOrder == candidate
+                        Box(
+                            modifier = Modifier
+                                .border(1.dp, if (selected) AppColors.NeonBlue else AppColors.Border, RoundedCornerShape(4.dp))
+                                .clickable { byteOrder = candidate }
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                        ) {
+                            Text(
+                                candidate.label,
+                                fontSize = 11.sp,
+                                color = if (selected) AppColors.NeonBlue else AppColors.TextPrimary,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
@@ -119,7 +147,7 @@ fun RawPixelOpenDialog(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onCancel) { Text("취소") }
                 Spacer(Modifier.width(8.dp))
-                Button(onClick = { onConfirm(width!!, height!!, format) }, enabled = canOpen) { Text("열기") }
+                Button(onClick = { onConfirm(width!!, height!!, format, byteOrder) }, enabled = canOpen) { Text("열기") }
             }
         }
     }

@@ -149,7 +149,7 @@ fun main() = application {
             appState.pendingRawPixelFile?.let { pendingFile ->
                 RawPixelOpenDialog(
                     file = pendingFile,
-                    onConfirm = { width, height, format -> appState.confirmRawPixelFile(width, height, format) },
+                    onConfirm = { width, height, format, byteOrder -> appState.confirmRawPixelFile(width, height, format, byteOrder) },
                     onCancel = { appState.cancelRawPixelFile() },
                 )
             }
