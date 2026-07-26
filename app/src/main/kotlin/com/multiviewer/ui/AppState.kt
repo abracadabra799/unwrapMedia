@@ -90,7 +90,7 @@ class AppState {
         pendingRawPixelFile = null
     }
 
-    fun confirmRawPixelFile(width: Int, height: Int, format: RawPixelFormat) {
+    fun confirmRawPixelFile(width: Int, height: Int, format: RawPixelFormat, byteOrder: RawPixelByteOrder) {
         val file = pendingRawPixelFile ?: return
         pendingRawPixelFile = null
         val existingIndex = tabs.indexOfFirst { it.file.absolutePath == file.absolutePath }
@@ -107,7 +107,7 @@ class AppState {
         tabs.add(tab)
         selectedTabIndex = tabs.size - 1
         Thread {
-            val bitmap = decodeRawPixelFile(file, width, height, format)
+            val bitmap = decodeRawPixelFile(file, width, height, format, byteOrder)
             EventQueue.invokeLater {
                 tab.type = MediaType.IMAGE
                 tab.root = BoxNode(

@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 
 class RawPixelDecoderTest {
     @Test
-    fun `decodes an RGBA32 dump with the exact pixel values`() {
+    fun `decodes an RGBA8888 dump with the exact pixel values`() {
         val width = 2
         val height = 2
         // Four distinct pixels: red, green, blue, white -- each RGBA (4 bytes).
@@ -23,7 +23,7 @@ class RawPixelDecoderTest {
         file.deleteOnExit()
         file.writeBytes(bytes)
 
-        val bitmap = decodeRawPixelFile(file, width, height, RawPixelFormat.RGBA32)
+        val bitmap = decodeRawPixelFile(file, width, height, RawPixelFormat.RGBA8888)
 
         assertTrue(bitmap != null)
         val skiaBitmap = bitmap.asSkiaBitmap()
@@ -35,7 +35,7 @@ class RawPixelDecoderTest {
     }
 
     @Test
-    fun `decodes an RGB24 dump (no alpha channel) with the exact pixel values`() {
+    fun `decodes an RGB888 dump (no alpha channel) with the exact pixel values`() {
         val width = 2
         val height = 1
         val bytes = byteArrayOf(
@@ -46,7 +46,7 @@ class RawPixelDecoderTest {
         file.deleteOnExit()
         file.writeBytes(bytes)
 
-        val bitmap = decodeRawPixelFile(file, width, height, RawPixelFormat.RGB24)
+        val bitmap = decodeRawPixelFile(file, width, height, RawPixelFormat.RGB888)
 
         assertTrue(bitmap != null)
         val skiaBitmap = bitmap.asSkiaBitmap()
@@ -56,12 +56,114 @@ class RawPixelDecoderTest {
     }
 
     @Test
+    fun `decodes a BGR888 dump (channel order swapped from RGB888)`() {
+        val width = 2
+        val height = 1
+        val bytes = byteArrayOf(
+            0x00, 0x80.toByte(), 0xFF.toByte(), // stored B,G,R -> should read back as orange-ish (R=FF,G=80,B=00)
+            0x30, 0x20, 0x10,
+        )
+        val file = File.createTempFile("raw-pixel-bgr888-test-", ".rgb")
+        file.deleteOnExit()
+        file.writeBytes(bytes)
+
+        val bitmap = decodeRawPixelFile(file, width, height, RawPixelFormat.BGR888)
+
+        assertTrue(bitmap != null)
+        val skiaBitmap = bitmap.asSkiaBitmap()
+        assertEquals(0xFFFF8000.toInt(), skiaBitmap.getColor(0, 0))
+        assertEquals(0xFF102030.toInt(), skiaBitmap.getColor(1, 0))
+        file.delete()
+    }
+
+    @Test
+    fun `decodes an ARGB8888 dump (alpha-first channel order)`() {
+        val width = 2
+        val height = 1
+        val bytes = byteArrayOf(
+            0x80.toByte(), 0xFF.toByte(), 0x00, 0x00, // A=80, R=FF, G=00, B=00 -> half-alpha red
+            0xFF.toByte(), 0x00, 0xFF.toByte(), 0x00, // A=FF, R=00, G=FF, B=00 -> opaque green
+        )
+        val file = File.createTempFile("raw-pixel-argb8888-test-", ".rgba")
+        file.deleteOnExit()
+        file.writeBytes(bytes)
+
+        val bitmap = decodeRawPixelFile(file, width, height, RawPixelFormat.ARGB8888)
+
+        assertTrue(bitmap != null)
+        val skiaBitmap = bitmap.asSkiaBitmap()
+        assertEquals(0x80FF0000.toInt(), skiaBitmap.getColor(0, 0))
+        assertEquals(0xFF00FF00.toInt(), skiaBitmap.getColor(1, 0))
+        file.delete()
+    }
+
+    @Test
+    fun `decodes RGB565 with the exact expected 8-bit-per-channel values after bit-replication scaling`() {
+        // Pure red in RGB565 is bits 11111 000000 00000 = 0xF800. Little-endian on disk: low byte
+        // first (0x00, 0xF8). 5-bit 0x1F scales to 8-bit via bit replication: (31<<3)|(31>>2) = 255.
+        val width = 1
+        val height = 1
+        val bytes = byteArrayOf(0x00, 0xF8.toByte())
+        val file = File.createTempFile("raw-pixel-rgb565-test-", ".raw")
+        file.deleteOnExit()
+        file.writeBytes(bytes)
+
+        val bitmap = decodeRawPixelFile(file, width, height, RawPixelFormat.RGB565, RawPixelByteOrder.LITTLE_ENDIAN)
+
+        assertTrue(bitmap != null)
+        assertEquals(0xFFFF0000.toInt(), bitmap.asSkiaBitmap().getColor(0, 0))
+        file.delete()
+    }
+
+    @Test
+    fun `RGB565 and BGR565 decode the same bytes to swapped red-blue channels`() {
+        // Pure blue in RGB565 is bits 00000 000000 11111 = 0x001F -> little-endian bytes (0x1F, 0x00).
+        val width = 1
+        val height = 1
+        val bytes = byteArrayOf(0x1F, 0x00)
+        val file = File.createTempFile("raw-pixel-565-swap-test-", ".raw")
+        file.deleteOnExit()
+        file.writeBytes(bytes)
+
+        val asRgb = decodeRawPixelFile(file, width, height, RawPixelFormat.RGB565, RawPixelByteOrder.LITTLE_ENDIAN)
+        val asBgr = decodeRawPixelFile(file, width, height, RawPixelFormat.BGR565, RawPixelByteOrder.LITTLE_ENDIAN)
+
+        assertTrue(asRgb != null && asBgr != null)
+        assertEquals(0xFF0000FF.toInt(), asRgb.asSkiaBitmap().getColor(0, 0)) // RGB565: low bits = blue
+        assertEquals(0xFFFF0000.toInt(), asBgr.asSkiaBitmap().getColor(0, 0)) // BGR565: low bits = red
+        file.delete()
+    }
+
+    @Test
+    fun `RGB565 little-endian and big-endian byte order produce different results for the same bytes`() {
+        // 0xF800 (pure red) little-endian on disk is (0x00, 0xF8); read as big-endian instead, the
+        // 16-bit value becomes 0x00F8 (a dim, mostly-blue-and-green value), not red -- proving byte
+        // order is actually threaded through, not silently ignored.
+        val width = 1
+        val height = 1
+        val bytes = byteArrayOf(0x00, 0xF8.toByte())
+        val file = File.createTempFile("raw-pixel-565-endian-test-", ".raw")
+        file.deleteOnExit()
+        file.writeBytes(bytes)
+
+        val little = decodeRawPixelFile(file, width, height, RawPixelFormat.RGB565, RawPixelByteOrder.LITTLE_ENDIAN)
+        val big = decodeRawPixelFile(file, width, height, RawPixelFormat.RGB565, RawPixelByteOrder.BIG_ENDIAN)
+
+        assertTrue(little != null && big != null)
+        assertTrue(
+            little.asSkiaBitmap().getColor(0, 0) != big.asSkiaBitmap().getColor(0, 0),
+            "expected little-endian and big-endian reads of the same bytes to differ",
+        )
+        file.delete()
+    }
+
+    @Test
     fun `returns null when the file is smaller than the declared dimensions require`() {
         val file = File.createTempFile("raw-pixel-too-small-", ".rgba")
         file.deleteOnExit()
         file.writeBytes(ByteArray(4)) // one pixel's worth, but we ask for 4x4
 
-        val bitmap = decodeRawPixelFile(file, 4, 4, RawPixelFormat.RGBA32)
+        val bitmap = decodeRawPixelFile(file, 4, 4, RawPixelFormat.RGBA8888)
 
         assertNull(bitmap)
         file.delete()
@@ -185,8 +287,8 @@ class RawPixelDecoderTest {
     @Test
     fun `expectedRawFileSize accounts for YUV420p's fractional bytes-per-pixel`() {
         assertEquals(24L, expectedRawFileSize(width = 4, height = 4, format = RawPixelFormat.YUV420P))
-        assertEquals(48L, expectedRawFileSize(width = 4, height = 4, format = RawPixelFormat.RGB24))
-        assertEquals(64L, expectedRawFileSize(width = 4, height = 4, format = RawPixelFormat.RGBA32))
+        assertEquals(48L, expectedRawFileSize(width = 4, height = 4, format = RawPixelFormat.RGB888))
+        assertEquals(64L, expectedRawFileSize(width = 4, height = 4, format = RawPixelFormat.RGBA8888))
     }
 
     @Test
