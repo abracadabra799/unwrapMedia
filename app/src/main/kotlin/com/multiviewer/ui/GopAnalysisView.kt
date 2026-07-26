@@ -87,14 +87,43 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit) {
             }
             else -> {
                 val listState = rememberLazyListState()
+
+                fun selectFrame(frame: FrameInfo) {
+                    tab.selectedFrame = frame
+                    tab.selected = null
+                    tab.seekTargetSeconds = frame.ptsSeconds
+                    tab.seekRequestTick++
+                }
+
                 Column(modifier = Modifier.fillMaxSize()) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        FrameTypeLegendEntry('I', "I-frame")
-                        FrameTypeLegendEntry('P', "P-frame")
-                        FrameTypeLegendEntry('B', "B-frame")
+                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            FrameTypeLegendEntry('I', "I-frame")
+                            FrameTypeLegendEntry('P', "P-frame")
+                            FrameTypeLegendEntry('B', "B-frame")
+                        }
+
+                        val selectedIndex = tab.selectedFrame?.index
+                        if (selectedIndex != null) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Button(
+                                    onClick = { selectFrame(frames[selectedIndex - 1]) },
+                                    enabled = selectedIndex > 0,
+                                ) { Text("◀ 이전 프레임", fontSize = 11.sp) }
+                                Text(
+                                    "${selectedIndex + 1} / ${frames.size}",
+                                    style = AppTypography.labelLarge.copy(fontSize = 11.sp, color = AppColors.TextSecondary),
+                                )
+                                Button(
+                                    onClick = { selectFrame(frames[selectedIndex + 1]) },
+                                    enabled = selectedIndex < frames.size - 1,
+                                ) { Text("다음 프레임 ▶", fontSize = 11.sp) }
+                            }
+                        }
                     }
 
                     val maxSize = frames.maxOf { it.sizeBytes }.coerceAtLeast(1)
@@ -131,12 +160,7 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit) {
                                         .height(barHeightDp.dp)
                                         .background(colorForFrameType(frame.type))
                                         .border(if (isCurrent) 2.dp else 0.5.dp, if (isCurrent) Color.White else AppColors.Border)
-                                        .clickable {
-                                            tab.selectedFrame = frame
-                                            tab.selected = null
-                                            tab.seekTargetSeconds = frame.ptsSeconds
-                                            tab.seekRequestTick++
-                                        },
+                                        .clickable { selectFrame(frame) },
                                 )
                             }
                         }
