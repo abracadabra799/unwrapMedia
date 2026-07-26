@@ -161,7 +161,7 @@ fun ImageInspectorUI(
                         if (videoSections != null) {
                             Spacer(Modifier.height(16.dp))
                             SummaryBox(
-                                "🎬 동영상 (모션포토)", videoSections,
+                                "🎬 동영상(모션포토) 분석 요약", videoSections,
                                 titleTrailingContent = {
                                     if (tab.isAnalyzingMotionPhotoCodec) {
                                         Text("분석 중...", color = AppColors.TextSecondary, fontSize = 12.sp)
