@@ -257,7 +257,11 @@ fun DetailedPropertiesPanel(tab: TabState) {
                     Spacer(Modifier.height(8.dp))
                 }
                 items(selectedNode.fields) { field ->
-                    PropertyRow(field.name, field.value)
+                    if (field.name == "xmp") {
+                        XmpFieldDisplay(field.value)
+                    } else {
+                        PropertyRow(field.name, field.value)
+                    }
                 }
                 selectedNode.grid?.let { grid ->
                     item { GridDisplay(grid) }

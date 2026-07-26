@@ -81,6 +81,48 @@ fun PropertyRow(label: String, value: String) {
     }
 }
 
+// XMP is a raw XML packet, often several KB -- right-aligning it like a normal short PropertyRow
+// value (or cramming it into the same row as its label) made every wrapped line's ragged edge sit
+// flush against the right side, or start mid-column with no indentation. Pretty-printing it and
+// giving it its own full-width, left-aligned block lets it read naturally.
+@Composable
+fun XmpFieldDisplay(raw: String) {
+    val formatted = remember(raw) { prettyPrintXmlOrRaw(raw) }
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Text("xmp:", style = AppTypography.labelLarge)
+        Text(
+            formatted,
+            style = AppTypography.bodyLarge.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
+            modifier = Modifier.padding(top = 2.dp, start = 8.dp),
+        )
+    }
+}
+
+fun prettyPrintXmlOrRaw(raw: String): String {
+    return try {
+        val factory = javax.xml.parsers.DocumentBuilderFactory.newInstance().apply {
+            // Untrusted file content -- block DOCTYPE/external entities outright (XMP never
+            // legitimately needs either) to avoid XXE rather than trying to sanitize inputs.
+            setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+            isExpandEntityReferences = false
+            isXIncludeAware = false
+        }
+        val doc = factory.newDocumentBuilder().parse(org.xml.sax.InputSource(java.io.StringReader(raw)))
+        val domImplLS = doc.implementation.getFeature("LS", "3.0") as org.w3c.dom.ls.DOMImplementationLS
+        val serializer = domImplLS.createLSSerializer().apply {
+            domConfig.setParameter("format-pretty-print", true)
+        }
+        val output = domImplLS.createLSOutput().apply {
+            encoding = "UTF-8"
+            characterStream = java.io.StringWriter()
+        }
+        serializer.write(doc, output)
+        (output.characterStream as java.io.StringWriter).toString().trim()
+    } catch (e: Exception) {
+        raw // not well-formed XML (or parsing failed) -- show the original text rather than nothing
+    }
+}
+
 @Composable
 fun GridDisplay(grid: GridData) {
     Column(

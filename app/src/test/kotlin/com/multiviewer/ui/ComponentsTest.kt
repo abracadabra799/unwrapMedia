@@ -4,7 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-class FieldPanelTest {
+class ComponentsTest {
     @Test
     fun `prettyPrintXmlOrRaw indents a flat XMP packet`() {
         val raw = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description rdf:about=\"\"/></rdf:RDF></x:xmpmeta>"
