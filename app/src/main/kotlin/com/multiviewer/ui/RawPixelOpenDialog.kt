@@ -62,10 +62,10 @@ fun RawPixelOpenDialog(
         ) {
             Text("Raw 픽셀 데이터 열기", style = AppTypography.headlineSmall)
             Spacer(Modifier.height(4.dp))
-            Text(file.name, style = AppTypography.labelLarge.copy(fontSize = 12.sp, color = AppColors.TextSecondary))
+            Text(file.name, style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = AppColors.TextSecondary))
             Spacer(Modifier.height(16.dp))
 
-            Text("포맷", style = AppTypography.labelLarge)
+            Text("포맷", style = AppTypography.labelLarge.copy(fontSize = 11.sp))
             Spacer(Modifier.height(4.dp))
             // One format per line -- a wrapping chip layout let selections land almost anywhere
             // in the block depending on label length, which read as confusing/hard to scan.
@@ -82,12 +82,12 @@ fun RawPixelOpenDialog(
                     ) {
                         Text(
                             if (selected) "●" else "○",
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
                             color = if (selected) AppColors.NeonBlue else AppColors.TextSecondary,
                         )
                         Text(
                             candidate.label,
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
                             color = if (selected) AppColors.NeonBlue else AppColors.TextPrimary,
                         )
                     }
@@ -96,7 +96,7 @@ fun RawPixelOpenDialog(
             Spacer(Modifier.height(12.dp))
 
             if (format.needsByteOrder) {
-                Text("Byte order", style = AppTypography.labelLarge)
+                Text("Byte order", style = AppTypography.labelLarge.copy(fontSize = 11.sp))
                 Spacer(Modifier.height(4.dp))
                 FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     RawPixelByteOrder.entries.forEach { candidate ->
@@ -109,7 +109,7 @@ fun RawPixelOpenDialog(
                         ) {
                             Text(
                                 candidate.label,
-                                fontSize = 11.sp,
+                                fontSize = 10.sp,
                                 color = if (selected) AppColors.NeonBlue else AppColors.TextPrimary,
                             )
                         }
@@ -145,7 +145,7 @@ fun RawPixelOpenDialog(
                         "예상 크기 $expectedSize bytes / 실제 파일 크기 $fileSize bytes (불일치 -- 그래도 열 수 있음)"
                     },
                     style = AppTypography.labelLarge.copy(
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         color = if (matches) AppColors.NeonGreen else AppColors.NeonYellow,
                     ),
                 )
