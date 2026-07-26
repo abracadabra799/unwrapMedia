@@ -11,8 +11,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -166,8 +166,8 @@ fun ImageInspectorUI(
                                     if (tab.isAnalyzingMotionPhotoCodec) {
                                         Text("분석 중...", color = AppColors.TextSecondary, fontSize = 12.sp)
                                     } else if (!tab.motionPhotoCodecDetailsLoaded) {
-                                        TextButton(onClick = { appState.analyzeMotionPhotoCodecDetails(tab) }) {
-                                            Text("코덱 상세정보 분석", fontSize = 12.sp)
+                                        OutlinedButton(onClick = { appState.analyzeMotionPhotoCodecDetails(tab) }) {
+                                            Text("코덱 상세정보 보기 ▶", fontSize = 12.sp)
                                         }
                                     }
                                 },
