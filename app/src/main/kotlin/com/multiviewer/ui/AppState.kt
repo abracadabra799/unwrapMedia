@@ -106,7 +106,15 @@ class AppState {
                 val root = parseFile(file)
 
                 val type = when {
-                    file.extension.lowercase() in listOf("jpg", "jpeg", "png", "bmp", "gif", "webp", "avif", "heic") -> MediaType.IMAGE
+                    file.extension.lowercase() in listOf(
+                        "jpg", "jpeg", "png", "bmp", "gif", "webp", "avif", "heic",
+                        // Camera RAW formats -- all TIFF/EP-based, so the existing generic TIFF/IFD
+                        // walker (decodeTiff, already reached via parseFile's magic-byte detection)
+                        // parses their structure without a dedicated decoder. No full RAW/demosaic
+                        // decode: ImageAnalyzer falls back to whatever embedded JPEG preview it can
+                        // find (same as HEIC), since Skia/ffmpeg can't decode raw sensor data either.
+                        "cr2", "nef", "arw", "dng",
+                    ) -> MediaType.IMAGE
                     file.extension.lowercase() in listOf("mp4", "mov", "m4v") -> MediaType.VIDEO
                     else -> MediaType.UNKNOWN
                 }

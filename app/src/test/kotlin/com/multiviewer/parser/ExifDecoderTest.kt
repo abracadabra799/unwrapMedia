@@ -122,6 +122,34 @@ class ExifDecoderTest {
     }
 
     @Test
+    fun `decodeTiff follows a SubIFDs pointer and finds a preview stored there (camera RAW layout)`() {
+        // Camera RAW formats (CR2/NEF/ARW/DNG) are TIFF/EP-based and commonly hang one or more
+        // additional resolutions (e.g. a full-size preview) off IFD0 via the SubIFDs tag (0x014A)
+        // rather than using NextIFDOffset -- this is a spec-based fixture (TIFF/EP + DNG spec),
+        // not verified against a real camera file.
+        val tiff = byteArrayOf(
+            0x49, 0x49, 0x2a, 0x00, // "II", 42 (little-endian byte order)
+            0x08, 0x00, 0x00, 0x00, // IFD0 offset = 8
+            0x01, 0x00, // IFD0 entry_count = 1
+            0x4a, 0x01, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x1a, 0x00, 0x00, 0x00, // SubIFDs (0x014A) -> offset 26
+            0x00, 0x00, 0x00, 0x00, // IFD0 NextIFDOffset = 0
+            0x02, 0x00, // SubIFD0 entry_count = 2
+            0x01, 0x02, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x38, 0x00, 0x00, 0x00, // JPEGInterchangeFormat -> offset 56
+            0x02, 0x02, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, // JPEGInterchangeFormatLength = 4
+            0x00, 0x00, 0x00, 0x00, // SubIFD0 NextIFDOffset = 0
+            0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xd9.toByte(), // preview bytes at offset 56 (4 bytes)
+        )
+        val reader = byteReaderOf(tiff)
+        val ifds = decodeTiff(reader, 0, tiff.size.toLong())
+
+        val subIfd = ifds[0].children.first { it.type == "SubIFD0" }
+        val preview = subIfd.children.first { it.type == "ThumbnailImage" }
+        assertEquals(56L, preview.offset)
+        assertEquals(4L, preview.size)
+        reader.close()
+    }
+
+    @Test
     fun `an IFD1 with only one of the two JPEGInterchangeFormat tags produces no ThumbnailImage node`() {
         val tiff = byteArrayOf(
             0x49, 0x49, 0x2a, 0x00, // "II", 42 (little-endian byte order)

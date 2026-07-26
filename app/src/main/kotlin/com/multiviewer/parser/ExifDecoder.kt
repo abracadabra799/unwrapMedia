@@ -6,6 +6,12 @@ private const val TAG_INTEROP_IFD_POINTER = 0xA005
 private const val TAG_MAKER_NOTE = 0x927C
 private const val TAG_JPEG_INTERCHANGE_FORMAT = 0x0201
 private const val TAG_JPEG_INTERCHANGE_FORMAT_LENGTH = 0x0202
+// TIFF/EP SubIFDs (0x014A) -- camera RAW formats (CR2/NEF/ARW/DNG are all TIFF/EP-based) commonly
+// store one or more additional image resolutions (a full-size preview, sometimes the raw sensor
+// data itself) as SubIFDs hung off IFD0, each with the same tag vocabulary as a normal IFD. Count
+// can be >1 (one offset per SubIFD); NOT verified against a real RAW file -- see the camera-RAW
+// support design notes.
+private const val TAG_SUB_IFDS = 0x014A
 
 private val TIFF_TYPE_SIZES = mapOf(
     1 to 1, 2 to 1, 3 to 2, 4 to 4, 5 to 8, 6 to 1, 7 to 1, 8 to 2, 9 to 4, 10 to 8, 11 to 4, 12 to 8,
@@ -174,6 +180,16 @@ private fun decodeIfd(
             TAG_MAKER_NOTE -> {
                 if (valueAbsolutePos >= 0 && valueAbsolutePos + count <= itemEnd) {
                     children.add(decodeMakerNote(reader, tiffStart, valueAbsolutePos, count.toInt(), littleEndian, itemEnd))
+                }
+            }
+            TAG_SUB_IFDS -> {
+                for (i in 0 until count.toInt()) {
+                    val entryPos = valueAbsolutePos + i * 4L
+                    if (entryPos + 4 > itemEnd) break
+                    val subIfdOffset = tiffStart + readUInt32Endian(reader, entryPos, littleEndian)
+                    children.add(
+                        decodeIfd(reader, tiffStart, subIfdOffset, itemEnd, littleEndian, "SubIFD$i", TAG_NAMES_IFD0, visitedOffsets),
+                    )
                 }
             }
             TAG_JPEG_INTERCHANGE_FORMAT -> {
