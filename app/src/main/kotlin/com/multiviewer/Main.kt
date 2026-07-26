@@ -1,5 +1,6 @@
 package com.multiviewer
 
+import androidx.compose.foundation.LocalScrollbarStyle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -137,6 +138,7 @@ fun main() = application {
         }
 
         MaterialTheme(colorScheme = darkColorScheme(background = AppColors.Background), typography = AppTypography) {
+          CompositionLocalProvider(LocalScrollbarStyle provides AppScrollbarStyle) {
             Surface(modifier = Modifier.fillMaxSize(), color = AppColors.Background) {
                 if (appState.tabs.isEmpty()) {
                     Box(
@@ -215,6 +217,7 @@ fun main() = application {
                     }
                 }
             }
+          }
         }
     }
 }

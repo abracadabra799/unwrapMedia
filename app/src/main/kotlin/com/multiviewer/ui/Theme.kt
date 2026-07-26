@@ -1,10 +1,13 @@
 package com.multiviewer.ui
 
+import androidx.compose.foundation.ScrollbarStyle
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Typography
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 object AppColors {
@@ -48,4 +51,16 @@ val AppTypography = Typography(
         fontSize = 17.sp,
         color = AppColors.TextPrimary
     )
+)
+
+// Compose Desktop's default ScrollbarStyle uses a low-alpha black thumb, tuned for a light
+// background -- against this app's dark panels it's essentially invisible. Provided app-wide via
+// LocalScrollbarStyle in Main.kt so every scrollbar (GOP graph, summary panels, etc.) is visible.
+val AppScrollbarStyle = ScrollbarStyle(
+    minimalHeight = 16.dp,
+    thickness = 8.dp,
+    shape = RoundedCornerShape(4.dp),
+    hoverDurationMillis = 300,
+    unhoverColor = AppColors.TextMuted.copy(alpha = 0.6f),
+    hoverColor = AppColors.TextSecondary,
 )
