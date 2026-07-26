@@ -64,21 +64,40 @@ fun probeVideo(file: File): VideoInfo? {
         val process = ProcessBuilder(
             FfmpegLocator.ffprobePath(), "-v", "error", "-select_streams", "v:0",
             "-show_entries", "stream=width,height,avg_frame_rate,r_frame_rate,duration:stream_side_data=rotation",
-            "-of", "csv=p=0", file.absolutePath,
+            // -of csv=p=0 does NOT preserve the field order given in -show_entries -- ffprobe
+            // emits fields in the stream struct's internal order regardless of request order
+            // (same quirk already worked around in FrameTypeAnalyzer.kt). On a real device video
+            // where r_frame_rate (a container timebase artifact, e.g. 120) differs from
+            // avg_frame_rate (the true playback rate, e.g. ~30.3), csv put r_frame_rate first,
+            // so this code was reading it as avg_frame_rate and pacing playback at 120fps against
+            // ~30fps content -- ffmpeg then had to quadruple-duplicate frames to match, and
+            // reading+converting each 6.9MB frame took longer than the resulting 8ms-per-frame
+            // budget, so playback fell permanently behind (a 3s clip took 10+s). Verified via a
+            // direct ffprobe CSV dump against a real motion-photo video: r_frame_rate=120/1 and
+            // avg_frame_rate=705000/23249 came back in swapped CSV column order. default=
+            // noprint_wrappers=1 gives unambiguous key=value pairs instead.
+            "-of", "default=noprint_wrappers=1", file.absolutePath,
         ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD).start()
-        val line = process.inputStream.bufferedReader().readLine()
+        val lines = process.inputStream.bufferedReader().readLines()
         process.waitFor(5, TimeUnit.SECONDS)
-        if (line == null) return null
-        val parts = line.split(",")
-        if (parts.size < 5) return null
-        var width = parts[0].toIntOrNull() ?: return null
-        var height = parts[1].toIntOrNull() ?: return null
-        val fps = parseFrameRate(parts[2]) ?: parseFrameRate(parts[3]) ?: 30.0
-        val duration = parts[4].toDoubleOrNull() ?: 0.0
+
+        val values = mutableMapOf<String, String>()
+        for (line in lines) {
+            val eq = line.indexOf('=')
+            if (eq < 0) continue
+            values[line.substring(0, eq)] = line.substring(eq + 1)
+        }
+
+        var width = values["width"]?.toIntOrNull() ?: return null
+        var height = values["height"]?.toIntOrNull() ?: return null
+        val fps = values["avg_frame_rate"]?.let(::parseFrameRate)
+            ?: values["r_frame_rate"]?.let(::parseFrameRate)
+            ?: 30.0
+        val duration = values["duration"]?.toDoubleOrNull() ?: 0.0
         // ffmpeg auto-applies rotation side-data when transcoding to rawvideo, so the
         // actual piped frame dimensions are swapped from ffprobe's raw stream dimensions
         // whenever the stream is rotated a quarter turn.
-        val rotation = parts.getOrNull(5)?.toIntOrNull() ?: 0
+        val rotation = values["rotation"]?.toIntOrNull() ?: 0
         if (Math.abs(rotation) == 90 || Math.abs(rotation) == 270) {
             val tmp = width
             width = height
@@ -201,22 +220,21 @@ fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier) {
         } else {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("Decoding stream...", color = Color.Gray)
-                Text("File: ${file.name}", color = Color.DarkGray, fontSize = 10.sp)
+                Text("File: ${file.name}", color = Color.DarkGray, fontSize = 11.sp)
             }
         }
 
         val rotationSuffix = if (info.rotation != 0) " · 회전 (${info.rotation}°)" else ""
-        Text("${info.width}x${info.height}$rotationSuffix",
+        PreviewCaption(
+            "${info.width}x${info.height}$rotationSuffix",
             modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
-            style = AppTypography.labelLarge.copy(fontSize = 9.sp, color = AppColors.TextSecondary)
         )
 
         if (info.duration > 0) {
             val elapsedSeconds = (framesDelivered / info.fps).coerceIn(0.0, info.duration)
-            Text(
+            PreviewCaption(
                 "${formatMmSs(elapsedSeconds)} / ${formatMmSs(info.duration)}",
                 modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),
-                style = AppTypography.labelLarge.copy(fontSize = 9.sp, color = AppColors.TextSecondary)
             )
             val progress = (elapsedSeconds / info.duration).toFloat().coerceIn(0f, 1f)
             Box(
