@@ -34,13 +34,14 @@ import java.io.File
 @Composable
 fun RawPixelOpenDialog(
     file: File,
-    onConfirm: (width: Int, height: Int, format: RawPixelFormat, byteOrder: RawPixelByteOrder) -> Unit,
+    onConfirm: (width: Int, height: Int, format: RawPixelFormat, byteOrder: RawPixelByteOrder, fps: Double) -> Unit,
     onCancel: () -> Unit,
 ) {
     var widthText by remember { mutableStateOf("") }
     var heightText by remember { mutableStateOf("") }
     var format by remember { mutableStateOf(RawPixelFormat.RGB888) }
     var byteOrder by remember { mutableStateOf(RawPixelByteOrder.LITTLE_ENDIAN) }
+    var fpsText by remember { mutableStateOf("30") }
 
     val width = widthText.toIntOrNull()
     val height = heightText.toIntOrNull()
@@ -50,7 +51,15 @@ fun RawPixelOpenDialog(
     } else {
         null
     }
-    val canOpen = width != null && width > 0 && height != null && height > 0
+    // A dump larger than one frame is a sequence -- ask for a frame rate too so it can be played
+    // back as a raw video stream, not just stepped through one frame at a time.
+    val frameCount = if (width != null && height != null && width > 0 && height > 0) {
+        rawPixelFrameCount(fileSize, width, height, format)
+    } else {
+        0
+    }
+    val fps = fpsText.toDoubleOrNull()
+    val canOpen = width != null && width > 0 && height != null && height > 0 && (frameCount <= 1 || (fps != null && fps > 0))
 
     Dialog(onDismissRequest = onCancel) {
         Column(
@@ -149,13 +158,34 @@ fun RawPixelOpenDialog(
                         color = if (matches) AppColors.NeonGreen else AppColors.NeonYellow,
                     ),
                 )
+                if (frameCount > 1) {
+                    Text(
+                        "$frameCount 프레임 시퀀스로 인식됨 -- 재생 프레임레이트를 입력하세요",
+                        style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = AppColors.NeonBlue),
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            }
+
+            if (frameCount > 1) {
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = fpsText,
+                    onValueChange = { fpsText = it.filter { c -> c.isDigit() || c == '.' } },
+                    label = { Text("FPS") },
+                    singleLine = true,
+                    modifier = Modifier.width(120.dp),
+                )
             }
             Spacer(Modifier.height(20.dp))
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onCancel) { Text("취소") }
                 Spacer(Modifier.width(8.dp))
-                Button(onClick = { onConfirm(width!!, height!!, format, byteOrder) }, enabled = canOpen) { Text("열기") }
+                Button(
+                    onClick = { onConfirm(width!!, height!!, format, byteOrder, if (frameCount > 1) fps!! else 1.0) },
+                    enabled = canOpen,
+                ) { Text("열기") }
             }
         }
     }
