@@ -2,8 +2,10 @@ package com.multiviewer
 
 import androidx.compose.foundation.LocalScrollbarStyle
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -13,6 +15,7 @@ import androidx.compose.ui.input.key.KeyShortcut
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.MenuBar
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
@@ -152,6 +155,27 @@ fun main() = application {
                     onConfirm = { width, height, format, byteOrder, fps -> appState.confirmRawPixelFile(width, height, format, byteOrder, fps) },
                     onCancel = { appState.cancelRawPixelFile() },
                 )
+            }
+            // Blocking popup for openFile() outright refusals (unsupported extension, or a
+            // declared resolution above the hard limit) -- see AppState.openFile.
+            appState.openFileError?.let { message ->
+                Dialog(onDismissRequest = { appState.openFileError = null }) {
+                    Column(
+                        modifier = Modifier
+                            .width(400.dp)
+                            .background(AppColors.Surface, RoundedCornerShape(8.dp))
+                            .border(1.dp, AppColors.NeonRed, RoundedCornerShape(8.dp))
+                            .padding(20.dp),
+                    ) {
+                        Text("파일을 열 수 없습니다", style = AppTypography.headlineSmall, color = AppColors.NeonRed)
+                        Spacer(Modifier.height(12.dp))
+                        Text(message, style = AppTypography.labelLarge.copy(fontSize = 12.sp, color = AppColors.TextPrimary))
+                        Spacer(Modifier.height(20.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            Button(onClick = { appState.openFileError = null }) { Text("확인") }
+                        }
+                    }
+                }
             }
             Surface(modifier = Modifier.fillMaxSize(), color = AppColors.Background) {
                 if (appState.tabs.isEmpty()) {

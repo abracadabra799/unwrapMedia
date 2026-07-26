@@ -11,6 +11,50 @@ import java.io.File
 
 private const val MAX_OPEN_FILES = 2
 
+private val IMAGE_EXTENSIONS = listOf(
+    "jpg", "jpeg", "png", "bmp", "gif", "webp", "avif", "heic",
+    // Camera RAW formats -- all TIFF/EP-based, so the existing generic TIFF/IFD walker
+    // (decodeTiff, already reached via parseFile's magic-byte detection) parses their structure
+    // without a dedicated decoder. No full RAW/demosaic decode: ImageAnalyzer falls back to
+    // whatever embedded JPEG preview it can find (same as HEIC), since Skia/ffmpeg can't decode
+    // raw sensor data either.
+    "cr2", "nef", "arw", "dng",
+)
+private val VIDEO_EXTENSIONS = listOf("mp4", "mov", "m4v")
+
+// Resolution guidance shared by the normal open flow (AppState.openFile) and the raw pixel dialog
+// (RawPixelOpenDialog) -- see README's "Supported Specs & Limits" section. Below WARN: no notice.
+// Between WARN and HARD_LIMIT: non-blocking warning banner. At or above HARD_LIMIT: refused
+// outright, since a decode at that size risks exhausting the JVM's default heap (no -Xmx is set)
+// and hanging or crashing the app instead of failing cleanly.
+private const val WARN_PIXELS_STATIC = 7680L * 4320L // 8K, single image / raw pixel frame
+private const val WARN_PIXELS_VIDEO = 3840L * 2160L // 4K, continuous video / raw pixel stream playback
+private const val HARD_LIMIT_PIXELS = 16384L * 16384L // ~268MP, i.e. 1GB for a 4-byte-per-pixel decode buffer
+
+fun resolutionWarningMessage(width: Int, height: Int, continuousPlayback: Boolean): String? {
+    val pixels = width.toLong() * height.toLong()
+    val threshold = if (continuousPlayback) WARN_PIXELS_VIDEO else WARN_PIXELS_STATIC
+    if (pixels <= threshold) return null
+    val thresholdLabel = if (continuousPlayback) "4K" else "8K"
+    return "해상도가 큽니다 (${width}x$height, $thresholdLabel 이상) -- 메모리 사용량이 늘고 " +
+        (if (continuousPlayback) "재생이 느려질 수 있습니다." else "디코딩이 느려질 수 있습니다.")
+}
+
+fun hardResolutionRejectionMessage(width: Int, height: Int): String? {
+    val pixels = width.toLong() * height.toLong()
+    if (pixels < HARD_LIMIT_PIXELS) return null
+    val limitMp = HARD_LIMIT_PIXELS / 1_000_000
+    return "해상도가 지원 한도를 초과합니다 (${width}x$height). 최대 약 ${limitMp}MP까지 지원되며, " +
+        "그 이상은 메모리 부족으로 앱이 멈추거나 강제 종료될 수 있어 파일 열기를 차단했습니다."
+}
+
+private fun extractResolution(summary: MediaSummary?): Pair<Int, Int>? {
+    val fields = summary?.sections?.flatMap { it.fields } ?: return null
+    val width = fields.find { it.label == "Width" }?.value?.toIntOrNull() ?: return null
+    val height = fields.find { it.label == "Height" }?.value?.toIntOrNull() ?: return null
+    return width to height
+}
+
 enum class MediaType {
     IMAGE, VIDEO, RAW_PIXEL, UNKNOWN
 }
@@ -97,6 +141,10 @@ class TabState(val file: File) {
     // true capture rate from the bytes alone, so the dialog's up-front value is only ever a
     // starting guess.
     var rawPixelFps: Double by mutableStateOf(30.0)
+
+    // Non-blocking notice shown when an opened image/video's resolution is above the soft warning
+    // threshold but still under the hard limit (see AppState.openFile) -- null means no warning.
+    var largeResolutionWarning: String? by mutableStateOf(null)
 }
 
 private val RAW_PIXEL_EXTENSIONS = listOf("raw", "rgb", "rgba", "yuv")
@@ -105,6 +153,11 @@ class AppState {
     val tabs = mutableStateListOf<TabState>()
     var selectedTabIndex by mutableStateOf(0)
     var statusMessage: String? by mutableStateOf(null)
+
+    // Set when openFile() refuses a file outright (unsupported extension, or a declared
+    // resolution above HARD_LIMIT_PIXELS) -- shown as a blocking popup in Main.kt so a bad file
+    // can't silently leave the app in a half-open state.
+    var openFileError: String? by mutableStateOf(null)
 
     // Headerless raw pixel dumps carry no width/height/format of their own -- openFile() routes
     // them here instead of the normal parse flow, and RawPixelOpenDialog (shown while this is
@@ -192,9 +245,20 @@ class AppState {
             statusMessage = "You can only have $MAX_OPEN_FILES files open at a time."
             return
         }
-        if (file.extension.lowercase() in RAW_PIXEL_EXTENSIONS) {
+        val extension = file.extension.lowercase()
+        if (extension in RAW_PIXEL_EXTENSIONS) {
             statusMessage = null
             pendingRawPixelFile = file
+            return
+        }
+        // Reject anything else outright rather than falling through to parseFile(): its magic-byte
+        // dispatch (ParseFile.kt) has no "unrecognized" case for the box-parser branch, so an
+        // arbitrary non-media file would previously be handed to the MP4/MOV box walker and parsed
+        // as if it might be one -- undefined behavior on genuinely arbitrary bytes, not something
+        // this app can promise won't hang or crash. See README's "Supported Specs & Limits".
+        if (extension !in IMAGE_EXTENSIONS && extension !in VIDEO_EXTENSIONS) {
+            val supported = (IMAGE_EXTENSIONS + VIDEO_EXTENSIONS + RAW_PIXEL_EXTENSIONS).joinToString(", ")
+            openFileError = "지원하지 않는 파일 형식입니다 (.$extension).\n지원 형식: $supported"
             return
         }
         statusMessage = null
@@ -213,16 +277,8 @@ class AppState {
                 val root = parseFile(file)
 
                 val type = when {
-                    file.extension.lowercase() in listOf(
-                        "jpg", "jpeg", "png", "bmp", "gif", "webp", "avif", "heic",
-                        // Camera RAW formats -- all TIFF/EP-based, so the existing generic TIFF/IFD
-                        // walker (decodeTiff, already reached via parseFile's magic-byte detection)
-                        // parses their structure without a dedicated decoder. No full RAW/demosaic
-                        // decode: ImageAnalyzer falls back to whatever embedded JPEG preview it can
-                        // find (same as HEIC), since Skia/ffmpeg can't decode raw sensor data either.
-                        "cr2", "nef", "arw", "dng",
-                    ) -> MediaType.IMAGE
-                    file.extension.lowercase() in listOf("mp4", "mov", "m4v") -> MediaType.VIDEO
+                    extension in IMAGE_EXTENSIONS -> MediaType.IMAGE
+                    extension in VIDEO_EXTENSIONS -> MediaType.VIDEO
                     else -> MediaType.UNKNOWN
                 }
 
@@ -244,6 +300,24 @@ class AppState {
                 } else {
                     mediaSummary
                 }
+
+                // Resolution is read from the already-parsed header fields (cheap) so this gate
+                // runs BEFORE the heavy step below (ImageAnalyzer.analyze does a full Image.make-
+                // FromEncoded raster decode of the whole file into memory) -- an oversized file gets
+                // rejected without ever attempting that allocation.
+                val resolution = extractResolution(enrichedMediaSummary)
+                val hardBlockMessage = resolution?.let { (w, h) -> hardResolutionRejectionMessage(w, h) }
+
+                if (hardBlockMessage != null) {
+                    EventQueue.invokeLater {
+                        val idx = tabs.indexOf(tab)
+                        if (idx >= 0) tabs.removeAt(idx)
+                        if (selectedTabIndex >= tabs.size) selectedTabIndex = (tabs.size - 1).coerceAtLeast(0)
+                        openFileError = hardBlockMessage
+                    }
+                    return@Thread
+                }
+
                 val embeddedVideo = try {
                     findEmbeddedVideo(root)
                 } catch (e: Exception) {
@@ -265,6 +339,7 @@ class AppState {
                     else -> {}
                 }
                 val finalImageForensic = imageForensic
+                val warning = resolution?.let { (w, h) -> resolutionWarningMessage(w, h, type == MediaType.VIDEO) }
 
                 EventQueue.invokeLater {
                     tab.root = root
@@ -272,6 +347,7 @@ class AppState {
                     tab.mediaSummary = enrichedMediaSummary
                     tab.embeddedVideo = embeddedVideo
                     tab.motionPhotoPreview = motionPhotoPreview
+                    tab.largeResolutionWarning = warning
                     tab.isLoading = false
 
                     if (type == MediaType.IMAGE && finalImageForensic != null && finalImageForensic.bitmap == null) {

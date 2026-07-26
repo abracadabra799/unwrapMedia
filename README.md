@@ -1,8 +1,8 @@
 # unwrapMedia
 
-**unwrapMedia** is a forensic media analysis tool built with Kotlin and Compose Multiplatform for Desktop. It parses the internal structure of image and video files -- boxes, markers, IFDs, streams -- and turns them into inspectable, cross-referenced views: structure tree, hex bytes, decoded metadata, and live previews, all pointing at the same underlying offsets.
+**unwrapMedia** is a media file inspection tool built with Kotlin and Compose Multiplatform for Desktop. It parses the internal structure of image and video files -- boxes, markers, IFDs, streams -- and turns them into inspectable, cross-referenced views: structure tree, hex bytes, decoded metadata, and live previews, all pointing at the same underlying offsets.
 
-Inspired by tools like **JPEGsnoop**, **ExifTool**, and **MediaInfo**, unwrapMedia is aimed at engineers, researchers, and forensic analysts who need to see both the interpreted metadata *and* the raw bytes behind it.
+Inspired by tools like **JPEGsnoop**, **ExifTool**, and **MediaInfo**, unwrapMedia is aimed at engineers, QA, and anyone who needs to see both the interpreted metadata *and* the raw bytes behind a media file.
 
 ---
 
@@ -36,6 +36,23 @@ Unified General/Video/Audio summary cards for quick orientation before drilling 
 - **Detailed Properties panel**: field-level data for the selected node, with structural-warning summaries shown by default.
 - **Hex & raw byte viewer**: click-and-drag to select an arbitrary byte range (works across rows), copy the selection as hex.
 - All panels (left structure tree, right properties, bottom hex viewer) are drag-resizable.
+
+---
+
+## 📋 Supported Specs & Limits
+
+Opening a file that falls outside these limits is refused up front with a popup -- no partial parse, no attempted decode.
+
+**Supported extensions** (matched case-insensitively; anything else is rejected before any parsing is attempted):
+| Category | Extensions |
+|---|---|
+| Image | `.jpg` `.jpeg` `.png` `.bmp` `.gif` `.webp` `.avif` `.heic` `.cr2` `.nef` `.arw` `.dng` |
+| Video | `.mp4` `.mov` `.m4v` |
+| Raw pixel | `.raw` `.rgb` `.rgba` `.yuv` |
+
+**Resolution**: there's no artificial cap on ordinary files, but very large resolutions run into real memory limits (the app runs on the JVM's default heap, with no `-Xmx` override):
+- **Above 8K** (7680x4320, static images / a single raw pixel frame) or **above 4K** (3840x2160, video / a raw pixel stream played back continuously): still opens, but shows a dismissible warning that memory use and decode/playback speed may suffer.
+- **Above ~268 megapixels** (the point where a single decoded frame would need about 1GB): opening is refused outright with a popup, both for parsed image/video files (checked from the header, before any pixel decode is attempted) and for raw pixel dumps (checked against the width/height you enter, before the "열기" button is enabled).
 
 ---
 

@@ -6,8 +6,11 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class AppStateTest {
+    // .mp4, not .bin: openFile() now rejects unsupported extensions before parsing at all (see
+    // AppState.openFile's hard extension gate), so fixtures need a real supported extension even
+    // when the byte content itself is a trivial placeholder.
     private fun tempFile(name: String): File {
-        val tmp = File.createTempFile(name, ".bin")
+        val tmp = File.createTempFile(name, ".mp4")
         tmp.deleteOnExit()
         tmp.writeBytes(ByteArray(4))
         return tmp
@@ -99,7 +102,7 @@ class AppStateTest {
             0x00, 0x00, 0x00, 0x10, 'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte(),
             'i'.code.toByte(), 's'.code.toByte(), 'o'.code.toByte(), 'm'.code.toByte(), 0x00, 0x00, 0x00, 0x00,
         )
-        val file = File.createTempFile("appstate-motion-photo", ".bin")
+        val file = File.createTempFile("appstate-motion-photo", ".mp4")
         file.deleteOnExit()
         file.writeBytes(bytes)
 
@@ -120,7 +123,7 @@ class AppStateTest {
             0x00, 0x00, 0x00, 0x10, 'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte(),
             'i'.code.toByte(), 's'.code.toByte(), 'o'.code.toByte(), 'm'.code.toByte(), 0x00, 0x00, 0x00, 0x00,
         )
-        val file = File.createTempFile("appstate-no-motion-photo", ".bin")
+        val file = File.createTempFile("appstate-no-motion-photo", ".mp4")
         file.deleteOnExit()
         file.writeBytes(bytes)
 
@@ -131,6 +134,56 @@ class AppStateTest {
         waitForLoad(tab)
         assertEquals(null, tab.error)
         assertEquals(null, tab.embeddedVideo)
+    }
+
+    @Test
+    fun `openFile rejects an unsupported extension without creating a tab or parsing`() {
+        val file = File.createTempFile("appstate-unsupported", ".xyz")
+        file.deleteOnExit()
+        file.writeBytes(ByteArray(4))
+
+        val appState = AppState()
+        appState.openFile(file)
+
+        assertTrue(appState.tabs.isEmpty())
+        assertTrue(appState.openFileError?.contains(".xyz") == true)
+    }
+
+    @Test
+    fun `openFile rejects a PNG whose header declares a resolution above the hard limit`() {
+        // 8-byte PNG signature + a minimal IHDR chunk declaring an absurd 100000x100000
+        // resolution -- header parsing alone is cheap (just reading a few structured fields), so
+        // this needs no huge actual file to prove the hard-limit gate runs before any pixel decode
+        // is attempted.
+        val out = java.io.ByteArrayOutputStream()
+        out.write(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)) // PNG signature
+        fun writeUInt32BE(value: Long) {
+            out.write(((value shr 24) and 0xFF).toInt())
+            out.write(((value shr 16) and 0xFF).toInt())
+            out.write(((value shr 8) and 0xFF).toInt())
+            out.write((value and 0xFF).toInt())
+        }
+        writeUInt32BE(13) // IHDR chunk length
+        out.write("IHDR".toByteArray(Charsets.US_ASCII))
+        writeUInt32BE(100_000) // width
+        writeUInt32BE(100_000) // height
+        out.write(byteArrayOf(8, 2, 0, 0, 0)) // bit depth, color type, compression, filter, interlace
+        writeUInt32BE(0) // CRC (not validated by the parser)
+
+        val file = File.createTempFile("appstate-oversized", ".png")
+        file.deleteOnExit()
+        file.writeBytes(out.toByteArray())
+
+        val appState = AppState()
+        appState.openFile(file)
+
+        val deadline = System.currentTimeMillis() + 5000
+        while (appState.openFileError == null && System.currentTimeMillis() < deadline) {
+            Thread.sleep(10)
+        }
+
+        assertTrue(appState.tabs.isEmpty())
+        assertTrue(appState.openFileError?.contains("해상도가 지원 한도를 초과") == true)
     }
 
     @Test
