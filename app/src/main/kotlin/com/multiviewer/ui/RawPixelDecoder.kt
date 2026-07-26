@@ -36,10 +36,10 @@ enum class RawPixelFormat(val label: String, val ffmpegPixFmt: String?, val need
     BGR888("BGR888 (24-bit)", null),
     RGBA8888("RGBA8888 (32-bit)", null),
     ARGB8888("ARGB8888 (32-bit)", null),
-    YUV420P("YUV 4:2:0 planar (I420, Y-U-V)", "yuv420p"),
-    YV12("YUV 4:2:0 planar (YV12, Y-V-U)", null),
-    YUV420SP_NV12("YUV 4:2:0 semi-planar (NV12, UV)", "nv12"),
-    YUV420SP_NV21("YUV 4:2:0 semi-planar (NV21, VU)", "nv21"),
+    YUV420P("YUV420p (I420, Y-U-V)", "yuv420p"),
+    YV12("YUV420p (YV12, Y-V-U)", null),
+    YUV420SP_NV12("YUV420sp (NV12, UV)", "nv12"),
+    YUV420SP_NV21("YUV420sp (NV21, VU)", "nv21"),
 }
 
 // 4:2:0 chroma subsampling covers each plane at ceil(dim/2), not floor(dim/2) -- verified
