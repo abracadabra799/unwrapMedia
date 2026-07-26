@@ -41,7 +41,7 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
-data class VideoInfo(val width: Int, val height: Int, val fps: Double)
+data class VideoInfo(val width: Int, val height: Int, val fps: Double, val rotation: Int = 0)
 
 fun parseFrameRate(fraction: String): Double? {
     val parts = fraction.split("/")
@@ -75,7 +75,7 @@ fun probeVideo(file: File): VideoInfo? {
             width = height
             height = tmp
         }
-        VideoInfo(width, height, fps)
+        VideoInfo(width, height, fps, rotation)
     } catch (e: Exception) {
         null
     }
@@ -191,7 +191,8 @@ fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier) {
             }
         }
 
-        Text("${info.width}x${info.height}",
+        val rotationSuffix = if (info.rotation != 0) " · ${info.rotation}° 회전" else ""
+        Text("${info.width}x${info.height}$rotationSuffix",
             modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
             style = AppTypography.labelLarge.copy(fontSize = 9.sp, color = AppColors.TextSecondary)
         )
