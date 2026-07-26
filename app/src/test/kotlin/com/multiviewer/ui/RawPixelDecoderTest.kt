@@ -324,4 +324,57 @@ class RawPixelDecoderTest {
         assertTrue(red > 200 && green < 60 && blue < 60, "expected a clearly red pixel, got r=$red g=$green b=$blue")
         yuvFile.delete()
     }
+
+    @Test
+    fun `rawPixelFrameCount counts whole frames and ignores a trailing partial frame`() {
+        // Each RGBA8888 frame at 4x4 is 64 bytes.
+        assertEquals(3, rawPixelFrameCount(fileLength = 192, width = 4, height = 4, format = RawPixelFormat.RGBA8888))
+        assertEquals(1, rawPixelFrameCount(fileLength = 64, width = 4, height = 4, format = RawPixelFormat.RGBA8888))
+        assertEquals(1, rawPixelFrameCount(fileLength = 100, width = 4, height = 4, format = RawPixelFormat.RGBA8888)) // 36 trailing bytes ignored
+        assertEquals(0, rawPixelFrameCount(fileLength = 32, width = 4, height = 4, format = RawPixelFormat.RGBA8888)) // less than one frame
+    }
+
+    @Test
+    fun `decodes each frame of a concatenated multi-frame RGBA8888 dump independently`() {
+        val width = 2
+        val height = 2
+        // Three concatenated frames: solid red, solid green, solid blue.
+        fun solidFrame(r: Byte, g: Byte, b: Byte): ByteArray {
+            val pixel = byteArrayOf(r, g, b, 0xFF.toByte())
+            return pixel + pixel + pixel + pixel
+        }
+        val red = 0xFF.toByte()
+        val zero = 0x00.toByte()
+        val bytes = solidFrame(red, zero, zero) + solidFrame(zero, red, zero) + solidFrame(zero, zero, red)
+        val file = File.createTempFile("raw-pixel-multiframe-test-", ".rgba")
+        file.deleteOnExit()
+        file.writeBytes(bytes)
+
+        assertEquals(3, rawPixelFrameCount(file.length(), width, height, RawPixelFormat.RGBA8888))
+
+        val frame0 = decodeRawPixelFile(file, width, height, RawPixelFormat.RGBA8888, frameIndex = 0)
+        val frame1 = decodeRawPixelFile(file, width, height, RawPixelFormat.RGBA8888, frameIndex = 1)
+        val frame2 = decodeRawPixelFile(file, width, height, RawPixelFormat.RGBA8888, frameIndex = 2)
+
+        assertTrue(frame0 != null && frame1 != null && frame2 != null)
+        assertEquals(0xFFFF0000.toInt(), frame0.asSkiaBitmap().getColor(0, 0))
+        assertEquals(0xFF00FF00.toInt(), frame1.asSkiaBitmap().getColor(0, 0))
+        assertEquals(0xFF0000FF.toInt(), frame2.asSkiaBitmap().getColor(0, 0))
+        file.delete()
+    }
+
+    @Test
+    fun `decodeRawPixelFile returns null for a frame index past the end of the sequence`() {
+        val width = 2
+        val height = 2
+        val onePixel = byteArrayOf(0xFF.toByte(), 0, 0, 0xFF.toByte())
+        val bytes = onePixel + onePixel + onePixel + onePixel // exactly one frame's worth
+        val file = File.createTempFile("raw-pixel-oob-frame-test-", ".rgba")
+        file.deleteOnExit()
+        file.writeBytes(bytes)
+
+        assertTrue(decodeRawPixelFile(file, width, height, RawPixelFormat.RGBA8888, frameIndex = 0) != null)
+        assertNull(decodeRawPixelFile(file, width, height, RawPixelFormat.RGBA8888, frameIndex = 1))
+        file.delete()
+    }
 }
