@@ -26,7 +26,7 @@ Formats: **MP4, MOV, M4V**
 ### 3. Raw Pixel Viewer
 Opens headerless raw pixel dumps (**.raw / .rgb / .rgba / .yuv**) by asking for width, height, and pixel format up front, since the file itself carries none of that.
 - **Formats**: YUV420sp (NV12/NV21), YUV420p (I420, YV12), RGB565/BGR565 (with selectable byte order), RGB888/BGR888, RGBA8888/ARGB8888.
-- **Multi-frame sequences**: a file larger than one frame is treated as a raw video stream at a user-supplied frame rate -- play/pause, click-to-seek progress bar, and prev/next frame stepping.
+- **Multi-frame sequences**: a file larger than one frame is treated as a raw video stream -- play/pause, click-to-seek progress bar, and prev/next frame stepping, with the frame rate adjustable live during playback (a raw dump carries no frame-rate metadata, so this is always a starting guess).
 
 ### 4. MediaInfo-Style Summaries
 Unified General/Video/Audio summary cards for quick orientation before drilling into individual fields.
