@@ -18,6 +18,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.neverEqualPolicy
@@ -110,7 +111,7 @@ fun probeVideo(file: File): VideoInfo? {
 }
 
 @Composable
-fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier) {
+fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier, onElapsedChanged: (Double) -> Unit = {}) {
     var videoBitmap by remember(file) { mutableStateOf<ImageBitmap?>(null, neverEqualPolicy()) }
     var isPlaying by remember(file) { mutableStateOf(false) }
     var loadError by remember(file) { mutableStateOf(false) }
@@ -232,6 +233,7 @@ fun FfmpegVideoPlayer(file: File, modifier: Modifier = Modifier) {
 
         if (info.duration > 0) {
             val elapsedSeconds = (framesDelivered / info.fps).coerceIn(0.0, info.duration)
+            LaunchedEffect(elapsedSeconds) { onElapsedChanged(elapsedSeconds) }
             PreviewCaption(
                 "${formatMmSs(elapsedSeconds)} / ${formatMmSs(info.duration)}",
                 modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),

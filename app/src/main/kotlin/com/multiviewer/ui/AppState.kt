@@ -55,6 +55,10 @@ class TabState(val file: File) {
     var isAnalyzingFrames: Boolean by mutableStateOf(false)
     var selectedFrame: FrameInfo? by mutableStateOf(null)
 
+    // Live playback position (seconds) reported by FfmpegVideoPlayer, so the GOP graph can
+    // highlight and auto-scroll to the frame currently on screen while the video plays.
+    var playbackElapsedSeconds: Double by mutableStateOf(0.0)
+
     // Motion Photo Video codec-detail enrichment (see StreamCodecDetails.kt) -- button-triggered
     // since, unlike the main video, this requires extracting the embedded video to a temp file
     // before ffprobe can see it. motionPhotoVideoSections is already non-null before this runs

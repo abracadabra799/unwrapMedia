@@ -15,14 +15,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -96,13 +99,28 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit) {
 
                     val maxSize = frames.maxOf { it.sizeBytes }.coerceAtLeast(1)
                     val graphAreaHeight = GOP_GRAPH_HEIGHT_DP - 32 - 16
+                    // Highlights and auto-follows the frame at the current playback position (only
+                    // meaningful once the video has actually started playing, hence the >= 0 guard
+                    // against the 0.0 default before playback begins).
+                    val currentFrameIndex = remember(frames, tab.playbackElapsedSeconds) {
+                        if (tab.playbackElapsedSeconds <= 0.0) -1
+                        else frames.indexOfLast { it.ptsSeconds <= tab.playbackElapsedSeconds }
+                    }
+                    LaunchedEffect(currentFrameIndex) {
+                        if (currentFrameIndex < 0) return@LaunchedEffect
+                        val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == currentFrameIndex }
+                        if (!isVisible) {
+                            listState.animateScrollToItem(currentFrameIndex)
+                        }
+                    }
                     LazyRow(
                         state = listState,
                         modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(FRAME_BAR_SPACING_DP.dp),
                     ) {
-                        items(frames) { frame ->
+                        itemsIndexed(frames) { index, frame ->
                             val barHeightDp = ((frame.sizeBytes.toFloat() / maxSize) * graphAreaHeight).coerceAtLeast(2f)
+                            val isCurrent = index == currentFrameIndex
                             Column(
                                 modifier = Modifier.width(FRAME_BAR_WIDTH_DP.dp).fillMaxSize(),
                                 verticalArrangement = Arrangement.Bottom,
@@ -112,7 +130,7 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit) {
                                         .width(FRAME_BAR_WIDTH_DP.dp)
                                         .height(barHeightDp.dp)
                                         .background(colorForFrameType(frame.type))
-                                        .border(0.5.dp, AppColors.Border)
+                                        .border(if (isCurrent) 2.dp else 0.5.dp, if (isCurrent) Color.White else AppColors.Border)
                                         .clickable {
                                             tab.selectedFrame = frame
                                             tab.selected = null
