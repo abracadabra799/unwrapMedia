@@ -31,21 +31,21 @@ val AppTypography = Typography(
     bodyLarge = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Normal,
-        fontSize = 13.sp,
-        lineHeight = 20.sp,
+        fontSize = 14.sp,
+        lineHeight = 21.sp,
         letterSpacing = 0.5.sp,
         color = AppColors.TextPrimary
     ),
     labelLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Medium,
-        fontSize = 12.sp,
+        fontSize = 13.sp,
         color = AppColors.TextSecondary
     ),
     headlineSmall = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Bold,
-        fontSize = 16.sp,
+        fontSize = 17.sp,
         color = AppColors.TextPrimary
     )
 )
