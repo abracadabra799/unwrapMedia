@@ -364,11 +364,12 @@ private fun buildAudioDetail(audioTrak: BoxNode?): SummarySection? {
 }
 
 private fun formatDuration(seconds: Double): String {
-    val totalSeconds = seconds.toLong()
-    val h = totalSeconds / 3600
-    val m = (totalSeconds % 3600) / 60
-    val s = totalSeconds % 60
-    return "%d:%02d:%02d".format(h, m, s)
+    val totalMs = (seconds * 1000).toLong()
+    val h = totalMs / 3_600_000
+    val m = (totalMs % 3_600_000) / 60_000
+    val s = (totalMs % 60_000) / 1000
+    val ms = totalMs % 1000
+    return "%d:%02d:%02d.%03d".format(h, m, s, ms)
 }
 
 private fun formatBitrate(bitsPerSecond: Double): String = when {
