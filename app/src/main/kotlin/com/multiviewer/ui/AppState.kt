@@ -92,6 +92,11 @@ class TabState(val file: File) {
     var rawPixelParams: RawPixelParams? by mutableStateOf(null)
     var rawPixelFrameIndex: Int by mutableStateOf(0)
     var rawPixelIsPlaying: Boolean by mutableStateOf(false)
+    // Live playback rate, seeded from RawPixelParams.fps but independently adjustable from
+    // RawPixelInspectorUI without reopening the file -- there's no way to recover a raw dump's
+    // true capture rate from the bytes alone, so the dialog's up-front value is only ever a
+    // starting guess.
+    var rawPixelFps: Double by mutableStateOf(30.0)
 }
 
 private val RAW_PIXEL_EXTENSIONS = listOf("raw", "rgb", "rgba", "yuv")
@@ -133,6 +138,7 @@ class AppState {
                 tab.type = MediaType.RAW_PIXEL
                 tab.rawPixelParams = RawPixelParams(width, height, format, byteOrder, frameCount, fps)
                 tab.rawPixelFrameIndex = 0
+                tab.rawPixelFps = fps
                 tab.root = BoxNode(
                     type = "root", offset = 0, headerSize = 0, size = file.length(),
                     children = listOf(
