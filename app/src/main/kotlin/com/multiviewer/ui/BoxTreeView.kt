@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -30,6 +31,19 @@ private const val ARROW_WIDTH_DP = 16
 @Composable
 fun BoxTreeView(root: BoxNode, selected: BoxNode?, onSelect: (BoxNode) -> Unit) {
     val expanded = remember(root) { mutableStateOf(setOf(root)) }
+
+    // Selection can arrive from anywhere (a manual tree click, the Detailed Properties warnings
+    // summary, etc.) -- whatever ancestors of the selected node aren't already expanded need to
+    // be, or the node has no row to render/highlight at all (flatten() below skips children of
+    // collapsed nodes entirely).
+    LaunchedEffect(selected) {
+        val target = selected ?: return@LaunchedEffect
+        val ancestors = findAncestors(root, target, emptyList())
+        if (!ancestors.isNullOrEmpty()) {
+            expanded.value = expanded.value + ancestors
+        }
+    }
+
     val rows = remember(root, expanded.value) { flatten(root, 0, expanded.value) }
 
     LazyColumn {
@@ -76,6 +90,20 @@ fun BoxTreeView(root: BoxNode, selected: BoxNode?, onSelect: (BoxNode) -> Unit) 
             }
         }
     }
+}
+
+// Returns the chain of ancestors (root..parent-of-target, not including target itself) that must
+// be expanded for target's row to be reachable, or null if target isn't in this subtree. Uses
+// reference equality (===), matching how `selected` is already compared elsewhere in this file --
+// BoxNode is a data class, so structurally-identical-but-distinct nodes are common in real trees
+// (e.g. repeated small boxes) and must not be confused with each other.
+fun findAncestors(current: BoxNode, target: BoxNode, path: List<BoxNode>): List<BoxNode>? {
+    if (current === target) return path
+    for (child in current.children) {
+        val result = findAncestors(child, target, path + current)
+        if (result != null) return result
+    }
+    return null
 }
 
 private fun flatten(node: BoxNode, depth: Int, expanded: Set<BoxNode>): List<FlatRow> {
