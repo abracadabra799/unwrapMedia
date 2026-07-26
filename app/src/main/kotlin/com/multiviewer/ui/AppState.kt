@@ -74,10 +74,64 @@ class TabState(val file: File) {
     var motionPhotoCodecDetailsLoaded: Boolean by mutableStateOf(false)
 }
 
+private val RAW_PIXEL_EXTENSIONS = listOf("raw", "rgb", "rgba", "yuv")
+
 class AppState {
     val tabs = mutableStateListOf<TabState>()
     var selectedTabIndex by mutableStateOf(0)
     var statusMessage: String? by mutableStateOf(null)
+
+    // Headerless raw pixel dumps carry no width/height/format of their own -- openFile() routes
+    // them here instead of the normal parse flow, and RawPixelOpenDialog (shown while this is
+    // non-null) collects the parameters needed to actually decode the file.
+    var pendingRawPixelFile: File? by mutableStateOf(null)
+
+    fun cancelRawPixelFile() {
+        pendingRawPixelFile = null
+    }
+
+    fun confirmRawPixelFile(width: Int, height: Int, format: RawPixelFormat) {
+        val file = pendingRawPixelFile ?: return
+        pendingRawPixelFile = null
+        val existingIndex = tabs.indexOfFirst { it.file.absolutePath == file.absolutePath }
+        if (existingIndex >= 0) {
+            selectedTabIndex = existingIndex
+            return
+        }
+        if (tabs.size >= MAX_OPEN_FILES) {
+            statusMessage = "You can only have $MAX_OPEN_FILES files open at a time."
+            return
+        }
+        statusMessage = null
+        val tab = TabState(file)
+        tabs.add(tab)
+        selectedTabIndex = tabs.size - 1
+        Thread {
+            val bitmap = decodeRawPixelFile(file, width, height, format)
+            EventQueue.invokeLater {
+                tab.type = MediaType.IMAGE
+                tab.root = BoxNode(
+                    type = "root", offset = 0, headerSize = 0, size = file.length(),
+                    children = listOf(
+                        BoxNode(
+                            type = "RawPixelData", offset = 0, headerSize = 0, size = file.length(),
+                            fields = listOf(
+                                BoxField("Format", format.label, 0, file.length()),
+                                BoxField("Width", width.toString(), 0, file.length()),
+                                BoxField("Height", height.toString(), 0, file.length()),
+                            ),
+                            summary = "${width}x$height, ${format.label}",
+                        ),
+                    ),
+                )
+                tab.imageForensic = ImageForensicData(bitmap = bitmap)
+                tab.isLoading = false
+                if (bitmap == null) {
+                    tab.error = "지정한 해상도/포맷으로 픽셀 데이터를 해석할 수 없습니다 (파일 크기가 너무 작음)."
+                }
+            }
+        }.apply { isDaemon = true }.start()
+    }
 
     fun openFile(file: File) {
         val existingIndex = tabs.indexOfFirst { it.file.absolutePath == file.absolutePath }
@@ -88,6 +142,11 @@ class AppState {
         }
         if (tabs.size >= MAX_OPEN_FILES) {
             statusMessage = "You can only have $MAX_OPEN_FILES files open at a time."
+            return
+        }
+        if (file.extension.lowercase() in RAW_PIXEL_EXTENSIONS) {
+            statusMessage = null
+            pendingRawPixelFile = file
             return
         }
         statusMessage = null
