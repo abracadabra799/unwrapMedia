@@ -60,6 +60,43 @@ fun parseFrameRate(fraction: String): Double? {
     return num / den
 }
 
+// Per-frame presentation timestamps for the whole file, used to pace playback by each frame's
+// REAL duration instead of a flat average (see the DisposableEffect in FfmpegVideoPlayer). An
+// earlier version got this live, from ffmpeg's "-vf showinfo" filter writing to stderr while raw
+// frames streamed from stdout on the same process -- correct and fast in local testing, but that
+// makes per-frame pacing depend on how two separate OS pipes interleave under the platform's
+// scheduler, which isn't something this codebase can verify cross-platform (this file already
+// notes Windows' higher per-syscall read overhead as a real, measured difference from macOS/
+// Linux). Probing timestamps upfront removes that dependency: durations become a plain list
+// indexed by frame number, no live cross-pipe synchronization involved during playback at all.
+fun probeFrameTimestamps(file: File): List<Double>? {
+    return try {
+        val process = ProcessBuilder(
+            FfmpegLocator.ffprobePath(), "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "frame=pts_time", "-of", "default=noprint_wrappers=1", file.absolutePath,
+        ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD).start()
+        val lines = process.inputStream.bufferedReader().readLines()
+        if (!process.waitFor(10, TimeUnit.SECONDS)) {
+            process.destroyForcibly()
+            return null
+        }
+        val timestamps = lines.mapNotNull { line ->
+            if (line.startsWith("pts_time=")) line.removePrefix("pts_time=").toDoubleOrNull() else null
+        }
+        timestamps.ifEmpty { null }
+    } catch (e: Exception) {
+        null
+    }
+}
+
+// durationSeconds(i) = timestamps[i+1] - timestamps[i]; the last frame has no "next" timestamp to
+// derive a real duration from, so it falls back to the file's average frame duration.
+fun frameDurationsSeconds(timestamps: List<Double>, fallbackSeconds: Double): List<Double> =
+    timestamps.mapIndexed { i, pts ->
+        val next = timestamps.getOrNull(i + 1)
+        if (next != null) (next - pts).coerceAtLeast(0.001) else fallbackSeconds
+    }
+
 fun probeVideo(file: File): VideoInfo? {
     return try {
         val process = ProcessBuilder(
@@ -151,6 +188,9 @@ fun FfmpegVideoPlayer(
     }
 
     val info = remember(file) { probeVideo(file) }
+    // Whole-file probe, done once and reused across replays/seeks of the same file (see below for
+    // how a seek slices into this list rather than re-probing).
+    val frameTimestamps = remember(file) { probeFrameTimestamps(file) }
 
     if (info == null) {
         Box(modifier.fillMaxSize().background(Color.DarkGray), contentAlignment = Alignment.Center) {
@@ -167,15 +207,9 @@ fun FfmpegVideoPlayer(
             ProcessBuilder(
                 listOf(FfmpegLocator.ffmpegPath()) + seekArgs + listOf(
                     "-i", file.absolutePath,
-                    // showinfo logs each decoded frame's real duration_time to stderr, in the same
-                    // order frames are written to stdout -- read alongside the raw pixels below and
-                    // used to pace playback per-frame instead of a flat average. No -r output option
-                    // here: forcing a constant output rate makes ffmpeg duplicate/drop frames to hit
-                    // it, which is exactly the "ignores real frame timing" behavior this replaces.
-                    "-vf", "showinfo",
                     "-f", "rawvideo", "-pix_fmt", "bgra", "-an", "-",
                 ),
-            ).start()
+            ).redirectError(ProcessBuilder.Redirect.DISCARD).start()
         } catch (e: Exception) {
             null
         }
@@ -185,32 +219,24 @@ fun FfmpegVideoPlayer(
         if (process == null) loadError = true
 
         val stopped = AtomicBoolean(false)
-        // showinfo lines land on stderr as frames are decoded, in the same order they're written to
-        // stdout -- drained on its own thread into this queue so a slow/bursty OS pipe on either
-        // side never blocks the other. Unbounded: duration lines are tiny (~150 bytes each).
-        val durationQueue = java.util.concurrent.LinkedBlockingQueue<Double>()
-        val durationRegex = Regex("duration_time:([0-9.]+)")
-
-        val stderrThread = if (process != null) {
-            Thread {
-                try {
-                    process.errorStream.bufferedReader().forEachLine { line ->
-                        durationRegex.find(line)?.groupValues?.get(1)?.toDoubleOrNull()?.let { durationQueue.put(it) }
-                    }
-                } catch (e: Exception) {
-                    // Pipe closed from destroyForcibly() on dispose -- expected, not an error.
-                }
-            }.apply { isDaemon = true }.also { it.start() }
-        } else {
-            null
-        }
+        val fallbackDurationSeconds = 1.0 / info.fps
+        // -ss before -i resets the piped stream's own frame index to 0, so the duration list for
+        // THIS pipe run needs to start from wherever the seek landed, not from the whole file's
+        // frame 0 -- find the first probed timestamp at or after the seek target and slice from
+        // there. Empty (not null) durations list if the probe failed/came up empty is deliberate:
+        // getOrElse below then falls back to fallbackDurationSeconds for every frame, same
+        // behavior as before per-frame timestamps existed at all.
+        val durations: List<Double> = frameTimestamps?.let { timestamps ->
+            val startIndex = timestamps.indexOfFirst { it >= seekSeconds }.let { if (it < 0) 0 else it }
+            frameDurationsSeconds(timestamps, fallbackDurationSeconds).drop(startIndex)
+        } ?: emptyList()
 
         val readerThread = if (process != null) {
             Thread {
                 val frameSize = info.width * info.height * 4
                 val buffer = ByteArray(frameSize)
-                val fallbackDurationSeconds = 1.0 / info.fps
                 val input = process.inputStream
+                var frameIndex = 0
 
                 fun readFrame(): Boolean {
                     var offset = 0
@@ -222,11 +248,8 @@ fun FfmpegVideoPlayer(
                     return true
                 }
 
-                // Falls back to the average fps if showinfo's line for this frame hasn't arrived
-                // within 500ms (should never happen in practice -- stderr and stdout are flushed
-                // for the same frame together -- but a stuck pipe must not hang playback forever).
                 fun nextFrameDurationSeconds(): Double =
-                    durationQueue.poll(500, TimeUnit.MILLISECONDS) ?: fallbackDurationSeconds
+                    durations.getOrElse(frameIndex) { fallbackDurationSeconds }.also { frameIndex++ }
 
                 fun deliver(durationSeconds: Double?) {
                     val bitmap = Bitmap().apply {
@@ -242,34 +265,30 @@ fun FfmpegVideoPlayer(
                     }
                 }
 
-                try {
-                    // First frame, shown immediately while paused -- still drain its duration line
-                    // so the queue stays aligned with frames read from here on, but it doesn't count
-                    // toward playedSeconds since nothing played yet.
-                    if (readFrame()) {
-                        nextFrameDurationSeconds()
-                        deliver(null)
+                // First frame, shown immediately while paused -- still advances frameIndex so the
+                // duration list stays aligned with frames read from here on, but it doesn't count
+                // toward playedSeconds since nothing played yet.
+                if (readFrame()) {
+                    nextFrameDurationSeconds()
+                    deliver(null)
+                }
+                while (!stopped.get()) {
+                    if (!isPlaying) {
+                        Thread.sleep(50)
+                        continue
                     }
-                    while (!stopped.get()) {
-                        if (!isPlaying) {
-                            Thread.sleep(50)
-                            continue
+                    val start = System.currentTimeMillis()
+                    if (!readFrame()) {
+                        EventQueue.invokeLater {
+                            isPlaying = false
+                            hasEnded = true
                         }
-                        val start = System.currentTimeMillis()
-                        if (!readFrame()) {
-                            EventQueue.invokeLater {
-                                isPlaying = false
-                                hasEnded = true
-                            }
-                            break // EOF
-                        }
-                        val durationSeconds = nextFrameDurationSeconds()
-                        deliver(durationSeconds)
-                        val remaining = (durationSeconds * 1000).toLong() - (System.currentTimeMillis() - start)
-                        if (remaining > 0) Thread.sleep(remaining)
+                        break // EOF
                     }
-                } catch (e: InterruptedException) {
-                    // Expected on dispose (readerThread.interrupt() below).
+                    val durationSeconds = nextFrameDurationSeconds()
+                    deliver(durationSeconds)
+                    val remaining = (durationSeconds * 1000).toLong() - (System.currentTimeMillis() - start)
+                    if (remaining > 0) Thread.sleep(remaining)
                 }
             }.apply { isDaemon = true }.also { it.start() }
         } else {
@@ -279,7 +298,6 @@ fun FfmpegVideoPlayer(
         onDispose {
             stopped.set(true)
             readerThread?.interrupt()
-            stderrThread?.interrupt()
             process?.destroyForcibly()
         }
     }
