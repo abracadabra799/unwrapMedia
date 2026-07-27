@@ -37,6 +37,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Bitmap
 import org.jetbrains.skia.ColorAlphaType
 import org.jetbrains.skia.ColorInfo
@@ -225,11 +227,36 @@ fun FfmpegVideoPlayer(
         }
     }
 
-    val info = remember(file) { probeVideo(file) }
+    // probeVideo/probeFrameTimestamps both shell out to ffprobe and block on process.waitFor() --
+    // this used to run them via remember{}, which executes its initializer INLINE during
+    // composition, freezing the entire UI thread (including the loading spinner's own animation,
+    // since Compose's frame clock is blocked along with everything else) for however long ffprobe
+    // took. probeFrameTimestamps in particular walks every frame in the file and can take real
+    // time on a longer video -- reported as "video opens with a delay and no visible progress
+    // indicator" (the indicator was there, just frozen mid-render along with the rest of the UI).
+    var probedInfo by remember(file) { mutableStateOf<VideoInfo?>(null) }
     // Whole-file probe, done once and reused across replays/seeks of the same file (see below for
     // how a seek slices into this list rather than re-probing).
-    val frameTimestamps = remember(file) { probeFrameTimestamps(file) }
+    var frameTimestamps by remember(file) { mutableStateOf<List<Double>?>(null) }
+    var probing by remember(file) { mutableStateOf(true) }
 
+    LaunchedEffect(file) {
+        probing = true
+        val info = withContext(Dispatchers.IO) { probeVideo(file) }
+        val timestamps = if (info != null) withContext(Dispatchers.IO) { probeFrameTimestamps(file) } else null
+        probedInfo = info
+        frameTimestamps = timestamps
+        probing = false
+    }
+
+    if (probing) {
+        Box(modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+            DecodingIndicator("동영상 정보 분석 중...")
+        }
+        return
+    }
+
+    val info = probedInfo
     if (info == null) {
         Box(modifier.fillMaxSize().background(Color.DarkGray), contentAlignment = Alignment.Center) {
             Text("Could not read video (is ffmpeg installed?)", color = Color.White)
