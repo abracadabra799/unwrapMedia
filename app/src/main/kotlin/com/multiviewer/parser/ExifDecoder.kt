@@ -72,26 +72,67 @@ private val TAG_NAMES_GPS = mapOf(
     0x0006 to "GPSAltitude",
 )
 
-private val TAG_NAMES_MAKERNOTE = mapOf(
-    0x0001 to "Version",
+// Samsung's "Type2" MakerNote (the EXIF-format one used by newer Samsung phones/cameras -- see
+// decodeMakerNote's dispatch comment for the other two formats Samsung has used and why they
+// aren't handled here). Tag IDs and names per
+// https://exiftool.sourceforge.net/TagNames/Samsung.html -- a handful there (RawData, Distortion,
+// ChromaticAberration, Vignetting, VignettingCorrection, VignettingSetting at 0xa048/0xa050-0xa054)
+// are marked with "?" by ExifTool itself as unconfirmed guesses; included anyway since an
+// unconfirmed-but-plausible name is still more useful here than a bare hex tag number.
+private val TAG_NAMES_MAKERNOTE_SAMSUNG = mapOf(
+    0x0001 to "MakerNoteVersion",
     0x0002 to "DeviceType",
+    0x0003 to "SamsungModelID",
+    0x0011 to "OrientationInfo",
+    0x0020 to "SmartAlbumColor",
     0x0021 to "PictureWizard",
     0x0030 to "LocalLocationName",
     0x0031 to "LocationName",
-    0x0035 to "Preview",
+    0x0035 to "PreviewIFD",
+    0x0040 to "RawDataByteOrder",
+    0x0041 to "WhiteBalanceSetup",
     0x0043 to "CameraTemperature",
+    0x0050 to "RawDataCFAPattern",
+    0x0100 to "FaceDetect",
+    0x0120 to "FaceRecognition",
+    0x0123 to "FaceName",
     0xA001 to "FirmwareName",
+    0xA002 to "SerialNumber",
     0xA003 to "LensType",
     0xA004 to "LensFirmware",
+    0xA005 to "InternalLensSerialNumber",
     0xA010 to "SensorAreas",
     0xA011 to "ColorSpace",
     0xA012 to "SmartRange",
-    0xA013 to "ExposureBiasValue",
+    0xA013 to "ExposureCompensation",
     0xA014 to "ISO",
     0xA018 to "ExposureTime",
     0xA019 to "FNumber",
     0xA01A to "FocalLengthIn35mmFormat",
     0xA020 to "EncryptionKey",
+    0xA021 to "WB_RGGBLevelsUncorrected",
+    0xA022 to "WB_RGGBLevelsAuto",
+    0xA023 to "WB_RGGBLevelsIlluminator1",
+    0xA024 to "WB_RGGBLevelsIlluminator2",
+    0xA025 to "HighlightLinearityLimit",
+    0xA028 to "WB_RGGBLevelsBlack",
+    0xA030 to "ColorMatrix",
+    0xA031 to "ColorMatrixSRGB",
+    0xA032 to "ColorMatrixAdobeRGB",
+    0xA033 to "CbCrMatrixDefault",
+    0xA034 to "CbCrMatrix",
+    0xA035 to "CbCrGainDefault",
+    0xA036 to "CbCrGain",
+    0xA040 to "ToneCurveSRGBDefault",
+    0xA041 to "ToneCurveAdobeRGBDefault",
+    0xA042 to "ToneCurveSRGB",
+    0xA043 to "ToneCurveAdobeRGB",
+    0xA048 to "RawData",
+    0xA050 to "Distortion",
+    0xA051 to "ChromaticAberration",
+    0xA052 to "Vignetting",
+    0xA053 to "VignettingCorrection",
+    0xA054 to "VignettingSetting",
 )
 
 fun decodeExif(reader: ByteReader, itemStart: Long, itemEnd: Long): List<BoxNode> {
@@ -107,8 +148,18 @@ fun decodeTiff(reader: ByteReader, tiffStart: Long, itemEnd: Long): List<BoxNode
     val littleEndian = byteOrderBytes[0] == 'I'.code.toByte() && byteOrderBytes[1] == 'I'.code.toByte()
     val ifd0Offset = readUInt32Endian(reader, tiffStart + 4, littleEndian)
     val ifd0AbsoluteOffset = tiffStart + ifd0Offset
+    // MakerNote tag numbering is entirely vendor-specific -- the same numeric tag ID means a
+    // different thing (or nothing) for each manufacturer, so which name table applies depends on
+    // IFD0's Make field. Peeked separately, before the real walk, since Make and the
+    // Exif-sub-IFD-embedded MakerNote can appear in either order within IFD0's entries.
+    val make = peekMakeValue(reader, tiffStart, ifd0AbsoluteOffset, itemEnd, littleEndian)
+    val makerNoteTagNames = if (make?.contains("SAMSUNG", ignoreCase = true) == true) {
+        TAG_NAMES_MAKERNOTE_SAMSUNG
+    } else {
+        emptyMap()
+    }
     val visitedOffsets = mutableSetOf<Long>()
-    val ifd0Node = decodeIfd(reader, tiffStart, ifd0AbsoluteOffset, itemEnd, littleEndian, "IFD0", TAG_NAMES_IFD0, visitedOffsets)
+    val ifd0Node = decodeIfd(reader, tiffStart, ifd0AbsoluteOffset, itemEnd, littleEndian, "IFD0", TAG_NAMES_IFD0, makerNoteTagNames, visitedOffsets)
 
     val ifds = mutableListOf(ifd0Node)
     val nextIfdOffsetPos = ifd0Node.offset + ifd0Node.size
@@ -116,10 +167,39 @@ fun decodeTiff(reader: ByteReader, tiffStart: Long, itemEnd: Long): List<BoxNode
         val nextIfdOffset = readUInt32Endian(reader, nextIfdOffsetPos, littleEndian)
         if (nextIfdOffset != 0L) {
             val ifd1AbsoluteOffset = tiffStart + nextIfdOffset
-            ifds.add(decodeIfd(reader, tiffStart, ifd1AbsoluteOffset, itemEnd, littleEndian, "IFD1", TAG_NAMES_IFD0, visitedOffsets))
+            ifds.add(decodeIfd(reader, tiffStart, ifd1AbsoluteOffset, itemEnd, littleEndian, "IFD1", TAG_NAMES_IFD0, makerNoteTagNames, visitedOffsets))
         }
     }
     return ifds
+}
+
+// Minimal scan of IFD0's entries for tag 0x010F (Make) only -- doesn't recurse into sub-IFDs or
+// build BoxNode/BoxField output, just enough to answer "which manufacturer" before the real walk
+// (see decodeTiff) decides which MakerNote tag table to use.
+private fun peekMakeValue(reader: ByteReader, tiffStart: Long, ifdOffset: Long, itemEnd: Long, littleEndian: Boolean): String? {
+    if (ifdOffset + 2 > itemEnd) return null
+    val entryCount = readUInt16Endian(reader, ifdOffset, littleEndian)
+    var pos = ifdOffset + 2
+    for (i in 0 until entryCount) {
+        if (pos + 12 > itemEnd) break
+        val tag = readUInt16Endian(reader, pos, littleEndian)
+        if (tag == 0x010F) {
+            val fieldType = readUInt16Endian(reader, pos + 2, littleEndian)
+            val count = readUInt32Endian(reader, pos + 4, littleEndian)
+            val valueOffsetPos = pos + 8
+            val typeSize = TIFF_TYPE_SIZES[fieldType] ?: 1
+            val totalSize = typeSize * count
+            val valueAbsolutePos = if (totalSize <= 4) {
+                valueOffsetPos
+            } else {
+                tiffStart + readUInt32Endian(reader, valueOffsetPos, littleEndian)
+            }
+            if (valueAbsolutePos < 0 || valueAbsolutePos + totalSize > itemEnd) return null
+            return formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian).trim()
+        }
+        pos += 12
+    }
+    return null
 }
 
 private fun decodeIfd(
@@ -130,6 +210,7 @@ private fun decodeIfd(
     littleEndian: Boolean,
     label: String,
     tagNames: Map<Int, String>,
+    makerNoteTagNames: Map<Int, String>,
     visitedOffsets: MutableSet<Long>,
 ): BoxNode {
     if (!visitedOffsets.add(ifdOffset)) {
@@ -162,24 +243,24 @@ private fun decodeIfd(
             TAG_EXIF_IFD_POINTER -> {
                 val subOffset = tiffStart + readUInt32Endian(reader, valueOffsetPos, littleEndian)
                 children.add(
-                    decodeIfd(reader, tiffStart, subOffset, itemEnd, littleEndian, "Exif", TAG_NAMES_EXIF, visitedOffsets),
+                    decodeIfd(reader, tiffStart, subOffset, itemEnd, littleEndian, "Exif", TAG_NAMES_EXIF, makerNoteTagNames, visitedOffsets),
                 )
             }
             TAG_GPS_IFD_POINTER -> {
                 val subOffset = tiffStart + readUInt32Endian(reader, valueOffsetPos, littleEndian)
                 children.add(
-                    decodeIfd(reader, tiffStart, subOffset, itemEnd, littleEndian, "GPS", TAG_NAMES_GPS, visitedOffsets),
+                    decodeIfd(reader, tiffStart, subOffset, itemEnd, littleEndian, "GPS", TAG_NAMES_GPS, makerNoteTagNames, visitedOffsets),
                 )
             }
             TAG_INTEROP_IFD_POINTER -> {
                 val subOffset = tiffStart + readUInt32Endian(reader, valueOffsetPos, littleEndian)
                 children.add(
-                    decodeIfd(reader, tiffStart, subOffset, itemEnd, littleEndian, "Interop", TAG_NAMES_EXIF, visitedOffsets),
+                    decodeIfd(reader, tiffStart, subOffset, itemEnd, littleEndian, "Interop", TAG_NAMES_EXIF, makerNoteTagNames, visitedOffsets),
                 )
             }
             TAG_MAKER_NOTE -> {
                 if (valueAbsolutePos >= 0 && valueAbsolutePos + count <= itemEnd) {
-                    children.add(decodeMakerNote(reader, tiffStart, valueAbsolutePos, count.toInt(), littleEndian, itemEnd))
+                    children.add(decodeMakerNote(reader, tiffStart, valueAbsolutePos, count.toInt(), littleEndian, itemEnd, makerNoteTagNames))
                 }
             }
             TAG_SUB_IFDS -> {
@@ -188,7 +269,7 @@ private fun decodeIfd(
                     if (entryPos + 4 > itemEnd) break
                     val subIfdOffset = tiffStart + readUInt32Endian(reader, entryPos, littleEndian)
                     children.add(
-                        decodeIfd(reader, tiffStart, subIfdOffset, itemEnd, littleEndian, "SubIFD$i", TAG_NAMES_IFD0, visitedOffsets),
+                        decodeIfd(reader, tiffStart, subIfdOffset, itemEnd, littleEndian, "SubIFD$i", TAG_NAMES_IFD0, makerNoteTagNames, visitedOffsets),
                     )
                 }
             }
@@ -228,6 +309,14 @@ private fun decodeIfd(
     )
 }
 
+// This assumes a standard-IFD MakerNote body (2-byte entry_count + 12-byte entries, same shape as
+// a regular IFD) starting right at the tag's own value offset -- true for Samsung's "Type2"
+// (EXIF-format) MakerNote, which is what current Samsung phones/cameras use, and what
+// makerNoteTagNames (see decodeTiff) resolves to for Make == Samsung. Samsung has also used a
+// "STMN" binary format on older models with a genuinely different byte layout (not IFD-shaped at
+// all) and a plain-IFD variant with device-relative offsets -- neither is handled here, so a
+// MakerNote from either would come through as unlabeled/garbled "Tag 0x...." entries rather than
+// throwing, since the bounds checks below still apply.
 private fun decodeMakerNote(
     reader: ByteReader,
     tiffStart: Long,
@@ -235,6 +324,7 @@ private fun decodeMakerNote(
     byteLength: Int,
     littleEndian: Boolean,
     itemEnd: Long,
+    tagNames: Map<Int, String>,
 ): BoxNode {
     val endPos = absolutePos + byteLength
     if (byteLength < 2) {
@@ -256,7 +346,7 @@ private fun decodeMakerNote(
         } else {
             tiffStart + readUInt32Endian(reader, valueOffsetPos, littleEndian)
         }
-        val name = TAG_NAMES_MAKERNOTE[tag] ?: "Tag 0x${tag.toString(16).padStart(4, '0')}"
+        val name = tagNames[tag] ?: "Tag 0x${tag.toString(16).padStart(4, '0')}"
         if (valueAbsolutePos < 0 || valueAbsolutePos + totalSize > itemEnd) {
             fields.add(BoxField(name, "(out of bounds)", valueAbsolutePos, totalSize))
         } else {
