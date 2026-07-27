@@ -8,6 +8,59 @@ import kotlin.test.assertTrue
 
 class FfmpegVideoPlayerTest {
     @Test
+    fun `probeFrameTimestamps reads one pts_time per frame from a real video`() {
+        val video = File.createTempFile("ffmpeg-pts-test-", ".mp4")
+        video.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=3:size=320x240:rate=24",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-g", "12", "-bf", "2", video.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val timestamps = probeFrameTimestamps(video)
+
+        assertEquals(72, timestamps?.size) // 3s * 24fps
+        assertEquals(0.0, timestamps?.first())
+        assertEquals(timestamps, timestamps?.sorted()) // presentation order, not decode order
+        video.delete()
+    }
+
+    @Test
+    fun `probeFrameTimestamps returns null for a nonexistent file`() {
+        assertNull(probeFrameTimestamps(File("/nonexistent/path/does-not-exist.mp4")))
+    }
+
+    @Test
+    fun `frameDurationsSeconds derives each duration from the gap to the next timestamp`() {
+        val durations = frameDurationsSeconds(listOf(0.0, 0.1, 0.25, 0.3), fallbackSeconds = 0.05)
+
+        assertEquals(4, durations.size)
+        assertTrue(Math.abs(durations[0] - 0.1) < 1e-9)
+        assertTrue(Math.abs(durations[1] - 0.15) < 1e-9)
+        assertTrue(Math.abs(durations[2] - 0.05) < 1e-9)
+        assertEquals(0.05, durations[3]) // last frame has no "next" timestamp -- uses the fallback exactly
+    }
+
+    @Test
+    fun `frameDurationsSeconds sums to real elapsed playback time on an actually variable-rate clip`() {
+        // select every 3rd frame of a 30fps source, so consecutive kept frames are NOT evenly
+        // spaced by a single flat duration -- reproduces genuine VFR content, not just a lower
+        // flat rate.
+        val video = File.createTempFile("ffmpeg-vfr-durations-test-", ".mp4")
+        video.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=3:size=320x240:rate=30",
+            "-vf", "select='not(mod(n\\,3))'", "-vsync", "vfr",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", video.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val timestamps = probeFrameTimestamps(video)!!
+        val durations = frameDurationsSeconds(timestamps, fallbackSeconds = 0.1)
+
+        assertTrue(Math.abs(durations.sum() - 3.0) < 0.05, "expected total near 3.0s, got ${durations.sum()}")
+        video.delete()
+    }
+
+    @Test
     fun `parseFrameRate reads a simple integer fraction`() {
         assertEquals(30.0, parseFrameRate("30/1"))
     }

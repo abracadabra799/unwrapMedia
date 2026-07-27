@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -29,7 +30,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-private const val GOP_GRAPH_HEIGHT_DP = 180
 private const val FRAME_BAR_WIDTH_DP = 16
 private const val FRAME_BAR_SPACING_DP = 2
 
@@ -63,11 +63,10 @@ private fun FrameTypeLegendEntry(type: Char, label: String) {
 }
 
 @Composable
-fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit) {
+fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = Modifier) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .height(GOP_GRAPH_HEIGHT_DP.dp)
             .background(AppColors.Panel),
     ) {
         val frames = tab.gopFrames
@@ -133,7 +132,6 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit) {
                     }
 
                     val maxSize = frames.maxOf { it.sizeBytes }.coerceAtLeast(1)
-                    val graphAreaHeight = GOP_GRAPH_HEIGHT_DP - 32 - 16
                     // Highlights and auto-follows the frame at the current playback position (only
                     // meaningful once the video has actually started playing, hence the >= 0 guard
                     // against the 0.0 default before playback begins).
@@ -154,7 +152,11 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit) {
                         horizontalArrangement = Arrangement.spacedBy(FRAME_BAR_SPACING_DP.dp),
                     ) {
                         itemsIndexed(frames) { index, frame ->
-                            val barHeightDp = ((frame.sizeBytes.toFloat() / maxSize) * graphAreaHeight).coerceAtLeast(2f)
+                            // A fraction of the row's own height, not a computed dp value against a
+                            // fixed constant -- GopAnalysisView's container height is now
+                            // drag-resizable (see VideoInspectorUI), so bar heights need to scale
+                            // with whatever height it actually ends up with.
+                            val heightFraction = (frame.sizeBytes.toFloat() / maxSize).coerceAtLeast(0.02f)
                             val isCurrent = index == currentFrameIndex
                             Column(
                                 modifier = Modifier.width(FRAME_BAR_WIDTH_DP.dp).fillMaxSize(),
@@ -163,7 +165,7 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit) {
                                 Box(
                                     modifier = Modifier
                                         .width(FRAME_BAR_WIDTH_DP.dp)
-                                        .height(barHeightDp.dp)
+                                        .fillMaxHeight(heightFraction)
                                         .background(colorForFrameType(frame.type))
                                         .let { if (isCurrent) it.border(2.dp, Color.White) else it }
                                         .clickable { selectFrame(frame) },

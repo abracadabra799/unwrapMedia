@@ -26,7 +26,14 @@ fun VideoInspectorUI(
 ) {
     val summary = tab.mediaSummary
     var containerHeightPx by remember { mutableStateOf(0) }
+    var topContainerHeightPx by remember { mutableStateOf(0) }
+    // Three independently resizable rows (player / GOP graph / summary) stacked via two nested
+    // splits rather than one three-way ratio -- verticalSplit divides the whole column into "top"
+    // (player + GOP) vs summary, and videoGopSplit divides that top region into player vs GOP.
+    // GopAnalysisView previously had a hardcoded height and sat outside verticalSplit's control
+    // entirely, so there was no way to shrink it to make room for the player.
     var verticalSplit by remember { mutableStateOf(0.5f) }
+    var videoGopSplit by remember { mutableStateOf(0.65f) }
 
     DashboardLayout(
         leftPanel = leftPanel,
@@ -39,28 +46,46 @@ fun VideoInspectorUI(
                 tab.largeResolutionWarning?.let { warning ->
                     ResolutionWarningBanner(warning, onDismiss = { tab.largeResolutionWarning = null })
                 }
-                // Top: Full-width Live Player
-                Box(
+                Column(
                     modifier = Modifier
                         .weight(verticalSplit)
                         .fillMaxWidth()
-                        .background(Color.Black),
-                    contentAlignment = Alignment.Center
+                        .onGloballyPositioned { topContainerHeightPx = it.size.height }
                 ) {
-                    FfmpegVideoPlayer(
-                        tab.file,
-                        onElapsedChanged = { tab.playbackElapsedSeconds = it },
-                        seekRequestSeconds = tab.seekTargetSeconds,
-                        seekRequestTick = tab.seekRequestTick,
+                    // Top: Full-width Live Player
+                    Box(
+                        modifier = Modifier
+                            .weight(videoGopSplit)
+                            .fillMaxWidth()
+                            .background(Color.Black),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        FfmpegVideoPlayer(
+                            tab.file,
+                            onElapsedChanged = { tab.playbackElapsedSeconds = it },
+                            seekRequestSeconds = tab.seekTargetSeconds,
+                            seekRequestTick = tab.seekRequestTick,
+                        )
+
+                        Text("LIVE PLAYER",
+                            modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
+                            style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = AppColors.NeonGreen)
+                        )
+                    }
+
+                    DraggableDivider(
+                        orientation = Orientation.Horizontal,
+                        containerSizePx = topContainerHeightPx,
+                        getSplit = { videoGopSplit },
+                        setSplit = { videoGopSplit = it }
                     )
-                    
-                    Text("LIVE PLAYER", 
-                        modifier = Modifier.align(Alignment.TopStart).padding(4.dp), 
-                        style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = AppColors.NeonGreen)
+
+                    GopAnalysisView(
+                        tab,
+                        onAnalyze = { appState.analyzeFrames(tab) },
+                        modifier = Modifier.weight(1f - videoGopSplit),
                     )
                 }
-                
-                GopAnalysisView(tab, onAnalyze = { appState.analyzeFrames(tab) })
 
                 // Resizable Divider
                 DraggableDivider(
