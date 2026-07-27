@@ -21,6 +21,14 @@ private val IMAGE_EXTENSIONS = listOf(
     "cr2", "nef", "arw", "dng",
 )
 private val VIDEO_EXTENSIONS = listOf("mp4", "mov", "m4v")
+// M4A is an MP4-family container (same ftyp/moov/trak structure as mp4/mov/m4v above) holding an
+// audio-only track (AAC, ALAC, or AC-3) -- parseFile's magic-byte dispatch already reaches the
+// same generic ISOBMFF box walker for it with no new parser needed, and MediaSummaryBuilder's
+// detectCategory/buildVideoSummary already handle a video-less "soun"-only moov correctly (that
+// code predates this extension even being routed here). Other requested audio formats (MP3, WAV,
+// FLAC, OGG) use genuinely different container structures and need their own parsers -- not
+// included yet.
+private val AUDIO_EXTENSIONS = listOf("m4a")
 
 // Resolution guidance shared by the normal open flow (AppState.openFile) and the raw pixel dialog
 // (RawPixelOpenDialog) -- see README's "Supported Specs & Limits" section. Below WARN: no notice.
@@ -56,7 +64,7 @@ private fun extractResolution(summary: MediaSummary?): Pair<Int, Int>? {
 }
 
 enum class MediaType {
-    IMAGE, VIDEO, RAW_PIXEL, UNKNOWN
+    IMAGE, VIDEO, AUDIO, RAW_PIXEL, UNKNOWN
 }
 
 // Params used to decode the currently-open headerless raw pixel dump, kept around (rather than
@@ -256,8 +264,8 @@ class AppState {
         // arbitrary non-media file would previously be handed to the MP4/MOV box walker and parsed
         // as if it might be one -- undefined behavior on genuinely arbitrary bytes, not something
         // this app can promise won't hang or crash. See README's "Supported Specs & Limits".
-        if (extension !in IMAGE_EXTENSIONS && extension !in VIDEO_EXTENSIONS) {
-            val supported = (IMAGE_EXTENSIONS + VIDEO_EXTENSIONS + RAW_PIXEL_EXTENSIONS).joinToString(", ")
+        if (extension !in IMAGE_EXTENSIONS && extension !in VIDEO_EXTENSIONS && extension !in AUDIO_EXTENSIONS) {
+            val supported = (IMAGE_EXTENSIONS + VIDEO_EXTENSIONS + AUDIO_EXTENSIONS + RAW_PIXEL_EXTENSIONS).joinToString(", ")
             openFileError = "지원하지 않는 파일 형식입니다 (.$extension).\n지원 형식: $supported"
             return
         }
@@ -279,6 +287,7 @@ class AppState {
                 val type = when {
                     extension in IMAGE_EXTENSIONS -> MediaType.IMAGE
                     extension in VIDEO_EXTENSIONS -> MediaType.VIDEO
+                    extension in AUDIO_EXTENSIONS -> MediaType.AUDIO
                     else -> MediaType.UNKNOWN
                 }
 
@@ -339,12 +348,12 @@ class AppState {
                     tab.largeResolutionWarning = warning
                     tab.isLoading = false
 
-                    if (type == MediaType.VIDEO && mediaSummary != null) {
+                    if ((type == MediaType.VIDEO || type == MediaType.AUDIO) && mediaSummary != null) {
                         // Per-stream codec details (profile, level, chroma subsampling, bit rate,
                         // etc.) come from a second, separate ffprobe process call -- deferred here
-                        // so opening a video doesn't wait on spawning it. The tab is already
-                        // interactive (structure tree, hex view, general summary) with this
-                        // filling in a moment later, same as the image decode below.
+                        // so opening a video/audio file doesn't wait on spawning it. The tab is
+                        // already interactive (structure tree, hex view, general summary) with
+                        // this filling in a moment later, same as the image decode below.
                         runInBackground {
                             val details = probeStreamDetails(file)
                             if (details != null) {

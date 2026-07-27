@@ -308,6 +308,7 @@ fun main() = application {
                             when (currentTab.type) {
                                 MediaType.IMAGE -> ImageInspectorUI(appState, currentTab, leftPanel, bottomPanel)
                                 MediaType.VIDEO -> VideoInspectorUI(appState, currentTab, leftPanel, bottomPanel)
+                                MediaType.AUDIO -> AudioInspectorUI(appState, currentTab, leftPanel, bottomPanel)
                                 MediaType.RAW_PIXEL -> RawPixelInspectorUI(appState, currentTab, leftPanel, bottomPanel)
                                 else -> {
                                     // Fallback to original structure view if needed
