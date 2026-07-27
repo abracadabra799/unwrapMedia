@@ -27,7 +27,11 @@ object AppColors {
     val TextMuted = Color(0xFF484F58)
     
     val Selection = Color(0xFF264F78)
-    val Highlight = Color(0xFFD4BB00).copy(alpha = 0.4f)
+    // Marks the byte range for whatever node is selected in the structure tree (HexView) --
+    // NeonBlue instead of the previous mustard/gold, both to read more clearly on the dark
+    // background and to stay visually distinct from HexView's own manual drag-selection
+    // highlight, which is green.
+    val Highlight = NeonBlue.copy(alpha = 0.35f)
 }
 
 val AppTypography = Typography(
