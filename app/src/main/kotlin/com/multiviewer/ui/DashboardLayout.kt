@@ -20,7 +20,10 @@ import androidx.compose.ui.unit.dp
 
 private const val LEFT_PANEL_MIN_WIDTH_DP = 180f
 private const val LEFT_PANEL_MAX_WIDTH_DP = 700f
-private const val RIGHT_PANEL_MIN_WIDTH_DP = 350f
+// The right panel used to start at exactly its own minimum width, so there was no room left to
+// drag-shrink it -- only grow. Default now sits above the floor instead of on top of it.
+private const val RIGHT_PANEL_MIN_WIDTH_DP = 250f
+private const val RIGHT_PANEL_DEFAULT_WIDTH_DP = 350f
 private const val RIGHT_PANEL_MAX_WIDTH_DP = 1000f
 
 // Thin draggable strip between two side-by-side panels. onDragDeltaDp receives the horizontal
@@ -57,7 +60,7 @@ fun DashboardLayout(
     // the user can drag either wider -- e.g. pretty-printed XMP in the right panel needs much more
     // horizontal room than 350dp to avoid wrapping mid-line.
     var leftPanelWidthDp by remember { mutableStateOf(300f) }
-    var rightPanelWidthDp by remember { mutableStateOf(RIGHT_PANEL_MIN_WIDTH_DP) }
+    var rightPanelWidthDp by remember { mutableStateOf(RIGHT_PANEL_DEFAULT_WIDTH_DP) }
 
     Column(
         modifier = Modifier
