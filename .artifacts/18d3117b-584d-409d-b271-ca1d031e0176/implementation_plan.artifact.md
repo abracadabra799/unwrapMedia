@@ -1,37 +1,36 @@
-# Implementation Plan - Optimized Media Rendering & HEIC Debug
+# Implementation Plan - Media UI Refinement & JPEG Fix
 
-Optimize the VLC callback player for performance and add deep container tracing to resolve the black screen issues in MP4 and HEIC files.
+Fix the missing JPEG thumbnails and reorganize the dual-pane preview to meet specific requirements for HEIC and MP4 files.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - **Threading & Performance**: Callback rendering currently creates new objects for every frame. I will implement a **Buffer Reuse** strategy and move state updates to the AWT thread to ensure the UI remains responsive and frames are actually rendered.
-> - **HEIC Trace**: I will add logging for every box type encountered to pinpoint why the thumbnail extraction is missing the JPEG items in your specific files.
+> - **JPEG Thumbnails**: I will restore thumbnail extraction for standard JPEG files by ensuring the Exif-based scanner is triggered even if the file lacks a high-level `meta` box.
+> - **HEIC Layout**: For HEIC, both panels will display static images. The right panel will focus on the primary decoded image (or an error if decoding is impossible).
+> - **MP4 Layout**: The left thumbnail panel will be removed for video files, giving the live player full focus in the preview area.
 
 ## Proposed Changes
-
-### [Component: UI - Video Player]
-
-#### [MODIFY] [VlcVideoPlayer.kt](file:///Users/dong.kim/AndroidStudioProjects/multiViewer/app/src/main/kotlin/com/multiviewer/ui/VlcVideoPlayer.kt)
-- **Zero-Allocation Rendering**:
-    - Pre-allocate a `ByteArray` buffer and a Skia `Bitmap` object based on the source dimensions.
-    - Reuse these instances for every frame to eliminate GC pressure.
-- **UI Thread Synchronization**:
-    - Use `java.awt.EventQueue.invokeLater` for all `videoBitmap` updates.
-- **Throttled Diagnostic Logging**:
-    - Log every 300th frame to verify the playback loop is active without flooding the console.
 
 ### [Component: Parser - Image Analysis]
 
 #### [MODIFY] [ImageAnalyzer.kt](file:///Users/dong.kim/AndroidStudioProjects/multiViewer/app/src/main/kotlin/com/multiviewer/parser/ImageAnalyzer.kt)
-- **Box Hierarchy Trace**:
-    - Recursively print the box structure of the file during analysis.
-    - Log every `infe` entry's ID, type, and name.
-- **Aggressive JPEG Search**:
-    - If metadata search fails, scan the first 1MB of the file for `FF D8 FF E0` or `FF D8 FF E1` magic headers.
+- **JPEG Discovery Fix**: Update `tryExtractEmbeddedJpeg` to scan for Exif thumbnails even if no `meta` box is found.
+- **Robustness**: Ensure `embeddedThumbnail` is populated for standard JPEGs that contain an embedded preview in their Exif data.
+
+### [Component: UI - Image Inspector]
+
+#### [MODIFY] [ImageInspectorUI.kt](file:///Users/dong.kim/AndroidStudioProjects/multiViewer/app/src/main/kotlin/com/multiviewer/ui/ImageInspectorUI.kt)
+- **HEIC Specifics**: Remove the VLC fallback from the right panel for HEIC files. The right panel will now strictly show the `primaryImage` (Skia-decoded) or a specific error message.
+- **Labeling**: Clarify labels to match "Embedded EXIF Thumbnail" vs "Primary Image".
+
+### [Component: UI - Video Inspector]
+
+#### [MODIFY] [VideoInspectorUI.kt](file:///Users/dong.kim/AndroidStudioProjects/multiViewer/app/src/main/kotlin/com/multiviewer/ui/VideoInspectorUI.kt)
+- **Layout Simplification**: Remove the `Row` in the top preview area for video files. The `VlcVideoPlayer` will now occupy the full width of the center panel's top section.
 
 ## Verification Plan
 
 ### Manual Verification
-- **MP4 Playback**: Verify that the `[swscaler]` logs are accompanied by "VLC Frame Processed" logs, and that the video is visible.
-- **HEIC Previews**: Review the box structure in the console to identify if the thumbnail is stored in a non-standard box (like `thmb` item but without `iref`).
+- **Standard JPEG**: Confirm the left pane shows the embedded thumbnail.
+- **HEIC**: Confirm the left pane shows the EXIF JPEG thumbnail and the right pane shows the main image (if decodable).
+- **MP4**: Confirm there is no left thumbnail pane; the player should be full-width.

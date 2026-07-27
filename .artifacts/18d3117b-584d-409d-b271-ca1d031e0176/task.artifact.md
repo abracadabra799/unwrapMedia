@@ -79,8 +79,17 @@
     - [x] Update `Decoders.kt` to register `iref`
     - [x] Refactor `ImageAnalyzer.kt` for targeted thumbnail extraction
     - [x] Handle `idat` relative offsets in extraction
-- [/] Optimized Media Rendering & HEIC Debug (Ultra Think Phase 2)
-    - [ ] Implement zero-allocation frame copy in `VlcVideoPlayer.kt`
-    - [ ] Move UI updates to AWT Event Dispatch Thread
-    - [ ] Add recursive box tracing in `ImageAnalyzer.kt`
-    - [ ] Implement aggressive 1MB magic byte scan for JPEG
+- [x] Dual-Pane Preview & State-Based Rendering
+    - [x] Implement 50/50 split preview in `ImageInspectorUI` & `VideoInspectorUI`
+    - [x] Refactor `ImageAnalyzer` to extract both Primary and Thumbnail items
+    - [x] Add interactive Play button and click-to-toggle in `VlcVideoPlayer`
+    - [x] Fix HEIC `grid` item handling to prioritize JPEG thumbnails
+- [x] Media UI Refinement & JPEG Fix
+    - [x] Restore JPEG thumbnail extraction (Exif scan without meta box)
+    - [x] Update `ImageInspectorUI` to remove VLC fallback for HEIC
+    - [x] Update `VideoInspectorUI` to remove left thumbnail pane
+    - [x] Clarify labels for "Embedded EXIF Thumbnail" vs "Primary Image"
+- [ ] Native Rendering Fallback (VLC for HEIC)
+    - [ ] Update `ImageInspectorUI` to use VLC for undecodable images
+    - [ ] Optimize `VlcVideoPlayer` with `neverEqualPolicy` state
+    - [ ] Add frame-ready debug logging and volume suppression
