@@ -10,7 +10,8 @@ Inspired by tools like **JPEGsnoop**, **ExifTool**, and **MediaInfo**, unwrapMed
 
 ### 1. Image Inspector
 Formats: **JPEG, PNG, BMP, GIF, WebP, AVIF, HEIC**, plus camera RAW (**CR2, NEF, ARW, DNG**) via generic TIFF/IFD parsing and embedded-preview extraction (no full RAW/demosaic decode).
-- **EXIF/TIFF metadata**: camera settings, lens info, GPS coordinates, orientation (label plus the raw numeric code).
+- **EXIF/TIFF metadata**: camera settings, lens info, GPS coordinates, orientation (label plus the raw numeric code), Exif/GPS/Interop sub-IFDs.
+- **MakerNote**: decoded with named tags for Samsung's EXIF-format MakerNote (detected from the Make field); other manufacturers still get every tag, just labeled by raw hex ID rather than name.
 - **XMP**: pretty-printed and left-aligned so multi-KB XML packets stay readable.
 - **Color histograms** and a **JPEG DQT quantization heatmap** (8x8 grid) for spotting re-compression.
 - **Embedded thumbnail extraction**, with aggressive fallback for HEIC and camera RAW.
