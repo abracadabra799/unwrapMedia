@@ -23,6 +23,7 @@ Formats: **MP4, MOV, M4V**
 - **Built-in video player**: real-time playback with play/pause, replay-from-end, elapsed time, and a progress bar.
 - **GOP frame-type graph**: per-frame I/P/B type and size as a bar chart. Click a frame (or step with prev/next) to seek the player to that timestamp; the graph highlights and auto-scrolls to whatever frame is currently on screen.
 - **Per-stream codec details**: profile, level, chroma subsampling, bit depth, frame rate mode, bit rate, duration (ms precision), and frame count.
+- **Track extraction** (추출 menu): pull every video stream into a new file in the source's own container format, or every audio stream into an M4A -- stream copy when possible (lossless, no re-encode), falling back to a re-encode only if the source codec can't go into the target container as-is.
 
 ### 3. Raw Pixel Viewer
 Opens headerless raw pixel dumps (**.raw / .rgb / .rgba / .yuv**) by asking for width, height, and pixel format up front, since the file itself carries none of that.
