@@ -240,7 +240,7 @@ private fun MotionPhotoVideoPreview(tab: TabState, video: EmbeddedVideo) {
     } else if (error != null) {
         Text("Could not extract motion video: $error", color = AppColors.NeonRed, fontSize = 13.sp)
     } else {
-        Text("Extracting motion video...", color = Color.Gray, fontSize = 13.sp)
+        DecodingIndicator("모션포토 동영상 추출 중...")
     }
 }
 
