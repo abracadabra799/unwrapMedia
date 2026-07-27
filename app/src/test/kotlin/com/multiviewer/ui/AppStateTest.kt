@@ -288,4 +288,47 @@ class AppStateTest {
         assertEquals(null, tab.imageForensic?.bitmap)
         assertEquals(false, tab.imageForensic?.isDecodingFallback)
     }
+
+    @Test
+    fun `closing a tab while its background decode is still in flight does not throw`() {
+        // Reproduction for a reported crash: openFile() kicks off parsing and (for images) a
+        // second async decode thread that both eventually mutate `tab` via
+        // EventQueue.invokeLater -- closeTab() only removes the tab from appState.tabs, with no
+        // mechanism to cancel or even know about that in-flight work. This opens a real (not
+        // garbage-byte) JPEG large enough that decode takes measurable time, closes the tab
+        // immediately (before isLoading even flips), and asserts nothing throws on any thread
+        // within the window those callbacks would fire in.
+        val caughtThrowables = java.util.Collections.synchronizedList(mutableListOf<Throwable>())
+        val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { _, throwable -> caughtThrowables.add(throwable) }
+        try {
+            val file = File.createTempFile("appstate-close-while-decoding-test", ".jpg")
+            file.deleteOnExit()
+            val image = java.awt.image.BufferedImage(4000, 3000, java.awt.image.BufferedImage.TYPE_INT_RGB)
+            val graphics = image.createGraphics()
+            graphics.color = java.awt.Color.RED
+            graphics.fillRect(0, 0, 4000, 3000)
+            graphics.dispose()
+            javax.imageio.ImageIO.write(image, "jpg", file)
+
+            val appState = AppState()
+            appState.openFile(file)
+            assertEquals(1, appState.tabs.size)
+            appState.closeTab(0)
+            assertTrue(appState.tabs.isEmpty())
+
+            val deadline = System.currentTimeMillis() + 3000
+            while (System.currentTimeMillis() < deadline) {
+                Thread.sleep(20)
+            }
+
+            file.delete()
+            assertTrue(
+                caughtThrowables.isEmpty(),
+                "Expected no uncaught exceptions from in-flight decode work after closing the tab, got: $caughtThrowables",
+            )
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(previousHandler)
+        }
+    }
 }

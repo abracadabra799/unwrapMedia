@@ -36,6 +36,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -67,26 +68,38 @@ fun RawPixelInspectorUI(
         // guard and playback visually skipped through content faster than intended.
         LaunchedEffect(tab.rawPixelIsPlaying, tab.file) {
             if (!tab.rawPixelIsPlaying) return@LaunchedEffect
-            while (tab.rawPixelIsPlaying) {
-                val nextIndex = tab.rawPixelFrameIndex + 1
-                if (nextIndex > params.frameCount - 1) {
-                    tab.rawPixelIsPlaying = false
-                    break
+            // An uncaught exception here (a decode failure, or the tab's file becoming
+            // unreadable if the tab is closed mid-playback) would propagate out of this
+            // LaunchedEffect and crash the whole Compose Desktop app, not just this tab --
+            // CancellationException is the one exception that must still propagate, since
+            // structured concurrency relies on it for correct cancellation when the tab closes.
+            try {
+                while (tab.rawPixelIsPlaying) {
+                    val nextIndex = tab.rawPixelFrameIndex + 1
+                    if (nextIndex > params.frameCount - 1) {
+                        tab.rawPixelIsPlaying = false
+                        break
+                    }
+                    // Read fresh each iteration so live edits to tab.rawPixelFps (via the field in
+                    // the controls row below) take effect on the very next frame instead of
+                    // requiring a pause/resume.
+                    val frameDurationMs = (1000.0 / tab.rawPixelFps).toLong().coerceAtLeast(1)
+                    val start = System.currentTimeMillis()
+                    val bitmap = withContext(Dispatchers.IO) {
+                        decodeRawPixelFile(tab.file, params.width, params.height, params.format, params.byteOrder, nextIndex)
+                    }
+                    if (!tab.rawPixelIsPlaying) break
+                    tab.rawPixelFrameIndex = nextIndex
+                    tab.imageForensic = (tab.imageForensic ?: ImageForensicData()).copy(bitmap = bitmap)
+                    val elapsed = System.currentTimeMillis() - start
+                    val remaining = frameDurationMs - elapsed
+                    if (remaining > 0) delay(remaining)
                 }
-                // Read fresh each iteration so live edits to tab.rawPixelFps (via the field in the
-                // controls row below) take effect on the very next frame instead of requiring a
-                // pause/resume.
-                val frameDurationMs = (1000.0 / tab.rawPixelFps).toLong().coerceAtLeast(1)
-                val start = System.currentTimeMillis()
-                val bitmap = withContext(Dispatchers.IO) {
-                    decodeRawPixelFile(tab.file, params.width, params.height, params.format, params.byteOrder, nextIndex)
-                }
-                if (!tab.rawPixelIsPlaying) break
-                tab.rawPixelFrameIndex = nextIndex
-                tab.imageForensic = (tab.imageForensic ?: ImageForensicData()).copy(bitmap = bitmap)
-                val elapsed = System.currentTimeMillis() - start
-                val remaining = frameDurationMs - elapsed
-                if (remaining > 0) delay(remaining)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                System.err.println("Raw pixel playback failed: $e")
+                tab.rawPixelIsPlaying = false
             }
         }
     }

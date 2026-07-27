@@ -101,6 +101,40 @@ fun frameDurationsSeconds(timestamps: List<Double>, fallbackSeconds: Double): Li
         if (next != null) (next - pts).coerceAtLeast(0.001) else fallbackSeconds
     }
 
+// ffmpeg prints its own resolved output stream dimensions to stderr at startup, e.g.:
+// "Stream #0:0(und): Video: rawvideo (BGRA / 0x41524742), bgra(...), 480x640 [SAR 1:1 DAR 3:4], ..."
+// -- matched as "<space>WIDTHxHEIGHT<space>[" specifically to avoid the FourCC hex literal
+// earlier on the same line (e.g. "0x41524742", which also matches a naive \d+x\d+ pattern).
+private val FFMPEG_OUTPUT_DIMENSIONS_REGEX = Regex("""\s(\d+)x(\d+)\s\[""")
+
+// Reads ffmpeg's stderr banner looking for the actual output rawvideo dimensions, then keeps
+// draining stderr for the rest of the process's life so the pipe never fills and blocks ffmpeg.
+// This exists because probeVideo()'s width/height swap for rotated video (see its own comment)
+// is a prediction of what ffmpeg will do, not a guarantee -- if that prediction is ever wrong
+// (an unparsed rotation value, a future ffmpeg version handling auto-rotation differently, some
+// other dimension-affecting behavior this app doesn't know to predict), every frame boundary in
+// the raw pipe misaligns and the picture comes out completely scrambled, not just mis-rotated.
+// Reading ffmpeg's own self-reported dimensions removes the need to predict its behavior at all.
+fun watchForActualDimensions(process: Process, fallback: Pair<Int, Int>): java.util.concurrent.CompletableFuture<Pair<Int, Int>> {
+    val result = java.util.concurrent.CompletableFuture<Pair<Int, Int>>()
+    Thread {
+        try {
+            process.errorStream.bufferedReader().forEachLine { line ->
+                if (!result.isDone) {
+                    FFMPEG_OUTPUT_DIMENSIONS_REGEX.find(line)?.let { match ->
+                        result.complete(match.groupValues[1].toInt() to match.groupValues[2].toInt())
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Pipe closed from destroyForcibly() on dispose -- expected, not an error.
+        } finally {
+            result.complete(fallback) // no-op if already completed with a real match
+        }
+    }.apply { isDaemon = true }.start()
+    return result
+}
+
 fun probeVideo(file: File): VideoInfo? {
     return try {
         val process = ProcessBuilder(
@@ -213,7 +247,7 @@ fun FfmpegVideoPlayer(
                     "-i", file.absolutePath,
                     "-f", "rawvideo", "-pix_fmt", "bgra", "-an", "-",
                 ),
-            ).redirectError(ProcessBuilder.Redirect.DISCARD).start()
+            ).start()
         } catch (e: Exception) {
             null
         }
@@ -221,6 +255,17 @@ fun FfmpegVideoPlayer(
         // second, separate process still fails to start, that's a genuine failure to surface, not
         // silent: without this flag, the UI would otherwise sit on "Decoding stream..." forever.
         if (process == null) loadError = true
+        // See watchForActualDimensions' comment -- confirms against ffmpeg's own stderr banner
+        // rather than trusting probeVideo()'s width/height prediction for the piped frame size.
+        val (actualWidth, actualHeight) = if (process != null) {
+            try {
+                watchForActualDimensions(process, info.width to info.height).get(3, TimeUnit.SECONDS)
+            } catch (e: Exception) {
+                info.width to info.height
+            }
+        } else {
+            info.width to info.height
+        }
 
         val stopped = AtomicBoolean(false)
         val fallbackDurationSeconds = 1.0 / info.fps
@@ -237,62 +282,75 @@ fun FfmpegVideoPlayer(
 
         val readerThread = if (process != null) {
             Thread {
-                val frameSize = info.width * info.height * 4
-                val buffer = ByteArray(frameSize)
-                val input = process.inputStream
-                var frameIndex = 0
+                // onDispose (below) calls readerThread.interrupt() on teardown, and this loop
+                // spends most of its time in Thread.sleep() -- an interrupt landing there throws
+                // InterruptedException with nothing to catch it otherwise, which used to escape
+                // this thread uncaught every time a video tab with an active player was closed.
+                // A force-killed process's pipe (destroyForcibly(), also called from onDispose)
+                // can likewise surface as an IOException from input.read() rather than a clean
+                // EOF (-1), depending on platform/timing -- caught here for the same reason.
+                try {
+                    val frameSize = actualWidth * actualHeight * 4
+                    val buffer = ByteArray(frameSize)
+                    val input = process.inputStream
+                    var frameIndex = 0
 
-                fun readFrame(): Boolean {
-                    var offset = 0
-                    while (offset < frameSize) {
-                        val read = input.read(buffer, offset, frameSize - offset)
-                        if (read < 0) return false
-                        offset += read
-                    }
-                    return true
-                }
-
-                fun nextFrameDurationSeconds(): Double =
-                    durations.getOrElse(frameIndex) { fallbackDurationSeconds }.also { frameIndex++ }
-
-                fun deliver(durationSeconds: Double?) {
-                    val bitmap = Bitmap().apply {
-                        allocPixels(ImageInfo(ColorInfo(ColorType.BGRA_8888, ColorAlphaType.PREMUL, ColorSpace.sRGB), info.width, info.height))
-                        installPixels(imageInfo, buffer, info.width * 4)
-                    }
-                    val snapshot = Image.makeFromBitmap(bitmap).toComposeImageBitmap()
-                    EventQueue.invokeLater {
-                        videoBitmap = snapshot
-                        if (durationSeconds != null) {
-                            playedSeconds += durationSeconds
+                    fun readFrame(): Boolean {
+                        var offset = 0
+                        while (offset < frameSize) {
+                            val read = input.read(buffer, offset, frameSize - offset)
+                            if (read < 0) return false
+                            offset += read
                         }
+                        return true
                     }
-                }
 
-                // First frame, shown immediately while paused -- still advances frameIndex so the
-                // duration list stays aligned with frames read from here on, but it doesn't count
-                // toward playedSeconds since nothing played yet.
-                if (readFrame()) {
-                    nextFrameDurationSeconds()
-                    deliver(null)
-                }
-                while (!stopped.get()) {
-                    if (!isPlaying) {
-                        Thread.sleep(50)
-                        continue
-                    }
-                    val start = System.currentTimeMillis()
-                    if (!readFrame()) {
+                    fun nextFrameDurationSeconds(): Double =
+                        durations.getOrElse(frameIndex) { fallbackDurationSeconds }.also { frameIndex++ }
+
+                    fun deliver(durationSeconds: Double?) {
+                        val bitmap = Bitmap().apply {
+                            allocPixels(ImageInfo(ColorInfo(ColorType.BGRA_8888, ColorAlphaType.PREMUL, ColorSpace.sRGB), actualWidth, actualHeight))
+                            installPixels(imageInfo, buffer, actualWidth * 4)
+                        }
+                        val snapshot = Image.makeFromBitmap(bitmap).toComposeImageBitmap()
                         EventQueue.invokeLater {
-                            isPlaying = false
-                            hasEnded = true
+                            videoBitmap = snapshot
+                            if (durationSeconds != null) {
+                                playedSeconds += durationSeconds
+                            }
                         }
-                        break // EOF
                     }
-                    val durationSeconds = nextFrameDurationSeconds()
-                    deliver(durationSeconds)
-                    val remaining = (durationSeconds * 1000).toLong() - (System.currentTimeMillis() - start)
-                    if (remaining > 0) Thread.sleep(remaining)
+
+                    // First frame, shown immediately while paused -- still advances frameIndex so
+                    // the duration list stays aligned with frames read from here on, but it
+                    // doesn't count toward playedSeconds since nothing played yet.
+                    if (readFrame()) {
+                        nextFrameDurationSeconds()
+                        deliver(null)
+                    }
+                    while (!stopped.get()) {
+                        if (!isPlaying) {
+                            Thread.sleep(50)
+                            continue
+                        }
+                        val start = System.currentTimeMillis()
+                        if (!readFrame()) {
+                            EventQueue.invokeLater {
+                                isPlaying = false
+                                hasEnded = true
+                            }
+                            break // EOF
+                        }
+                        val durationSeconds = nextFrameDurationSeconds()
+                        deliver(durationSeconds)
+                        val remaining = (durationSeconds * 1000).toLong() - (System.currentTimeMillis() - start)
+                        if (remaining > 0) Thread.sleep(remaining)
+                    }
+                } catch (e: InterruptedException) {
+                    // Expected on dispose -- not an error.
+                } catch (e: Exception) {
+                    System.err.println("FfmpegVideoPlayer reader thread failed: $e")
                 }
             }.apply { isDaemon = true }.also { it.start() }
         } else {
