@@ -331,4 +331,41 @@ class AppStateTest {
             Thread.setDefaultUncaughtExceptionHandler(previousHandler)
         }
     }
+
+    @Test
+    fun `openFile makes a video tab interactive before per-stream codec details arrive, then fills them in`() {
+        // Regression test: probeStreamDetails (a second ffprobe process call, for profile/level/
+        // bit rate/etc.) used to run synchronously before isLoading flipped false, adding a whole
+        // extra process spawn to "how long until this video tab is usable" -- deferred to run
+        // after isLoading = false instead, same pattern as the async image bitmap decode.
+        val video = File.createTempFile("appstate-video-codec-details-test-", ".mp4")
+        video.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=1:size=64x48:rate=5",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", video.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val appState = AppState()
+        appState.openFile(video)
+        val tab = appState.tabs.single()
+        waitForLoad(tab)
+
+        // Already interactive: structure and a base summary exist without waiting on the second
+        // ffprobe call.
+        assertEquals(MediaType.VIDEO, tab.type)
+        assertTrue(tab.mediaSummary != null)
+
+        val deadline = System.currentTimeMillis() + 5000
+        var videoSection = tab.mediaSummary?.sections?.find { it.title == "Video" }
+        while (videoSection?.fields?.none { it.label == "Bit Rate" } != false && System.currentTimeMillis() < deadline) {
+            Thread.sleep(20)
+            videoSection = tab.mediaSummary?.sections?.find { it.title == "Video" }
+        }
+
+        assertTrue(
+            videoSection?.fields?.any { it.label == "Bit Rate" } == true,
+            "Expected codec details (e.g. Bit Rate) to be merged into the Video section eventually, got: $videoSection",
+        )
+        video.delete()
+    }
 }

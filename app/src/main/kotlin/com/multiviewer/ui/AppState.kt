@@ -287,25 +287,14 @@ class AppState {
                 } catch (e: Exception) {
                     null
                 }
-                // ffprobe -show_entries stream=... is one fast call whose cost doesn't scale with
-                // video length (unlike GOP frame analysis), so it's safe to run automatically here
-                // on the same background thread, same as probeVideo already does elsewhere.
-                val enrichedMediaSummary = if (type == MediaType.VIDEO && mediaSummary != null) {
-                    val details = probeStreamDetails(file)
-                    if (details != null) {
-                        mergeStreamCodecDetails(mediaSummary, details.videoFields, details.audioFields)
-                    } else {
-                        mediaSummary
-                    }
-                } else {
-                    mediaSummary
-                }
 
-                // Resolution is read from the already-parsed header fields (cheap) so this gate
-                // runs BEFORE the heavy step below (ImageAnalyzer.analyze does a full Image.make-
-                // FromEncoded raster decode of the whole file into memory) -- an oversized file gets
-                // rejected without ever attempting that allocation.
-                val resolution = extractResolution(enrichedMediaSummary)
+                // Resolution is read from the already-parsed header fields (cheap, from
+                // buildMediaSummary's own box walking -- not from probeStreamDetails below) so
+                // this gate runs before either heavy step: probeStreamDetails spawns a second
+                // ffprobe process, and ImageAnalyzer.analyze does a full Image.makeFromEncoded
+                // raster decode of the whole file into memory. An oversized file gets rejected
+                // without ever attempting either.
+                val resolution = extractResolution(mediaSummary)
                 val hardBlockMessage = resolution?.let { (w, h) -> hardResolutionRejectionMessage(w, h) }
 
                 if (hardBlockMessage != null) {
@@ -344,11 +333,26 @@ class AppState {
                 EventQueue.invokeLater {
                     tab.root = root
                     tab.type = type
-                    tab.mediaSummary = enrichedMediaSummary
+                    tab.mediaSummary = mediaSummary
                     tab.embeddedVideo = embeddedVideo
                     tab.motionPhotoPreview = motionPhotoPreview
                     tab.largeResolutionWarning = warning
                     tab.isLoading = false
+
+                    if (type == MediaType.VIDEO && mediaSummary != null) {
+                        // Per-stream codec details (profile, level, chroma subsampling, bit rate,
+                        // etc.) come from a second, separate ffprobe process call -- deferred here
+                        // so opening a video doesn't wait on spawning it. The tab is already
+                        // interactive (structure tree, hex view, general summary) with this
+                        // filling in a moment later, same as the image decode below.
+                        runInBackground {
+                            val details = probeStreamDetails(file)
+                            if (details != null) {
+                                val enriched = mergeStreamCodecDetails(mediaSummary, details.videoFields, details.audioFields)
+                                EventQueue.invokeLater { tab.mediaSummary = enriched }
+                            }
+                        }
+                    }
 
                     if (type == MediaType.IMAGE && finalImageForensic != null) {
                         // The primary pixel decode (a real Skia raster decode + histogram pass,
