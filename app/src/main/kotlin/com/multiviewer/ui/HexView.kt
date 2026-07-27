@@ -1,5 +1,7 @@
 package com.multiviewer.ui
 
+import androidx.compose.foundation.ContextMenuArea
+import androidx.compose.foundation.ContextMenuItem
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -16,7 +18,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollbarAdapter
-import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -139,79 +140,86 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
                     style = AppTypography.labelLarge.copy(color = AppColors.NeonGreen),
                     modifier = Modifier.padding(end = 8.dp),
                 )
-                Button(onClick = { copyBytesAsHex(raf, range) }) {
-                    Text("Copy Hex", fontSize = 11.sp)
-                }
             }
         }
-        Box(
-            modifier = Modifier.fillMaxSize().pointerInput(file) {
-                awaitEachGesture {
-                    val down = awaitFirstDown()
-                    val isShiftExtend = currentEvent.keyboardModifiers.isShiftPressed && selectionAnchor != null
-                    val startOffset = resolveByteAt(down.position, listState, layoutResults, fileLength) ?: return@awaitEachGesture
-                    if (isShiftExtend) {
-                        selectionEnd = startOffset
-                    } else {
-                        selectionAnchor = startOffset
-                        selectionEnd = startOffset
-                    }
-                    drag(down.id) { change ->
-                        change.consume()
-                        val offset = resolveByteAt(change.position, listState, layoutResults, fileLength)
-                        if (offset != null) selectionEnd = offset
-                    }
-                }
+        // Right-click brings up the same native-look context menu BasicTextField uses for its own
+        // copy/paste -- items() is re-evaluated each time the menu opens, so it always reflects
+        // whatever's selected (or nothing) at that moment rather than what was selected when this
+        // composable was first built.
+        ContextMenuArea(
+            items = {
+                selectedRange?.let { range -> listOf(ContextMenuItem("Copy") { copyBytesAsHex(raf, range) }) } ?: emptyList()
             },
         ) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                items(rowCount) { rowIndex ->
-                    val rowStart = rowIndex.toLong() * BYTES_PER_ROW
-                    val rowLength = minOf(BYTES_PER_ROW.toLong(), fileLength - rowStart).toInt()
-                    val buf = ByteArray(rowLength)
-                    raf.seek(rowStart)
-                    raf.readFully(buf)
+            Box(
+                modifier = Modifier.fillMaxSize().pointerInput(file) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        val isShiftExtend = currentEvent.keyboardModifiers.isShiftPressed && selectionAnchor != null
+                        val startOffset = resolveByteAt(down.position, listState, layoutResults, fileLength) ?: return@awaitEachGesture
+                        if (isShiftExtend) {
+                            selectionEnd = startOffset
+                        } else {
+                            selectionAnchor = startOffset
+                            selectionEnd = startOffset
+                        }
+                        drag(down.id) { change ->
+                            change.consume()
+                            val offset = resolveByteAt(change.position, listState, layoutResults, fileLength)
+                            if (offset != null) selectionEnd = offset
+                        }
+                    }
+                },
+            ) {
+                LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                    items(rowCount) { rowIndex ->
+                        val rowStart = rowIndex.toLong() * BYTES_PER_ROW
+                        val rowLength = minOf(BYTES_PER_ROW.toLong(), fileLength - rowStart).toInt()
+                        val buf = ByteArray(rowLength)
+                        raf.seek(rowStart)
+                        raf.readFully(buf)
 
-                    Text(
-                        text = buildAnnotatedString {
-                            append("%08X  ".format(rowStart))
-                            for (i in 0 until BYTES_PER_ROW) {
-                                if (i < buf.size) {
+                        Text(
+                            text = buildAnnotatedString {
+                                append("%08X  ".format(rowStart))
+                                for (i in 0 until BYTES_PER_ROW) {
+                                    if (i < buf.size) {
+                                        val byteOffset = rowStart + i
+                                        val hex = "%02X ".format(buf[i])
+                                        when {
+                                            selectedRange?.contains(byteOffset) == true ->
+                                                withStyle(SpanStyle(background = SelectedByteHighlight)) { append(hex) }
+                                            highlightRange?.contains(byteOffset) == true ->
+                                                withStyle(SpanStyle(background = AppColors.Highlight)) { append(hex) }
+                                            else -> append(hex)
+                                        }
+                                    } else {
+                                        append("   ")
+                                    }
+                                }
+                                append(" ")
+                                for (i in buf.indices) {
                                     val byteOffset = rowStart + i
-                                    val hex = "%02X ".format(buf[i])
+                                    val byteValue = buf[i].toInt() and 0xFF
+                                    val char = if (byteValue in 0x20..0x7E) byteValue.toChar() else '.'
                                     when {
                                         selectedRange?.contains(byteOffset) == true ->
-                                            withStyle(SpanStyle(background = SelectedByteHighlight)) { append(hex) }
+                                            withStyle(SpanStyle(background = SelectedByteHighlight)) { append(char) }
                                         highlightRange?.contains(byteOffset) == true ->
-                                            withStyle(SpanStyle(background = AppColors.Highlight)) { append(hex) }
-                                        else -> append(hex)
+                                            withStyle(SpanStyle(background = AppColors.Highlight)) { append(char) }
+                                        else -> append(char)
                                     }
-                                } else {
-                                    append("   ")
                                 }
-                            }
-                            append(" ")
-                            for (i in buf.indices) {
-                                val byteOffset = rowStart + i
-                                val byteValue = buf[i].toInt() and 0xFF
-                                val char = if (byteValue in 0x20..0x7E) byteValue.toChar() else '.'
-                                when {
-                                    selectedRange?.contains(byteOffset) == true ->
-                                        withStyle(SpanStyle(background = SelectedByteHighlight)) { append(char) }
-                                    highlightRange?.contains(byteOffset) == true ->
-                                        withStyle(SpanStyle(background = AppColors.Highlight)) { append(char) }
-                                    else -> append(char)
-                                }
-                            }
-                        },
-                        onTextLayout = { layoutResults[rowIndex] = it },
-                    )
+                            },
+                            onTextLayout = { layoutResults[rowIndex] = it },
+                        )
+                    }
                 }
+                VerticalScrollbar(
+                    adapter = rememberScrollbarAdapter(listState),
+                    modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
+                )
             }
-            VerticalScrollbar(
-                adapter = rememberScrollbarAdapter(listState),
-                modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
-            )
         }
     }
 }
