@@ -368,4 +368,29 @@ class AppStateTest {
         )
         video.delete()
     }
+
+    @Test
+    fun `openFile opens a real M4A as MediaType_AUDIO with a populated Audio section`() {
+        // M4A is an MP4-family container (same box structure as mp4/mov/m4v), so this exercises
+        // the same generic box walker + MediaSummaryBuilder path already used for video -- no new
+        // parser involved, only new extension routing (see AppState.kt's AUDIO_EXTENSIONS).
+        val audio = File.createTempFile("appstate-m4a-test-", ".m4a")
+        audio.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "sine=duration=1:frequency=440",
+            "-c:a", "aac", audio.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val appState = AppState()
+        appState.openFile(audio)
+        val tab = appState.tabs.single()
+        waitForLoad(tab)
+
+        assertEquals(null, tab.error)
+        assertEquals(MediaType.AUDIO, tab.type)
+        val audioSection = tab.mediaSummary?.sections?.find { it.title == "Audio" }
+        assertTrue(audioSection?.fields?.any { it.label == "Format" } == true, "Expected an Audio section with a Format field, got: $audioSection")
+        assertEquals(true, tab.mediaSummary?.sections?.none { it.title == "Video" })
+        audio.delete()
+    }
 }

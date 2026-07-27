@@ -25,15 +25,20 @@ Formats: **MP4, MOV, M4V**
 - **Per-stream codec details**: profile, level, chroma subsampling, bit depth, frame rate mode, bit rate, duration (ms precision), and frame count.
 - **Track extraction** (추출 menu): pull every video stream into a new file in the source's own container format, or every audio stream into an M4A -- stream copy when possible (lossless, no re-encode), falling back to a re-encode only if the source codec can't go into the target container as-is.
 
-### 3. Raw Pixel Viewer
+### 3. Audio Inspector
+Formats: **M4A** (AAC, ALAC, or AC-3 inside an MP4-family container -- the same box structure as MP4/MOV/M4V, so it reuses the video inspector's parser and codec-detail probing).
+- **Structure and per-stream details**: format, sample rate, channel count, bit rate, duration -- same General/Audio summary cards as the Video Inspector.
+- No playback yet (this app has no audio output subsystem currently) -- inspection only.
+
+### 4. Raw Pixel Viewer
 Opens headerless raw pixel dumps (**.raw / .rgb / .rgba / .yuv**) by asking for width, height, and pixel format up front, since the file itself carries none of that.
 - **Formats**: YUV420sp (NV12/NV21), YUV420p (I420, YV12), RGB565/BGR565 (with selectable byte order), RGB888/BGR888, RGBA8888/ARGB8888.
 - **Multi-frame sequences**: a file larger than one frame is treated as a raw video stream -- play/pause, click-to-seek progress bar, and prev/next frame stepping, with the frame rate adjustable live during playback (a raw dump carries no frame-rate metadata, so this is always a starting guess).
 
-### 4. MediaInfo-Style Summaries
+### 5. MediaInfo-Style Summaries
 Unified General/Video/Audio summary cards for quick orientation before drilling into individual fields.
 
-### 5. Interactive Binary Explorer
+### 6. Interactive Binary Explorer
 - **Structure tree**: hierarchical view of boxes/markers/IFDs; selecting a node auto-expands its ancestors and jumps the hex view to its byte offset.
 - **Detailed Properties panel**: field-level data for the selected node, with structural-warning summaries shown by default.
 - **Hex & raw byte viewer**: click-and-drag to select an arbitrary byte range (works across rows), copy the selection as hex.
@@ -50,6 +55,7 @@ Opening a file that falls outside these limits is refused up front with a popup 
 |---|---|
 | Image | `.jpg` `.jpeg` `.png` `.bmp` `.gif` `.webp` `.avif` `.heic` `.cr2` `.nef` `.arw` `.dng` |
 | Video | `.mp4` `.mov` `.m4v` |
+| Audio | `.m4a` |
 | Raw pixel | `.raw` `.rgb` `.rgba` `.yuv` |
 
 **Resolution**: there's no artificial cap on ordinary files, but very large resolutions run into real memory limits (the app runs on the JVM's default heap, with no `-Xmx` override):
