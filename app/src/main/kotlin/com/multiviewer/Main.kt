@@ -243,7 +243,9 @@ fun main() = application {
                         }
 
                         if (currentTab.isLoading) {
-                            Text("Analyzing ${currentTab.file.name}...", modifier = Modifier.padding(16.dp))
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                DecodingIndicator("${currentTab.file.name} 분석 중...")
+                            }
                         } else {
                             when (currentTab.type) {
                                 MediaType.IMAGE -> ImageInspectorUI(appState, currentTab, leftPanel, bottomPanel)
