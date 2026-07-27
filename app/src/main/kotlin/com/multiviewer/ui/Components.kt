@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -42,6 +43,24 @@ fun PreviewCaption(text: String, modifier: Modifier = Modifier) {
             .padding(horizontal = 5.dp, vertical = 2.dp),
         style = AppTypography.labelLarge.copy(fontSize = 12.sp, color = Color.White),
     )
+}
+
+// Shared "async work is happening right now" indicator -- a small indeterminate spinner (genuine
+// motion, not just static text) plus a label saying what's in progress. Used for every background
+// decode/analysis state in the app (thumbnail loading, primary image decode, video stream decode,
+// GOP frame analysis, motion photo codec probing) so they all read the same way instead of each
+// screen inventing its own "Decoding..."/"분석 중..." text.
+@Composable
+fun DecodingIndicator(label: String, modifier: Modifier = Modifier) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(28.dp),
+            color = AppColors.NeonBlue,
+            strokeWidth = 2.5.dp,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(label, style = AppTypography.bodyLarge.copy(color = AppColors.TextSecondary, fontSize = 12.sp))
+    }
 }
 
 // Non-blocking notice for a resolution above the soft warning threshold (see

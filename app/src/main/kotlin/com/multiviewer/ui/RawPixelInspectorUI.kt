@@ -121,7 +121,7 @@ fun RawPixelInspectorUI(
                             contentScale = ContentScale.Fit,
                         )
                     } else {
-                        Text("디코딩 중...", color = AppColors.TextSecondary)
+                        DecodingIndicator("프레임 디코딩 중...")
                     }
 
                     if (params != null) {

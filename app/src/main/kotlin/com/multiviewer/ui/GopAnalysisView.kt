@@ -80,11 +80,7 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
         val frames = tab.gopFrames
         when {
             tab.isAnalyzingFrames -> {
-                Text(
-                    "분석 중...",
-                    modifier = Modifier.align(Alignment.Center),
-                    style = AppTypography.bodyLarge.copy(color = AppColors.TextSecondary),
-                )
+                DecodingIndicator("프레임 분석 중...", modifier = Modifier.align(Alignment.Center))
             }
             frames == null -> {
                 Button(onClick = onAnalyze, modifier = Modifier.align(Alignment.Center)) {
