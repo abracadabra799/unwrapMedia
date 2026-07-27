@@ -24,6 +24,7 @@ import androidx.compose.ui.window.rememberWindowState
 import com.multiviewer.parser.EmbeddedVideo
 import com.multiviewer.parser.extractEmbeddedVideo
 import com.multiviewer.ui.*
+import java.awt.EventQueue
 import java.awt.FileDialog
 import java.awt.Frame
 import java.awt.datatransfer.DataFlavor
@@ -71,6 +72,43 @@ private fun extractMotionPhotoPreviewVideo(appState: AppState, tab: TabState) {
     extractVideoToFile(appState, tab, video, "preview")
 }
 
+// Video/audio track extraction (see TrackExtractor.kt) shells out to ffmpeg -- unlike
+// extractVideoToFile's plain byte copy above, this can take real time on a large file, so it
+// runs on a background thread instead of blocking the EDT while the user picked a save location.
+private fun extractVideoTrackFromCurrentFile(appState: AppState, tab: TabState) {
+    val dialog = FileDialog(null as Frame?, "Save extracted video track", FileDialog.SAVE)
+    dialog.file = "${tab.file.nameWithoutExtension}_video.${tab.file.extension}"
+    dialog.isVisible = true
+    val fileName = dialog.file
+    val directory = dialog.directory
+    if (fileName == null || directory == null) return
+    val destination = File(directory, fileName)
+    appState.statusMessage = "비디오 트랙 추출 중..."
+    runInBackground {
+        val success = extractVideoTrack(tab.file, destination)
+        EventQueue.invokeLater {
+            appState.statusMessage = if (success) "저장됨: ${destination.name}" else "비디오 트랙 추출 실패"
+        }
+    }
+}
+
+private fun extractAudioTrackFromCurrentFile(appState: AppState, tab: TabState) {
+    val dialog = FileDialog(null as Frame?, "Save extracted audio track", FileDialog.SAVE)
+    dialog.file = "${tab.file.nameWithoutExtension}_audio.m4a"
+    dialog.isVisible = true
+    val fileName = dialog.file
+    val directory = dialog.directory
+    if (fileName == null || directory == null) return
+    val destination = File(directory, fileName)
+    appState.statusMessage = "오디오 트랙 추출 중..."
+    runInBackground {
+        val success = extractAudioTrack(tab.file, destination)
+        EventQueue.invokeLater {
+            appState.statusMessage = if (success) "저장됨: ${destination.name}" else "오디오 트랙 추출 실패"
+        }
+    }
+}
+
 fun main() = application {
     val appState = remember { AppState() }
     
@@ -104,6 +142,26 @@ fun main() = application {
                     "모션포토 미리보기 재생용 비디오 추출",
                     enabled = currentTab?.motionPhotoPreview != null,
                     onClick = { currentTab?.let { extractMotionPhotoPreviewVideo(appState, it) } },
+                )
+            }
+            Menu("추출") {
+                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                val isVideo = currentTab?.type == MediaType.VIDEO
+                // "Video"/"Audio" summary sections are only built (buildVideoSummary,
+                // MediaSummaryBuilder.kt) when the corresponding track actually exists in the
+                // container -- this is set synchronously when the tab opens, so it doesn't need
+                // to wait for the async per-stream codec-detail probe to know track presence.
+                val hasVideoTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Video" } == true
+                val hasAudioTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Audio" } == true
+                Item(
+                    "video track 추출",
+                    enabled = hasVideoTrack,
+                    onClick = { currentTab?.let { extractVideoTrackFromCurrentFile(appState, it) } },
+                )
+                Item(
+                    "audio track 추출",
+                    enabled = hasAudioTrack,
+                    onClick = { currentTab?.let { extractAudioTrackFromCurrentFile(appState, it) } },
                 )
             }
         }
