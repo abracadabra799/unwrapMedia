@@ -3,6 +3,9 @@ package com.multiviewer.ui
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -30,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -333,7 +337,27 @@ fun FfmpegVideoPlayer(
             )
             val progress = (elapsedSeconds / info.duration).toFloat().coerceIn(0f, 1f)
             Box(
-                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp).background(Color.White.copy(alpha = 0.15f)),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .background(Color.White.copy(alpha = 0.15f))
+                    .pointerInput(info.duration) {
+                        fun seekToFraction(fraction: Float) {
+                            hasEnded = false
+                            isPlaying = false // seek-and-pause, same as a GOP-frame-click seek
+                            startFromSeconds = fraction.coerceIn(0f, 1f) * info.duration
+                            restartTrigger++
+                        }
+                        awaitEachGesture {
+                            val down = awaitFirstDown()
+                            seekToFraction(down.position.x / size.width.toFloat())
+                            drag(down.id) { change ->
+                                change.consume()
+                                seekToFraction(change.position.x / size.width.toFloat())
+                            }
+                        }
+                    },
             ) {
                 Box(modifier = Modifier.fillMaxHeight().fillMaxWidth(progress).background(AppColors.NeonGreen))
             }

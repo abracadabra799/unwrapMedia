@@ -4,6 +4,7 @@ import androidx.compose.foundation.HorizontalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,7 +27,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -92,15 +100,46 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
             }
             else -> {
                 val listState = rememberLazyListState()
+                val focusRequester = remember { FocusRequester() }
+                LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
                 fun selectFrame(frame: FrameInfo) {
                     tab.selectedFrame = frame
                     tab.selected = null
                     tab.seekTargetSeconds = frame.ptsSeconds
                     tab.seekRequestTick++
+                    focusRequester.requestFocus()
                 }
 
-                Column(modifier = Modifier.fillMaxSize()) {
+                // Highlights and auto-follows the frame at the current playback position (only
+                // meaningful once the video has actually started playing, hence the >= 0 guard
+                // against the 0.0 default before playback begins). Computed up here too since
+                // stepFrame below falls back to it when no frame has been explicitly selected yet.
+                val currentFrameIndex = remember(frames, tab.playbackElapsedSeconds) {
+                    if (tab.playbackElapsedSeconds <= 0.0) -1
+                    else frames.indexOfLast { it.ptsSeconds <= tab.playbackElapsedSeconds }
+                }
+
+                fun stepFrame(delta: Int) {
+                    val current = tab.selectedFrame?.index ?: currentFrameIndex.coerceAtLeast(0)
+                    val target = (current + delta).coerceIn(0, frames.size - 1)
+                    selectFrame(frames[target])
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .focusRequester(focusRequester)
+                        .focusable()
+                        .onKeyEvent { event ->
+                            if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                            when (event.key) {
+                                Key.DirectionLeft -> { stepFrame(-1); true }
+                                Key.DirectionRight -> { stepFrame(1); true }
+                                else -> false
+                            }
+                        },
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -114,36 +153,29 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
 
                         val selectedIndex = tab.selectedFrame?.index
                         if (selectedIndex != null) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Button(
-                                    onClick = { selectFrame(frames[selectedIndex - 1]) },
-                                    enabled = selectedIndex > 0,
-                                ) { Text("◀ 이전 프레임", fontSize = 11.sp) }
-                                Text(
-                                    "${selectedIndex + 1} / ${frames.size}",
-                                    style = AppTypography.labelLarge.copy(fontSize = 11.sp, color = AppColors.TextSecondary),
-                                )
-                                Button(
-                                    onClick = { selectFrame(frames[selectedIndex + 1]) },
-                                    enabled = selectedIndex < frames.size - 1,
-                                ) { Text("다음 프레임 ▶", fontSize = 11.sp) }
-                            }
+                            Text(
+                                "${selectedIndex + 1} / ${frames.size} (◀ ▶ 키로 이동)",
+                                style = AppTypography.labelLarge.copy(fontSize = 11.sp, color = AppColors.TextSecondary),
+                            )
                         }
                     }
 
                     val maxSize = frames.maxOf { it.sizeBytes }.coerceAtLeast(1)
-                    // Highlights and auto-follows the frame at the current playback position (only
-                    // meaningful once the video has actually started playing, hence the >= 0 guard
-                    // against the 0.0 default before playback begins).
-                    val currentFrameIndex = remember(frames, tab.playbackElapsedSeconds) {
-                        if (tab.playbackElapsedSeconds <= 0.0) -1
-                        else frames.indexOfLast { it.ptsSeconds <= tab.playbackElapsedSeconds }
-                    }
                     LaunchedEffect(currentFrameIndex) {
                         if (currentFrameIndex < 0) return@LaunchedEffect
                         val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == currentFrameIndex }
                         if (!isVisible) {
                             listState.animateScrollToItem(currentFrameIndex)
+                        }
+                    }
+                    // Keeps a keyboard/click-selected frame in view too -- without this, stepping
+                    // past the visible window with the arrow keys would move the selection out of
+                    // sight with no way to tell where it landed.
+                    LaunchedEffect(tab.selectedFrame) {
+                        val index = tab.selectedFrame?.index ?: return@LaunchedEffect
+                        val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == index }
+                        if (!isVisible) {
+                            listState.animateScrollToItem(index)
                         }
                     }
                     LazyRow(
