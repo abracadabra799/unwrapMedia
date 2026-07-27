@@ -29,7 +29,9 @@ private const val RIGHT_PANEL_DEFAULT_WIDTH_DP = 260f
 private const val RIGHT_PANEL_MAX_WIDTH_DP = 1000f
 
 // Thin draggable strip between two side-by-side panels. onDragDeltaDp receives the horizontal
-// drag delta in dp -- the caller decides which panel (and which sign) that delta grows.
+// drag delta in dp -- the caller decides which panel (and which sign) that delta grows. A
+// highlight/shadow pair (rather than one flat-color fill) gives it a raised-ridge look instead of
+// reading as just another flat line among the panel borders.
 @Composable
 private fun VerticalResizeHandle(onDragDeltaDp: (Float) -> Unit) {
     val density = LocalDensity.current
@@ -37,14 +39,16 @@ private fun VerticalResizeHandle(onDragDeltaDp: (Float) -> Unit) {
         modifier = Modifier
             .width(6.dp)
             .fillMaxHeight()
-            .background(AppColors.Border)
             .pointerInput(Unit) {
                 detectDragGestures { change, dragAmount ->
                     change.consume()
                     onDragDeltaDp(with(density) { dragAmount.x.toDp().value })
                 }
             },
-    )
+    ) {
+        Box(modifier = Modifier.align(Alignment.CenterStart).width(1.dp).fillMaxHeight().background(AppColors.DividerHighlight))
+        Box(modifier = Modifier.align(Alignment.CenterEnd).width(1.dp).fillMaxHeight().background(AppColors.DividerShadow))
+    }
 }
 
 @Composable

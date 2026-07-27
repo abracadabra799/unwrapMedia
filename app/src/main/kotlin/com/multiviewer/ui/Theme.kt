@@ -15,7 +15,14 @@ object AppColors {
     val Surface = Color(0xFF242930)
     val Panel = Color(0xFF2A2F36)
     val Border = Color(0xFF30363D)
-    
+
+    // A flat single-color divider line read as flat on the dark background -- these two, used
+    // together (highlight on the side facing the notional light source, shadow on the other),
+    // give panel-resize handles a raised-ridge look instead: lighter than Border catches light,
+    // darker than Background casts a shadow.
+    val DividerHighlight = Color(0xFF3D444C)
+    val DividerShadow = Color(0xFF0D0F12)
+
     val NeonGreen = Color(0xFF39FF14)
     val NeonBlue = Color(0xFF00F3FF)
     val NeonPurple = Color(0xFFBC13FE)

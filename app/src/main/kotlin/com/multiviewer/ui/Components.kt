@@ -235,6 +235,11 @@ fun DraggableDivider(
     } else {
         Modifier.fillMaxWidth().height(1.dp)
     }
+    // Highlight on the side facing the notional light source (left for a vertical strip, top for
+    // a horizontal one), shadow on the other -- a raised-ridge look instead of one flat line,
+    // same treatment as DashboardLayout's VerticalResizeHandle.
+    val highlightAlignment = if (orientation == Orientation.Vertical) Alignment.CenterStart else Alignment.TopCenter
+    val shadowAlignment = if (orientation == Orientation.Vertical) Alignment.CenterEnd else Alignment.BottomCenter
     Box(
         modifier = handleModifier.pointerInput(orientation, containerSizePx) {
             detectDragGestures { change, dragAmount ->
@@ -246,9 +251,9 @@ fun DraggableDivider(
                 }
             }
         },
-        contentAlignment = Alignment.Center,
     ) {
-        Box(modifier = lineModifier.background(AppColors.Border))
+        Box(modifier = lineModifier.align(highlightAlignment).background(AppColors.DividerHighlight))
+        Box(modifier = lineModifier.align(shadowAlignment).background(AppColors.DividerShadow))
     }
 }
 
