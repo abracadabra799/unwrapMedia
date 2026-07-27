@@ -375,7 +375,7 @@ fun FfmpegVideoPlayer(
             Image(bitmap = currentFrame, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
         } else {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Decoding stream...", color = Color.Gray)
+                DecodingIndicator("동영상 디코딩 중...")
                 Text("File: ${file.name}", color = Color.DarkGray, fontSize = 11.sp)
             }
         }

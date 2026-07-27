@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -67,7 +68,14 @@ fun ImageInspectorUI(
                     ) {
                         forensic.embeddedThumbnail?.let {
                             PixelInspectorPreview(it)
-                        } ?: Text("No Embedded Thumbnail", color = Color.Gray, fontSize = 13.sp)
+                        } ?: if (forensic.isDecodingFallback && forensic.hasThumbnailReference) {
+                            // The file structurally has a thumbnail (hasThumbnailReference) but
+                            // the fast synchronous extraction pass didn't find it -- it's still
+                            // being pulled out via the async ffmpeg fallback, not genuinely absent.
+                            DecodingIndicator("썸네일 로딩 중...")
+                        } else {
+                            Text("No Embedded Thumbnail", color = Color.Gray, fontSize = 13.sp)
+                        }
 
                         Text("EMBEDDED EXIF THUMBNAIL",
                             modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
@@ -94,11 +102,11 @@ fun ImageInspectorUI(
                     ) {
                         forensic.bitmap?.let {
                             PixelInspectorPreview(it)
-                        } ?: Text(
-                            if (forensic.isDecodingFallback) "Decoding via ffmpeg..." else "Primary Image Decoding Failed",
-                            color = if (forensic.isDecodingFallback) AppColors.TextSecondary else AppColors.NeonRed,
-                            fontSize = 13.sp,
-                        )
+                        } ?: if (forensic.isDecodingFallback) {
+                            DecodingIndicator("이미지 디코딩 중...")
+                        } else {
+                            Text("Primary Image Decoding Failed", color = AppColors.NeonRed, fontSize = 13.sp)
+                        }
 
                         Text("PRIMARY IMAGE VIEW",
                             modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
@@ -167,7 +175,15 @@ fun ImageInspectorUI(
                                 "🎬 동영상(모션포토) 분석 요약", videoSections,
                                 titleTrailingContent = {
                                     if (tab.isAnalyzingMotionPhotoCodec) {
-                                        Text("분석 중...", color = AppColors.TextSecondary, fontSize = 12.sp)
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(12.dp),
+                                                color = AppColors.NeonBlue,
+                                                strokeWidth = 1.5.dp,
+                                            )
+                                            Spacer(Modifier.width(6.dp))
+                                            Text("코덱 분석 중...", color = AppColors.TextSecondary, fontSize = 12.sp)
+                                        }
                                     } else if (!tab.motionPhotoCodecDetailsLoaded) {
                                         OutlinedButton(onClick = { appState.analyzeMotionPhotoCodecDetails(tab) }) {
                                             Text("코덱 상세정보 보기 ▶", fontSize = 12.sp)
