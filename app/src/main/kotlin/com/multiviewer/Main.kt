@@ -83,7 +83,9 @@ fun main() = application {
 
     val windowState = rememberWindowState(
         position = WindowPosition(Alignment.Center),
-        size = DpSize(1600.dp, 1000.dp),
+        // 1366x768 is still a common laptop resolution (notably on Windows) -- 1280x800 leaves
+        // room for the taskbar/title bar instead of the window opening larger than the screen.
+        size = DpSize(1280.dp, 800.dp),
     )
     Window(onCloseRequest = ::exitApplication, title = "unwrapMedia", state = windowState) {
         MenuBar {
