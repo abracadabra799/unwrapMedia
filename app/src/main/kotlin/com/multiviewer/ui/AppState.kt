@@ -184,7 +184,7 @@ class AppState {
         val tab = TabState(file)
         tabs.add(tab)
         selectedTabIndex = tabs.size - 1
-        Thread {
+        runInBackground {
             val frameCount = rawPixelFrameCount(file.length(), width, height, format)
             val bitmap = if (frameCount > 0) decodeRawPixelFile(file, width, height, format, byteOrder, frameIndex = 0) else null
             EventQueue.invokeLater {
@@ -213,7 +213,7 @@ class AppState {
                     tab.error = "지정한 해상도/포맷으로 픽셀 데이터를 해석할 수 없습니다 (파일 크기가 너무 작음)."
                 }
             }
-        }.apply { isDaemon = true }.start()
+        }
     }
 
     // Re-decodes a different frame of the currently-open raw pixel sequence. Runs on a background
@@ -224,14 +224,14 @@ class AppState {
         val clamped = frameIndex.coerceIn(0, (params.frameCount - 1).coerceAtLeast(0))
         if (clamped == tab.rawPixelFrameIndex) return
         tab.rawPixelFrameIndex = clamped
-        Thread {
+        runInBackground {
             val bitmap = decodeRawPixelFile(tab.file, params.width, params.height, params.format, params.byteOrder, clamped)
             EventQueue.invokeLater {
                 if (tab.rawPixelFrameIndex == clamped) {
                     tab.imageForensic = (tab.imageForensic ?: ImageForensicData()).copy(bitmap = bitmap)
                 }
             }
-        }.apply { isDaemon = true }.start()
+        }
     }
 
     fun openFile(file: File) {
@@ -358,7 +358,7 @@ class AppState {
                         // -- the preview/histogram fill in a moment later instead of gating "the
                         // file is open" on them.
                         tab.imageForensic = finalImageForensic.copy(isDecodingFallback = true)
-                        Thread {
+                        runInBackground {
                             val (bitmap, histogram) = ImageAnalyzer.decodePrimaryBitmapAndHistogram(file)
                             if (bitmap != null) {
                                 EventQueue.invokeLater {
@@ -378,7 +378,7 @@ class AppState {
                                     )
                                 }
                             }
-                        }.apply { isDaemon = true }.start()
+                        }
                     } else {
                         tab.imageForensic = finalImageForensic
                     }
@@ -406,20 +406,20 @@ class AppState {
     fun analyzeFrames(tab: TabState) {
         if (tab.isAnalyzingFrames || tab.gopFrames != null) return
         tab.isAnalyzingFrames = true
-        Thread {
+        runInBackground {
             val frames = probeFrameTypes(tab.file)
             EventQueue.invokeLater {
                 tab.gopFrames = frames ?: emptyList()
                 tab.isAnalyzingFrames = false
             }
-        }.apply { isDaemon = true }.start()
+        }
     }
 
     fun analyzeMotionPhotoCodecDetails(tab: TabState) {
         val video = tab.embeddedVideo ?: return
         if (tab.isAnalyzingMotionPhotoCodec || tab.motionPhotoCodecDetailsLoaded) return
         tab.isAnalyzingMotionPhotoCodec = true
-        Thread {
+        runInBackground {
             val temp = try {
                 val dest = File.createTempFile("motion-photo-codec-probe-", ".${video.extension}")
                 dest.deleteOnExit()
@@ -440,6 +440,6 @@ class AppState {
                 tab.motionPhotoCodecDetailsLoaded = true
                 tab.isAnalyzingMotionPhotoCodec = false
             }
-        }.apply { isDaemon = true }.start()
+        }
     }
 }

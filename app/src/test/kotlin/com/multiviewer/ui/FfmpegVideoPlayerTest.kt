@@ -105,6 +105,32 @@ class FfmpegVideoPlayerTest {
     }
 
     @Test
+    fun `watchForActualDimensions reads ffmpeg's own reported output size from real stderr output`() {
+        // Regression test: ffmpeg's stream description line for a rawvideo BGRA output includes a
+        // FourCC hex literal ("0x41524742") *before* the actual WxH later on the same line -- a
+        // naive \d+x\d+ search matches that hex literal ("0" x "41524742") instead of the real
+        // dimensions. This spawns the exact kind of process FfmpegVideoPlayer's DisposableEffect
+        // does and verifies the real output dimensions are extracted correctly, not the FourCC.
+        val video = File.createTempFile("ffmpeg-dims-test-", ".mp4")
+        video.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=1:size=96x64:rate=5",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", video.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val process = ProcessBuilder(
+            "ffmpeg", "-i", video.absolutePath, "-f", "rawvideo", "-pix_fmt", "bgra", "-an", "-",
+        ).start()
+        process.inputStream.close() // don't need the pixel data itself for this test
+
+        val dimensions = watchForActualDimensions(process, fallback = -1 to -1).get(5, java.util.concurrent.TimeUnit.SECONDS)
+
+        assertEquals(96 to 64, dimensions)
+        process.destroyForcibly()
+        video.delete()
+    }
+
+    @Test
     fun `probeVideo picks avg_frame_rate over r_frame_rate when they differ`() {
         // Regression test: ffprobe's csv=p=0 output does not preserve the field order given in
         // -show_entries -- it emits fields in the stream struct's internal order, so for videos
