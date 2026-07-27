@@ -21,9 +21,11 @@ import androidx.compose.ui.unit.dp
 private const val LEFT_PANEL_MIN_WIDTH_DP = 180f
 private const val LEFT_PANEL_MAX_WIDTH_DP = 700f
 // The right panel used to start at exactly its own minimum width, so there was no room left to
-// drag-shrink it -- only grow. Default now sits above the floor instead of on top of it.
-private const val RIGHT_PANEL_MIN_WIDTH_DP = 250f
-private const val RIGHT_PANEL_DEFAULT_WIDTH_DP = 350f
+// drag-shrink it -- only grow. Default now sits above the floor instead of on top of it. The user
+// can always drag it wider (or resize the whole window) when they need more room, so the default
+// favors leaving more space to the center preview instead.
+private const val RIGHT_PANEL_MIN_WIDTH_DP = 220f
+private const val RIGHT_PANEL_DEFAULT_WIDTH_DP = 260f
 private const val RIGHT_PANEL_MAX_WIDTH_DP = 1000f
 
 // Thin draggable strip between two side-by-side panels. onDragDeltaDp receives the horizontal
