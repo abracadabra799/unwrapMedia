@@ -350,18 +350,35 @@ class AppState {
                     tab.largeResolutionWarning = warning
                     tab.isLoading = false
 
-                    if (type == MediaType.IMAGE && finalImageForensic != null && finalImageForensic.bitmap == null) {
-                        // Skia has no HEIF/HEVC decoder — fall back to ffmpeg, async so the UI never blocks.
+                    if (type == MediaType.IMAGE && finalImageForensic != null) {
+                        // The primary pixel decode (a real Skia raster decode + histogram pass,
+                        // ~45ms+ measured for a large JPEG) runs here instead of inline in
+                        // ImageAnalyzer.analyze() above, so the tab is already interactive
+                        // (structure tree, hex view, metadata) the moment the cheap parse finishes
+                        // -- the preview/histogram fill in a moment later instead of gating "the
+                        // file is open" on them.
                         tab.imageForensic = finalImageForensic.copy(isDecodingFallback = true)
-                        FfmpegImageSnapshotDecoder.decodeFirstFrameAsync(file) { bitmap ->
-                            val current = tab.imageForensic ?: finalImageForensic
-                            tab.imageForensic = current.copy(
-                                bitmap = bitmap,
-                                embeddedThumbnail = current.embeddedThumbnail
-                                    ?: (bitmap.takeIf { current.hasThumbnailReference }),
-                                isDecodingFallback = false,
-                            )
-                        }
+                        Thread {
+                            val (bitmap, histogram) = ImageAnalyzer.decodePrimaryBitmapAndHistogram(file)
+                            if (bitmap != null) {
+                                EventQueue.invokeLater {
+                                    val current = tab.imageForensic ?: finalImageForensic
+                                    tab.imageForensic = current.copy(bitmap = bitmap, histogram = histogram, isDecodingFallback = false)
+                                }
+                            } else {
+                                // Skia has no HEIF/HEVC decoder — fall back to ffmpeg (already async
+                                // and posts back via EventQueue.invokeLater itself).
+                                FfmpegImageSnapshotDecoder.decodeFirstFrameAsync(file) { fallbackBitmap ->
+                                    val current = tab.imageForensic ?: finalImageForensic
+                                    tab.imageForensic = current.copy(
+                                        bitmap = fallbackBitmap,
+                                        embeddedThumbnail = current.embeddedThumbnail
+                                            ?: (fallbackBitmap.takeIf { current.hasThumbnailReference }),
+                                        isDecodingFallback = false,
+                                    )
+                                }
+                            }
+                        }.apply { isDaemon = true }.start()
                     } else {
                         tab.imageForensic = finalImageForensic
                     }

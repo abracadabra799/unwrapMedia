@@ -10,7 +10,25 @@ import kotlin.test.assertTrue
 
 class ImageAnalyzerTest {
     @Test
-    fun `histogram is populated from a real decodable JPEG without re-rasterizing the same image twice`() {
+    fun `analyze does not compute the primary bitmap or histogram -- that's decodePrimaryBitmapAndHistogram's job`() {
+        // Regression guard: the primary Skia raster decode + histogram pass is real, measurable
+        // work (a large JPEG's decode alone measured at ~45ms) -- analyze() must stay cheap so a
+        // file becomes interactive (structure tree, hex view) without waiting on it. Callers run
+        // decodePrimaryBitmapAndHistogram separately, off the synchronous open path.
+        val file = File.createTempFile("image-analyzer-fast-path-test", ".jpg")
+        file.deleteOnExit()
+        val image = BufferedImage(64, 48, BufferedImage.TYPE_INT_RGB)
+        ImageIO.write(image, "jpg", file)
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = file.length())
+
+        val forensic = ImageAnalyzer.analyze(file, root)
+
+        assertEquals(null, forensic.bitmap)
+        assertEquals(null, forensic.histogram)
+    }
+
+    @Test
+    fun `decodePrimaryBitmapAndHistogram decodes a real JPEG and computes its histogram without re-rasterizing twice`() {
         // Regression guard for the calculateHistogram(Bitmap) refactor: it must read pixel data
         // from the already-rasterized primaryBitmap (via asSkiaBitmap()) instead of a second,
         // redundant Bitmap.makeFromImage() rasterization of the original Image. Uses a real,
@@ -29,12 +47,9 @@ class ImageAnalyzerTest {
         file.deleteOnExit()
         ImageIO.write(image, "jpg", file)
 
-        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = file.length())
+        val (bitmap, histogram) = ImageAnalyzer.decodePrimaryBitmapAndHistogram(file)
 
-        val forensic = ImageAnalyzer.analyze(file, root)
-
-        assertTrue(forensic.bitmap != null, "Expected Skia to decode this real JPEG")
-        val histogram = forensic.histogram
+        assertTrue(bitmap != null, "Expected Skia to decode this real JPEG")
         assertTrue(histogram != null, "Expected a histogram for a successfully decoded image")
         assertEquals(256, histogram.r.size)
         assertEquals(256, histogram.b.size)

@@ -1,5 +1,6 @@
 package com.multiviewer.parser
 
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asSkiaBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import com.multiviewer.ui.HistogramData
@@ -10,32 +11,18 @@ import java.io.File
 private data class ThumbnailExtractionResult(val image: Image?, val hasThumbnailReference: Boolean)
 
 object ImageAnalyzer {
+    // Metadata/structure only -- deliberately does NOT touch the primary full-resolution pixel
+    // decode (see decodePrimaryBitmapAndHistogram below), so this stays cheap regardless of image
+    // size: a large JPEG's raster decode alone measured at ~45ms, and doing it here would block
+    // the file from becoming interactive (structure tree, hex view) until it finished. Callers run
+    // the primary decode separately, off AppState.openFile's synchronous path.
     fun analyze(file: File, root: BoxNode): ImageForensicData {
-        val bytes = file.readBytes()
-        
-        // 1. Primary Decode Attempt (Standard way)
-        val primaryImage = try {
-            Image.makeFromEncoded(bytes)
-        } catch (e: Exception) {
-            null
-        }
-        
         println("File Structure Trace: ${file.name}")
         traceNodes(root, 0)
 
-        // 2. Extract Embedded Thumbnail (Regardless of primary success)
         val thumbnailResult = tryExtractEmbeddedJpeg(file, root)
-
-        val primaryBitmap = primaryImage?.toComposeImageBitmap()
         val thumbBitmap = thumbnailResult.image?.toComposeImageBitmap()
 
-        // Reuse the Bitmap already rasterized above for primaryBitmap instead of rasterizing the
-        // same image a second time via Bitmap.makeFromImage() -- for a real photo-sized JPEG this
-        // redundant rasterization alone measured at ~45ms, roughly half of this function's total
-        // time (HEIC/HEIF files skip this whole path since Skia can't decode them at all, which is
-        // why they were disproportionately faster before this fix).
-        val histogram = primaryBitmap?.let { calculateHistogram(it.asSkiaBitmap()) }
-        
         var quality = 0
         var isModified = false
         var software: String? = null
@@ -58,15 +45,31 @@ object ImageAnalyzer {
             software?.contains("Adobe", ignoreCase = true) == true) isModified = true
 
         return ImageForensicData(
-            bitmap = primaryBitmap,
+            bitmap = null,
             embeddedThumbnail = thumbBitmap,
-            histogram = histogram,
+            histogram = null,
             dqtQuality = quality,
             software = software,
             isModified = isModified,
             orientation = orientationCode?.let { "${orientationLabel(it)} ($it)" },
             hasThumbnailReference = thumbnailResult.hasThumbnailReference,
         )
+    }
+
+    // The expensive part split out of analyze() above: a full-resolution Skia raster decode plus
+    // a histogram pass over it. Meant to be run off the caller's synchronous open path (see
+    // AppState.openFile) -- null bitmap means Skia couldn't decode this format at all (HEIC/HEVC
+    // and other HEIF-family stills), which callers use as the signal to fall back to
+    // FfmpegImageSnapshotDecoder instead.
+    fun decodePrimaryBitmapAndHistogram(file: File): Pair<ImageBitmap?, HistogramData?> {
+        val primaryImage = try {
+            Image.makeFromEncoded(file.readBytes())
+        } catch (e: Exception) {
+            null
+        }
+        val primaryBitmap = primaryImage?.toComposeImageBitmap()
+        val histogram = primaryBitmap?.let { calculateHistogram(it.asSkiaBitmap()) }
+        return primaryBitmap to histogram
     }
 
     private fun orientationLabel(code: Int): String = when (code) {
