@@ -21,6 +21,8 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.multiviewer.cli.runDumpCommand
+import kotlin.system.exitProcess
 import com.multiviewer.parser.EmbeddedVideo
 import com.multiviewer.parser.extractEmbeddedVideo
 import com.multiviewer.ui.*
@@ -109,7 +111,14 @@ private fun extractAudioTrackFromCurrentFile(appState: AppState, tab: TabState) 
     }
 }
 
-fun main() = application {
+fun main(args: Array<String>) {
+    if (args.firstOrNull() == "dump") {
+        exitProcess(runDumpCommand(args.drop(1)))
+    }
+    runGuiApplication()
+}
+
+private fun runGuiApplication() = application {
     val appState = remember { AppState() }
     
     // Log environment info for native library troubleshooting
