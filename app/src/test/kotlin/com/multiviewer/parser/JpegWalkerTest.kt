@@ -398,7 +398,7 @@ class JpegWalkerTest {
         assertEquals(15L, sos.size)
         assertEquals("3", sos.fields.first { it.name == "num_components" }.value)
         val selectors = sos.fields.filter { it.name == "component_selector" }.map { it.value }
-        assertEquals(listOf("1", "2", "3"), selectors)
+        assertEquals(listOf("1 (Y)", "2 (Cb)", "3 (Cr)"), selectors)
         val dcTables = sos.fields.filter { it.name == "dc_table" }.map { it.value }
         assertEquals(listOf("0", "1", "1"), dcTables)
         val acTables = sos.fields.filter { it.name == "ac_table" }.map { it.value }
