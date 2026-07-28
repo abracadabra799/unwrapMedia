@@ -28,8 +28,8 @@ fun buildMediaSummary(root: BoxNode, file: File): MediaSummary {
 
 private fun buildMotionPhotoVideoSummary(root: BoxNode, file: File): List<SummarySection>? {
     return try {
-        val video = findEmbeddedVideo(root) ?: return null
         ByteReader.open(file).use { reader ->
+            val video = findEmbeddedVideo(root, reader) ?: return null
             val videoBoxes = parseBoxes(reader, video.start, video.end)
             val videoRoot = BoxNode(
                 type = "root", offset = video.start, headerSize = 0,

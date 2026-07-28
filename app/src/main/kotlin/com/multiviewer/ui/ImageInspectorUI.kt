@@ -73,6 +73,12 @@ fun ImageInspectorUI(
                             // the fast synchronous extraction pass didn't find it -- it's still
                             // being pulled out via the async ffmpeg fallback, not genuinely absent.
                             DecodingIndicator("썸네일 로딩 중...")
+                        } else if (forensic.hasThumbnailReference) {
+                            // Decoding finished and the file does reference a thumbnail item, but
+                            // it couldn't be extracted (e.g. an HEVC-coded HEIC "thmb" item -- this
+                            // parser only decodes JPEG-coded thumbnail items today). Distinguish
+                            // this from "genuinely no thumbnail" rather than showing nothing.
+                            Text("Embedded Thumbnail Codec Not Supported", color = Color.Gray, fontSize = 13.sp)
                         } else {
                             Text("No Embedded Thumbnail", color = Color.Gray, fontSize = 13.sp)
                         }

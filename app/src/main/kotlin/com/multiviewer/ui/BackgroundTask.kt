@@ -1,5 +1,8 @@
 package com.multiviewer.ui
 
+import java.util.concurrent.Executors
+import java.util.concurrent.ThreadFactory
+
 // Fire-and-forget background work (image/video decode, ffprobe calls, etc.) must never let an
 // exception escape uncaught. Two concrete ways that went wrong before this existed:
 //  - FfmpegVideoPlayer's reader Thread had no try/catch at all -- closing a video tab calls
@@ -10,11 +13,22 @@ package com.multiviewer.ui
 //    codec probing) had no top-level try/catch either, so any decode/IO failure -- not just tab
 //    teardown -- would surface as an uncaught exception on a bare Thread instead of failing
 //    quietly for a fire-and-forget task.
-// Every background Thread in this app should be started through this helper instead of a raw
-// Thread { ... }, so that guarantee is centralized rather than repeated (and easy to miss) at
-// each call site.
+//
+// This used to spawn a brand-new raw Thread per call with no limit at all -- opening two files
+// close together (each open fires 1-2 of these for ffprobe + full-image decode/histogram) could
+// pile up several genuinely CPU-heavy tasks running fully in parallel, which is what "opening two
+// files makes the whole app stutter" actually was: not two tabs coexisting, but their one-time
+// open-time decode work all fighting for the CPU at once. Routing through a small fixed pool
+// instead serializes the overflow instead of letting it pile on -- a task queues briefly rather
+// than racing every other task for CPU/IO. Sized at 2 (matching MAX_OPEN_FILES): each open tab
+// gets a slot; a third task just waits its turn instead of adding a third contender.
+private val backgroundExecutor = Executors.newFixedThreadPool(
+    2,
+    ThreadFactory { runnable -> Thread(runnable).apply { isDaemon = true } },
+)
+
 fun runInBackground(block: () -> Unit) {
-    Thread {
+    backgroundExecutor.execute {
         try {
             block()
         } catch (e: InterruptedException) {
@@ -23,5 +37,5 @@ fun runInBackground(block: () -> Unit) {
         } catch (e: Exception) {
             System.err.println("Background task failed: $e")
         }
-    }.apply { isDaemon = true }.start()
+    }
 }

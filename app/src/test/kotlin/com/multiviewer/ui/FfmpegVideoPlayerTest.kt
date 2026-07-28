@@ -131,6 +131,30 @@ class FfmpegVideoPlayerTest {
     }
 
     @Test
+    fun `parseFfmpegOutputDimensionsLine matches real device footage lacking a SAR bracket`() {
+        // Regression test: this exact line (captured from a real iPhone-shot MOV with a non-90
+        // -180-270-degree rotation transform, ffmpeg 8.1.2) has no "[SAR ...]" suffix after the
+        // WxH -- the previous regex required one and silently never matched, falling back to
+        // probeVideo()'s predicted (and here, wrong) dimensions, which misaligned every raw frame
+        // boundary into a scrambled image.
+        val line = "  Stream #0:0(und): Video: rawvideo (BGRA / 0x41524742), " +
+            "bgra(pc, gbr/smpte432/bt709, progressive), 1308x1744, q=2-31, 4375436 kb/s, 59.94 fps, 59.94 tbn (default)"
+        assertEquals(1308 to 1744, parseFfmpegOutputDimensionsLine(line))
+    }
+
+    @Test
+    fun `parseFfmpegOutputDimensionsLine still matches when a SAR bracket is present`() {
+        val line = "Stream #0:0(und): Video: rawvideo (BGRA / 0x41524742), bgra(...), 480x640 [SAR 1:1 DAR 3:4], ..."
+        assertEquals(480 to 640, parseFfmpegOutputDimensionsLine(line))
+    }
+
+    @Test
+    fun `parseFfmpegOutputDimensionsLine does not false-positive on an input stream's FourCC hex literal alone`() {
+        val line = "  Stream #0:1(und): Video: hevc (Rext) (hvc1 / 0x31637668), gray(pc, smpte170m/smpte432/bt709), 256x192, 6 kb/s"
+        assertNull(parseFfmpegOutputDimensionsLine(line))
+    }
+
+    @Test
     fun `probeVideo picks avg_frame_rate over r_frame_rate when they differ`() {
         // Regression test: ffprobe's csv=p=0 output does not preserve the field order given in
         // -show_entries -- it emits fields in the stream struct's internal order, so for videos

@@ -13,6 +13,10 @@ private const val MAX_OPEN_FILES = 2
 
 private val IMAGE_EXTENSIONS = listOf(
     "jpg", "jpeg", "png", "bmp", "gif", "webp", "avif", "heic",
+    // Plain TIFF -- parseFile's magic-byte dispatch (isTiffMagic) and decodeTiff already handle
+    // this; it was only ever reachable via the camera RAW extensions below, so a standalone
+    // .tif/.tiff file was rejected by this extension gate before parsing was ever attempted.
+    "tif", "tiff",
     // Camera RAW formats -- all TIFF/EP-based, so the existing generic TIFF/IFD walker
     // (decodeTiff, already reached via parseFile's magic-byte detection) parses their structure
     // without a dedicated decoder. No full RAW/demosaic decode: ImageAnalyzer falls back to
@@ -317,7 +321,7 @@ class AppState {
                 }
 
                 val embeddedVideo = try {
-                    findEmbeddedVideo(root)
+                    ByteReader.open(file).use { reader -> findEmbeddedVideo(root, reader) }
                 } catch (e: Exception) {
                     null
                 }
@@ -383,10 +387,16 @@ class AppState {
                                 // and posts back via EventQueue.invokeLater itself).
                                 FfmpegImageSnapshotDecoder.decodeFirstFrameAsync(file) { fallbackBitmap ->
                                     val current = tab.imageForensic ?: finalImageForensic
+                                    // Do NOT substitute the full-resolution primary decode as the
+                                    // "thumbnail" when the real embedded thumbnail item couldn't be
+                                    // extracted (e.g. an HEVC-coded HEIC "thmb" item -- this parser
+                                    // only decodes JPEG-coded thumbnail items) -- that previously
+                                    // showed a full-size duplicate of the primary image mislabeled
+                                    // as the thumbnail. Leaving it null lets the UI correctly say
+                                    // the thumbnail couldn't be decoded instead of showing wrong
+                                    // pixels at the wrong size.
                                     tab.imageForensic = current.copy(
                                         bitmap = fallbackBitmap,
-                                        embeddedThumbnail = current.embeddedThumbnail
-                                            ?: (fallbackBitmap.takeIf { current.hasThumbnailReference }),
                                         isDecodingFallback = false,
                                     )
                                 }

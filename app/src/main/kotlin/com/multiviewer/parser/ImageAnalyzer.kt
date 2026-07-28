@@ -160,6 +160,10 @@ object ImageAnalyzer {
             // --- Strategy 3: Brute Force Magic Byte Scan (Last Ditch) ---
             val scanLimit = minOf(reader.length, 4_000_000L)
             for (pos in findJpegMagicOffsets(reader, 0L, scanLimit)) {
+                // Offset 0 is always the primary/outer image's own SOI, never a nested thumbnail --
+                // matching it here previously caused files with no real embedded thumbnail to show
+                // a truncated (1MB-capped) copy of the primary image as a fake "thumbnail".
+                if (pos == 0L) continue
                 try {
                     val possibleImg = Image.makeFromEncoded(reader.readBytes(pos, (reader.length - pos).toInt().coerceAtMost(1_000_000)))
                     if (possibleImg != null && possibleImg.width > 10) return@use possibleImg
