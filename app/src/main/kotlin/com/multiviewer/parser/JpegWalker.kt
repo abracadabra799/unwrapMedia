@@ -379,7 +379,7 @@ private fun decodeSos(reader: ByteReader, name: String, offset: Long, declaredSi
         if (pos + 2 > payloadEnd) break
         val selector = reader.readUInt8(pos)
         val tables = reader.readUInt8(pos + 1)
-        fields.add(BoxField("component_selector", selector.toString(), pos, 1))
+        fields.add(BoxField("component_selector", componentName(selector), pos, 1))
         fields.add(BoxField("dc_table", (tables shr 4).toString(), pos + 1, 1))
         fields.add(BoxField("ac_table", (tables and 0x0F).toString(), pos + 1, 1))
         componentCount += 1
