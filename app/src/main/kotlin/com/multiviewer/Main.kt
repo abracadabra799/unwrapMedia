@@ -144,7 +144,7 @@ fun main() = application {
                     onClick = { currentTab?.let { extractMotionPhotoPreviewVideo(appState, it) } },
                 )
             }
-            Menu("추출") {
+            Menu("비트스트림 추출") {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val isVideo = currentTab?.type == MediaType.VIDEO
                 // "Video"/"Audio" summary sections are only built (buildVideoSummary,
@@ -154,12 +154,12 @@ fun main() = application {
                 val hasVideoTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Video" } == true
                 val hasAudioTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Audio" } == true
                 Item(
-                    "video track 추출",
+                    "비디오 추출 (.mp4 or .mov etc)",
                     enabled = hasVideoTrack,
                     onClick = { currentTab?.let { extractVideoTrackFromCurrentFile(appState, it) } },
                 )
                 Item(
-                    "audio track 추출",
+                    "오디오 추출 (.m4a)",
                     enabled = hasAudioTrack,
                     onClick = { currentTab?.let { extractAudioTrackFromCurrentFile(appState, it) } },
                 )
