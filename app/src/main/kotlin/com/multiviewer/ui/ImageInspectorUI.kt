@@ -21,9 +21,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.asSkiaBitmap
 import com.multiviewer.parser.BoxNode
 import com.multiviewer.parser.EmbeddedVideo
 import com.multiviewer.parser.extractEmbeddedVideo
+import com.multiviewer.parser.ScanStatistics
+import com.multiviewer.parser.computeScanStatistics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -299,6 +302,9 @@ fun DetailedPropertiesPanel(tab: TabState) {
                 selectedNode.table?.let { table ->
                     item { EmbeddedTableView(tab.file, table) }
                 }
+                if (selectedNode.type == "SOS") {
+                    item { SosScanStatistics(tab, selectedNode) }
+                }
                 if (selectedNode.warnings.isNotEmpty()) {
                     item {
                         Spacer(Modifier.height(8.dp))
@@ -345,5 +351,36 @@ fun DetailedPropertiesPanel(tab: TabState) {
                 Text("✓ 구조적 이상 없음", style = AppTypography.bodyLarge.copy(color = AppColors.NeonGreen))
             }
         }
+    }
+}
+
+@Composable
+private fun SosScanStatistics(tab: TabState, selectedNode: BoxNode) {
+    val forensic = tab.imageForensic
+    val bitmap = forensic?.bitmap
+    if (bitmap == null) {
+        if (forensic?.isDecodingFallback == true) {
+            Spacer(Modifier.height(8.dp))
+            DecodingIndicator("이미지 디코딩 대기 중...")
+        }
+        return
+    }
+
+    var stats by remember(selectedNode, bitmap) { mutableStateOf<ScanStatistics?>(null) }
+    LaunchedEffect(selectedNode, bitmap) {
+        stats = withContext(Dispatchers.IO) { computeScanStatistics(bitmap.asSkiaBitmap()) }
+    }
+
+    Spacer(Modifier.height(8.dp))
+    Text("Scan Statistics:", style = AppTypography.labelLarge.copy(color = AppColors.NeonBlue))
+    val current = stats
+    if (current == null) {
+        DecodingIndicator("통계 계산 중...")
+    } else {
+        PropertyRow("Average Pixel Luminance (Y)", "%.1f (range: 0..255)".format(current.averageLuminance))
+        PropertyRow(
+            "Brightest Pixel",
+            "RGB=[${current.brightestR}, ${current.brightestG}, ${current.brightestB}] @ (${current.brightestX}, ${current.brightestY})",
+        )
     }
 }
