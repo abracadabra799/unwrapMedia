@@ -393,4 +393,56 @@ class AppStateTest {
         assertEquals(true, tab.mediaSummary?.sections?.none { it.title == "Video" })
         audio.delete()
     }
+
+    @Test
+    fun `openFile opens a real WAV as MediaType_AUDIO with a populated Audio section`() {
+        // WAV's root "RIFF" node uses the exact same node type as WebP's own RIFF-prefixed root
+        // (see WavWalker/WebpWalker) -- this test guards against detectCategory misclassifying it.
+        val audio = File.createTempFile("appstate-wav-test-", ".wav")
+        audio.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "sine=duration=1:frequency=440",
+            "-c:a", "pcm_s16le", audio.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val appState = AppState()
+        appState.openFile(audio)
+        val tab = appState.tabs.single()
+        waitForLoad(tab)
+
+        assertEquals(null, tab.error)
+        assertEquals(MediaType.AUDIO, tab.type)
+        val generalSection = tab.mediaSummary?.sections?.find { it.title == "General" }
+        assertTrue(generalSection?.fields?.any { it.label == "Format" && it.value == "WAV" } == true, "Expected General/Format=WAV, got: $generalSection")
+        val audioSection = tab.mediaSummary?.sections?.find { it.title == "Audio" }
+        assertTrue(audioSection?.fields?.any { it.label == "Format" && it.value == "PCM" } == true, "Expected Audio/Format=PCM, got: $audioSection")
+        assertTrue(audioSection?.fields?.any { it.label == "Bit Depth" && it.value == "16-bit" } == true, "Expected Audio/Bit Depth=16-bit, got: $audioSection")
+        audio.delete()
+    }
+
+    @Test
+    fun `openFile opens a real MP3 as MediaType_AUDIO with ID3v2 tags and audio frame details`() {
+        val audio = File.createTempFile("appstate-mp3-test-", ".mp3")
+        audio.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "sine=duration=1:frequency=440",
+            "-c:a", "libmp3lame", "-metadata", "title=Test Title", "-metadata", "artist=Test Artist",
+            audio.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val appState = AppState()
+        appState.openFile(audio)
+        val tab = appState.tabs.single()
+        waitForLoad(tab)
+
+        assertEquals(null, tab.error)
+        assertEquals(MediaType.AUDIO, tab.type)
+        val generalSection = tab.mediaSummary?.sections?.find { it.title == "General" }
+        assertTrue(generalSection?.fields?.any { it.label == "Format" && it.value == "MP3" } == true, "Expected General/Format=MP3, got: $generalSection")
+        assertTrue(generalSection?.fields?.any { it.label == "Title" && it.value == "Test Title" } == true, "Expected General/Title=Test Title, got: $generalSection")
+        assertTrue(generalSection?.fields?.any { it.label == "Artist" && it.value == "Test Artist" } == true, "Expected General/Artist=Test Artist, got: $generalSection")
+        val audioSection = tab.mediaSummary?.sections?.find { it.title == "Audio" }
+        assertTrue(audioSection?.fields?.any { it.label == "Bit Rate" } == true, "Expected an Audio/Bit Rate field, got: $audioSection")
+        audio.delete()
+    }
 }

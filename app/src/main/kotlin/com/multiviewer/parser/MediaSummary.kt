@@ -1,6 +1,6 @@
 package com.multiviewer.parser
 
-enum class MediaCategory { IMAGE, VIDEO }
+enum class MediaCategory { IMAGE, VIDEO, AUDIO }
 
 data class SummaryField(
     val label: String,

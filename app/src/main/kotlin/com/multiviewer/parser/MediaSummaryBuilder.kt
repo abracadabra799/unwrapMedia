@@ -12,10 +12,10 @@ private val CODEC_DISPLAY_NAMES = mapOf(
 
 fun buildMediaSummary(root: BoxNode, file: File): MediaSummary {
     val category = detectCategory(root)
-    val sections = if (category == MediaCategory.IMAGE) {
-        buildImageSummary(root, file)
-    } else {
-        buildVideoSummary(root, file.length())
+    val sections = when (category) {
+        MediaCategory.IMAGE -> buildImageSummary(root, file)
+        MediaCategory.VIDEO -> buildVideoSummary(root, file.length())
+        MediaCategory.AUDIO -> buildStandaloneAudioSummary(root, file.length())
     }
     val motionPhotoVideoSections = if (category == MediaCategory.IMAGE) {
         buildMotionPhotoVideoSummary(root, file)
@@ -59,6 +59,12 @@ private fun detectCategory(root: BoxNode): MediaCategory {
     val majorBrand = ftyp?.fields?.find { it.name == "major_brand" }?.value
     if (majorBrand == "avif" || majorBrand == "avis" || majorBrand == "heic") return MediaCategory.IMAGE
     
+    // WAV and WebP both put a "RIFF" node at the root (WebP stores its form-type in a field,
+    // not the node's own type string), so a WAV check can't key off "RIFF" alone -- "fmt " is
+    // WAV-specific and never appears in a WebP tree.
+    if (root.children.any { it.type == "fmt " }) return MediaCategory.AUDIO
+    if (root.children.any { it.type == "ID3v2" || it.type == "AudioFrames" || it.type == "ID3v1" }) return MediaCategory.AUDIO
+
     val moov = root.children.find { it.type == "moov" } ?: return MediaCategory.IMAGE
     val hasVideoOrAudioTrack = moov.children.filter { it.type == "trak" }.any { trak ->
         val handlerType = findFirst(trak) { it.type == "hdlr" }?.fields?.find { it.name == "handler_type" }?.value
@@ -363,6 +369,75 @@ private fun buildAudioDetail(audioTrak: BoxNode?): SummarySection? {
     return if (fields.isNotEmpty()) SummarySection("Audio", fields) else null
 }
 
+private val MP3_TEXT_FRAME_LABELS = setOf("TIT2", "TPE1", "TALB", "TYER", "TDRC", "TCON", "TRCK", "TCOM", "TENC", "TSSE")
+private val ID3V1_FIELD_LABELS = mapOf("title" to "Title", "artist" to "Artist", "album" to "Album", "year" to "Year", "comment" to "Comment")
+
+private fun buildStandaloneAudioSummary(root: BoxNode, fileSizeBytes: Long): List<SummarySection> {
+    val fmt = root.children.find { it.type == "fmt " }
+    return if (fmt != null) buildWavSummary(root, fmt, fileSizeBytes) else buildMp3Summary(root, fileSizeBytes)
+}
+
+private fun buildWavSummary(root: BoxNode, fmt: BoxNode, fileSizeBytes: Long): List<SummarySection> {
+    val generalFields = mutableListOf(
+        SummaryField("Format", "WAV"),
+        SummaryField("File Size", formatFileSize(fileSizeBytes)),
+    )
+
+    val byteRate = fmt.fields.find { it.name == "byte_rate" }?.value?.toDoubleOrNull()
+    val dataChunk = root.children.find { it.type == "data" }
+    val dataSize = dataChunk?.let { it.size - it.headerSize }
+    if (byteRate != null && byteRate > 0 && dataSize != null) {
+        generalFields.add(SummaryField("Duration", formatDuration(dataSize / byteRate)))
+        generalFields.add(SummaryField("Overall Bit Rate", formatBitrate(byteRate * 8)))
+    }
+
+    val audioFields = mutableListOf<SummaryField>()
+    fmt.fields.find { it.name == "audio_format" }?.let { audioFields.add(SummaryField("Format", it.value)) }
+    fmt.fields.find { it.name == "sample_rate" }?.let { audioFields.add(SummaryField("Sampling Rate", "${it.value} Hz")) }
+    fmt.fields.find { it.name == "num_channels" }?.let { audioFields.add(SummaryField("Channel(s)", it.value)) }
+    fmt.fields.find { it.name == "bits_per_sample" }?.let { audioFields.add(SummaryField("Bit Depth", "${it.value}-bit")) }
+
+    return listOf(SummarySection("General", generalFields), SummarySection("Audio", audioFields))
+}
+
+private fun buildMp3Summary(root: BoxNode, fileSizeBytes: Long): List<SummarySection> {
+    val generalFields = mutableListOf(
+        SummaryField("Format", "MP3"),
+        SummaryField("File Size", formatFileSize(fileSizeBytes)),
+    )
+
+    val id3v2 = root.children.find { it.type == "ID3v2" }
+    if (id3v2 != null) {
+        id3v2.children.filter { it.type in MP3_TEXT_FRAME_LABELS }.forEach { frame ->
+            frame.fields.firstOrNull()?.let { field -> generalFields.add(SummaryField(field.name, field.value)) }
+        }
+    } else {
+        val id3v1 = root.children.find { it.type == "ID3v1" }
+        id3v1?.fields?.forEach { field ->
+            val label = ID3V1_FIELD_LABELS[field.name] ?: return@forEach
+            if (field.value.isNotBlank()) generalFields.add(SummaryField(label, field.value))
+        }
+    }
+
+    val frames = root.children.find { it.type == "AudioFrames" }
+    val audioFields = mutableListOf<SummaryField>()
+    frames?.fields?.find { it.name == "mpeg_version" }?.let { audioFields.add(SummaryField("Format", "MPEG Audio (${it.value})")) }
+    frames?.fields?.find { it.name == "bitrate" }?.let { audioFields.add(SummaryField("Bit Rate", it.value)) }
+    frames?.fields?.find { it.name == "sample_rate" }?.let { audioFields.add(SummaryField("Sampling Rate", it.value)) }
+    frames?.fields?.find { it.name == "channel_mode" }?.let { audioFields.add(SummaryField("Channel Mode", it.value)) }
+
+    val bitrateKbps = frames?.fields?.find { it.name == "bitrate" }?.value?.removeSuffix(" kbps")?.toDoubleOrNull()
+    if (bitrateKbps != null && bitrateKbps > 0) {
+        val durationSeconds = (fileSizeBytes * 8) / (bitrateKbps * 1000)
+        generalFields.add(SummaryField("Duration", formatDuration(durationSeconds)))
+        generalFields.add(SummaryField("Overall Bit Rate", formatBitrate(bitrateKbps * 1000)))
+    }
+
+    val sections = mutableListOf(SummarySection("General", generalFields))
+    if (audioFields.isNotEmpty()) sections.add(SummarySection("Audio", audioFields))
+    return sections
+}
+
 private fun formatDuration(seconds: Double): String {
     val totalMs = (seconds * 1000).toLong()
     val h = totalMs / 3_600_000
@@ -389,6 +464,6 @@ fun mergeStreamCodecDetailsIntoSections(sections: List<SummarySection>, videoFie
 }
 
 fun mergeStreamCodecDetails(summary: MediaSummary, videoFields: List<SummaryField>, audioFields: List<SummaryField>): MediaSummary {
-    if (summary.category != MediaCategory.VIDEO) return summary
+    if (summary.category == MediaCategory.IMAGE) return summary
     return summary.copy(sections = mergeStreamCodecDetailsIntoSections(summary.sections, videoFields, audioFields))
 }

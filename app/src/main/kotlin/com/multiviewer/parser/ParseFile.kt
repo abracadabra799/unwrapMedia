@@ -11,6 +11,8 @@ fun parseFile(path: File): BoxNode {
         val isGif = !isJpeg && !isPng && !isBmp && isGifMagic(reader)
         val isTiff = !isJpeg && !isPng && !isBmp && !isGif && isTiffMagic(reader)
         val isWebp = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && isWebpMagic(reader)
+        val isWav = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && isWavMagic(reader)
+        val isMp3 = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && isMp3Magic(reader)
         val children = when {
             isJpeg -> parseJpegSegments(reader, 0, reader.length)
             isPng -> parsePngChunks(reader, 8, reader.length)
@@ -18,6 +20,8 @@ fun parseFile(path: File): BoxNode {
             isGif -> parseGifBlocks(reader, 6, reader.length)
             isTiff -> decodeTiff(reader, 0, reader.length)
             isWebp -> parseWebpChunks(reader, 0, reader.length)
+            isWav -> parseWavChunks(reader, 0, reader.length)
+            isMp3 -> parseMp3(reader, 0, reader.length)
             else -> parseBoxes(reader, 0, reader.length)
         }
         return BoxNode(type = "root", offset = 0, headerSize = 0, size = reader.length, children = children)
@@ -56,4 +60,17 @@ private fun isTiffMagic(reader: ByteReader): Boolean {
 private fun isWebpMagic(reader: ByteReader): Boolean {
     if (reader.length < 12) return false
     return reader.readFourCC(0) == "RIFF" && reader.readFourCC(8) == "WEBP"
+}
+
+private fun isWavMagic(reader: ByteReader): Boolean {
+    if (reader.length < 12) return false
+    return reader.readFourCC(0) == "RIFF" && reader.readFourCC(8) == "WAVE"
+}
+
+private fun isMp3Magic(reader: ByteReader): Boolean {
+    if (reader.length >= 3 && String(reader.readBytes(0, 3), Charsets.US_ASCII) == "ID3") return true
+    if (reader.length < 2) return false
+    val b0 = reader.readUInt8(0)
+    val b1 = reader.readUInt8(1)
+    return b0 == 0xFF && (b1 and 0xE0) == 0xE0
 }

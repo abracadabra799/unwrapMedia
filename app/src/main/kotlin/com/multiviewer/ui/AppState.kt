@@ -25,10 +25,10 @@ private val VIDEO_EXTENSIONS = listOf("mp4", "mov", "m4v")
 // audio-only track (AAC, ALAC, or AC-3) -- parseFile's magic-byte dispatch already reaches the
 // same generic ISOBMFF box walker for it with no new parser needed, and MediaSummaryBuilder's
 // detectCategory/buildVideoSummary already handle a video-less "soun"-only moov correctly (that
-// code predates this extension even being routed here). Other requested audio formats (MP3, WAV,
-// FLAC, OGG) use genuinely different container structures and need their own parsers -- not
-// included yet.
-private val AUDIO_EXTENSIONS = listOf("m4a")
+// code predates this extension even being routed here). MP3 and WAV have their own dedicated
+// parsers (Mp3Walker/WavWalker). FLAC and OGG use genuinely different container structures and
+// still need their own parsers -- not included yet.
+private val AUDIO_EXTENSIONS = listOf("m4a", "mp3", "wav")
 
 // Resolution guidance shared by the normal open flow (AppState.openFile) and the raw pixel dialog
 // (RawPixelOpenDialog) -- see README's "Supported Specs & Limits" section. Below WARN: no notice.
