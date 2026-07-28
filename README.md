@@ -6,11 +6,11 @@
 
 ## Key Features
 
-**Image Inspector** -- JPEG, PNG, BMP, GIF, WebP, AVIF, HEIC, plus camera RAW (CR2, NEF, ARW, DNG) via generic TIFF/IFD parsing.
+**Image Inspector** -- JPEG, PNG, BMP, GIF, WebP, AVIF, HEIC, TIFF, plus camera RAW (CR2, NEF, ARW, DNG) via generic TIFF/IFD parsing.
 - EXIF/TIFF metadata, GPS, Samsung MakerNote
 - XMP (pretty-printed), color histograms, JPEG DQT heatmap
-- Embedded thumbnail extraction, HEIC/HEVC preview decode via ffmpeg
-- Motion Photo support (Samsung-style: still + embedded video)
+- Embedded thumbnail extraction (JPEG- or HEVC-coded thumbnail items alike), HEIC/HEVC preview decode via ffmpeg
+- Motion Photo support (Samsung-style and Google-style: still + embedded video)
 
 **Video Inspector** -- MP4, MOV, M4V.
 - Built-in player (play/pause/seek), GOP frame-type graph (I/P/B, click-to-seek)
@@ -32,7 +32,7 @@
 
 | Category | Extensions |
 |---|---|
-| Image | `.jpg` `.jpeg` `.png` `.bmp` `.gif` `.webp` `.avif` `.heic` `.cr2` `.nef` `.arw` `.dng` |
+| Image | `.jpg` `.jpeg` `.png` `.bmp` `.gif` `.webp` `.avif` `.heic` `.tif` `.tiff` `.cr2` `.nef` `.arw` `.dng` |
 | Video | `.mp4` `.mov` `.m4v` |
 | Audio | `.m4a` `.mp3` `.wav` |
 | Raw pixel | `.raw` `.rgb` `.rgba` `.yuv` |
