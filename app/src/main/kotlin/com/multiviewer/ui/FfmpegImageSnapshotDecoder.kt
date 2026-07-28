@@ -2,6 +2,8 @@ package com.multiviewer.ui
 
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import com.multiviewer.parser.BoxNode
+import com.multiviewer.parser.extractHevcThumbnailAnnexB
 import org.jetbrains.skia.Image
 import java.awt.EventQueue
 import java.io.File
@@ -17,41 +19,76 @@ object FfmpegImageSnapshotDecoder {
 
     fun decodeFirstFrameAsync(file: File, onResult: (ImageBitmap?) -> Unit) {
         Thread {
-            val tempPng = try {
-                File.createTempFile("ffmpeg-snapshot-", ".png")
+            val result = decodeSingleFrameToBitmap(
+                listOf(FfmpegLocator.ffmpegPath(), "-y", "-i", file.absolutePath, "-frames:v", "1", "-update", "1"),
+            )
+            EventQueue.invokeLater { onResult(result) }
+        }.apply { isDaemon = true }.start()
+    }
+
+    // Decodes a HEIC's embedded "thmb" item (see extractHevcThumbnailAnnexB) via ffmpeg's raw HEVC
+    // demuxer -- this parser's own fast-path thumbnail extraction only handles JPEG-coded items;
+    // modern HEIC thumbnail items are commonly HEVC-coded instead, which is what this covers.
+    fun decodeEmbeddedHevcThumbnailAsync(file: File, root: BoxNode, onResult: (ImageBitmap?) -> Unit) {
+        Thread {
+            val annexB = try {
+                extractHevcThumbnailAnnexB(file, root)
+            } catch (e: Exception) {
+                null
+            }
+            if (annexB == null) {
+                EventQueue.invokeLater { onResult(null) }
+                return@Thread
+            }
+            val tempH265 = try {
+                File.createTempFile("hevc-thumb-item-", ".h265")
             } catch (e: Exception) {
                 EventQueue.invokeLater { onResult(null) }
                 return@Thread
             }
-            tempPng.deleteOnExit()
-
+            tempH265.deleteOnExit()
             val result = try {
-                val process = ProcessBuilder(
-                    FfmpegLocator.ffmpegPath(), "-y", "-i", file.absolutePath,
-                    "-frames:v", "1", "-update", "1",
-                    tempPng.absolutePath,
+                tempH265.writeBytes(annexB)
+                decodeSingleFrameToBitmap(
+                    listOf(FfmpegLocator.ffmpegPath(), "-y", "-f", "hevc", "-i", tempH265.absolutePath, "-frames:v", "1", "-update", "1"),
                 )
-                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
-                    .redirectError(ProcessBuilder.Redirect.DISCARD)
-                    .start()
-
-                val finished = process.waitFor(TIMEOUT_MS, TimeUnit.MILLISECONDS)
-                if (!finished) {
-                    process.destroyForcibly()
-                    null
-                } else if (process.exitValue() != 0 || tempPng.length() == 0L) {
-                    null
-                } else {
-                    Image.makeFromEncoded(tempPng.readBytes()).toComposeImageBitmap()
-                }
-            } catch (e: Exception) {
-                // ProcessBuilder.start() throws IOException when `ffmpeg` isn't on PATH.
-                null
             } finally {
-                tempPng.delete()
+                tempH265.delete()
             }
-
             EventQueue.invokeLater { onResult(result) }
         }.apply { isDaemon = true }.start()
+    }
+
+    // Shared "ffmpeg <inputArgs> -> one PNG frame -> Skia decode" pipeline. Runs synchronously on
+    // the caller's own thread (both call sites above already run off a dedicated background Thread).
+    private fun decodeSingleFrameToBitmap(inputArgs: List<String>): ImageBitmap? {
+        val tempPng = try {
+            File.createTempFile("ffmpeg-snapshot-", ".png")
+        } catch (e: Exception) {
+            return null
+        }
+        tempPng.deleteOnExit()
+
+        return try {
+            val process = ProcessBuilder(inputArgs + listOf(tempPng.absolutePath))
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
+                .start()
+
+            val finished = process.waitFor(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            if (!finished) {
+                process.destroyForcibly()
+                null
+            } else if (process.exitValue() != 0 || tempPng.length() == 0L) {
+                null
+            } else {
+                Image.makeFromEncoded(tempPng.readBytes()).toComposeImageBitmap()
+            }
+        } catch (e: Exception) {
+            // ProcessBuilder.start() throws IOException when `ffmpeg` isn't on PATH.
+            null
+        } finally {
+            tempPng.delete()
+        }
     }
 }
