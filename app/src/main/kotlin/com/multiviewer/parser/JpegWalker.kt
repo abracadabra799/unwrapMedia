@@ -341,6 +341,17 @@ private fun decodeDht(reader: ByteReader, name: String, offset: Long, declaredSi
             break
         }
         val className = if (tableClass == 0) "DC" else "AC"
+        val symbolsStart = pos + 1 + 16
+        val codeLengthFields = mutableListOf<BoxField>()
+        var symbolPos = symbolsStart
+        for (length in 1..16) {
+            val count = bitCounts[length - 1]
+            if (count == 0) continue
+            val symbols = reader.readBytes(symbolPos, count)
+            val hexList = symbols.joinToString(", ") { (it.toInt() and 0xFF).toString(16).uppercase().padStart(2, '0') }
+            codeLengthFields.add(BoxField("codes_length_${length.toString().padStart(2, '0')}", hexList, symbolPos, count.toLong()))
+            symbolPos += count
+        }
         children.add(
             BoxNode(
                 type = "HuffmanTable",
@@ -352,7 +363,7 @@ private fun decodeDht(reader: ByteReader, name: String, offset: Long, declaredSi
                     BoxField("destination_id", destinationId.toString(), pos, 1),
                     BoxField("bit_counts", bitCounts.joinToString(", "), pos + 1, 16),
                     BoxField("total_codes", totalCodes.toString(), pos + 1, 16),
-                ),
+                ) + codeLengthFields,
                 summary = "$className table $destinationId, $totalCodes code(s)",
             ),
         )
