@@ -383,6 +383,32 @@ class JpegWalkerTest {
     }
 
     @Test
+    fun `DHT exposes per-bit-length symbol code lists`() {
+        val bytes = byteArrayOf(
+            0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xc4.toByte(), 0x00, 0x16, 0x00,
+            0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xaa.toByte(), 0xbb.toByte(), 0xcc.toByte(), 0xff.toByte(), 0xd9.toByte(),
+        )
+        val reader = byteReaderOf(bytes)
+        val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
+
+        assertEquals(listOf("SOI", "DHT", "EOI"), segments.map { it.type })
+        val table = segments[1].children[0]
+        assertEquals("DC", table.fields.first { it.name == "class" }.value)
+        assertEquals("0", table.fields.first { it.name == "destination_id" }.value)
+        assertEquals("3", table.fields.first { it.name == "total_codes" }.value)
+        // bit_counts[0] (length 1) = 2 codes -> symbols 0xAA, 0xBB
+        assertEquals("AA, BB", table.fields.first { it.name == "codes_length_01" }.value)
+        // bit_counts[1] (length 2) = 1 code -> symbol 0xCC
+        assertEquals("CC", table.fields.first { it.name == "codes_length_02" }.value)
+        // every other length has 0 codes -- no field emitted
+        assertEquals(null, table.fields.find { it.name == "codes_length_03" })
+        assertEquals(null, table.fields.find { it.name == "codes_length_16" })
+        reader.close()
+    }
+
+    @Test
     fun `SOS header decodes component selectors, spectral selection, and successive approximation`() {
         val bytes = byteArrayOf(
             0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xda.toByte(), 0x00, 0x0c, 0x03, 0x01,
