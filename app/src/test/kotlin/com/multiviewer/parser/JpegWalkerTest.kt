@@ -41,9 +41,10 @@ class JpegWalkerTest {
         assertEquals("480", sof0.fields.first { it.name == "height" }.value)
         assertEquals("640", sof0.fields.first { it.name == "width" }.value)
         assertEquals("1", sof0.fields.first { it.name == "num_components" }.value)
-        assertEquals("1", sof0.fields.first { it.name == "component_id" }.value)
-        assertEquals("0x11", sof0.fields.first { it.name == "sampling_factors" }.value)
-        assertEquals("0", sof0.fields.first { it.name == "quantization_table" }.value)
+        assertEquals("Landscape", sof0.fields.first { it.name == "orientation" }.value)
+        assertEquals("1 (Y)", sof0.fields.first { it.name == "component_id" }.value)
+        assertEquals("0x11 (1x1)", sof0.fields.first { it.name == "sampling_factors" }.value)
+        assertEquals("0 (Luminance)", sof0.fields.first { it.name == "quantization_table" }.value)
         assertEquals("640x480, 1 component(s)", sof0.summary)
         reader.close()
     }
@@ -192,7 +193,7 @@ class JpegWalkerTest {
         val table = dqt.children[0]
         assertEquals("QuantizationTable", table.type)
         assertEquals("0", table.fields.first { it.name == "precision" }.value)
-        assertEquals("0", table.fields.first { it.name == "destination_id" }.value)
+        assertEquals("0 (Luminance)", table.fields.first { it.name == "destination_id" }.value)
         assertEquals("~50%", table.fields.first { it.name == "quality_estimate" }.value)
         val expectedRaster = listOf(
             16, 11, 10, 16, 24, 40, 51, 61,
@@ -235,8 +236,8 @@ class JpegWalkerTest {
 
         val dqt = segments[1]
         assertEquals(2, dqt.children.size)
-        assertEquals("0", dqt.children[0].fields.first { it.name == "destination_id" }.value)
-        assertEquals("1", dqt.children[1].fields.first { it.name == "destination_id" }.value)
+        assertEquals("0 (Luminance)", dqt.children[0].fields.first { it.name == "destination_id" }.value)
+        assertEquals("1 (Chrominance)", dqt.children[1].fields.first { it.name == "destination_id" }.value)
         assertEquals("~50%", dqt.children[0].fields.first { it.name == "quality_estimate" }.value)
         assertEquals("~50%", dqt.children[1].fields.first { it.name == "quality_estimate" }.value)
         assertEquals("2 quantization table(s)", dqt.summary)
