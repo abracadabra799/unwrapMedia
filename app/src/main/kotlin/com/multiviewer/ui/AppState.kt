@@ -375,6 +375,21 @@ class AppState {
                         // -- the preview/histogram fill in a moment later instead of gating "the
                         // file is open" on them.
                         tab.imageForensic = finalImageForensic.copy(isDecodingFallback = true)
+
+                        if (finalImageForensic.embeddedThumbnail == null && finalImageForensic.hasThumbnailReference) {
+                            // The fast/sync path (ImageAnalyzer.analyze) only decodes JPEG-coded
+                            // thumbnail items; a structural thumbnail reference with no decoded
+                            // image means it's very likely HEVC-coded instead (common in modern
+                            // HEIC files) -- try that specific path too, independently of the
+                            // primary image decode below.
+                            FfmpegImageSnapshotDecoder.decodeEmbeddedHevcThumbnailAsync(file, root) { thumbBitmap ->
+                                if (thumbBitmap != null) {
+                                    val current = tab.imageForensic ?: finalImageForensic
+                                    tab.imageForensic = current.copy(embeddedThumbnail = thumbBitmap)
+                                }
+                            }
+                        }
+
                         runInBackground {
                             val (bitmap, histogram) = ImageAnalyzer.decodePrimaryBitmapAndHistogram(file)
                             if (bitmap != null) {
