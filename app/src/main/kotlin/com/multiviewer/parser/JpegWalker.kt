@@ -30,6 +30,31 @@ private val NO_PAYLOAD_MARKERS = setOf(0x01, 0xD8, 0xD9) + (0xD0..0xD7).toSet()
 private fun markerName(marker: Int): String =
     MARKER_NAMES[marker] ?: "0x${marker.toString(16).padStart(2, '0').uppercase()}"
 
+// JPEG only defines destination IDs 0/1 by convention (not by spec) -- Luminance and Chrominance
+// respectively. Any other ID is left as a bare number. Shared by DQT's own destination_id field
+// and SOF's per-component quantization_table field (which references a DQT table by the same ID).
+private fun dqtDestinationLabel(id: Int): String = when (id) {
+    0 -> "$id (Luminance)"
+    1 -> "$id (Chrominance)"
+    else -> id.toString()
+}
+
+// Same convention-not-spec caveat as dqtDestinationLabel: component IDs 1/2/3 = Y/Cb/Cr is the
+// near-universal convention (not a hard JPEG rule), so anything else is left as a bare number.
+// Shared by SOF's component_id field and SOS's component_selector field (Task 2).
+private fun componentName(id: Int): String = when (id) {
+    1 -> "$id (Y)"
+    2 -> "$id (Cb)"
+    3 -> "$id (Cr)"
+    else -> id.toString()
+}
+
+private fun subsamplingLabel(samplingFactors: Int): String {
+    val horizontal = (samplingFactors shr 4) and 0x0F
+    val vertical = samplingFactors and 0x0F
+    return "0x${samplingFactors.toString(16).padStart(2, '0')} (${horizontal}x${vertical})"
+}
+
 fun parseJpegSegments(reader: ByteReader, start: Long, end: Long): List<BoxNode> {
     val result = mutableListOf<BoxNode>()
     var pos = start
@@ -130,11 +155,17 @@ private fun decodeSof(reader: ByteReader, name: String, offset: Long, declaredSi
     val height = reader.readUInt16(payloadStart + 1)
     val width = reader.readUInt16(payloadStart + 3)
     val numComponents = reader.readUInt8(payloadStart + 5)
+    val orientation = when {
+        height > width -> "Portrait"
+        width > height -> "Landscape"
+        else -> "Square"
+    }
     val fields = mutableListOf(
         BoxField("precision", precision.toString(), payloadStart, 1),
         BoxField("height", height.toString(), payloadStart + 1, 2),
         BoxField("width", width.toString(), payloadStart + 3, 2),
         BoxField("num_components", numComponents.toString(), payloadStart + 5, 1),
+        BoxField("orientation", orientation, payloadStart + 1, 4),
     )
     var pos = payloadStart + 6
     var componentCount = 0
@@ -143,9 +174,9 @@ private fun decodeSof(reader: ByteReader, name: String, offset: Long, declaredSi
         val componentId = reader.readUInt8(pos)
         val samplingFactors = reader.readUInt8(pos + 1)
         val quantizationTable = reader.readUInt8(pos + 2)
-        fields.add(BoxField("component_id", componentId.toString(), pos, 1))
-        fields.add(BoxField("sampling_factors", "0x${samplingFactors.toString(16).padStart(2, '0')}", pos + 1, 1))
-        fields.add(BoxField("quantization_table", quantizationTable.toString(), pos + 2, 1))
+        fields.add(BoxField("component_id", componentName(componentId), pos, 1))
+        fields.add(BoxField("sampling_factors", subsamplingLabel(samplingFactors), pos + 1, 1))
+        fields.add(BoxField("quantization_table", dqtDestinationLabel(quantizationTable), pos + 2, 1))
         componentCount += 1
         pos += 3
     }
@@ -268,7 +299,7 @@ private fun decodeDqt(reader: ByteReader, name: String, offset: Long, declaredSi
                 size = tableBytes.toLong(),
                 fields = listOf(
                     BoxField("precision", precision.toString(), pos, 1),
-                    BoxField("destination_id", destinationId.toString(), pos, 1),
+                    BoxField("destination_id", dqtDestinationLabel(destinationId), pos, 1),
                     BoxField("quality_estimate", "~$quality%", pos, tableBytes.toLong()),
                 ),
                 grid = GridData(8, 8, raster.map { it.toString() }),
