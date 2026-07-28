@@ -105,9 +105,16 @@ fun frameDurationsSeconds(timestamps: List<Double>, fallbackSeconds: Double): Li
 
 // ffmpeg prints its own resolved output stream dimensions to stderr at startup, e.g.:
 // "Stream #0:0(und): Video: rawvideo (BGRA / 0x41524742), bgra(...), 480x640 [SAR 1:1 DAR 3:4], ..."
-// -- matched as "<space>WIDTHxHEIGHT<space>[" specifically to avoid the FourCC hex literal
-// earlier on the same line (e.g. "0x41524742", which also matches a naive \d+x\d+ pattern).
-private val FFMPEG_OUTPUT_DIMENSIONS_REGEX = Regex("""\s(\d+)x(\d+)\s\[""")
+// Anchored on the "rawvideo (BGRA" marker (unique to our requested OUTPUT pixel format -- no
+// INPUT stream banner, whatever the source codec, is ever described that way), then the first
+// 2+-digit WIDTHxHEIGHT pair after it. The 2+ digit requirement is what skips the FourCC hex
+// literal earlier on the same line ("0x41524742" itself matches a naive \d+x\d+ as "0"x"41524742",
+// since every digit of this particular literal happens to be 0-9) without depending on a trailing
+// "[SAR...]" bracket -- real device footage (verified against an iPhone-shot MOV with a non-90/180/
+// 270-degree rotation transform) can print this line with a bare ", q=2-31, ..." tail instead of
+// a bracket, which silently failed to match at all and fell back to probeVideo()'s predicted
+// dimensions -- wrong for this file, misaligning every raw frame boundary into a scrambled image.
+private val FFMPEG_OUTPUT_DIMENSIONS_REGEX = Regex("""rawvideo \(BGRA.*?\b(\d{2,5})x(\d{2,5})\b""")
 
 // Reads ffmpeg's stderr banner looking for the actual output rawvideo dimensions, then keeps
 // draining stderr for the rest of the process's life so the pipe never fills and blocks ffmpeg.
@@ -117,15 +124,18 @@ private val FFMPEG_OUTPUT_DIMENSIONS_REGEX = Regex("""\s(\d+)x(\d+)\s\[""")
 // other dimension-affecting behavior this app doesn't know to predict), every frame boundary in
 // the raw pipe misaligns and the picture comes out completely scrambled, not just mis-rotated.
 // Reading ffmpeg's own self-reported dimensions removes the need to predict its behavior at all.
+fun parseFfmpegOutputDimensionsLine(line: String): Pair<Int, Int>? =
+    FFMPEG_OUTPUT_DIMENSIONS_REGEX.find(line)?.let { match ->
+        match.groupValues[1].toInt() to match.groupValues[2].toInt()
+    }
+
 fun watchForActualDimensions(process: Process, fallback: Pair<Int, Int>): java.util.concurrent.CompletableFuture<Pair<Int, Int>> {
     val result = java.util.concurrent.CompletableFuture<Pair<Int, Int>>()
     Thread {
         try {
             process.errorStream.bufferedReader().forEachLine { line ->
                 if (!result.isDone) {
-                    FFMPEG_OUTPUT_DIMENSIONS_REGEX.find(line)?.let { match ->
-                        result.complete(match.groupValues[1].toInt() to match.groupValues[2].toInt())
-                    }
+                    parseFfmpegOutputDimensionsLine(line)?.let { result.complete(it) }
                 }
             }
         } catch (e: Exception) {
@@ -272,6 +282,15 @@ fun FfmpegVideoPlayer(
             ProcessBuilder(
                 listOf(FfmpegLocator.ffmpegPath()) + seekArgs + listOf(
                     "-i", file.absolutePath,
+                    // Explicit stream selection, matching probeVideo()'s own "-select_streams
+                    // v:0" -- some device footage (Samsung Motion Photo, iPhone) muxes several
+                    // video tracks into one file (a main track plus small preview/depth tracks),
+                    // and without -map ffmpeg's own default "best stream" heuristic decides which
+                    // one to pipe. It happened to agree with v:0 in local testing, but nothing
+                    // guarantees that in general -- an implicit mismatch here would silently pipe
+                    // a different (e.g. tiny grayscale preview) track than the one probeVideo()
+                    // measured.
+                    "-map", "0:v:0",
                     "-f", "rawvideo", "-pix_fmt", "bgra", "-an", "-",
                 ),
             ).start()

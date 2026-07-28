@@ -9,7 +9,7 @@ import javax.xml.parsers.DocumentBuilderFactory
 
 data class EmbeddedVideo(val start: Long, val end: Long, val extension: String)
 
-fun findEmbeddedVideo(root: BoxNode): EmbeddedVideo? {
+fun findEmbeddedVideo(root: BoxNode, reader: ByteReader? = null): EmbeddedVideo? {
     val videoNode = root.children.find { it.type == "mpvd" }
         ?: findFirst(root) { it.type == "sefd" }
             ?.children
@@ -21,7 +21,7 @@ fun findEmbeddedVideo(root: BoxNode): EmbeddedVideo? {
         val extension = if (majorBrand?.trim() == "qt") "mov" else "mp4"
         return EmbeddedVideo(videoNode.offset + videoNode.headerSize, videoNode.offset + videoNode.size, extension)
     }
-    return findGoogleMotionPhotoVideo(root)
+    return findGoogleMotionPhotoVideo(root, reader)
 }
 
 fun findMotionPhotoPreview(root: BoxNode): EmbeddedVideo? {
@@ -51,7 +51,14 @@ fun extractEmbeddedVideo(source: File, video: EmbeddedVideo, destination: File) 
 
 private data class DirectoryVideoInfo(val length: Long, val mimeType: String?)
 
-private fun findGoogleMotionPhotoVideo(root: BoxNode): EmbeddedVideo? {
+// How far around the XMP-declared length's implied start offset to search for the video's real
+// "ftyp" box. Some camera vendors' Directory:Length (e.g. Oppo, observed off by ~190 bytes) isn't
+// exactly "bytes from end of file to the video's first byte" -- trusting it verbatim can land a
+// few hundred bytes into the middle of the moov/mdat structure, which ffmpeg then rejects outright
+// ("moov atom not found") instead of just being imprecise.
+private const val MP4_START_SEARCH_WINDOW = 1024L
+
+private fun findGoogleMotionPhotoVideo(root: BoxNode, reader: ByteReader?): EmbeddedVideo? {
     val xmpText = findFirst(root) { it.fields.any { field -> field.name == "xmp" } }
         ?.fields?.find { it.name == "xmp" }?.value
         ?: return null
@@ -61,12 +68,33 @@ private fun findGoogleMotionPhotoVideo(root: BoxNode): EmbeddedVideo? {
         val length = fromDirectory?.length ?: findMicroVideoOffset(document) ?: return null
         if (length <= 0 || length > root.size) return null
         val extension = if (fromDirectory?.mimeType == "video/quicktime") "mov" else "mp4"
-        EmbeddedVideo(root.size - length, root.size, extension)
+        val approxStart = root.size - length
+        val start = reader?.let { correctMp4StartOffset(it, approxStart) } ?: approxStart
+        EmbeddedVideo(start, root.size, extension)
     } catch (e: Throwable) {
         // Untrusted input: a crafted/deeply-nested XMP document can throw StackOverflowError
         // or OutOfMemoryError (both are Error, not Exception), not just parse exceptions.
         null
     }
+}
+
+// Searches a bounded window around the XMP-derived offset for the video's actual "ftyp" box
+// (4-byte box size, then the literal ASCII "ftyp") and returns that exact offset when found.
+// Falls back to the original, uncorrected offset if nothing turns up nearby.
+private fun correctMp4StartOffset(reader: ByteReader, approxStart: Long): Long {
+    val searchStart = (approxStart - MP4_START_SEARCH_WINDOW).coerceAtLeast(0)
+    val searchEnd = approxStart + MP4_START_SEARCH_WINDOW
+    var pos = searchStart
+    while (pos <= searchEnd) {
+        val found = try {
+            reader.readFourCC(pos + 4) == "ftyp"
+        } catch (e: Exception) {
+            break
+        }
+        if (found) return pos
+        pos++
+    }
+    return approxStart
 }
 
 private fun parseXmpDocument(xmpText: String): Document {
