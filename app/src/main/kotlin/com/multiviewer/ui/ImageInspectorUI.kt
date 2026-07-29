@@ -27,6 +27,8 @@ import com.multiviewer.parser.EmbeddedVideo
 import com.multiviewer.parser.extractEmbeddedVideo
 import com.multiviewer.parser.ScanStatistics
 import com.multiviewer.parser.computeScanStatistics
+import com.multiviewer.parser.WarningEntry
+import com.multiviewer.parser.collectWarnings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -251,18 +253,6 @@ private fun MotionPhotoVideoPreview(tab: TabState, video: EmbeddedVideo) {
     } else {
         DecodingIndicator("모션포토 동영상 추출 중...")
     }
-}
-
-data class WarningEntry(val node: BoxNode, val warning: String)
-
-fun collectWarnings(root: BoxNode): List<WarningEntry> {
-    val entries = mutableListOf<WarningEntry>()
-    fun walk(node: BoxNode) {
-        node.warnings.forEach { entries.add(WarningEntry(node, it)) }
-        node.children.forEach { walk(it) }
-    }
-    walk(root)
-    return entries.sortedBy { it.node.offset }
 }
 
 @Composable
