@@ -147,6 +147,29 @@ fun watchForActualDimensions(process: Process, fallback: Pair<Int, Int>): java.u
     return result
 }
 
+// Pure pacing decision, kept free of I/O/Thread/Compose so it's directly unit-testable.
+// cumulativeLagMillis tracks how far real per-frame processing (read + Skia bitmap construction)
+// has fallen behind the video's own real-time clock. It only grows via laggedAfterFrame (never
+// goes negative) so a fast frame can't "bank" spare time against a later slow one -- the reader
+// thread already does that implicitly by sleeping out any positive remainder, which this model
+// doesn't need to duplicate. Root cause this fixes: at high enough resolution, per-frame
+// processing alone can exceed its own frame budget (measured: ~1.2x budget at 4K30) -- the reader
+// loop used to unconditionally process every frame regardless of how far behind it already was,
+// so that overrun compounded across the whole video with nothing to pay it back down, making
+// total playback wall time grow well past the real video duration.
+fun shouldSkipFrame(cumulativeLagMillis: Long, budgetMillis: Long): Boolean =
+    cumulativeLagMillis >= budgetMillis
+
+// Skipping a frame's expensive bitmap construction/delivery pays down exactly one frame's budget
+// worth of debt -- the frame's bytes are still read off the pipe to stay aligned, but that read
+// alone is cheap enough (measured well under budget at every resolution tested) to not need its
+// own accounting here.
+fun laggedAfterSkip(cumulativeLagMillis: Long, budgetMillis: Long): Long =
+    cumulativeLagMillis - budgetMillis
+
+fun laggedAfterFrame(cumulativeLagMillis: Long, budgetMillis: Long, elapsedMillis: Long): Long =
+    cumulativeLagMillis + (elapsedMillis - budgetMillis).coerceAtLeast(0L)
+
 fun probeVideo(file: File): VideoInfo? {
     return try {
         val process = ProcessBuilder(
@@ -375,6 +398,12 @@ fun FfmpegVideoPlayer(
                         nextFrameDurationSeconds()
                         deliver(null)
                     }
+                    // See shouldSkipFrame/laggedAfterFrame/laggedAfterSkip's docs -- tracks how far
+                    // real processing time has fallen behind the video's own clock so a frame can
+                    // be skipped (bytes still read to stay pipe-aligned, but no expensive bitmap
+                    // construction/delivery) once that debt reaches a full frame's budget, instead
+                    // of letting every frame's overrun compound for the rest of the video.
+                    var cumulativeLagMillis = 0L
                     while (!stopped.get()) {
                         if (!isPlaying) {
                             Thread.sleep(50)
@@ -389,9 +418,17 @@ fun FfmpegVideoPlayer(
                             break // EOF
                         }
                         val durationSeconds = nextFrameDurationSeconds()
-                        deliver(durationSeconds)
-                        val remaining = (durationSeconds * 1000).toLong() - (System.currentTimeMillis() - start)
-                        if (remaining > 0) Thread.sleep(remaining)
+                        val budgetMillis = (durationSeconds * 1000).toLong()
+                        if (shouldSkipFrame(cumulativeLagMillis, budgetMillis)) {
+                            cumulativeLagMillis = laggedAfterSkip(cumulativeLagMillis, budgetMillis)
+                            EventQueue.invokeLater { playedSeconds += durationSeconds }
+                        } else {
+                            deliver(durationSeconds)
+                            val elapsedMillis = System.currentTimeMillis() - start
+                            cumulativeLagMillis = laggedAfterFrame(cumulativeLagMillis, budgetMillis, elapsedMillis)
+                            val remaining = budgetMillis - elapsedMillis
+                            if (remaining > 0) Thread.sleep(remaining)
+                        }
                     }
                 } catch (e: InterruptedException) {
                     // Expected on dispose -- not an error.

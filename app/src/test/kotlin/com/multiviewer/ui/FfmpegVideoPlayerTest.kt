@@ -216,4 +216,79 @@ class FfmpegVideoPlayerTest {
 
         assertEquals(3, framesRead)
     }
+
+    @Test
+    fun `shouldSkipFrame is false while cumulative lag is below the frame's own budget`() {
+        assertTrue(!shouldSkipFrame(cumulativeLagMillis = 0L, budgetMillis = 33L))
+        assertTrue(!shouldSkipFrame(cumulativeLagMillis = 32L, budgetMillis = 33L))
+    }
+
+    @Test
+    fun `shouldSkipFrame is true once cumulative lag reaches or exceeds the frame's own budget`() {
+        assertTrue(shouldSkipFrame(cumulativeLagMillis = 33L, budgetMillis = 33L))
+        assertTrue(shouldSkipFrame(cumulativeLagMillis = 100L, budgetMillis = 33L))
+    }
+
+    @Test
+    fun `laggedAfterFrame adds no lag when processing finished within budget`() {
+        assertEquals(0L, laggedAfterFrame(cumulativeLagMillis = 0L, budgetMillis = 33L, elapsedMillis = 20L))
+        assertEquals(0L, laggedAfterFrame(cumulativeLagMillis = 0L, budgetMillis = 33L, elapsedMillis = 33L))
+    }
+
+    @Test
+    fun `laggedAfterFrame accumulates the overrun when processing exceeded budget`() {
+        assertEquals(7L, laggedAfterFrame(cumulativeLagMillis = 0L, budgetMillis = 33L, elapsedMillis = 40L))
+        assertEquals(17L, laggedAfterFrame(cumulativeLagMillis = 10L, budgetMillis = 33L, elapsedMillis = 40L))
+    }
+
+    @Test
+    fun `laggedAfterSkip pays down exactly one frame's budget worth of lag`() {
+        assertEquals(7L, laggedAfterSkip(cumulativeLagMillis = 40L, budgetMillis = 33L))
+        assertEquals(0L, laggedAfterSkip(cumulativeLagMillis = 33L, budgetMillis = 33L))
+    }
+
+    @Test
+    fun `sustained per-frame overrun does not grow cumulative lag unboundedly once skip catch-up applies`() {
+        // Regression test for the root cause of "video plays much longer than its real duration"
+        // (measured: raw BGRA frame read + Skia bitmap construction alone already exceeds a 4K30
+        // frame's 33ms budget, at ~40ms/frame). Without a catch-up mechanism, cumulativeLagMillis
+        // would grow by (elapsed - budget) on every single frame forever, so total playback wall
+        // time keeps drifting further from real duration for as long as the video plays. With
+        // skip-based catch-up wired in, lag is paid back down whenever it reaches a full frame's
+        // budget, so it stays bounded instead of growing linearly across the whole video.
+        val budgetMillis = 33L
+        val perFrameElapsedMillis = 40L // ~1.2x budget, matching the measured 4K30 ratio
+        var cumulativeLagMillis = 0L
+        var skippedCount = 0
+        repeat(300) { // 10 seconds worth of frames at ~30fps
+            if (shouldSkipFrame(cumulativeLagMillis, budgetMillis)) {
+                skippedCount++
+                cumulativeLagMillis = laggedAfterSkip(cumulativeLagMillis, budgetMillis)
+            } else {
+                cumulativeLagMillis = laggedAfterFrame(cumulativeLagMillis, budgetMillis, perFrameElapsedMillis)
+            }
+        }
+        assertTrue(skippedCount > 0, "expected some frames to be skipped under sustained overrun")
+        assertTrue(
+            cumulativeLagMillis < budgetMillis * 10,
+            "cumulative lag should stay bounded across 300 frames of sustained overrun, got ${cumulativeLagMillis}ms",
+        )
+    }
+
+    @Test
+    fun `no frames are skipped when processing always finishes within budget`() {
+        val budgetMillis = 33L
+        var cumulativeLagMillis = 0L
+        var skippedCount = 0
+        repeat(100) {
+            if (shouldSkipFrame(cumulativeLagMillis, budgetMillis)) {
+                skippedCount++
+                cumulativeLagMillis = laggedAfterSkip(cumulativeLagMillis, budgetMillis)
+            } else {
+                cumulativeLagMillis = laggedAfterFrame(cumulativeLagMillis, budgetMillis, elapsedMillis = 10L)
+            }
+        }
+        assertEquals(0, skippedCount)
+        assertEquals(0L, cumulativeLagMillis)
+    }
 }
