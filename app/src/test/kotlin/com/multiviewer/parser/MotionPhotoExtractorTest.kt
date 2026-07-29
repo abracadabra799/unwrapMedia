@@ -391,4 +391,57 @@ class MotionPhotoExtractorTest {
 
         assertEquals(null, findMotionPhotoPreview(root))
     }
+
+    @Test
+    fun `finds embedded video via an EmbeddedVideoData node (Google-style motion photo, no SEF marker)`() {
+        val nestedFtyp = BoxNode(
+            type = "ftyp", offset = 4, headerSize = 8, size = 16,
+            fields = listOf(BoxField("major_brand", "isom", 4, 4)),
+        )
+        val embeddedVideoData = BoxNode(type = "EmbeddedVideoData", offset = 4, headerSize = 0, size = 16, children = listOf(nestedFtyp))
+        val root = BoxNode(
+            type = "root", offset = 0, headerSize = 0, size = 20,
+            children = listOf(
+                BoxNode(type = "SOI", offset = 0, headerSize = 2, size = 2),
+                BoxNode(type = "EOI", offset = 2, headerSize = 2, size = 2),
+                embeddedVideoData,
+            ),
+        )
+
+        val video = findEmbeddedVideo(root)
+
+        assertEquals(4L, video?.start)
+        assertEquals(20L, video?.end)
+        assertEquals("mp4", video?.extension)
+    }
+
+    @Test
+    fun `finds embedded video via an EmbeddedVideoData node and detects mov from major_brand`() {
+        val nestedFtyp = BoxNode(
+            type = "ftyp", offset = 4, headerSize = 8, size = 16,
+            fields = listOf(BoxField("major_brand", "qt  ", 4, 4)),
+        )
+        val embeddedVideoData = BoxNode(type = "EmbeddedVideoData", offset = 4, headerSize = 0, size = 16, children = listOf(nestedFtyp))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 20, children = listOf(embeddedVideoData))
+
+        val video = findEmbeddedVideo(root)
+
+        assertEquals("mov", video?.extension)
+    }
+
+    @Test
+    fun `an EmbeddedVideoData node is preferred over a Google XMP fallback when both are present`() {
+        val nestedFtyp = BoxNode(
+            type = "ftyp", offset = 4, headerSize = 8, size = 16,
+            fields = listOf(BoxField("major_brand", "isom", 4, 4)),
+        )
+        val embeddedVideoData = BoxNode(type = "EmbeddedVideoData", offset = 4, headerSize = 0, size = 16, children = listOf(nestedFtyp))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 20, children = listOf(embeddedVideoData))
+
+        val video = findEmbeddedVideo(root)
+
+        // Structural detection needs no reader/XMP at all -- confirms it doesn't fall through to
+        // findGoogleMotionPhotoVideo (which would return null here since root has no xmp field).
+        assertEquals(4L, video?.start)
+    }
 }

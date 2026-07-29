@@ -536,4 +536,45 @@ class JpegWalkerTest {
         assertTrue(segments[0].warnings.isNotEmpty())
         reader.close()
     }
+
+    @Test
+    fun `an MP4 placed directly after EOI with no SEF marker decodes as embedded video data`() {
+        // Google's standard Motion Photo format (and some other vendors) place the trailing video
+        // right after EOI with no Samsung-style SEFT-terminated trailer at all -- sniffed the same
+        // way SefdBoxDecoder and MotionPhotoExtractor already sniff a nested MP4 elsewhere: the
+        // "ftyp" fourCC 4 bytes into the region.
+        registerAllDecoders()
+        val bytes = byteArrayOf(
+            0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xd9.toByte(), // SOI, EOI
+            0x00, 0x00, 0x00, 0x10, 0x66, 0x74, 0x79, 0x70, // ftyp box header: size=16, "ftyp"
+            0x69, 0x73, 0x6f, 0x6d, 0x00, 0x00, 0x02, 0x00, // major_brand="isom", minor_version
+        )
+        val reader = byteReaderOf(bytes)
+        val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
+
+        assertEquals(listOf("SOI", "EOI", "EmbeddedVideoData"), segments.map { it.type })
+        val videoNode = segments[2]
+        assertEquals(4L, videoNode.offset)
+        assertEquals(16L, videoNode.size)
+        assertTrue(videoNode.warnings.isEmpty())
+        assertEquals(1, videoNode.children.size)
+        val ftyp = videoNode.children[0]
+        assertEquals("ftyp", ftyp.type)
+        assertEquals("isom", ftyp.fields.find { it.name == "major_brand" }?.value)
+        reader.close()
+    }
+
+    @Test
+    fun `trailing bytes too short to hold an ftyp box still fall back to the malformed-marker warning`() {
+        val bytes = byteArrayOf(
+            0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xd9.toByte(), // SOI, EOI
+            0x00, 0x00, 0x00, 0x10, 0x66, 0x74, // only 6 trailing bytes -- not enough for a full ftyp sniff
+        )
+        val reader = byteReaderOf(bytes)
+        val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
+
+        assertEquals(listOf("SOI", "EOI", "?"), segments.map { it.type })
+        assertTrue(segments[2].warnings.isNotEmpty())
+        reader.close()
+    }
 }
