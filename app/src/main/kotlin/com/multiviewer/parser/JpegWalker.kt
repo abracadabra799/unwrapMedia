@@ -67,9 +67,9 @@ fun parseJpegSegments(reader: ByteReader, start: Long, end: Long): List<BoxNode>
 
         val markerPrefix = reader.readUInt8(pos)
         if (markerPrefix != 0xFF) {
-            val sefdNode = tryDecodeSefdTrailer(reader, pos, end)
+            val trailingVideoNode = tryDecodeSefdTrailer(reader, pos, end) ?: tryDecodeTrailingVideo(reader, pos, end)
             result.add(
-                sefdNode ?: BoxNode(
+                trailingVideoNode ?: BoxNode(
                     "?", pos, 0, remaining,
                     warnings = listOf("Expected marker prefix 0xFF, found 0x${markerPrefix.toString(16).padStart(2, '0')}"),
                 ),
@@ -479,4 +479,24 @@ private fun decodeApp0(reader: ByteReader, name: String, offset: Long, declaredS
 private fun tryDecodeSefdTrailer(reader: ByteReader, start: Long, end: Long): BoxNode? {
     if (end - start < 4 || reader.readFourCC(end - 4) != "SEFT") return null
     return SefdBoxDecoder.decode(reader, "sefd", start, 0, end - start, emptyList())
+}
+
+// Google's standard Motion Photo format (and some other vendors) place the trailing video
+// directly after EOI with no Samsung-style SEFT-terminated trailer at all -- sniffed the same way
+// SefdBoxDecoder and MotionPhotoExtractor's XMP fallback already sniff a nested MP4 elsewhere: the
+// "ftyp" fourCC 4 bytes into the region. Building real nested box children here (instead of
+// falling through to the generic "?" node) puts the embedded video's own structure directly in the
+// tree, the same as the Samsung sefd case already does.
+private fun tryDecodeTrailingVideo(reader: ByteReader, start: Long, end: Long): BoxNode? {
+    val remaining = end - start
+    if (remaining < 8 || reader.readFourCC(start + 4) != "ftyp") return null
+    return try {
+        BoxNode(
+            type = "EmbeddedVideoData", offset = start, headerSize = 0, size = remaining,
+            children = parseBoxes(reader, start, end),
+            summary = "$remaining bytes, embedded video (no marker)",
+        )
+    } catch (e: Exception) {
+        null
+    }
 }

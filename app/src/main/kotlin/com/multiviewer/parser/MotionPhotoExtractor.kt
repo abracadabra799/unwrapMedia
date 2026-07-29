@@ -10,7 +10,7 @@ import javax.xml.parsers.DocumentBuilderFactory
 data class EmbeddedVideo(val start: Long, val end: Long, val extension: String)
 
 fun findEmbeddedVideo(root: BoxNode, reader: ByteReader? = null): EmbeddedVideo? {
-    val videoNode = root.children.find { it.type == "mpvd" }
+    val videoNode = root.children.find { it.type == "mpvd" || it.type == "EmbeddedVideoData" }
         ?: findFirst(root) { it.type == "sefd" }
             ?.children
             ?.filter { it.children.firstOrNull()?.type == "ftyp" }
