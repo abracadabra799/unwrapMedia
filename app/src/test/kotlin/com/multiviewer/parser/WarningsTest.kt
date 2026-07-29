@@ -1,10 +1,9 @@
-package com.multiviewer.ui
+package com.multiviewer.parser
 
-import com.multiviewer.parser.BoxNode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-class ImageInspectorUITest {
+class WarningsTest {
     @Test
     fun `collectWarnings flattens warnings from every depth, sorted by offset`() {
         val deepChild = BoxNode(
