@@ -452,7 +452,11 @@ sealed class CheckResult {
 }
 
 fun checkFile(file: File): CheckResult = when (val result = parseForCli(file)) {
-    is CliParseResult.Success -> CheckResult.Success(buildCheckJson(result.file, collectWarnings(result.root)))
+    is CliParseResult.Success -> try {
+        CheckResult.Success(buildCheckJson(result.file, collectWarnings(result.root)))
+    } catch (e: Exception) {
+        CheckResult.Failure("Failed to parse ${file.path}: ${e.message ?: e.toString()}")
+    }
     is CliParseResult.Failure -> CheckResult.Failure(result.message)
 }
 
