@@ -32,7 +32,7 @@ fun VideoInspectorUI(
     // height instead of sharing it vertically with GOP -- videoGopSplit now divides that top
     // region horizontally, into player width vs GOP width.
     var verticalSplit by remember { mutableStateOf(0.7f) }
-    var videoGopSplit by remember { mutableStateOf(0.455f) }
+    var videoGopSplit by remember { mutableStateOf(0.35f) }
 
     DashboardLayout(
         leftPanel = leftPanel,

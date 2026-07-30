@@ -53,6 +53,10 @@ private const val FRAME_BAR_MIN_WIDTH_DP = 4f
 private const val FRAME_BAR_MAX_WIDTH_DP = 48f
 private const val FRAME_BAR_ZOOM_STEP_DP = 2f
 private const val FRAME_BAR_SPACING_DP = 2
+// The tallest bar (the single biggest frame in the video) would otherwise reach 100% of the
+// panel's height, which reads as too dominant -- this caps it at 60%, scaling every other bar down
+// proportionally along with it so their relative size differences are preserved.
+private const val FRAME_BAR_MAX_HEIGHT_FRACTION = 0.6f
 
 // Muted, desaturated palette instead of the app's full-saturation neon accents -- neon reads fine
 // for a single small badge but was overwhelming across a wide row of adjacent bars.
@@ -217,7 +221,7 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
                             // with whatever height it actually ends up with. Width comes from the
                             // zoom state above, not the FRAME_BAR_WIDTH_DP constant (which is now
                             // only the starting/default value).
-                            val heightFraction = (frame.sizeBytes.toFloat() / maxSize).coerceAtLeast(0.02f)
+                            val heightFraction = (frame.sizeBytes.toFloat() / maxSize * FRAME_BAR_MAX_HEIGHT_FRACTION).coerceAtLeast(0.02f)
                             val isCurrent = index == currentFrameIndex
                             Column(
                                 modifier = Modifier.width(frameBarWidthDp.dp).fillMaxSize(),
