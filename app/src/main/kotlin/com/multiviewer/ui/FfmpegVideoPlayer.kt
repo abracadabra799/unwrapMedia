@@ -276,10 +276,19 @@ fun FfmpegVideoPlayer(
     LaunchedEffect(file) {
         probing = true
         val info = withContext(Dispatchers.IO) { probeVideo(file) }
-        val timestamps = if (info != null) withContext(Dispatchers.IO) { probeFrameTimestamps(file) } else null
+        // Flip probing off (and let the player UI render) as soon as this cheap probe resolves --
+        // do not wait on the expensive full-file frame-timestamp scan below. The player already
+        // has a correct average-fps pacing fallback (nextFrameDurationSeconds's
+        // fallbackDurationSeconds) for whenever frameTimestamps is still null, the same fallback
+        // already used today if probeFrameTimestamps fails outright. Continuing to await it here,
+        // in the same coroutine, still updates frameTimestamps once it completes -- the next
+        // replay or seek (both already restart DisposableEffect) picks up the more precise
+        // per-frame durations automatically; an in-flight playthrough does not hot-swap mid-play.
         probedInfo = info
-        frameTimestamps = timestamps
         probing = false
+        if (info != null) {
+            frameTimestamps = withContext(Dispatchers.IO) { probeFrameTimestamps(file) }
+        }
     }
 
     if (probing) {
