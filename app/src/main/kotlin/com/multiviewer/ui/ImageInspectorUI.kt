@@ -47,6 +47,7 @@ fun ImageInspectorUI(
     
     DashboardLayout(
         leftPanel = leftPanel,
+        rightPanelDefaultWidthDp = 280f,
         centerPanel = {
             Column(
                 modifier = Modifier
