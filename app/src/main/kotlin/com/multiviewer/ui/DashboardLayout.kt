@@ -56,7 +56,8 @@ fun DashboardLayout(
     leftPanel: @Composable ColumnScope.() -> Unit,
     centerPanel: @Composable ColumnScope.() -> Unit,
     rightPanel: @Composable ColumnScope.() -> Unit,
-    bottomPanel: @Composable ColumnScope.() -> Unit
+    bottomPanel: @Composable ColumnScope.() -> Unit,
+    rightPanelDefaultWidthDp: Float = RIGHT_PANEL_DEFAULT_WIDTH_DP,
 ) {
     var containerHeightPx by remember { mutableStateOf(0) }
     // 0.75f roughly matches the old fixed 250dp bottom panel on a typical window size, but is now
@@ -66,7 +67,7 @@ fun DashboardLayout(
     // the user can drag either wider -- e.g. pretty-printed XMP in the right panel needs much more
     // horizontal room than 350dp to avoid wrapping mid-line.
     var leftPanelWidthDp by remember { mutableStateOf(300f) }
-    var rightPanelWidthDp by remember { mutableStateOf(RIGHT_PANEL_DEFAULT_WIDTH_DP) }
+    var rightPanelWidthDp by remember { mutableStateOf(rightPanelDefaultWidthDp) }
 
     Column(
         modifier = Modifier
