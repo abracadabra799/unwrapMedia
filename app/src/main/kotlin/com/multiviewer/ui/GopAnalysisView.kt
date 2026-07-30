@@ -101,8 +101,19 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
                 DecodingIndicator("프레임 분석 중...", modifier = Modifier.align(Alignment.Center))
             }
             frames == null -> {
-                Button(onClick = onAnalyze, modifier = Modifier.align(Alignment.Center)) {
-                    Text("프레임 분석 시작")
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Button(onClick = onAnalyze, enabled = tab.videoReadyForAnalysis) {
+                        Text("프레임 분석 시작")
+                    }
+                    if (!tab.videoReadyForAnalysis) {
+                        Text(
+                            "동영상 분석이 끝나면 활성화됩니다",
+                            style = AppTypography.bodyLarge.copy(color = AppColors.TextSecondary, fontSize = 11.sp),
+                        )
+                    }
                 }
             }
             frames.isEmpty() -> {
