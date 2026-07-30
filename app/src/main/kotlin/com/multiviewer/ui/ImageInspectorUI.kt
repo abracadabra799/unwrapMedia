@@ -43,7 +43,7 @@ fun ImageInspectorUI(
     val forensic = tab.imageForensic ?: return
     val summary = tab.mediaSummary
     var containerHeightPx by remember { mutableStateOf(0) }
-    var verticalSplit by remember { mutableStateOf(0.5f) }
+    var verticalSplit by remember { mutableStateOf(0.7f) }
     
     DashboardLayout(
         leftPanel = leftPanel,
