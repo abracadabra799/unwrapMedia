@@ -32,7 +32,7 @@ fun VideoInspectorUI(
     // (player + GOP) vs summary, and videoGopSplit divides that top region into player vs GOP.
     // GopAnalysisView previously had a hardcoded height and sat outside verticalSplit's control
     // entirely, so there was no way to shrink it to make room for the player.
-    var verticalSplit by remember { mutableStateOf(0.5f) }
+    var verticalSplit by remember { mutableStateOf(0.7f) }
     var videoGopSplit by remember { mutableStateOf(0.65f) }
 
     DashboardLayout(
