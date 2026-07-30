@@ -65,6 +65,7 @@ fun VideoInspectorUI(
                             onElapsedChanged = { tab.playbackElapsedSeconds = it },
                             seekRequestSeconds = tab.seekTargetSeconds,
                             seekRequestTick = tab.seekRequestTick,
+                            onProbeComplete = { tab.videoReadyForAnalysis = true },
                         )
 
                         Text("LIVE PLAYER",

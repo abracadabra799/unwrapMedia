@@ -227,6 +227,7 @@ fun FfmpegVideoPlayer(
     onElapsedChanged: (Double) -> Unit = {},
     seekRequestSeconds: Double = 0.0,
     seekRequestTick: Int = 0,
+    onProbeComplete: () -> Unit = {},
 ) {
     var videoBitmap by remember(file) { mutableStateOf<ImageBitmap?>(null, neverEqualPolicy()) }
     var isPlaying by remember(file) { mutableStateOf(false) }
@@ -289,6 +290,7 @@ fun FfmpegVideoPlayer(
         if (info != null) {
             frameTimestamps = withContext(Dispatchers.IO) { probeFrameTimestamps(file) }
         }
+        onProbeComplete()
     }
 
     if (probing) {

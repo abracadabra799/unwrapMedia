@@ -125,6 +125,10 @@ class TabState(val file: File) {
     var gopFrames: List<FrameInfo>? by mutableStateOf(null)
     var isAnalyzingFrames: Boolean by mutableStateOf(false)
     var selectedFrame: FrameInfo? by mutableStateOf(null)
+    // Set once FfmpegVideoPlayer's own background frame-timestamp probe finishes (see its
+    // onProbeComplete callback) -- gates the "프레임 분석 시작" button so it can't launch a second,
+    // same-cost full-file ffprobe scan while that background one is still running.
+    var videoReadyForAnalysis: Boolean by mutableStateOf(false)
 
     // Live playback position (seconds) reported by FfmpegVideoPlayer, so the GOP graph can
     // highlight and auto-scroll to the frame currently on screen while the video plays.
