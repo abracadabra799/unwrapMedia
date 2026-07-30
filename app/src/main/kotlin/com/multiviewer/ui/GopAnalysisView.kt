@@ -24,7 +24,10 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -35,10 +38,20 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.onPointerEvent
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+// Starting/default frame-bar width -- also the initial value of the per-composable frameBarWidthDp
+// zoom state below. FRAME_BAR_MIN/MAX bound how far mouse-wheel zoom can shrink/grow it; STEP is
+// the change applied per wheel-scroll unit.
 private const val FRAME_BAR_WIDTH_DP = 16
+private const val FRAME_BAR_MIN_WIDTH_DP = 4f
+private const val FRAME_BAR_MAX_WIDTH_DP = 48f
+private const val FRAME_BAR_ZOOM_STEP_DP = 2f
 private const val FRAME_BAR_SPACING_DP = 2
 
 // Muted, desaturated palette instead of the app's full-saturation neon accents -- neon reads fine
@@ -70,6 +83,7 @@ private fun FrameTypeLegendEntry(type: Char, label: String) {
     }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = Modifier) {
     Box(
@@ -157,6 +171,7 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
                     }
 
                     val maxSize = frames.maxOf { it.sizeBytes }.coerceAtLeast(1)
+                    var frameBarWidthDp by remember { mutableStateOf(FRAME_BAR_WIDTH_DP.toFloat()) }
                     LaunchedEffect(currentFrameIndex) {
                         if (currentFrameIndex < 0) return@LaunchedEffect
                         val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == currentFrameIndex }
@@ -176,23 +191,41 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
                     }
                     LazyRow(
                         state = listState,
-                        modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .padding(horizontal = 8.dp)
+                            // Intercepts the wheel scroll on the way down (Initial pass), before
+                            // LazyRow's own internal scrollable modifier can consume it to pan the
+                            // list -- plain wheel now zooms only; panning is still available via
+                            // click-and-drag (already works, see Global Constraints) or the
+                            // scrollbar below. Scrolling up (away from the user) reports a negative
+                            // scrollDelta.y in Compose, so subtracting it increases the width --
+                            // i.e. scroll up zooms in.
+                            .onPointerEvent(PointerEventType.Scroll, pass = PointerEventPass.Initial) { event ->
+                                val scrollDeltaY = event.changes.firstOrNull()?.scrollDelta?.y ?: return@onPointerEvent
+                                frameBarWidthDp = (frameBarWidthDp - scrollDeltaY * FRAME_BAR_ZOOM_STEP_DP)
+                                    .coerceIn(FRAME_BAR_MIN_WIDTH_DP, FRAME_BAR_MAX_WIDTH_DP)
+                                event.changes.forEach { it.consume() }
+                            },
                         horizontalArrangement = Arrangement.spacedBy(FRAME_BAR_SPACING_DP.dp),
                     ) {
                         itemsIndexed(frames) { index, frame ->
                             // A fraction of the row's own height, not a computed dp value against a
                             // fixed constant -- GopAnalysisView's container height is now
                             // drag-resizable (see VideoInspectorUI), so bar heights need to scale
-                            // with whatever height it actually ends up with.
+                            // with whatever height it actually ends up with. Width comes from the
+                            // zoom state above, not the FRAME_BAR_WIDTH_DP constant (which is now
+                            // only the starting/default value).
                             val heightFraction = (frame.sizeBytes.toFloat() / maxSize).coerceAtLeast(0.02f)
                             val isCurrent = index == currentFrameIndex
                             Column(
-                                modifier = Modifier.width(FRAME_BAR_WIDTH_DP.dp).fillMaxSize(),
+                                modifier = Modifier.width(frameBarWidthDp.dp).fillMaxSize(),
                                 verticalArrangement = Arrangement.Bottom,
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .width(FRAME_BAR_WIDTH_DP.dp)
+                                        .width(frameBarWidthDp.dp)
                                         .fillMaxHeight(heightFraction)
                                         .background(colorForFrameType(frame.type))
                                         .let { if (isCurrent) it.border(2.dp, Color.White) else it }
