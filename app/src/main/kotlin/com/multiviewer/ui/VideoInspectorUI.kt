@@ -26,12 +26,11 @@ fun VideoInspectorUI(
 ) {
     val summary = tab.mediaSummary
     var containerHeightPx by remember { mutableStateOf(0) }
-    var topContainerHeightPx by remember { mutableStateOf(0) }
-    // Three independently resizable rows (player / GOP graph / summary) stacked via two nested
-    // splits rather than one three-way ratio -- verticalSplit divides the whole column into "top"
-    // (player + GOP) vs summary, and videoGopSplit divides that top region into player vs GOP.
-    // GopAnalysisView previously had a hardcoded height and sat outside verticalSplit's control
-    // entirely, so there was no way to shrink it to make room for the player.
+    var topContainerWidthPx by remember { mutableStateOf(0) }
+    // verticalSplit divides the whole column into "top" (player + GOP, side-by-side) vs summary.
+    // Player and GOP sit side-by-side (not stacked) so the player keeps the top region's full
+    // height instead of sharing it vertically with GOP -- videoGopSplit now divides that top
+    // region horizontally, into player width vs GOP width.
     var verticalSplit by remember { mutableStateOf(0.7f) }
     var videoGopSplit by remember { mutableStateOf(0.65f) }
 
@@ -46,17 +45,17 @@ fun VideoInspectorUI(
                 tab.largeResolutionWarning?.let { warning ->
                     ResolutionWarningBanner(warning, onDismiss = { tab.largeResolutionWarning = null })
                 }
-                Column(
+                Row(
                     modifier = Modifier
                         .weight(verticalSplit)
                         .fillMaxWidth()
-                        .onGloballyPositioned { topContainerHeightPx = it.size.height }
+                        .onGloballyPositioned { topContainerWidthPx = it.size.width }
                 ) {
-                    // Top: Full-width Live Player
+                    // Left: Live Player (full height of the top region)
                     Box(
                         modifier = Modifier
                             .weight(videoGopSplit)
-                            .fillMaxWidth()
+                            .fillMaxHeight()
                             .background(Color.Black),
                         contentAlignment = Alignment.Center
                     ) {
@@ -74,16 +73,17 @@ fun VideoInspectorUI(
                     }
 
                     DraggableDivider(
-                        orientation = Orientation.Horizontal,
-                        containerSizePx = topContainerHeightPx,
+                        orientation = Orientation.Vertical,
+                        containerSizePx = topContainerWidthPx,
                         getSplit = { videoGopSplit },
                         setSplit = { videoGopSplit = it }
                     )
 
+                    // Right: GOP Analysis (full height of the top region)
                     GopAnalysisView(
                         tab,
                         onAnalyze = { appState.analyzeFrames(tab) },
-                        modifier = Modifier.weight(1f - videoGopSplit),
+                        modifier = Modifier.weight(1f - videoGopSplit).fillMaxHeight(),
                     )
                 }
 
