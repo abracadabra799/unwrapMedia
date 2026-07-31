@@ -470,6 +470,55 @@ class AppStateTest {
     }
 
     @Test
+    fun `openFile opens a real OGG (Vorbis) as MediaType_AUDIO with a populated Audio section`() {
+        val audio = File.createTempFile("appstate-ogg-test-", ".ogg")
+        audio.deleteOnExit()
+        // This machine's ffmpeg build has no libvorbis -- only the native "vorbis" encoder, which
+        // is marked experimental (needs -strict -2) and only supports 2-channel output (needs
+        // -ac 2 even though the source is mono).
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "sine=duration=1:frequency=440",
+            "-ac", "2", "-c:a", "vorbis", "-strict", "-2", audio.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val appState = AppState()
+        appState.openFile(audio)
+        val tab = appState.tabs.single()
+        waitForLoad(tab)
+
+        assertEquals(null, tab.error)
+        assertEquals(MediaType.AUDIO, tab.type)
+        val generalSection = tab.mediaSummary?.sections?.find { it.title == "General" }
+        assertTrue(generalSection?.fields?.any { it.label == "Format" && it.value == "Vorbis" } == true, "Expected General/Format=Vorbis, got: $generalSection")
+        val audioSection = tab.mediaSummary?.sections?.find { it.title == "Audio" }
+        assertTrue(audioSection?.fields?.any { it.label == "Sampling Rate" } == true, "Expected an Audio/Sampling Rate field, got: $audioSection")
+        audio.delete()
+    }
+
+    @Test
+    fun `openFile opens a real Opus as MediaType_AUDIO with a populated Audio section`() {
+        val audio = File.createTempFile("appstate-opus-test-", ".opus")
+        audio.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "sine=duration=1:frequency=440",
+            "-c:a", "libopus", audio.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val appState = AppState()
+        appState.openFile(audio)
+        val tab = appState.tabs.single()
+        waitForLoad(tab)
+
+        assertEquals(null, tab.error)
+        assertEquals(MediaType.AUDIO, tab.type)
+        val generalSection = tab.mediaSummary?.sections?.find { it.title == "General" }
+        assertTrue(generalSection?.fields?.any { it.label == "Format" && it.value == "Opus" } == true, "Expected General/Format=Opus, got: $generalSection")
+        val audioSection = tab.mediaSummary?.sections?.find { it.title == "Audio" }
+        assertTrue(audioSection?.fields?.any { it.label == "Sampling Rate" && it.value == "48000 Hz" } == true, "Expected Audio/Sampling Rate=48000 Hz, got: $audioSection")
+        audio.delete()
+    }
+
+    @Test
     fun `openFile classifies a real webm file as MediaType VIDEO`() {
         val video = File.createTempFile("appstate-webm-test-", ".webm")
         video.deleteOnExit()
