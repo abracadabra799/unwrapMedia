@@ -447,6 +447,29 @@ class AppStateTest {
     }
 
     @Test
+    fun `openFile opens a real FLAC as MediaType_AUDIO with a populated Audio section`() {
+        val audio = File.createTempFile("appstate-flac-test-", ".flac")
+        audio.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "sine=duration=1:frequency=440",
+            "-c:a", "flac", audio.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val appState = AppState()
+        appState.openFile(audio)
+        val tab = appState.tabs.single()
+        waitForLoad(tab)
+
+        assertEquals(null, tab.error)
+        assertEquals(MediaType.AUDIO, tab.type)
+        val generalSection = tab.mediaSummary?.sections?.find { it.title == "General" }
+        assertTrue(generalSection?.fields?.any { it.label == "Format" && it.value == "FLAC" } == true, "Expected General/Format=FLAC, got: $generalSection")
+        val audioSection = tab.mediaSummary?.sections?.find { it.title == "Audio" }
+        assertTrue(audioSection?.fields?.any { it.label == "Sampling Rate" } == true, "Expected an Audio/Sampling Rate field, got: $audioSection")
+        audio.delete()
+    }
+
+    @Test
     fun `openFile classifies a real webm file as MediaType VIDEO`() {
         val video = File.createTempFile("appstate-webm-test-", ".webm")
         video.deleteOnExit()

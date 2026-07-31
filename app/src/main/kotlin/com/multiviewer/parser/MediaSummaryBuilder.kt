@@ -65,6 +65,7 @@ private fun detectCategory(root: BoxNode): MediaCategory {
     // WAV-specific and never appears in a WebP tree.
     if (root.children.any { it.type == "fmt " }) return MediaCategory.AUDIO
     if (root.children.any { it.type == "ID3v2" || it.type == "AudioFrames" || it.type == "ID3v1" }) return MediaCategory.AUDIO
+    if (root.children.any { it.type == "fLaC" }) return MediaCategory.AUDIO
 
     val moov = root.children.find { it.type == "moov" } ?: return MediaCategory.IMAGE
     val hasVideoOrAudioTrack = moov.children.filter { it.type == "trak" }.any { trak ->
@@ -459,7 +460,37 @@ private val ID3V1_FIELD_LABELS = mapOf("title" to "Title", "artist" to "Artist",
 
 private fun buildStandaloneAudioSummary(root: BoxNode, fileSizeBytes: Long): List<SummarySection> {
     val fmt = root.children.find { it.type == "fmt " }
-    return if (fmt != null) buildWavSummary(root, fmt, fileSizeBytes) else buildMp3Summary(root, fileSizeBytes)
+    return when {
+        fmt != null -> buildWavSummary(root, fmt, fileSizeBytes)
+        root.children.any { it.type == "fLaC" } -> buildFlacSummary(root, fileSizeBytes)
+        else -> buildMp3Summary(root, fileSizeBytes)
+    }
+}
+
+private fun buildFlacSummary(root: BoxNode, fileSizeBytes: Long): List<SummarySection> {
+    val generalFields = mutableListOf(
+        SummaryField("Format", "FLAC"),
+        SummaryField("File Size", formatFileSize(fileSizeBytes)),
+    )
+
+    val streamInfo = root.children.find { it.type == "STREAMINFO" }
+    val sampleRate = streamInfo?.fields?.find { it.name == "sample_rate" }?.value?.toDoubleOrNull()
+    val totalSamples = streamInfo?.fields?.find { it.name == "total_samples" }?.value?.toDoubleOrNull()
+    if (sampleRate != null && sampleRate > 0 && totalSamples != null) {
+        val durationSeconds = totalSamples / sampleRate
+        generalFields.add(SummaryField("Duration", formatDuration(durationSeconds)))
+        if (durationSeconds > 0) {
+            val bitrate = (fileSizeBytes * 8) / durationSeconds
+            generalFields.add(SummaryField("Overall Bit Rate", formatBitrate(bitrate)))
+        }
+    }
+
+    val audioFields = mutableListOf<SummaryField>()
+    streamInfo?.fields?.find { it.name == "sample_rate" }?.let { audioFields.add(SummaryField("Sampling Rate", "${it.value} Hz")) }
+    streamInfo?.fields?.find { it.name == "channels" }?.let { audioFields.add(SummaryField("Channel(s)", it.value)) }
+    streamInfo?.fields?.find { it.name == "bits_per_sample" }?.let { audioFields.add(SummaryField("Bit Depth", "${it.value}-bit")) }
+
+    return listOf(SummarySection("General", generalFields), SummarySection("Audio", audioFields))
 }
 
 private fun buildWavSummary(root: BoxNode, fmt: BoxNode, fileSizeBytes: Long): List<SummarySection> {
