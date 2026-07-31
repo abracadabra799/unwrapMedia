@@ -802,9 +802,12 @@ In `app/src/test/kotlin/com/multiviewer/ui/AppStateTest.kt`, add these two tests
     fun `openFile opens a real OGG (Vorbis) as MediaType_AUDIO with a populated Audio section`() {
         val audio = File.createTempFile("appstate-ogg-test-", ".ogg")
         audio.deleteOnExit()
+        // This machine's ffmpeg build has no libvorbis -- only the native "vorbis" encoder, which
+        // is marked experimental (needs -strict -2) and only supports 2-channel output (needs
+        // -ac 2 even though the source is mono).
         ProcessBuilder(
             "ffmpeg", "-y", "-f", "lavfi", "-i", "sine=duration=1:frequency=440",
-            "-c:a", "libvorbis", audio.absolutePath,
+            "-ac", "2", "-c:a", "vorbis", "-strict", "-2", audio.absolutePath,
         ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
 
         val appState = AppState()
@@ -969,7 +972,7 @@ git commit -m "feat: classify OGG/Opus as AUDIO and build a Vorbis/Opus-specific
 
 No automated coverage is possible for this task (Compose UI + audio hardware playback). This step is performed by the controller directly, not dispatched to a subagent.
 
-- [ ] Generate real fixtures: `ffmpeg -y -f lavfi -i "sine=duration=5:frequency=440" -c:a libvorbis /tmp/test-verify.ogg` and `ffmpeg -y -f lavfi -i "sine=duration=5:frequency=440" -c:a libopus /tmp/test-verify.opus`
+- [ ] Generate real fixtures: `ffmpeg -y -f lavfi -i "sine=duration=5:frequency=440" -ac 2 -c:a vorbis -strict -2 /tmp/test-verify.ogg` (this machine has no `libvorbis`, only the native experimental `vorbis` encoder, which needs `-strict -2` and 2-channel output) and `ffmpeg -y -f lavfi -i "sine=duration=5:frequency=440" -c:a libopus /tmp/test-verify.opus`
 - [ ] Launch the app (`export JAVA_HOME=/opt/homebrew/opt/openjdk@21 && ./gradlew run`) and open both files
 - [ ] Confirm the tree view shows the identification header (Vorbis or Opus), the comment/tags page, and a single `OggPages` summary node (not hundreds/thousands of individual page nodes) with sensible decoded fields
 - [ ] Confirm the Detail Properties panel shows General (Format, Duration, File Size, Overall Bit Rate) and Audio (Sampling Rate, Channel(s), Bit Rate for Vorbis) sections with correct values for both files
