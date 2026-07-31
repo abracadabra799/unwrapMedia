@@ -133,4 +133,23 @@ class EbmlWalkerTest {
         assertEquals("2", elements[1].fields.single { it.name == "value" }.value)
         reader.close()
     }
+
+    @Test
+    fun `SimpleBlock (raw frame data) is shown as a byte count, not misdecoded as a numeric value`() {
+        // Regression test: SimpleBlock/Block hold raw compressed frame data that can be many KB --
+        // decoding it as a UINT (as an earlier version of this table did) produced a meaningless
+        // wrapped-around number and wastefully read every payload byte just to compute it. Real
+        // frame bytes here (not actually valid VP9/VP8, just non-zero filler) to catch any
+        // accidental attempt to interpret them.
+        val reader = byteReaderOf(
+            byteArrayOf(0xA3.toByte(), 0x84.toByte(), 0x11, 0x22, 0x33, 0x44) // SimpleBlock, size = 4
+        )
+        val elements = parseEbmlElements(reader, 0, reader.length)
+
+        assertEquals(1, elements.size)
+        assertEquals("SimpleBlock", elements[0].type)
+        assertTrue(elements[0].fields.isEmpty())
+        assertEquals("4 byte(s)", elements[0].summary)
+        reader.close()
+    }
 }
