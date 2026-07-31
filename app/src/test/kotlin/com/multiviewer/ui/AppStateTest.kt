@@ -445,4 +445,24 @@ class AppStateTest {
         assertTrue(audioSection?.fields?.any { it.label == "Bit Rate" } == true, "Expected an Audio/Bit Rate field, got: $audioSection")
         audio.delete()
     }
+
+    @Test
+    fun `openFile classifies a real webm file as MediaType VIDEO`() {
+        val video = File.createTempFile("appstate-webm-test-", ".webm")
+        video.deleteOnExit()
+        val generate = ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=1:size=64x48:rate=10",
+            "-c:v", "libvpx", "-pix_fmt", "yuv420p", video.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start()
+        generate.waitFor()
+
+        val appState = AppState()
+        appState.openFile(video)
+
+        val tab = appState.tabs.single()
+        waitForLoad(tab)
+        assertEquals(null, tab.error)
+        assertEquals(MediaType.VIDEO, tab.type)
+        video.delete()
+    }
 }
