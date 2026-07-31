@@ -14,6 +14,7 @@ fun parseFile(path: File): BoxNode {
         val isWav = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && isWavMagic(reader)
         val isMp3 = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && isMp3Magic(reader)
         val isEbml = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isMp3 && isEbmlMagic(reader)
+        val isFlac = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isMp3 && !isEbml && isFlacMagic(reader)
         val children = when {
             isJpeg -> parseJpegSegments(reader, 0, reader.length)
             isPng -> parsePngChunks(reader, 8, reader.length)
@@ -24,6 +25,7 @@ fun parseFile(path: File): BoxNode {
             isWav -> parseWavChunks(reader, 0, reader.length)
             isMp3 -> parseMp3(reader, 0, reader.length)
             isEbml -> parseEbmlElements(reader, 0, reader.length)
+            isFlac -> parseFlacBlocks(reader, 0, reader.length)
             else -> parseBoxes(reader, 0, reader.length)
         }
         return BoxNode(type = "root", offset = 0, headerSize = 0, size = reader.length, children = children)
@@ -80,4 +82,9 @@ private fun isMp3Magic(reader: ByteReader): Boolean {
 private fun isEbmlMagic(reader: ByteReader): Boolean {
     if (reader.length < 4) return false
     return reader.readUInt32(0) == 0x1A45DFA3L
+}
+
+private fun isFlacMagic(reader: ByteReader): Boolean {
+    if (reader.length < 4) return false
+    return reader.readFourCC(0) == "fLaC"
 }

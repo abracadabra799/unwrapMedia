@@ -168,6 +168,27 @@ class ParseFileIntegrationTest {
         assertEquals("DocType", docType.type)
         assertEquals("webm", docType.fields.single { it.name == "value" }.value)
     }
+
+    @Test
+    fun `parses a synthetic minimal flac file via the FLAC path, not the ISOBMFF path`() {
+        val streamInfoPayload = byteArrayOf(
+            0x10, 0x00, 0x10, 0x00,
+            0x00, 0x03, 0xE8.toByte(), 0x00, 0x07, 0xD0.toByte(),
+            0x0A, 0xC4.toByte(), 0x42, 0xF0.toByte(), 0x00, 0x01, 0x58, 0x88.toByte(),
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+        )
+        val bytes = "fLaC".toByteArray(Charsets.US_ASCII) +
+            byteArrayOf(0x80.toByte(), 0x00, 0x00, 0x22) +
+            streamInfoPayload
+        val tmp = File.createTempFile("multiviewer-flac", ".flac")
+        tmp.deleteOnExit()
+        tmp.writeBytes(bytes)
+
+        val root = parseFile(tmp)
+
+        assertEquals(listOf("fLaC", "STREAMINFO"), root.children.map { it.type })
+        assertEquals("44100", root.children[1].fields.single { it.name == "sample_rate" }.value)
+    }
 }
 
 private fun uint32(value: Long): ByteArray = byteArrayOf(
