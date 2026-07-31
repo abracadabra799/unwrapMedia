@@ -66,6 +66,7 @@ private fun detectCategory(root: BoxNode): MediaCategory {
     if (root.children.any { it.type == "fmt " }) return MediaCategory.AUDIO
     if (root.children.any { it.type == "ID3v2" || it.type == "AudioFrames" || it.type == "ID3v1" }) return MediaCategory.AUDIO
     if (root.children.any { it.type == "fLaC" }) return MediaCategory.AUDIO
+    if (root.children.any { it.type.startsWith("Ogg") }) return MediaCategory.AUDIO
 
     val moov = root.children.find { it.type == "moov" } ?: return MediaCategory.IMAGE
     val hasVideoOrAudioTrack = moov.children.filter { it.type == "trak" }.any { trak ->
@@ -463,6 +464,7 @@ private fun buildStandaloneAudioSummary(root: BoxNode, fileSizeBytes: Long): Lis
     return when {
         fmt != null -> buildWavSummary(root, fmt, fileSizeBytes)
         root.children.any { it.type == "fLaC" } -> buildFlacSummary(root, fileSizeBytes)
+        root.children.any { it.type.startsWith("Ogg") } -> buildOggSummary(root, fileSizeBytes)
         else -> buildMp3Summary(root, fileSizeBytes)
     }
 }
@@ -489,6 +491,56 @@ private fun buildFlacSummary(root: BoxNode, fileSizeBytes: Long): List<SummarySe
     streamInfo?.fields?.find { it.name == "sample_rate" }?.let { audioFields.add(SummaryField("Sampling Rate", "${it.value} Hz")) }
     streamInfo?.fields?.find { it.name == "channels" }?.let { audioFields.add(SummaryField("Channel(s)", it.value)) }
     streamInfo?.fields?.find { it.name == "bits_per_sample" }?.let { audioFields.add(SummaryField("Bit Depth", "${it.value}-bit")) }
+
+    return listOf(SummarySection("General", generalFields), SummarySection("Audio", audioFields))
+}
+
+private fun buildOggSummary(root: BoxNode, fileSizeBytes: Long): List<SummarySection> {
+    val vorbisHeader = root.children.find { it.type == "OggVorbisIdentificationHeader" }
+    val opusHeader = root.children.find { it.type == "OggOpusIdentificationHeader" }
+    val oggPages = root.children.find { it.type == "OggPages" }
+    val finalGranulePosition = oggPages?.fields?.find { it.name == "final_granule_position" }?.value?.toDoubleOrNull()
+
+    val generalFields = mutableListOf(
+        SummaryField("Format", if (opusHeader != null) "Opus" else "Vorbis"),
+        SummaryField("File Size", formatFileSize(fileSizeBytes)),
+    )
+    val audioFields = mutableListOf<SummaryField>()
+
+    if (opusHeader != null) {
+        val preSkip = opusHeader.fields.find { it.name == "pre_skip" }?.value?.toDoubleOrNull() ?: 0.0
+        val channelCount = opusHeader.fields.find { it.name == "channel_count" }?.value
+        audioFields.add(SummaryField("Sampling Rate", "48000 Hz"))
+        channelCount?.let { audioFields.add(SummaryField("Channel(s)", it)) }
+        // Opus's granule position is always counted in 48kHz units, regardless of the stream's
+        // actual/original sample rate (RFC 7845) -- never divide by input_sample_rate here.
+        if (finalGranulePosition != null && finalGranulePosition > preSkip) {
+            val durationSeconds = (finalGranulePosition - preSkip) / 48000.0
+            generalFields.add(SummaryField("Duration", formatDuration(durationSeconds)))
+            if (durationSeconds > 0) {
+                val bitrate = (fileSizeBytes * 8) / durationSeconds
+                generalFields.add(SummaryField("Overall Bit Rate", formatBitrate(bitrate)))
+            }
+        }
+    } else if (vorbisHeader != null) {
+        val sampleRateField = vorbisHeader.fields.find { it.name == "sample_rate" }?.value
+        val sampleRate = sampleRateField?.toDoubleOrNull()
+        val channels = vorbisHeader.fields.find { it.name == "channels" }?.value
+        val bitrateNominal = vorbisHeader.fields.find { it.name == "bitrate_nominal" }?.value?.toDoubleOrNull()
+        sampleRateField?.let { audioFields.add(SummaryField("Sampling Rate", "$it Hz")) }
+        channels?.let { audioFields.add(SummaryField("Channel(s)", it)) }
+        if (bitrateNominal != null && bitrateNominal > 0) {
+            audioFields.add(SummaryField("Bit Rate", formatBitrate(bitrateNominal)))
+        }
+        if (sampleRate != null && sampleRate > 0 && finalGranulePosition != null) {
+            val durationSeconds = finalGranulePosition / sampleRate
+            generalFields.add(SummaryField("Duration", formatDuration(durationSeconds)))
+            if (durationSeconds > 0) {
+                val bitrate = (fileSizeBytes * 8) / durationSeconds
+                generalFields.add(SummaryField("Overall Bit Rate", formatBitrate(bitrate)))
+            }
+        }
+    }
 
     return listOf(SummarySection("General", generalFields), SummarySection("Audio", audioFields))
 }
