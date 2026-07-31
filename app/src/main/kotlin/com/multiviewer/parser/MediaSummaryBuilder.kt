@@ -14,7 +14,7 @@ fun buildMediaSummary(root: BoxNode, file: File): MediaSummary {
     val category = detectCategory(root)
     val sections = when (category) {
         MediaCategory.IMAGE -> buildImageSummary(root, file)
-        MediaCategory.VIDEO -> buildVideoSummary(root, file.length())
+        MediaCategory.VIDEO -> if (isWebm(root)) buildWebmVideoSummary(root, file.length()) else buildVideoSummary(root, file.length())
         MediaCategory.AUDIO -> buildStandaloneAudioSummary(root, file.length())
     }
     val motionPhotoVideoSections = if (category == MediaCategory.IMAGE) {
@@ -58,7 +58,8 @@ private fun detectCategory(root: BoxNode): MediaCategory {
     val ftyp = root.children.find { it.type == "ftyp" }
     val majorBrand = ftyp?.fields?.find { it.name == "major_brand" }?.value
     if (majorBrand == "avif" || majorBrand == "avis" || majorBrand == "heic") return MediaCategory.IMAGE
-    
+    if (isWebm(root)) return MediaCategory.VIDEO
+
     // WAV and WebP both put a "RIFF" node at the root (WebP stores its form-type in a field,
     // not the node's own type string), so a WAV check can't key off "RIFF" alone -- "fmt " is
     // WAV-specific and never appears in a WebP tree.
@@ -72,6 +73,8 @@ private fun detectCategory(root: BoxNode): MediaCategory {
     }
     return if (hasVideoOrAudioTrack) MediaCategory.VIDEO else MediaCategory.IMAGE
 }
+
+private fun isWebm(root: BoxNode): Boolean = root.children.any { it.type == "EBML" }
 
 fun findFirst(node: BoxNode, predicate: (BoxNode) -> Boolean): BoxNode? {
     if (predicate(node)) return node
@@ -270,6 +273,88 @@ private fun buildImageDetail(root: BoxNode): SummarySection? {
     }
 
     return if (fields.isNotEmpty()) SummarySection("Image", fields) else null
+}
+
+private val WEBM_CODEC_DISPLAY_NAMES = mapOf(
+    "V_VP8" to "VP8",
+    "V_VP9" to "VP9",
+    "V_AV1" to "AV1",
+    "A_OPUS" to "Opus",
+    "A_VORBIS" to "Vorbis",
+)
+
+private fun buildWebmVideoSummary(root: BoxNode, fileSizeBytes: Long): List<SummarySection> {
+    val segment = root.children.find { it.type == "Segment" }
+    val info = segment?.children?.find { it.type == "Info" }
+    val tracks = segment?.children?.find { it.type == "Tracks" }
+    val trackEntries = tracks?.children?.filter { it.type == "TrackEntry" } ?: emptyList()
+    val videoTrack = trackEntries.find { entryTrackType(it) == 1L }
+    val audioTrack = trackEntries.find { entryTrackType(it) == 2L }
+
+    val sections = mutableListOf<SummarySection>()
+    sections.add(buildWebmGeneral(fileSizeBytes, info))
+    sections.add(buildWebmTrackList(trackEntries))
+    buildWebmVideoDetail(videoTrack)?.let { sections.add(it) }
+    buildWebmAudioDetail(audioTrack)?.let { sections.add(it) }
+    return sections
+}
+
+private fun entryTrackType(trackEntry: BoxNode): Long? =
+    webmFieldValue(trackEntry, "TrackType")?.toLongOrNull()
+
+private fun webmFieldValue(node: BoxNode?, childType: String): String? =
+    node?.children?.find { it.type == childType }?.fields?.find { it.name == "value" }?.value
+
+private fun webmCodecDisplayName(codecId: String?): String? =
+    codecId?.let { WEBM_CODEC_DISPLAY_NAMES[it] ?: it }
+
+private fun buildWebmGeneral(fileSizeBytes: Long, info: BoxNode?): SummarySection {
+    val fields = mutableListOf<SummaryField>()
+    val timecodeScale = webmFieldValue(info, "TimecodeScale")?.toDoubleOrNull() ?: 1_000_000.0
+    val durationTicks = webmFieldValue(info, "Duration")?.toDoubleOrNull()
+    val durationSeconds = durationTicks?.let { it * timecodeScale / 1_000_000_000.0 }
+    durationSeconds?.let { fields.add(SummaryField("Duration", formatDuration(it))) }
+    fields.add(SummaryField("File Size", formatFileSize(fileSizeBytes)))
+    fields.add(SummaryField("Format", "WebM"))
+    if (durationSeconds != null && durationSeconds > 0) {
+        val bitrate = (fileSizeBytes * 8) / durationSeconds
+        fields.add(SummaryField("Overall Bit Rate", formatBitrate(bitrate)))
+    }
+    return SummarySection("General", fields)
+}
+
+private fun buildWebmTrackList(trackEntries: List<BoxNode>): SummarySection {
+    val videoCount = trackEntries.count { entryTrackType(it) == 1L }
+    val audioCount = trackEntries.count { entryTrackType(it) == 2L }
+    val otherCount = trackEntries.size - videoCount - audioCount
+    val fields = mutableListOf(
+        SummaryField("Video Tracks", videoCount.toString()),
+        SummaryField("Audio Tracks", audioCount.toString()),
+    )
+    if (otherCount > 0) fields.add(SummaryField("Other Tracks", otherCount.toString()))
+    return SummarySection("Track List", fields)
+}
+
+private fun buildWebmVideoDetail(videoTrack: BoxNode?): SummarySection? {
+    if (videoTrack == null) return null
+    val fields = mutableListOf<SummaryField>()
+    webmCodecDisplayName(webmFieldValue(videoTrack, "CodecID"))?.let { fields.add(SummaryField("Format", it)) }
+    val video = videoTrack.children.find { it.type == "Video" }
+    webmFieldValue(video, "PixelWidth")?.let { fields.add(SummaryField("Width", it)) }
+    webmFieldValue(video, "PixelHeight")?.let { fields.add(SummaryField("Height", it)) }
+    return if (fields.isEmpty()) null else SummarySection("Video", fields)
+}
+
+private fun buildWebmAudioDetail(audioTrack: BoxNode?): SummarySection? {
+    if (audioTrack == null) return null
+    val fields = mutableListOf<SummaryField>()
+    webmCodecDisplayName(webmFieldValue(audioTrack, "CodecID"))?.let { fields.add(SummaryField("Format", it)) }
+    val audio = audioTrack.children.find { it.type == "Audio" }
+    webmFieldValue(audio, "SamplingFrequency")?.toDoubleOrNull()?.let {
+        fields.add(SummaryField("Sampling Rate", "$it Hz"))
+    }
+    webmFieldValue(audio, "Channels")?.let { fields.add(SummaryField("Channel(s)", it)) }
+    return if (fields.isEmpty()) null else SummarySection("Audio", fields)
 }
 
 private fun buildVideoSummary(root: BoxNode, fileSizeBytes: Long): List<SummarySection> {
