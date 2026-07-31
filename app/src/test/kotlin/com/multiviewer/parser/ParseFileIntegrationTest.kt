@@ -189,6 +189,29 @@ class ParseFileIntegrationTest {
         assertEquals(listOf("fLaC", "STREAMINFO"), root.children.map { it.type })
         assertEquals("44100", root.children[1].fields.single { it.name == "sample_rate" }.value)
     }
+
+    @Test
+    fun `parses a synthetic minimal ogg file via the OGG path, not the ISOBMFF path`() {
+        val payload = byteArrayOf(0x01) + "vorbis".toByteArray(Charsets.US_ASCII) +
+            uint32LE(0) + byteArrayOf(2) + uint32LE(44100) +
+            uint32LE(0) + uint32LE(112000) + uint32LE(0) +
+            byteArrayOf(0xB8.toByte()) + byteArrayOf(0x01)
+        val segmentTable = byteArrayOf(payload.size.toByte())
+        val bytes = "OggS".toByteArray(Charsets.US_ASCII) +
+            byteArrayOf(0) + byteArrayOf(0x02) + // version, header_type (bos)
+            ByteArray(8) + // granule_position = 0
+            uint32LE(1) + uint32LE(0) + uint32LE(0) + // serial_number, page_sequence_number, checksum
+            byteArrayOf(1) + segmentTable +
+            payload
+        val tmp = File.createTempFile("multiviewer-ogg", ".ogg")
+        tmp.deleteOnExit()
+        tmp.writeBytes(bytes)
+
+        val root = parseFile(tmp)
+
+        assertEquals(listOf("OggVorbisIdentificationHeader"), root.children.map { it.type })
+        assertEquals("44100", root.children[0].fields.single { it.name == "sample_rate" }.value)
+    }
 }
 
 private fun uint32(value: Long): ByteArray = byteArrayOf(
