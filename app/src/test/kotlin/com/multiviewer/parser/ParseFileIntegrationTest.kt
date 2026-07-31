@@ -145,6 +145,29 @@ class ParseFileIntegrationTest {
 
         assertEquals(listOf("LogicalScreenDescriptor", "Trailer"), root.children.map { it.type })
     }
+
+    @Test
+    fun `parses a synthetic minimal webm file via the EBML path, not the ISOBMFF path`() {
+        val bytes = byteArrayOf(
+            0x1A, 0x45, 0xDF.toByte(), 0xA3.toByte(), // EBML element ID (4 bytes)
+            0x87.toByte(), // size = 7 (1-byte VINT)
+            0x42, 0x82.toByte(), // DocType element ID (2 bytes)
+            0x84.toByte(), // size = 4 (1-byte VINT)
+            0x77, 0x65, 0x62, 0x6D, // "webm"
+        )
+        val tmp = File.createTempFile("multiviewer-webm", ".webm")
+        tmp.deleteOnExit()
+        tmp.writeBytes(bytes)
+
+        val root = parseFile(tmp)
+
+        assertEquals(1, root.children.size)
+        assertEquals("EBML", root.children[0].type)
+        assertEquals(1, root.children[0].children.size)
+        val docType = root.children[0].children[0]
+        assertEquals("DocType", docType.type)
+        assertEquals("webm", docType.fields.single { it.name == "value" }.value)
+    }
 }
 
 private fun uint32(value: Long): ByteArray = byteArrayOf(
