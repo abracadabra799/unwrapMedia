@@ -46,6 +46,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.sound.sampled.AudioFormat
 import javax.sound.sampled.AudioSystem
+import javax.sound.sampled.SourceDataLine
 
 data class AudioFileInfo(val sampleRate: Int, val channels: Int, val duration: Double)
 
@@ -182,8 +183,9 @@ fun FfmpegAudioPlayer(file: File, modifier: Modifier = Modifier) {
 
         val readerThread = if (process != null) {
             Thread {
+                var line: SourceDataLine? = null
                 try {
-                    val line = AudioSystem.getSourceDataLine(format)
+                    line = AudioSystem.getSourceDataLine(format)
                     line.open(format)
                     line.start()
                     var wasPlaying = true
@@ -214,13 +216,14 @@ fun FfmpegAudioPlayer(file: File, modifier: Modifier = Modifier) {
                         val secondsThisChunk = bytesRead.toDouble() / bytesPerSecond
                         EventQueue.invokeLater { playedSeconds += secondsThisChunk }
                     }
-                    line.stop()
-                    line.flush()
-                    line.close()
                 } catch (e: InterruptedException) {
                     // Expected on dispose -- not an error.
                 } catch (e: Exception) {
                     System.err.println("FfmpegAudioPlayer reader thread failed: $e")
+                } finally {
+                    line?.stop()
+                    line?.flush()
+                    line?.close()
                 }
             }.apply { isDaemon = true }.also { it.start() }
         } else {
