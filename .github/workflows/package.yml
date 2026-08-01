@@ -40,13 +40,12 @@ jobs:
       - name: Download and bundle ffmpeg (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          curl -sL -o ffmpeg.tar.xz "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-lgpl-shared-8.1.tar.xz"
+          curl -sL -o ffmpeg.tar.xz "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-lgpl-8.1.tar.xz"
           mkdir -p ffmpeg-extracted
           tar -xf ffmpeg.tar.xz -C ffmpeg-extracted --strip-components=1
-          mkdir -p app/resources/linux/bin app/resources/linux/lib
+          mkdir -p app/resources/linux/bin
           cp ffmpeg-extracted/bin/ffmpeg app/resources/linux/bin/ffmpeg
           cp ffmpeg-extracted/bin/ffprobe app/resources/linux/bin/ffprobe
-          cp -P ffmpeg-extracted/lib/*.so* app/resources/linux/lib/
           chmod +x app/resources/linux/bin/ffmpeg app/resources/linux/bin/ffprobe
 
       # Tests the staged resources directly, before packaging -- packageDistributionForCurrentOS
@@ -55,18 +54,17 @@ jobs:
       # step searched app/build/compose/binaries with `find`/Get-ChildItem -Recurse and found
       # nothing, since a .deb is a compressed archive, not a loose directory tree). Since
       # jpackage/Compose Desktop copies this resource tree as-is into the final package without
-      # rearranging bin/ and lib/ relative to each other, running the binary from its staged
-      # location validates the exact same shared-library resolution risk that packaging could
-      # otherwise silently break.
+      # rearranging it, running the binary from its staged location validates the same risk that
+      # packaging could otherwise silently break.
       #
-      # Linux needs LD_LIBRARY_PATH set explicitly: an earlier attempt relied on the shared
-      # build's own RPATH ($ORIGIN/../lib, visible in the binary's embedded build-configure
-      # string) -- but a real run here proved via `ldd` that RPATH does NOT actually resolve at
-      # runtime (every libav*/libsw* dependency reported "not found" even though lib/ sat exactly
-      # where $ORIGIN/../lib should point), so the embedded configure string only proves what
-      # flags were requested at link time, not that they took effect in the final binary. The app
-      # itself works around this the same way, via FfmpegLocator.configureEnvironment() setting
-      # LD_LIBRARY_PATH on every ffmpeg/ffprobe subprocess it spawns -- this step mirrors that.
+      # Linux stayed on ffmpeg's static build (not shared): a real size comparison showed the
+      # shared build's lib/*.so payload (dominated by a ~70MB libavcodec.so with every enabled
+      # codec baked in, unstripped) ended up LARGER once packaged than the static binaries'
+      # dead-code-eliminated linking, the opposite of the intended size optimization (measured:
+      # static .deb ~135MB vs shared .deb ~205MB). Windows kept the shared build because there
+      # the comparison went the other way (~120MB vs ~94MB) -- DLLs there are already split per
+      # avlib with no bundled-and-unused runtime overhead. Static Linux binaries need no
+      # LD_LIBRARY_PATH; FfmpegLocator.configureEnvironment() is a no-op when there's no lib/ dir.
       - name: Smoke-test bundled ffmpeg (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
@@ -74,7 +72,7 @@ jobs:
 
       - name: Smoke-test bundled ffmpeg (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: LD_LIBRARY_PATH=app/resources/linux/lib app/resources/linux/bin/ffmpeg -version
+        run: app/resources/linux/bin/ffmpeg -version
 
       - name: Package Distribution (Windows)
         if: matrix.os == 'windows-latest'
