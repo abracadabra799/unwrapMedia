@@ -116,6 +116,13 @@ class TabState(val file: File) {
 
     var embeddedVideo: EmbeddedVideo? by mutableStateOf(null)
     var motionPhotoPreview: EmbeddedVideo? by mutableStateOf(null)
+    // Decoded GIF animation frames (see GifFrameDecoder.kt) -- null until the background decode
+    // in openFile finishes (or forever, for non-GIF files, which never trigger it). A non-null
+    // value with frames.size <= 1 means "decoded successfully but not actually animated" -- see
+    // GifFilmstripPlayer, which falls back to a plain static view in that case.
+    var gifAnimation: GifAnimationData? by mutableStateOf(null)
+    var gifFrameIndex: Int by mutableStateOf(0)
+    var gifIsPlaying: Boolean by mutableStateOf(false)
     var error: String? by mutableStateOf(null)
     var selected: BoxNode? by mutableStateOf(null)
     var verticalSplit: Float by mutableStateOf(0.5f)
@@ -421,6 +428,18 @@ class AppState {
                                         isDecodingFallback = false,
                                     )
                                 }
+                            }
+                        }
+
+                        if (extension == "gif") {
+                            // Runs alongside the primary static decode above, not instead of it --
+                            // the static decode still feeds the (now-hidden-for-GIF) thumbnail/
+                            // primary boxes as a fallback for as long as this hasn't finished, and
+                            // GifFilmstripPlayer itself falls back to a plain static frame when this
+                            // decode fails outright (see GifFrameDecoder.kt).
+                            runInBackground {
+                                val animation = decodeGifAnimation(file)
+                                EventQueue.invokeLater { tab.gifAnimation = animation }
                             }
                         }
                     } else {
