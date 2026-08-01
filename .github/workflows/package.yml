@@ -74,6 +74,34 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: app/resources/linux/bin/ffmpeg -version
 
+      # `-version` only proves the DLLs load -- it doesn't touch the codec paths the app
+      # actually uses (FfmpegVideoPlayer/FfmpegImageSnapshotDecoder/AudioWaveformPeaks all shell
+      # out to decode real media). Windows is the platform that changed build type (static ->
+      # shared), so this generates a tiny synthetic clip via ffmpeg's own lavfi test source (no
+      # committed fixture file needed) and exercises the same three operations the app performs:
+      # probing stream info, extracting a video frame to PNG, and extracting raw PCM audio.
+      - name: Functional smoke-test bundled ffmpeg (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $ffmpeg = "app\resources\windows\bin\ffmpeg.exe"
+          $ffprobe = "app\resources\windows\bin\ffprobe.exe"
+
+          & $ffmpeg -y -f lavfi -i "testsrc=duration=1:size=320x240:rate=10" -f lavfi -i "sine=frequency=1000:duration=1" -c:v mpeg4 -c:a aac -shortest smoke-test.mp4
+          if ($LASTEXITCODE -ne 0) { throw "ffmpeg failed to encode the synthetic test clip" }
+
+          $streamInfo = & $ffprobe -v error -select_streams v:0 -show_entries stream=codec_name,width,height -of csv=p=0 smoke-test.mp4
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($streamInfo)) { throw "ffprobe failed to read the synthetic test clip" }
+          Write-Host "ffprobe stream info: $streamInfo"
+
+          & $ffmpeg -y -i smoke-test.mp4 -frames:v 1 frame.png
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path frame.png) -or (Get-Item frame.png).Length -eq 0) { throw "ffmpeg failed to extract a video frame to PNG" }
+
+          & $ffmpeg -y -i smoke-test.mp4 -map 0:a:0 -f s16le -ar 44100 -ac 2 -acodec pcm_s16le pcm.raw
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path pcm.raw) -or (Get-Item pcm.raw).Length -eq 0) { throw "ffmpeg failed to extract raw PCM audio" }
+
+          Write-Host "Windows shared ffmpeg build: encode, frame extraction, and PCM extraction all verified"
+
       - name: Package Distribution (Windows)
         if: matrix.os == 'windows-latest'
         run: ./gradlew :app:createDistributable
