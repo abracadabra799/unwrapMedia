@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.unit.dp
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -124,10 +125,11 @@ private fun DrawScope.drawChannelPeaks(peaks: ChannelPeaks, color: Color) {
     val centerY = height / 2f
     val bucketCount = peaks.min.size
     if (bucketCount == 0 || width <= 0f) return
+    val strokeWidthPx = 1.5.dp.toPx()
     for (i in 0 until bucketCount) {
         val x = width * i / bucketCount
         val yTop = centerY - peaks.max[i] * centerY
         val yBottom = centerY - peaks.min[i] * centerY
-        drawLine(color = color, start = Offset(x, yTop), end = Offset(x, yBottom))
+        drawLine(color = color, start = Offset(x, yTop), end = Offset(x, yBottom), strokeWidth = strokeWidthPx)
     }
 }
