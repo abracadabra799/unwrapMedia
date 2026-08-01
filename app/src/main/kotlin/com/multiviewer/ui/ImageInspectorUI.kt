@@ -57,7 +57,19 @@ fun ImageInspectorUI(
                 tab.largeResolutionWarning?.let { warning ->
                     ResolutionWarningBanner(warning, onDismiss = { tab.largeResolutionWarning = null })
                 }
-                // Top: Dual Preview (50/50 Split)
+                // Top: Dual Preview (50/50 Split) -- or, for an animated GIF whose frames decoded
+                // successfully, a full-width frame filmstrip instead (see
+                // docs/superpowers/specs/2026-08-01-gif-animation-playback-design.md. Any other
+                // case -- non-GIF file, or a GIF whose animation decode hasn't finished/failed --
+                // falls through to the unchanged three-box row below.
+                val gifAnimation = tab.gifAnimation
+                if (tab.file.extension.lowercase() == "gif" && gifAnimation != null) {
+                    GifFilmstripPlayer(
+                        tab = tab,
+                        animation = gifAnimation,
+                        modifier = Modifier.weight(verticalSplit).fillMaxWidth(),
+                    )
+                } else {
                 Row(
                     modifier = Modifier
                         .weight(verticalSplit)
@@ -154,7 +166,8 @@ fun ImageInspectorUI(
                         }
                     }
                 }
-                
+                }
+
                 // Resizable Divider
                 DraggableDivider(
                     orientation = Orientation.Horizontal,
