@@ -519,6 +519,30 @@ class AppStateTest {
     }
 
     @Test
+    fun `openFile opens a real AIFF as MediaType_AUDIO with a populated Audio section`() {
+        val audio = File.createTempFile("appstate-aiff-test-", ".aiff")
+        audio.deleteOnExit()
+        // No explicit -c:a needed -- plain ffmpeg -i produces a valid AIFF (pcm_s16be) on this machine.
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "sine=duration=1:frequency=440",
+            audio.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val appState = AppState()
+        appState.openFile(audio)
+        val tab = appState.tabs.single()
+        waitForLoad(tab)
+
+        assertEquals(null, tab.error)
+        assertEquals(MediaType.AUDIO, tab.type)
+        val generalSection = tab.mediaSummary?.sections?.find { it.title == "General" }
+        assertTrue(generalSection?.fields?.any { it.label == "Format" && it.value == "AIFF" } == true, "Expected General/Format=AIFF, got: $generalSection")
+        val audioSection = tab.mediaSummary?.sections?.find { it.title == "Audio" }
+        assertTrue(audioSection?.fields?.any { it.label == "Sampling Rate" } == true, "Expected an Audio/Sampling Rate field, got: $audioSection")
+        audio.delete()
+    }
+
+    @Test
     fun `openFile classifies a real webm file as MediaType VIDEO`() {
         val video = File.createTempFile("appstate-webm-test-", ".webm")
         video.deleteOnExit()
