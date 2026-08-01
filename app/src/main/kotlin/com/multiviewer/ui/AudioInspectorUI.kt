@@ -26,8 +26,9 @@ import androidx.compose.ui.unit.dp
 // ftyp/moov/trak layout as mp4/mov/m4v) parsed by the same generic box walker, with
 // MediaSummaryBuilder's existing detectCategory/buildVideoSummary/buildAudioDetail already
 // handling a video-less "soun"-only moov correctly. Playback is FfmpegAudioPlayer -- ffmpeg PCM
-// piped to a javax.sound.sampled SourceDataLine, plus a static waveform/spectrogram overview
-// rendered once per file via ffmpeg's own showwavespic/showspectrumpic filters.
+// piped to a javax.sound.sampled SourceDataLine, plus a waveform (real PCM min/max peaks drawn via
+// Compose Canvas, see AudioWaveformPeaks.kt) and a spectrogram (ffmpeg's showspectrumpic filter,
+// regenerated at the panel's actual size after a resize settles).
 @Composable
 fun AudioInspectorUI(
     appState: AppState,

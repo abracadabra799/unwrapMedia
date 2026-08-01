@@ -79,9 +79,10 @@ fun probeAudioFormat(file: File): AudioFileInfo? {
 
 private const val AUDIO_VISUAL_TIMEOUT_MS = 10000L
 
-// Renders a whole-file waveform/spectrogram overview via ffmpeg's own showwavespic/showspectrumpic
-// filters -- both already implement the standard min/max-per-column peak-decimation technique
-// audio editors use for this, so there's no need to hand-roll PCM bucketing or FFT in Kotlin.
+// Renders the spectrogram via ffmpeg's own showspectrumpic filter -- already implements the
+// standard color-mapped STFT rendering audio editors use for this, so there's no need to hand-roll
+// FFT in Kotlin. (The waveform itself is no longer rendered this way -- see AudioWaveformPeaks.kt,
+// which computes real PCM min/max peaks and draws them via Compose Canvas instead.)
 // Follows the same temp-file ffmpeg-image-extraction convention as
 // FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap: write to a temp PNG, wait with a timeout,
 // check exit code and file size, decode via Skia, always clean up the temp file.
