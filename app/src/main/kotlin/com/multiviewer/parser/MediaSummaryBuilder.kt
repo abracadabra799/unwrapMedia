@@ -67,6 +67,7 @@ private fun detectCategory(root: BoxNode): MediaCategory {
     if (root.children.any { it.type == "ID3v2" || it.type == "AudioFrames" || it.type == "ID3v1" }) return MediaCategory.AUDIO
     if (root.children.any { it.type == "fLaC" }) return MediaCategory.AUDIO
     if (root.children.any { it.type.startsWith("Ogg") }) return MediaCategory.AUDIO
+    if (root.children.any { it.type == "COMM" }) return MediaCategory.AUDIO
 
     val moov = root.children.find { it.type == "moov" } ?: return MediaCategory.IMAGE
     val hasVideoOrAudioTrack = moov.children.filter { it.type == "trak" }.any { trak ->
@@ -465,6 +466,7 @@ private fun buildStandaloneAudioSummary(root: BoxNode, fileSizeBytes: Long): Lis
         fmt != null -> buildWavSummary(root, fmt, fileSizeBytes)
         root.children.any { it.type == "fLaC" } -> buildFlacSummary(root, fileSizeBytes)
         root.children.any { it.type.startsWith("Ogg") } -> buildOggSummary(root, fileSizeBytes)
+        root.children.any { it.type == "COMM" } -> buildAiffSummary(root, fileSizeBytes)
         else -> buildMp3Summary(root, fileSizeBytes)
     }
 }
@@ -541,6 +543,38 @@ private fun buildOggSummary(root: BoxNode, fileSizeBytes: Long): List<SummarySec
             }
         }
     }
+
+    return listOf(SummarySection("General", generalFields), SummarySection("Audio", audioFields))
+}
+
+private fun buildAiffSummary(root: BoxNode, fileSizeBytes: Long): List<SummarySection> {
+    val form = root.children.find { it.type == "FORM" }
+    val comm = root.children.find { it.type == "COMM" }
+    val formType = form?.fields?.find { it.name == "form_type" }?.value ?: "AIFF"
+
+    val generalFields = mutableListOf(
+        SummaryField("Format", formType),
+        SummaryField("File Size", formatFileSize(fileSizeBytes)),
+    )
+
+    val sampleRateField = comm?.fields?.find { it.name == "sample_rate" }?.value
+    val sampleRate = sampleRateField?.toDoubleOrNull()
+    val numSampleFrames = comm?.fields?.find { it.name == "num_sample_frames" }?.value?.toDoubleOrNull()
+    if (sampleRate != null && sampleRate > 0 && numSampleFrames != null) {
+        val durationSeconds = numSampleFrames / sampleRate
+        generalFields.add(SummaryField("Duration", formatDuration(durationSeconds)))
+        if (durationSeconds > 0) {
+            val bitrate = (fileSizeBytes * 8) / durationSeconds
+            generalFields.add(SummaryField("Overall Bit Rate", formatBitrate(bitrate)))
+        }
+    }
+
+    val audioFields = mutableListOf<SummaryField>()
+    val compressionType = comm?.fields?.find { it.name == "compression_type" }?.value
+    audioFields.add(SummaryField("Format", compressionType ?: "PCM"))
+    sampleRateField?.let { audioFields.add(SummaryField("Sampling Rate", "$it Hz")) }
+    comm?.fields?.find { it.name == "num_channels" }?.let { audioFields.add(SummaryField("Channel(s)", it.value)) }
+    comm?.fields?.find { it.name == "sample_size" }?.let { audioFields.add(SummaryField("Bit Depth", "${it.value}-bit")) }
 
     return listOf(SummarySection("General", generalFields), SummarySection("Audio", audioFields))
 }
