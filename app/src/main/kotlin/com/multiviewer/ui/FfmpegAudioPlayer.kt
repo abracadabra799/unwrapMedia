@@ -36,8 +36,10 @@ import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image
 import java.awt.EventQueue
@@ -114,8 +116,7 @@ private fun renderAudioVisualization(file: File, filter: String): ImageBitmap? {
 fun generateSpectrogramImage(file: File, width: Int, height: Int): ImageBitmap? =
     renderAudioVisualization(file, "showspectrumpic=s=${width}x${height},scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2")
 
-private const val WAVEFORM_IMAGE_WIDTH = 1600
-private const val WAVEFORM_IMAGE_HEIGHT = 300
+private const val SPECTROGRAM_RESIZE_DEBOUNCE_MS = 400L
 
 @Composable
 fun FfmpegAudioPlayer(file: File, modifier: Modifier = Modifier) {
@@ -139,7 +140,6 @@ fun FfmpegAudioPlayer(file: File, modifier: Modifier = Modifier) {
         if (info != null) {
             waveformPeaks = withContext(Dispatchers.IO) { computeWaveformPeaks(file, info) }
         }
-        spectrogramBitmap = withContext(Dispatchers.IO) { generateSpectrogramImage(file, WAVEFORM_IMAGE_WIDTH, WAVEFORM_IMAGE_HEIGHT) }
     }
 
     if (probing) {
@@ -238,7 +238,22 @@ fun FfmpegAudioPlayer(file: File, modifier: Modifier = Modifier) {
 
     var waveformSplit by remember(file) { mutableStateOf(0.6f) }
     var containerHeightPx by remember(file) { mutableStateOf(0) }
+    var spectrogramBoxSize by remember(file) { mutableStateOf(IntSize.Zero) }
     val elapsedSeconds = (startFromSeconds + playedSeconds).coerceIn(0.0, if (info.duration > 0) info.duration else Double.MAX_VALUE)
+
+    // Regenerates the spectrogram at the panel's actual current pixel size, debounced so a drag
+    // resize doesn't spawn ffmpeg on every intermediate frame -- LaunchedEffect's key-change
+    // semantics cancel the previous coroutine and start a fresh one on every size change, so only
+    // the last size that survives the delay without being superseded actually triggers a
+    // regeneration. The old bitmap (if any) stays visible via contentScale = FillBounds until the
+    // new one is ready, so there's no flicker or blank flash mid-resize.
+    LaunchedEffect(file, spectrogramBoxSize) {
+        val boxSize = spectrogramBoxSize
+        if (boxSize.width <= 0 || boxSize.height <= 0) return@LaunchedEffect
+        delay(SPECTROGRAM_RESIZE_DEBOUNCE_MS)
+        val newBitmap = withContext(Dispatchers.IO) { generateSpectrogramImage(file, boxSize.width, boxSize.height) }
+        if (newBitmap != null) spectrogramBitmap = newBitmap
+    }
 
     fun seekToFraction(fraction: Float) {
         hasEnded = false
@@ -315,7 +330,13 @@ fun FfmpegAudioPlayer(file: File, modifier: Modifier = Modifier) {
             setSplit = { waveformSplit = it },
         )
 
-        Box(modifier = Modifier.weight(1f - waveformSplit).fillMaxWidth().background(Color.Black)) {
+        Box(
+            modifier = Modifier
+                .weight(1f - waveformSplit)
+                .fillMaxWidth()
+                .background(Color.Black)
+                .onGloballyPositioned { spectrogramBoxSize = it.size },
+        ) {
             val spectrogram = spectrogramBitmap
             if (spectrogram != null) {
                 Image(bitmap = spectrogram, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
