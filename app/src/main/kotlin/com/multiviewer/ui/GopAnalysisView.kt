@@ -185,7 +185,7 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
                         }
                     }
 
-                    val maxSize = frames.maxOf { it.sizeBytes }.coerceAtLeast(1)
+                    val maxSize = remember(frames) { frames.maxOf { it.sizeBytes }.coerceAtLeast(1) }
                     var frameBarWidthDp by remember { mutableStateOf(FRAME_BAR_WIDTH_DP.toFloat()) }
                     LaunchedEffect(currentFrameIndex) {
                         if (currentFrameIndex < 0) return@LaunchedEffect
