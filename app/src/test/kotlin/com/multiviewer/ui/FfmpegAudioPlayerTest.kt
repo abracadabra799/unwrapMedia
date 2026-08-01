@@ -31,23 +31,6 @@ class FfmpegAudioPlayerTest {
     }
 
     @Test
-    fun `generateWaveformImage produces a decoded bitmap at the requested dimensions`() {
-        val audio = File.createTempFile("ffmpeg-waveform-test-", ".wav")
-        audio.deleteOnExit()
-        ProcessBuilder(
-            "ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
-            audio.absolutePath,
-        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
-
-        val bitmap = generateWaveformImage(audio, 400, 100)
-
-        assertNotNull(bitmap)
-        assertEquals(400, bitmap.width)
-        assertEquals(100, bitmap.height)
-        audio.delete()
-    }
-
-    @Test
     fun `generateSpectrogramImage produces a decoded bitmap at the requested dimensions`() {
         val audio = File.createTempFile("ffmpeg-spectrogram-test-", ".wav")
         audio.deleteOnExit()

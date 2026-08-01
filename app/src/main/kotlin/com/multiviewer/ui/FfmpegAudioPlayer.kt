@@ -111,9 +111,6 @@ private fun renderAudioVisualization(file: File, filter: String): ImageBitmap? {
     }
 }
 
-fun generateWaveformImage(file: File, width: Int, height: Int): ImageBitmap? =
-    renderAudioVisualization(file, "showwavespic=s=${width}x${height}:colors=0x39FF14")
-
 fun generateSpectrogramImage(file: File, width: Int, height: Int): ImageBitmap? =
     renderAudioVisualization(file, "showspectrumpic=s=${width}x${height},scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2")
 
@@ -131,7 +128,7 @@ fun FfmpegAudioPlayer(file: File, modifier: Modifier = Modifier) {
 
     var probedInfo by remember(file) { mutableStateOf<AudioFileInfo?>(null) }
     var probing by remember(file) { mutableStateOf(true) }
-    var waveformBitmap by remember(file) { mutableStateOf<ImageBitmap?>(null) }
+    var waveformPeaks by remember(file) { mutableStateOf<WaveformPeaks?>(null) }
     var spectrogramBitmap by remember(file) { mutableStateOf<ImageBitmap?>(null) }
 
     LaunchedEffect(file) {
@@ -139,7 +136,9 @@ fun FfmpegAudioPlayer(file: File, modifier: Modifier = Modifier) {
         val info = withContext(Dispatchers.IO) { probeAudioFormat(file) }
         probedInfo = info
         probing = false
-        waveformBitmap = withContext(Dispatchers.IO) { generateWaveformImage(file, WAVEFORM_IMAGE_WIDTH, WAVEFORM_IMAGE_HEIGHT) }
+        if (info != null) {
+            waveformPeaks = withContext(Dispatchers.IO) { computeWaveformPeaks(file, info) }
+        }
         spectrogramBitmap = withContext(Dispatchers.IO) { generateSpectrogramImage(file, WAVEFORM_IMAGE_WIDTH, WAVEFORM_IMAGE_HEIGHT) }
     }
 
@@ -265,11 +264,11 @@ fun FfmpegAudioPlayer(file: File, modifier: Modifier = Modifier) {
                     }
                 },
         ) {
-            val waveform = waveformBitmap
+            val peaks = waveformPeaks
             if (loadError) {
                 Text("Could not start ffmpeg playback", color = Color.White, modifier = Modifier.align(Alignment.Center))
-            } else if (waveform != null) {
-                Image(bitmap = waveform, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+            } else if (peaks != null) {
+                WaveformDisplay(peaks = peaks, color = Color(0xFF39FF14), modifier = Modifier.fillMaxSize())
             } else {
                 DecodingIndicator("파형 생성 중...", modifier = Modifier.align(Alignment.Center))
             }
