@@ -114,8 +114,14 @@ private fun renderAudioVisualization(file: File, filter: String): ImageBitmap? {
     }
 }
 
+// showspectrumpic doesn't honor its own s=WxH request precisely (measured: requesting 1200x300
+// actually renders 1482x428) -- scale=W:H (no aspect-ratio preservation) forces the exact
+// requested dimensions by stretching rather than letterboxing/pillarboxing, so the spectrogram
+// content fills the image edge-to-edge with no black padding bars. This matters because the
+// progress overlay assumes "image width == full duration" linearly; padding here would make the
+// playhead visually misalign with the actual spectrogram content near both edges.
 fun generateSpectrogramImage(file: File, width: Int, height: Int): ImageBitmap? =
-    renderAudioVisualization(file, "showspectrumpic=s=${width}x${height},scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2")
+    renderAudioVisualization(file, "showspectrumpic=s=${width}x${height},scale=${width}:${height}")
 
 private const val SPECTROGRAM_RESIZE_DEBOUNCE_MS = 400L
 
