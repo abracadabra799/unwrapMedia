@@ -49,6 +49,24 @@ jobs:
           cp -P ffmpeg-extracted/lib/*.so* app/resources/linux/lib/
           chmod +x app/resources/linux/bin/ffmpeg app/resources/linux/bin/ffprobe
 
+      # Tests the staged resources directly, before packaging -- packageDistributionForCurrentOS
+      # builds the .deb straight from these files with no intermediate extracted app-image on
+      # disk for a post-build search to find (confirmed the hard way: an earlier version of this
+      # step searched app/build/compose/binaries with `find`/Get-ChildItem -Recurse and found
+      # nothing, since a .deb is a compressed archive, not a loose directory tree). Since
+      # jpackage/Compose Desktop copies this resource tree as-is into the final package without
+      # rearranging bin/ and lib/ relative to each other, running the binary from its staged
+      # location validates the exact same RPATH/DLL-search-path resolution risk that packaging
+      # could otherwise silently break.
+      - name: Smoke-test bundled ffmpeg (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: app\resources\windows\bin\ffmpeg.exe -version
+
+      - name: Smoke-test bundled ffmpeg (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: app/resources/linux/bin/ffmpeg -version
+
       - name: Package Distribution (Windows)
         if: matrix.os == 'windows-latest'
         run: ./gradlew :app:createDistributable
@@ -56,24 +74,6 @@ jobs:
       - name: Package Distribution (macOS/Linux)
         if: matrix.os != 'windows-latest'
         run: ./gradlew :app:packageDistributionForCurrentOS
-
-      - name: Smoke-test bundled ffmpeg (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          $bundledFfmpeg = (Get-ChildItem -Path app/build/compose/binaries -Recurse -Filter ffmpeg.exe | Select-Object -First 1).FullName
-          if (-not $bundledFfmpeg) { throw "Could not find a packaged ffmpeg.exe under app/build/compose/binaries" }
-          & $bundledFfmpeg -version
-
-      - name: Smoke-test bundled ffmpeg (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          BUNDLED_FFMPEG=$(find app/build/compose/binaries -type f -name ffmpeg | head -1)
-          if [ -z "$BUNDLED_FFMPEG" ]; then
-            echo "Could not find a packaged ffmpeg binary under app/build/compose/binaries" >&2
-            exit 1
-          fi
-          "$BUNDLED_FFMPEG" -version
 
       - name: Compile Windows Installer (Inno Setup)
         if: matrix.os == 'windows-latest'
