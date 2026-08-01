@@ -58,7 +58,8 @@ fun probeAudioFormat(file: File): AudioFileInfo? {
             FfmpegLocator.ffprobePath(), "-v", "error", "-select_streams", "a:0",
             "-show_entries", "stream=sample_rate,channels,duration",
             "-of", "default=noprint_wrappers=1", file.absolutePath,
-        ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD).start()
+        ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD)
+            .also { FfmpegLocator.configureEnvironment(it) }.start()
         val lines = process.inputStream.bufferedReader().readLines()
         process.waitFor(5, TimeUnit.SECONDS)
 
@@ -97,7 +98,8 @@ private fun renderAudioVisualization(file: File, filter: String): ImageBitmap? {
         val process = ProcessBuilder(
             FfmpegLocator.ffmpegPath(), "-y", "-i", file.absolutePath,
             "-lavfi", filter, "-frames:v", "1", tempPng.absolutePath,
-        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start()
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD)
+            .also { FfmpegLocator.configureEnvironment(it) }.start()
         val finished = process.waitFor(AUDIO_VISUAL_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         if (!finished) {
             process.destroyForcibly()
@@ -177,7 +179,7 @@ fun FfmpegAudioPlayer(file: File, modifier: Modifier = Modifier) {
                     "-f", "s16le", "-ar", sampleRate.toString(), "-ac", channels.toString(),
                     "-acodec", "pcm_s16le", "-",
                 ),
-            ).start()
+            ).also { FfmpegLocator.configureEnvironment(it) }.start()
         } catch (e: Exception) {
             null
         }

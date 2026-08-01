@@ -226,7 +226,8 @@ private fun decodeYuvFamily(bytes: ByteArray, width: Int, height: Int, ffmpegPix
             FfmpegLocator.ffmpegPath(), "-y",
             "-f", "rawvideo", "-pix_fmt", ffmpegPixFmt, "-s", "${width}x$height", "-i", tempIn.absolutePath,
             "-f", "rawvideo", "-pix_fmt", "bgra", "-frames:v", "1", tempOut.absolutePath,
-        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start()
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD)
+            .also { FfmpegLocator.configureEnvironment(it) }.start()
         val finished = process.waitFor(8, TimeUnit.SECONDS)
         if (!finished) {
             process.destroyForcibly()

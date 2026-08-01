@@ -21,7 +21,8 @@ fun probeStreamDetails(file: File): StreamCodecDetails? {
             "-show_entries",
             "stream=index,codec_type,profile,level,pix_fmt,color_space,color_transfer,color_primaries,color_range,bit_rate,r_frame_rate,avg_frame_rate,channel_layout,duration,nb_frames",
             "-of", "default=noprint_wrappers=1", file.absolutePath,
-        ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD).start()
+        ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD)
+            .also { FfmpegLocator.configureEnvironment(it) }.start()
         val lines = process.inputStream.bufferedReader().readLines()
         process.waitFor(30, TimeUnit.SECONDS)
 

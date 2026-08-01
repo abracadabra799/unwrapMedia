@@ -51,6 +51,7 @@ private fun runFfmpegExtract(vararg command: String): Boolean {
         val process = ProcessBuilder(*command)
             .redirectOutput(ProcessBuilder.Redirect.DISCARD)
             .redirectError(ProcessBuilder.Redirect.DISCARD)
+            .also { FfmpegLocator.configureEnvironment(it) }
             .start()
         val finished = process.waitFor(EXTRACT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         if (!finished) {

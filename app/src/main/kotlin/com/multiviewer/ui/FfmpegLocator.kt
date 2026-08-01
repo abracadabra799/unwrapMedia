@@ -14,6 +14,26 @@ object FfmpegLocator {
     fun ffmpegPath(): String = resolve(unixName = "ffmpeg", windowsName = "ffmpeg.exe")
     fun ffprobePath(): String = resolve(unixName = "ffprobe", windowsName = "ffprobe.exe")
 
+    // The bundled Linux ffmpeg/ffprobe are shared-linked against a sibling lib/ directory, but
+    // don't reliably resolve it via RPATH at runtime -- confirmed empirically against a real
+    // packaged build: `ldd` reported every libav*/libsw* dependency as "not found" even though
+    // $ORIGIN/../lib (i.e. this resources dir's lib/) contained them, despite the binary's own
+    // embedded build-configure string claiming `-Wl,-rpath=$ORIGIN/../lib` was requested at link
+    // time -- that string only proves what flags were passed to the linker, not that they took
+    // effect in the final binary. So callers must point the dynamic linker at lib/ explicitly via
+    // LD_LIBRARY_PATH before spawning ffmpeg/ffprobe as a subprocess on Linux. Call this on every
+    // ProcessBuilder that runs an FfmpegLocator-resolved path, right before start().
+    fun configureEnvironment(processBuilder: ProcessBuilder) {
+        val resourcesDirPath = System.getProperty("compose.application.resources.dir") ?: return
+        val osName = System.getProperty("os.name") ?: return
+        val isWindows = osName.contains("Windows", ignoreCase = true)
+        val isMac = osName.contains("Mac", ignoreCase = true)
+        if (isWindows || isMac) return
+        val libDir = File(resourcesDirPath, "lib")
+        if (!libDir.isDirectory) return
+        processBuilder.environment()["LD_LIBRARY_PATH"] = libDir.absolutePath
+    }
+
     private fun resolve(unixName: String, windowsName: String): String {
         val resourcesDirPath = System.getProperty("compose.application.resources.dir") ?: return unixName
         val isWindows = System.getProperty("os.name")?.contains("Windows", ignoreCase = true) == true
