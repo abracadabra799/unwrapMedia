@@ -16,6 +16,7 @@ fun parseFile(path: File): BoxNode {
         val isEbml = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isMp3 && isEbmlMagic(reader)
         val isFlac = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isMp3 && !isEbml && isFlacMagic(reader)
         val isOgg = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isMp3 && !isEbml && !isFlac && isOggMagic(reader)
+        val isAiff = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isMp3 && !isEbml && !isFlac && !isOgg && isAiffMagic(reader)
         val children = when {
             isJpeg -> parseJpegSegments(reader, 0, reader.length)
             isPng -> parsePngChunks(reader, 8, reader.length)
@@ -28,6 +29,7 @@ fun parseFile(path: File): BoxNode {
             isEbml -> parseEbmlElements(reader, 0, reader.length)
             isFlac -> parseFlacBlocks(reader, 0, reader.length)
             isOgg -> parseOggPages(reader, 0, reader.length)
+            isAiff -> parseAiffChunks(reader, 0, reader.length)
             else -> parseBoxes(reader, 0, reader.length)
         }
         return BoxNode(type = "root", offset = 0, headerSize = 0, size = reader.length, children = children)
@@ -94,4 +96,11 @@ private fun isFlacMagic(reader: ByteReader): Boolean {
 private fun isOggMagic(reader: ByteReader): Boolean {
     if (reader.length < 4) return false
     return reader.readFourCC(0) == "OggS"
+}
+
+private fun isAiffMagic(reader: ByteReader): Boolean {
+    if (reader.length < 12) return false
+    if (reader.readFourCC(0) != "FORM") return false
+    val formType = reader.readFourCC(8)
+    return formType == "AIFF" || formType == "AIFC"
 }

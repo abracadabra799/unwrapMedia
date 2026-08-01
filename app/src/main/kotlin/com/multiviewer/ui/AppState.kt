@@ -29,11 +29,12 @@ val VIDEO_EXTENSIONS = listOf("mp4", "mov", "m4v", "webm")
 // audio-only track (AAC, ALAC, or AC-3) -- parseFile's magic-byte dispatch already reaches the
 // same generic ISOBMFF box walker for it with no new parser needed, and MediaSummaryBuilder's
 // detectCategory/buildVideoSummary already handle a video-less "soun"-only moov correctly (that
-// code predates this extension even being routed here). MP3, WAV, FLAC, and OGG each have their
-// own dedicated parsers (Mp3Walker/WavWalker/FlacWalker/OggWalker). "opus" files are themselves
-// Ogg containers (same "OggS" magic and page format), just carrying an Opus stream instead of
-// Vorbis, so they route through the same OggWalker with no separate parser needed.
-val AUDIO_EXTENSIONS = listOf("m4a", "mp3", "wav", "flac", "ogg", "opus")
+// code predates this extension even being routed here). MP3, WAV, FLAC, OGG, and AIFF each have
+// their own dedicated parsers (Mp3Walker/WavWalker/FlacWalker/OggWalker/AiffWalker). "opus" files
+// are themselves Ogg containers (same "OggS" magic and page format), just carrying an Opus stream
+// instead of Vorbis, so they route through the same OggWalker with no separate parser needed.
+// "aif"/"aifc" are alternate extensions for the same AIFF/AIFF-C container format as "aiff".
+val AUDIO_EXTENSIONS = listOf("m4a", "mp3", "wav", "flac", "ogg", "opus", "aiff", "aif", "aifc")
 
 // Resolution guidance shared by the normal open flow (AppState.openFile) and the raw pixel dialog
 // (RawPixelOpenDialog) -- see README's "Supported Specs & Limits" section. Below WARN: no notice.
