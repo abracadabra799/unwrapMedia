@@ -212,6 +212,23 @@ class ParseFileIntegrationTest {
         assertEquals(listOf("OggVorbisIdentificationHeader"), root.children.map { it.type })
         assertEquals("44100", root.children[0].fields.single { it.name == "sample_rate" }.value)
     }
+
+    @Test
+    fun `parses a synthetic minimal aiff file via the AIFF path, not the ISOBMFF path`() {
+        val extendedSampleRate44100 = byteArrayOf(0x40, 0x0E, 0xAC.toByte(), 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+        val commPayload = byteArrayOf(0x00, 0x01) + uint32(44100) + byteArrayOf(0x00, 0x10) + extendedSampleRate44100
+        val commChunk = "COMM".toByteArray(Charsets.US_ASCII) + uint32(commPayload.size.toLong()) + commPayload
+        val bytes = "FORM".toByteArray(Charsets.US_ASCII) + uint32((4 + commChunk.size).toLong()) +
+            "AIFF".toByteArray(Charsets.US_ASCII) + commChunk
+        val tmp = File.createTempFile("multiviewer-aiff", ".aiff")
+        tmp.deleteOnExit()
+        tmp.writeBytes(bytes)
+
+        val root = parseFile(tmp)
+
+        assertEquals(listOf("FORM", "COMM"), root.children.map { it.type })
+        assertEquals("44100", root.children[1].fields.single { it.name == "sample_rate" }.value)
+    }
 }
 
 private fun uint32(value: Long): ByteArray = byteArrayOf(
