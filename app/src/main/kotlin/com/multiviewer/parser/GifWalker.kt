@@ -76,7 +76,7 @@ private fun decodeExtension(reader: ByteReader, label: Int, offset: Long, end: L
     }
 
 private fun decodeGenericSubBlockExtension(reader: ByteReader, type: String, offset: Long, end: Long): Pair<BoxNode, Long>? {
-    val (_, nextPos) = readSubBlocks(reader, offset + 2, end) ?: return null
+    val nextPos = skipSubBlocks(reader, offset + 2, end) ?: return null
     return BoxNode(type = type, offset = offset, headerSize = 2, size = nextPos - offset) to nextPos
 }
 
@@ -171,7 +171,7 @@ private fun decodeImageDescriptor(reader: ByteReader, offset: Long, end: Long): 
     if (pos + 1 > end) return null
     pos += 1 // LZW minimum code size
 
-    val (_, nextPos) = readSubBlocks(reader, pos, end) ?: return null
+    val nextPos = skipSubBlocks(reader, pos, end) ?: return null
 
     return BoxNode(
         type = "ImageDescriptor", offset = offset, headerSize = 10, size = nextPos - offset,
@@ -202,6 +202,24 @@ private fun readSubBlocks(reader: ByteReader, pos: Long, end: Long): Pair<List<B
         p += size
     }
     return blocks to p
+}
+
+// Same position-tracking control flow as readSubBlocks above (identical bounds checks and
+// termination condition), but never materializes the sub-block payload bytes -- for call sites
+// that only need to know where the sub-block sequence ends (e.g. the GIF's compressed pixel
+// data, typically the bulk of the file), reading every byte into a ByteArray just to discard it
+// wastes an allocation and a copy per sub-block for no benefit.
+private fun skipSubBlocks(reader: ByteReader, pos: Long, end: Long): Long? {
+    var p = pos
+    while (true) {
+        if (p >= end) return null
+        val size = reader.readUInt8(p)
+        p += 1
+        if (size == 0) break
+        if (p + size > end) return null
+        p += size
+    }
+    return p
 }
 
 private fun readUInt16LE(reader: ByteReader, offset: Long): Int {
