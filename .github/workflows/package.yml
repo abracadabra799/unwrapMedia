@@ -48,6 +48,12 @@ jobs:
           cp ffmpeg-extracted/bin/ffprobe app/resources/linux/bin/ffprobe
           cp -P ffmpeg-extracted/lib/*.so* app/resources/linux/lib/
           chmod +x app/resources/linux/bin/ffmpeg app/resources/linux/bin/ffprobe
+          echo "--- DEBUG: ffmpeg-extracted/lib/ ---"
+          ls -la ffmpeg-extracted/lib/ | grep avdevice
+          echo "--- DEBUG: app/resources/linux/lib/ ---"
+          ls -la app/resources/linux/lib/ | grep avdevice
+          echo "--- DEBUG: ldd on the staged binary ---"
+          ldd app/resources/linux/bin/ffmpeg || true
 
       # Tests the staged resources directly, before packaging -- packageDistributionForCurrentOS
       # builds the .deb straight from these files with no intermediate extracted app-image on
