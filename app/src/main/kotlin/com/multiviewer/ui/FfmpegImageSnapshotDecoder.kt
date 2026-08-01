@@ -11,8 +11,9 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Headless, one-shot fallback for images Skia's Image.makeFromEncoded can't decode (HEIC/HEVC and
- * other HEIF-family stills). Shells out to a system `ffmpeg` (must be on PATH) to extract the
- * primary frame as a temporary PNG, then decodes that PNG via Skia like any other supported image.
+ * other HEIF-family stills). Shells out to ffmpeg (via FfmpegLocator -- the packaged app's bundled
+ * binary if present, otherwise PATH) to extract the primary frame as a temporary PNG, then decodes
+ * that PNG via Skia like any other supported image.
  */
 object FfmpegImageSnapshotDecoder {
     private const val TIMEOUT_MS = 8000L

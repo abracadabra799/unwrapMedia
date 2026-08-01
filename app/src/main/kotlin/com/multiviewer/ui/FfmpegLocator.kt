@@ -23,6 +23,12 @@ object FfmpegLocator {
         val found = candidates.firstOrNull { it.exists() }
         if (found == null) {
             println("FfmpegLocator: bundled $binaryName not found under $resourcesDirPath (checked: ${candidates.map { it.path }}); falling back to PATH")
+        } else {
+            // jpackage's resource copy isn't guaranteed to preserve the executable bit CI's
+            // chmod set on the staged binary -- set it again defensively so a permission-denied
+            // ProcessBuilder failure (which looks identical to "ffmpeg isn't installed" from the
+            // caller's perspective) can't happen even if that guarantee doesn't hold.
+            found.setExecutable(true)
         }
         return found?.absolutePath ?: unixName
     }
