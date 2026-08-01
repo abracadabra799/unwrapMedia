@@ -74,6 +74,7 @@ object FfmpegImageSnapshotDecoder {
             val process = ProcessBuilder(inputArgs + listOf(tempPng.absolutePath))
                 .redirectOutput(ProcessBuilder.Redirect.DISCARD)
                 .redirectError(ProcessBuilder.Redirect.DISCARD)
+                .also { FfmpegLocator.configureEnvironment(it) }
                 .start()
 
             val finished = process.waitFor(TIMEOUT_MS, TimeUnit.MILLISECONDS)

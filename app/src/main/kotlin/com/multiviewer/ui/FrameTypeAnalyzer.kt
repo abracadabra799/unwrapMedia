@@ -17,7 +17,8 @@ fun probeFrameTypes(file: File): List<FrameInfo>? {
             FfmpegLocator.ffprobePath(), "-v", "error", "-select_streams", "v:0",
             "-show_entries", "frame=pict_type,pkt_size,pts_time",
             "-of", "default=noprint_wrappers=1", file.absolutePath,
-        ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD).start()
+        ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD)
+            .also { FfmpegLocator.configureEnvironment(it) }.start()
         val lines = process.inputStream.bufferedReader().readLines()
         process.waitFor(120, TimeUnit.SECONDS)
 

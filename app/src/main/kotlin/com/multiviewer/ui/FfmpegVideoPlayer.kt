@@ -80,7 +80,8 @@ fun probeFrameTimestamps(file: File): List<Double>? {
         val process = ProcessBuilder(
             FfmpegLocator.ffprobePath(), "-v", "error", "-select_streams", "v:0",
             "-show_entries", "frame=pts_time", "-of", "default=noprint_wrappers=1", file.absolutePath,
-        ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD).start()
+        ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD)
+            .also { FfmpegLocator.configureEnvironment(it) }.start()
         val lines = process.inputStream.bufferedReader().readLines()
         if (!process.waitFor(10, TimeUnit.SECONDS)) {
             process.destroyForcibly()
@@ -188,7 +189,8 @@ fun probeVideo(file: File): VideoInfo? {
             // avg_frame_rate=705000/23249 came back in swapped CSV column order. default=
             // noprint_wrappers=1 gives unambiguous key=value pairs instead.
             "-of", "default=noprint_wrappers=1", file.absolutePath,
-        ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD).start()
+        ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD)
+            .also { FfmpegLocator.configureEnvironment(it) }.start()
         val lines = process.inputStream.bufferedReader().readLines()
         process.waitFor(5, TimeUnit.SECONDS)
 
@@ -327,7 +329,7 @@ fun FfmpegVideoPlayer(
                     "-map", "0:v:0",
                     "-f", "rawvideo", "-pix_fmt", "bgra", "-an", "-",
                 ),
-            ).start()
+            ).also { FfmpegLocator.configureEnvironment(it) }.start()
         } catch (e: Exception) {
             null
         }

@@ -41,7 +41,8 @@ fun computeWaveformPeaks(file: File, info: AudioFileInfo, bucketCount: Int = WAV
             FfmpegLocator.ffmpegPath(), "-i", file.absolutePath, "-map", "0:a:0",
             "-f", "s16le", "-ar", info.sampleRate.toString(), "-ac", channels.toString(),
             "-acodec", "pcm_s16le", "-",
-        ).redirectError(ProcessBuilder.Redirect.DISCARD).start()
+        ).redirectError(ProcessBuilder.Redirect.DISCARD)
+            .also { FfmpegLocator.configureEnvironment(it) }.start()
     } catch (e: Exception) {
         return null
     }
