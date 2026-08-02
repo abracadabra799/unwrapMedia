@@ -87,7 +87,7 @@ private const val AUDIO_VISUAL_TIMEOUT_MS = 10000L
 // Follows the same temp-file ffmpeg-image-extraction convention as
 // FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap: write to a temp PNG, wait with a timeout,
 // check exit code and file size, decode via Skia, always clean up the temp file.
-private fun renderAudioVisualization(file: File, filter: String): ImageBitmap? {
+private fun renderAudioVisualization(file: File, filter: String, rawAudioParams: RawAudioParams? = null): ImageBitmap? {
     val tempPng = try {
         File.createTempFile("audio-visual-", ".png")
     } catch (e: Exception) {
@@ -95,9 +95,17 @@ private fun renderAudioVisualization(file: File, filter: String): ImageBitmap? {
     }
     tempPng.deleteOnExit()
     return try {
+        val inputFile = if (rawAudioParams != null) rawAudioSourceFile(file, rawAudioParams.offsetBytes) else file
+        val rawInputArgs = if (rawAudioParams != null) {
+            listOf("-f", rawAudioParams.ffmpegFormatCode(), "-ar", rawAudioParams.sampleRate.toString(), "-ac", rawAudioParams.channels.toString())
+        } else {
+            emptyList()
+        }
         val process = ProcessBuilder(
-            FfmpegLocator.ffmpegPath(), "-y", "-i", file.absolutePath,
-            "-lavfi", filter, "-frames:v", "1", tempPng.absolutePath,
+            listOf(FfmpegLocator.ffmpegPath(), "-y") + rawInputArgs + listOf(
+                "-i", inputFile.absolutePath,
+                "-lavfi", filter, "-frames:v", "1", tempPng.absolutePath,
+            ),
         ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD)
             .also { FfmpegLocator.configureEnvironment(it) }.start()
         val finished = process.waitFor(AUDIO_VISUAL_TIMEOUT_MS, TimeUnit.MILLISECONDS)
@@ -122,13 +130,13 @@ private fun renderAudioVisualization(file: File, filter: String): ImageBitmap? {
 // content fills the image edge-to-edge with no black padding bars. This matters because the
 // progress overlay assumes "image width == full duration" linearly; padding here would make the
 // playhead visually misalign with the actual spectrogram content near both edges.
-fun generateSpectrogramImage(file: File, width: Int, height: Int): ImageBitmap? =
-    renderAudioVisualization(file, "showspectrumpic=s=${width}x${height},scale=${width}:${height}")
+fun generateSpectrogramImage(file: File, width: Int, height: Int, rawAudioParams: RawAudioParams? = null): ImageBitmap? =
+    renderAudioVisualization(file, "showspectrumpic=s=${width}x${height},scale=${width}:${height}", rawAudioParams)
 
 private const val SPECTROGRAM_RESIZE_DEBOUNCE_MS = 400L
 
 @Composable
-fun FfmpegAudioPlayer(file: File, modifier: Modifier = Modifier) {
+fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifier: Modifier = Modifier) {
     var isPlaying by remember(file) { mutableStateOf(false) }
     var hasEnded by remember(file) { mutableStateOf(false) }
     var restartTrigger by remember(file) { mutableStateOf(0) }
@@ -143,11 +151,24 @@ fun FfmpegAudioPlayer(file: File, modifier: Modifier = Modifier) {
 
     LaunchedEffect(file) {
         probing = true
-        val info = withContext(Dispatchers.IO) { probeAudioFormat(file) }
+        val info = withContext(Dispatchers.IO) {
+            if (rawAudioParams != null) {
+                AudioFileInfo(
+                    sampleRate = rawAudioParams.sampleRate,
+                    channels = rawAudioParams.channels,
+                    duration = computeRawAudioDuration(
+                        file.length(), rawAudioParams.offsetBytes, rawAudioParams.sampleRate,
+                        rawAudioParams.channels, rawAudioParams.format.bytesPerSample,
+                    ),
+                )
+            } else {
+                probeAudioFormat(file)
+            }
+        }
         probedInfo = info
         probing = false
         if (info != null) {
-            waveformPeaks = withContext(Dispatchers.IO) { computeWaveformPeaks(file, info) }
+            waveformPeaks = withContext(Dispatchers.IO) { computeWaveformPeaks(file, info, rawAudioParams = rawAudioParams) }
         }
     }
 
@@ -172,10 +193,16 @@ fun FfmpegAudioPlayer(file: File, modifier: Modifier = Modifier) {
         val seekArgs = if (seekSeconds > 0.0) listOf("-ss", seekSeconds.toString()) else emptyList()
         val sampleRate = info.sampleRate
         val channels = info.channels
+        val inputFile = if (rawAudioParams != null) rawAudioSourceFile(file, rawAudioParams.offsetBytes) else file
+        val rawInputArgs = if (rawAudioParams != null) {
+            listOf("-f", rawAudioParams.ffmpegFormatCode(), "-ar", rawAudioParams.sampleRate.toString(), "-ac", rawAudioParams.channels.toString())
+        } else {
+            emptyList()
+        }
         val process = try {
             ProcessBuilder(
-                listOf(FfmpegLocator.ffmpegPath()) + seekArgs + listOf(
-                    "-i", file.absolutePath, "-map", "0:a:0",
+                listOf(FfmpegLocator.ffmpegPath()) + seekArgs + rawInputArgs + listOf(
+                    "-i", inputFile.absolutePath, "-map", "0:a:0",
                     "-f", "s16le", "-ar", sampleRate.toString(), "-ac", channels.toString(),
                     "-acodec", "pcm_s16le", "-",
                 ),
@@ -260,7 +287,9 @@ fun FfmpegAudioPlayer(file: File, modifier: Modifier = Modifier) {
         val boxSize = spectrogramBoxSize
         if (boxSize.width <= 0 || boxSize.height <= 0) return@LaunchedEffect
         delay(SPECTROGRAM_RESIZE_DEBOUNCE_MS)
-        val newBitmap = withContext(Dispatchers.IO) { generateSpectrogramImage(file, boxSize.width, boxSize.height) }
+        val newBitmap = withContext(Dispatchers.IO) {
+            generateSpectrogramImage(file, boxSize.width, boxSize.height, rawAudioParams = rawAudioParams)
+        }
         if (newBitmap != null) spectrogramBitmap = newBitmap
     }
 

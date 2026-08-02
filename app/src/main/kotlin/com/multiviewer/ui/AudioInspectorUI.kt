@@ -48,7 +48,7 @@ fun AudioInspectorUI(
                     .fillMaxSize()
                     .onGloballyPositioned { containerHeightPx = it.size.height },
             ) {
-                FfmpegAudioPlayer(tab.file, modifier = Modifier.weight(verticalSplit).fillMaxWidth())
+                FfmpegAudioPlayer(tab.file, rawAudioParams = tab.rawAudioParams, modifier = Modifier.weight(verticalSplit).fillMaxWidth())
 
                 DraggableDivider(
                     orientation = Orientation.Horizontal,

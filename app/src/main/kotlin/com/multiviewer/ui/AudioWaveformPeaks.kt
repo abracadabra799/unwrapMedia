@@ -25,7 +25,12 @@ const val WAVEFORM_PEAK_BUCKET_COUNT = 4096
 // array, without holding the whole decoded file in memory (a multi-hour recording could
 // otherwise use hundreds of MB). Frame boundaries don't align with arbitrary read-buffer
 // boundaries, so leftover bytes from an incomplete trailing frame are carried into the next read.
-fun computeWaveformPeaks(file: File, info: AudioFileInfo, bucketCount: Int = WAVEFORM_PEAK_BUCKET_COUNT): WaveformPeaks? {
+fun computeWaveformPeaks(
+    file: File,
+    info: AudioFileInfo,
+    bucketCount: Int = WAVEFORM_PEAK_BUCKET_COUNT,
+    rawAudioParams: RawAudioParams? = null,
+): WaveformPeaks? {
     val channels = info.channels
     if (channels <= 0 || bucketCount <= 0) return null
 
@@ -36,11 +41,19 @@ fun computeWaveformPeaks(file: File, info: AudioFileInfo, bucketCount: Int = WAV
     val minPerChannel = Array(channels) { FloatArray(bucketCount) { Float.MAX_VALUE } }
     val maxPerChannel = Array(channels) { FloatArray(bucketCount) { -Float.MAX_VALUE } }
 
+    val inputFile = if (rawAudioParams != null) rawAudioSourceFile(file, rawAudioParams.offsetBytes) else file
+    val rawInputArgs = if (rawAudioParams != null) {
+        listOf("-f", rawAudioParams.ffmpegFormatCode(), "-ar", rawAudioParams.sampleRate.toString(), "-ac", rawAudioParams.channels.toString())
+    } else {
+        emptyList()
+    }
     val process = try {
         ProcessBuilder(
-            FfmpegLocator.ffmpegPath(), "-i", file.absolutePath, "-map", "0:a:0",
-            "-f", "s16le", "-ar", info.sampleRate.toString(), "-ac", channels.toString(),
-            "-acodec", "pcm_s16le", "-",
+            listOf(FfmpegLocator.ffmpegPath()) + rawInputArgs + listOf(
+                "-i", inputFile.absolutePath, "-map", "0:a:0",
+                "-f", "s16le", "-ar", info.sampleRate.toString(), "-ac", channels.toString(),
+                "-acodec", "pcm_s16le", "-",
+            ),
         ).redirectError(ProcessBuilder.Redirect.DISCARD)
             .also { FfmpegLocator.configureEnvironment(it) }.start()
     } catch (e: Exception) {
