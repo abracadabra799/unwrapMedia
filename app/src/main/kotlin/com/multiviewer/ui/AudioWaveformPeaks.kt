@@ -57,6 +57,7 @@ fun computeWaveformPeaks(
         ).redirectError(ProcessBuilder.Redirect.DISCARD)
             .also { FfmpegLocator.configureEnvironment(it) }.start()
     } catch (e: Exception) {
+        if (inputFile != file) inputFile.delete()
         return null
     }
 
