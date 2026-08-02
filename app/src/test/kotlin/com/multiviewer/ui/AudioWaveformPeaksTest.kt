@@ -78,4 +78,24 @@ class AudioWaveformPeaksTest {
         assertNull(peaks)
         garbage.delete()
     }
+
+    @Test
+    fun `visibleBucketRange covers the whole array when the window spans the full duration`() {
+        val range = visibleBucketRange(AudioViewWindow(0.0, 60.0), totalDuration = 60.0, bucketCount = 4096)
+        assertEquals(0, range.first)
+        assertEquals(4095, range.last)
+    }
+
+    @Test
+    fun `visibleBucketRange narrows to the middle of the array for a zoomed-in window`() {
+        val range = visibleBucketRange(AudioViewWindow(20.0, 20.0), totalDuration = 60.0, bucketCount = 4096)
+        assertEquals((4096 / 3), range.first)
+        assertEquals((4096 * 2 / 3) - 1, range.last)
+    }
+
+    @Test
+    fun `visibleBucketRange never returns an empty or inverted range`() {
+        val range = visibleBucketRange(AudioViewWindow(59.9, MIN_VISIBLE_DURATION_SECONDS), totalDuration = 60.0, bucketCount = 4096)
+        assertTrue(range.last >= range.first)
+    }
 }

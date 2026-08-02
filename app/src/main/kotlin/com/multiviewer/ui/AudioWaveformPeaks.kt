@@ -20,6 +20,18 @@ data class WaveformPeaks(val channelCount: Int, val bucketCount: Int, val channe
 // the same bucket values at new pixel positions on resize, no recomputation ever needed.
 const val WAVEFORM_PEAK_BUCKET_COUNT = 4096
 
+// Maps a time window onto an index range within a bucket array of the given size -- since
+// computeWaveformPeaks already spaces its buckets evenly across the whole file duration, this is
+// pure arithmetic, no new peak computation needed to redraw a zoomed-in sub-range.
+fun visibleBucketRange(window: AudioViewWindow, totalDuration: Double, bucketCount: Int): IntRange {
+    if (totalDuration <= 0.0 || bucketCount <= 0) return 0..0
+    val startFraction = (window.startSeconds / totalDuration).coerceIn(0.0, 1.0)
+    val endFraction = ((window.startSeconds + window.durationSeconds) / totalDuration).coerceIn(0.0, 1.0)
+    val startBucket = (startFraction * bucketCount).toInt().coerceIn(0, bucketCount - 1)
+    val endBucket = (endFraction * bucketCount).toInt().coerceIn(startBucket + 1, bucketCount)
+    return startBucket until endBucket
+}
+
 // Streams the same ffmpeg PCM pipe already used for playback (see FfmpegAudioPlayer's
 // DisposableEffect) to compute per-channel min/max amplitude peaks into a fixed-size bucket
 // array, without holding the whole decoded file in memory (a multi-hour recording could
@@ -116,34 +128,35 @@ fun computeWaveformPeaks(
 // channelCount >= 2 stacks channel 0 (L) above channel 1 (R); any channels beyond the first two
 // are ignored (surround audio is out of scope). channelCount == 1 draws a single full-size Canvas.
 @Composable
-fun WaveformDisplay(peaks: WaveformPeaks, color: Color, modifier: Modifier = Modifier) {
+fun WaveformDisplay(peaks: WaveformPeaks, color: Color, visibleRange: IntRange, modifier: Modifier = Modifier) {
     val displayChannels = peaks.channels.take(2)
     if (displayChannels.size >= 2) {
         Column(modifier = modifier) {
-            WaveformChannelCanvas(displayChannels[0], color, Modifier.weight(1f).fillMaxWidth())
-            WaveformChannelCanvas(displayChannels[1], color, Modifier.weight(1f).fillMaxWidth())
+            WaveformChannelCanvas(displayChannels[0], color, visibleRange, Modifier.weight(1f).fillMaxWidth())
+            WaveformChannelCanvas(displayChannels[1], color, visibleRange, Modifier.weight(1f).fillMaxWidth())
         }
     } else if (displayChannels.size == 1) {
-        WaveformChannelCanvas(displayChannels[0], color, modifier.fillMaxSize())
+        WaveformChannelCanvas(displayChannels[0], color, visibleRange, modifier.fillMaxSize())
     }
 }
 
 @Composable
-private fun WaveformChannelCanvas(peaks: ChannelPeaks, color: Color, modifier: Modifier = Modifier) {
+private fun WaveformChannelCanvas(peaks: ChannelPeaks, color: Color, visibleRange: IntRange, modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
-        drawChannelPeaks(peaks, color)
+        drawChannelPeaks(peaks, color, visibleRange)
     }
 }
 
-private fun DrawScope.drawChannelPeaks(peaks: ChannelPeaks, color: Color) {
+private fun DrawScope.drawChannelPeaks(peaks: ChannelPeaks, color: Color, visibleRange: IntRange) {
     val width = size.width
     val height = size.height
     val centerY = height / 2f
-    val bucketCount = peaks.min.size
-    if (bucketCount == 0 || width <= 0f) return
+    val startBucket = visibleRange.first
+    val visibleCount = visibleRange.last - visibleRange.first + 1
+    if (visibleCount <= 0 || width <= 0f) return
     val strokeWidthPx = 1.5.dp.toPx()
-    for (i in 0 until bucketCount) {
-        val x = width * i / bucketCount
+    for (i in visibleRange) {
+        val x = width * (i - startBucket) / visibleCount
         val yTop = centerY - peaks.max[i] * centerY
         val yBottom = centerY - peaks.min[i] * centerY
         drawLine(color = color, start = Offset(x, yTop), end = Offset(x, yBottom), strokeWidth = strokeWidthPx)
