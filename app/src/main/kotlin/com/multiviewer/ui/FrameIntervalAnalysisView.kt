@@ -8,12 +8,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -42,12 +43,7 @@ import kotlinx.coroutines.withContext
 private const val GRAPH_POINT_RADIUS_DP = 2.5f
 private const val GRAPH_HIGHLIGHT_RADIUS_DP = 5f
 private const val GRAPH_HIT_RADIUS_DP = 10f
-
-// The Y axis always starts at 0 (an absolute interval scale, not normalized to the observed
-// min/max) and defaults to showing 0-600ms -- wide enough to compare typical frame rates (16ms @
-// 60fps up to 40ms @ 25fps) against a real multi-hundred-ms stall at a glance. If any interval in
-// the file actually exceeds 600ms, the axis grows to fit it (never crops real data).
-private const val DEFAULT_Y_AXIS_MAX_MS = 600.0
+private const val Y_AXIS_TICK_COUNT = 5
 
 // Pure UI: given already-computed intervals and the (optional) container fps, draws the scatter
 // plot + data table with bidirectional click highlighting. Fetching/caching intervals and fps,
@@ -72,32 +68,35 @@ fun FrameIntervalAnalysisView(intervals: List<FrameInterval>, fps: Double?, modi
 
     val minFrameIndex = intervals.first().frameIndex
     val maxFrameIndex = intervals.last().frameIndex
+    val minIntervalMs = intervals.minOf { it.intervalMs }
     val maxIntervalMs = intervals.maxOf { it.intervalMs }
     val expectedIntervalMs = fps?.takeIf { it > 0.0 }?.let { 1000.0 / it }
     val frameSpan = (maxFrameIndex - minFrameIndex).coerceAtLeast(1)
-    // Absolute scale from 0, not normalized to the observed min/max -- with only a couple of
-    // distinct interval values (e.g. exactly two frame durations in a variable-frame-rate file),
-    // min-max normalization would snap every point onto one of two lines at the very top/bottom
-    // of the graph, which reads as a rendering bug rather than real data. Starting at a fixed 0
-    // and defaulting the ceiling to DEFAULT_Y_AXIS_MAX_MS (expanding only if real data exceeds
-    // it) keeps points positioned by their true magnitude instead. Coerced to 0..1 so a
-    // (theoretically possible, e.g. non-monotonic PTS) negative interval clamps to the bottom
-    // rather than drawing off-canvas.
-    val yAxisMaxMs = maxOf(DEFAULT_Y_AXIS_MAX_MS, maxIntervalMs)
-    fun yFraction(value: Double): Float = (value / yAxisMaxMs).toFloat().coerceIn(0f, 1f)
+    // 20% headroom below the min and above the max interval currently on screen -- scales to the
+    // ACTUAL data range (unlike a fixed ceiling) while keeping points off the very top/bottom
+    // edge, so a file with only 2-3 distinct interval values (e.g. a variable-frame-rate video
+    // alternating between two frame durations) doesn't look like it snapped onto flat lines at
+    // the boundary. This also naturally handles a perfectly regular video (min == max): the 20%
+    // padding still produces a valid nonzero range around that single value.
+    val axisMinMs = minIntervalMs * 0.8
+    val rawAxisMaxMs = maxIntervalMs * 1.2
+    val axisMaxMs = if (rawAxisMaxMs > axisMinMs) rawAxisMaxMs else axisMinMs + 1.0
+    val tickValuesMs = (0 until Y_AXIS_TICK_COUNT).map { axisMinMs + (axisMaxMs - axisMinMs) * it / (Y_AXIS_TICK_COUNT - 1) }
+    fun yFraction(value: Double): Float = ((value - axisMinMs) / (axisMaxMs - axisMinMs)).toFloat().coerceIn(0f, 1f)
 
     Column(modifier = modifier) {
         Box(
-            modifier = Modifier.fillMaxWidth().weight(1f).padding(8.dp),
-            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .padding(8.dp)
+                .border(1.dp, AppColors.Border)
+                .background(AppColors.Panel),
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .aspectRatio(1f)
-                    .border(1.dp, AppColors.Border)
-                    .background(AppColors.Panel),
-            ) {
+            // BoxWithConstraints (not plain Box) so the tick labels below can be positioned by
+            // maxHeight * fraction -- same technique AudioMinimap.kt already uses for its
+            // zoom-window rectangle (Modifier.offset(x = maxWidth * fraction)), just vertical here.
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 Canvas(
                     modifier = Modifier
                         .fillMaxSize()
@@ -125,10 +124,20 @@ fun FrameIntervalAnalysisView(intervals: List<FrameInterval>, fps: Double?, modi
                             }
                         },
                 ) {
-                    if (expectedIntervalMs != null && expectedIntervalMs in 0.0..yAxisMaxMs) {
+                    for (tickMs in tickValuesMs) {
+                        val tickY = size.height - size.height * yFraction(tickMs)
+                        drawLine(
+                            color = Color.White.copy(alpha = 0.12f),
+                            start = Offset(0f, tickY),
+                            end = Offset(size.width, tickY),
+                            strokeWidth = 1f,
+                        )
+                    }
+
+                    if (expectedIntervalMs != null && expectedIntervalMs in axisMinMs..axisMaxMs) {
                         val referenceY = size.height - size.height * yFraction(expectedIntervalMs)
                         drawLine(
-                            color = Color.White.copy(alpha = 0.3f),
+                            color = Color.White.copy(alpha = 0.5f),
                             start = Offset(0f, referenceY),
                             end = Offset(size.width, referenceY),
                             strokeWidth = 1f,
@@ -153,16 +162,17 @@ fun FrameIntervalAnalysisView(intervals: List<FrameInterval>, fps: Double?, modi
                     }
                 }
 
-                Text(
-                    "${"%.1f".format(yAxisMaxMs)}ms",
-                    modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
-                    style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = textSecondary),
-                )
-                Text(
-                    "0ms",
-                    modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
-                    style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = textSecondary),
-                )
+                for (tickMs in tickValuesMs) {
+                    val fractionFromTop = 1f - yFraction(tickMs)
+                    Text(
+                        "%.1f".format(tickMs),
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .offset(y = maxHeight * fractionFromTop - 7.dp)
+                            .padding(start = 4.dp),
+                        style = AppTypography.labelLarge.copy(fontSize = 9.sp, color = textSecondary),
+                    )
+                }
                 if (expectedIntervalMs != null) {
                     Text(
                         "기준 ${"%.1f".format(expectedIntervalMs)}ms",
