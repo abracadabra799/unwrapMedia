@@ -46,4 +46,22 @@ class FfmpegAudioPlayerTest {
         assertEquals(100, bitmap.height)
         audio.delete()
     }
+
+    @Test
+    fun `generateSpectrogramImage honors a windowed time range and still returns the requested dimensions`() {
+        val audio = File.createTempFile("ffmpeg-spectrogram-window-test-", ".wav")
+        audio.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=4",
+            audio.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val window = AudioViewWindow(startSeconds = 1.0, durationSeconds = 2.0)
+        val bitmap = generateSpectrogramImage(audio, 300, 80, window = window)
+
+        assertNotNull(bitmap)
+        assertEquals(300, bitmap.width)
+        assertEquals(80, bitmap.height)
+        audio.delete()
+    }
 }

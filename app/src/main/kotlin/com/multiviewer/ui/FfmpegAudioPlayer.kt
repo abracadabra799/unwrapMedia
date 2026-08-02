@@ -87,7 +87,12 @@ private const val AUDIO_VISUAL_TIMEOUT_MS = 10000L
 // Follows the same temp-file ffmpeg-image-extraction convention as
 // FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap: write to a temp PNG, wait with a timeout,
 // check exit code and file size, decode via Skia, always clean up the temp file.
-private fun renderAudioVisualization(file: File, filter: String, rawAudioParams: RawAudioParams? = null): ImageBitmap? {
+private fun renderAudioVisualization(
+    file: File,
+    filter: String,
+    rawAudioParams: RawAudioParams? = null,
+    window: AudioViewWindow? = null,
+): ImageBitmap? {
     val tempPng = try {
         File.createTempFile("audio-visual-", ".png")
     } catch (e: Exception) {
@@ -103,8 +108,18 @@ private fun renderAudioVisualization(file: File, filter: String, rawAudioParams:
         } else {
             emptyList()
         }
+        // Trims the SOURCE to just the visible zoom window before ffmpeg ever sees the rest of the
+        // file, rather than rendering the whole spectrum and cropping the image -- this is what
+        // makes zooming in reveal genuinely more spectral detail instead of a blurrier crop of the
+        // same fixed-resolution picture. Both -ss and -t are input-side flags (must precede -i to
+        // trim the input rather than the output), same convention as the raw-PCM input flags above.
+        val windowArgs = if (window != null) {
+            listOf("-ss", window.startSeconds.toString(), "-t", window.durationSeconds.toString())
+        } else {
+            emptyList()
+        }
         val process = ProcessBuilder(
-            listOf(FfmpegLocator.ffmpegPath(), "-y") + rawInputArgs + listOf(
+            listOf(FfmpegLocator.ffmpegPath(), "-y") + rawInputArgs + windowArgs + listOf(
                 "-i", resolvedInputFile.absolutePath,
                 "-lavfi", filter, "-frames:v", "1", tempPng.absolutePath,
             ),
@@ -134,8 +149,14 @@ private fun renderAudioVisualization(file: File, filter: String, rawAudioParams:
 // content fills the image edge-to-edge with no black padding bars. This matters because the
 // progress overlay assumes "image width == full duration" linearly; padding here would make the
 // playhead visually misalign with the actual spectrogram content near both edges.
-fun generateSpectrogramImage(file: File, width: Int, height: Int, rawAudioParams: RawAudioParams? = null): ImageBitmap? =
-    renderAudioVisualization(file, "showspectrumpic=s=${width}x${height},scale=${width}:${height}", rawAudioParams)
+fun generateSpectrogramImage(
+    file: File,
+    width: Int,
+    height: Int,
+    rawAudioParams: RawAudioParams? = null,
+    window: AudioViewWindow? = null,
+): ImageBitmap? =
+    renderAudioVisualization(file, "showspectrumpic=s=${width}x${height},scale=${width}:${height}", rawAudioParams, window)
 
 private const val SPECTROGRAM_RESIZE_DEBOUNCE_MS = 400L
 
