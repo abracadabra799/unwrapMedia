@@ -6,7 +6,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -14,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -44,6 +44,7 @@ private const val GRAPH_POINT_RADIUS_DP = 2.5f
 private const val GRAPH_HIGHLIGHT_RADIUS_DP = 5f
 private const val GRAPH_HIT_RADIUS_DP = 10f
 private const val Y_AXIS_TICK_COUNT = 5
+private const val X_AXIS_TICK_STEP_FRAMES = 5
 
 // Pure UI: given already-computed intervals and the (optional) container fps, draws the scatter
 // plot + data table with bidirectional click highlighting. Fetching/caching intervals and fps,
@@ -83,6 +84,14 @@ fun FrameIntervalAnalysisView(intervals: List<FrameInterval>, fps: Double?, modi
     val axisMaxMs = if (rawAxisMaxMs > axisMinMs) rawAxisMaxMs else axisMinMs + 1.0
     val tickValuesMs = (0 until Y_AXIS_TICK_COUNT).map { axisMinMs + (axisMaxMs - axisMinMs) * it / (Y_AXIS_TICK_COUNT - 1) }
     fun yFraction(value: Double): Float = ((value - axisMinMs) / (axisMaxMs - axisMinMs)).toFloat().coerceIn(0f, 1f)
+    // Every X_AXIS_TICK_STEP_FRAMES-th frame number, starting from the first multiple at or after
+    // minFrameIndex -- ((minFrameIndex + step - 1) / step) * step is the standard ceiling-to-a-
+    // multiple trick for non-negative ints (frame indices are always >= 1 here).
+    val frameTicks = remember(minFrameIndex, maxFrameIndex) {
+        val firstTick = ((minFrameIndex + X_AXIS_TICK_STEP_FRAMES - 1) / X_AXIS_TICK_STEP_FRAMES) * X_AXIS_TICK_STEP_FRAMES
+        generateSequence(firstTick) { it + X_AXIS_TICK_STEP_FRAMES }.takeWhile { it <= maxFrameIndex }.toList()
+    }
+    fun xFraction(frameIndex: Int): Float = (frameIndex - minFrameIndex).toFloat() / frameSpan
 
     Column(modifier = modifier) {
         Box(
@@ -96,7 +105,9 @@ fun FrameIntervalAnalysisView(intervals: List<FrameInterval>, fps: Double?, modi
             // BoxWithConstraints (not plain Box) so the tick labels below can be positioned by
             // maxHeight * fraction -- same technique AudioMinimap.kt already uses for its
             // zoom-window rectangle (Modifier.offset(x = maxWidth * fraction)), just vertical here.
-            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            // The vertical padding reserves room for the topmost/bottommost Y-axis labels' own
+            // height so they stay inside the bordered box instead of spilling past its edge.
+            BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(vertical = 10.dp)) {
                 Canvas(
                     modifier = Modifier
                         .fillMaxSize()
@@ -130,6 +141,15 @@ fun FrameIntervalAnalysisView(intervals: List<FrameInterval>, fps: Double?, modi
                             color = Color.White.copy(alpha = 0.12f),
                             start = Offset(0f, tickY),
                             end = Offset(size.width, tickY),
+                            strokeWidth = 1f,
+                        )
+                    }
+                    for (frameTick in frameTicks) {
+                        val tickX = size.width * xFraction(frameTick)
+                        drawLine(
+                            color = Color.White.copy(alpha = 0.12f),
+                            start = Offset(tickX, 0f),
+                            end = Offset(tickX, size.height),
                             strokeWidth = 1f,
                         )
                     }
@@ -183,12 +203,16 @@ fun FrameIntervalAnalysisView(intervals: List<FrameInterval>, fps: Double?, modi
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text("frame $minFrameIndex", style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = textSecondary))
-            Text("frame $maxFrameIndex", style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = textSecondary))
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).height(16.dp)) {
+            for (frameTick in frameTicks) {
+                Text(
+                    "$frameTick",
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .offset(x = maxWidth * xFraction(frameTick) - 8.dp),
+                    style = AppTypography.labelLarge.copy(fontSize = 9.sp, color = textSecondary),
+                )
+            }
         }
 
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
