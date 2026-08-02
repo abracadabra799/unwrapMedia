@@ -151,12 +151,19 @@ private fun renderAudioVisualization(
     }
 }
 
-// showspectrumpic doesn't honor its own s=WxH request precisely (measured: requesting 1200x300
-// actually renders 1482x428) -- scale=W:H (no aspect-ratio preservation) forces the exact
-// requested dimensions by stretching rather than letterboxing/pillarboxing, so the spectrogram
-// content fills the image edge-to-edge with no black padding bars. This matters because the
-// progress overlay assumes "image width == full duration" linearly; padding here would make the
-// playhead visually misalign with the actual spectrogram content near both edges.
+// showspectrumpic draws a legend/axis border by default (legend=true), which reserves margin
+// space around the actual spectrum data -- that margin is what was causing the rendered content
+// to NOT line up with the waveform's edges, since the data region sits inset from the image
+// bounds rather than flush to them (confirmed by rendering a probe file with sharp clicks at known
+// timestamps and measuring where their energy actually landed in the output pixels: with the
+// legend on, a click at true t=0.01s in a 4s clip landed at x-fraction 0.13 instead of 0.0025;
+// with legend=0, it landed at 0.0025, matching the true timestamp). legend=0 removes that margin
+// entirely, so the image is pure spectrum data edge-to-edge. scale=W:H (no aspect-ratio
+// preservation) still forces the exact requested dimensions by stretching rather than
+// letterboxing/pillarboxing, since showspectrumpic doesn't honor its own s=WxH request precisely.
+// This matters because the progress overlay and the shared zoom/pan window both assume "image
+// width == the full requested time range" linearly -- any inset margin would make the playhead and
+// the waveform's visible range visually misaligned with the spectrogram's actual content.
 fun generateSpectrogramImage(
     file: File,
     width: Int,
@@ -164,7 +171,7 @@ fun generateSpectrogramImage(
     rawAudioParams: RawAudioParams? = null,
     window: AudioViewWindow? = null,
 ): ImageBitmap? =
-    renderAudioVisualization(file, "showspectrumpic=s=${width}x${height},scale=${width}:${height}", rawAudioParams, window)
+    renderAudioVisualization(file, "showspectrumpic=s=${width}x${height}:legend=0,scale=${width}:${height}", rawAudioParams, window)
 
 private const val SPECTROGRAM_RESIZE_DEBOUNCE_MS = 400L
 
