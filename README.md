@@ -11,20 +11,22 @@
 - XMP (pretty-printed), color histograms, JPEG DQT heatmap
 - Embedded thumbnail extraction (JPEG- or HEVC-coded thumbnail items alike), HEIC/HEVC preview decode via ffmpeg
 - Motion Photo support (Samsung-style and Google-style: still + embedded video)
+- Animated GIFs play back as an interactive full-width frame filmstrip
 
 **Video Inspector** -- MP4, MOV, M4V, WebM.
 - Built-in player (play/pause/seek/click-to-seek), GOP frame-type graph (I/P/B)
+- **프레임 간격 분석** menu: per-frame interval scatter plot + data table (frame number, timestamp, interval, interval diff) for spotting irregular frame spacing in the file's own timestamps
 - Per-stream codec details: profile, level, chroma, bit depth, frame rate, bit rate, duration
 - Track extraction: pull a video or audio stream into its own file (stream copy, re-encode fallback)
 
-**Audio Inspector** -- M4A, MP3, WAV, FLAC, OGG, Opus, AIFF/AIFF-C.
-- Playback with waveform (real decoded peaks) and spectrogram, click/drag-to-seek
+**Audio Inspector** -- M4A, MP3, WAV, FLAC, OGG, Opus, AIFF/AIFF-C, plus headerless raw PCM (`.pcm`, format/rate/channels set at open).
+- Playback with waveform (real decoded peaks) and spectrogram, both zoomable (mouse wheel) and pannable (trackpad scroll, scrollbar, or the always-visible minimap), click/drag-to-seek
 - Each format has a dedicated structural parser (or reuses the MP4 box parser for M4A)
 - Format, sample rate, channels, bit depth, duration
 
-**Raw Pixel Viewer** -- headerless `.raw`/`.rgb`/`.rgba`/`.yuv` dumps; YUV420(sp/p), RGB/BGR565, RGB888/BGRA8888. Multi-frame files play back as raw video.
+**Raw Pixel Viewer** -- headerless `.raw`/`.rgb`/`.rgba`/`.yuv` dumps; YUV420(sp/p), RGB/BGR565, RGB888/BGRA8888. Multi-frame files play back as raw video. (`.raw` is ambiguous with raw PCM audio -- opening one asks which it is.)
 
-**Binary Explorer** -- structure tree, detailed field panel, hex/raw byte viewer with drag-select, all panels resizable.
+**Binary Explorer** -- structure tree, detailed field panel, hex/raw byte viewer with drag-select, all panels resizable. Dark/light theme toggle (View menu), preference persisted across launches.
 
 **CLI Mode** -- inspect files from a script or CI, no GUI needed:
 ```bash
@@ -41,7 +43,7 @@ Exit code is `0` on a successful parse (regardless of warning count) and `1` if 
 |---|---|
 | Image | `.jpg` `.jpeg` `.png` `.bmp` `.gif` `.webp` `.avif` `.heic` `.tif` `.tiff` `.cr2` `.nef` `.arw` `.dng` |
 | Video | `.mp4` `.mov` `.m4v` `.webm` |
-| Audio | `.m4a` `.mp3` `.wav` `.flac` `.ogg` `.opus` `.aiff` `.aif` `.aifc` |
+| Audio | `.m4a` `.mp3` `.wav` `.flac` `.ogg` `.opus` `.aiff` `.aif` `.aifc` `.pcm` |
 | Raw pixel | `.raw` `.rgb` `.rgba` `.yuv` |
 
 **Resolution limits**: above 8K (image) / 4K (video, continuous) shows a dismissible warning; above ~268 megapixels is refused outright (checked from the header, before decode).
