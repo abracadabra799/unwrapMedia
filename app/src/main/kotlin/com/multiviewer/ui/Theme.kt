@@ -28,7 +28,11 @@ private data class ThemePalette(
 )
 
 private val DarkPalette = ThemePalette(
-    background = Color(0xFF1A1D22), surface = Color(0xFF242930), panel = Color(0xFF2A2F36), border = Color(0xFF30363D),
+    // Border was originally 0x30363D -- barely distinguishable from Background (0x1A1D22),
+    // making panel/data separators hard to see. Brightened for real contrast while staying
+    // clearly darker than DividerHighlight (0x3D444C), which needs to read as "lighter than
+    // Border" for its raised-edge resize-handle effect.
+    background = Color(0xFF1A1D22), surface = Color(0xFF242930), panel = Color(0xFF2A2F36), border = Color(0xFF3A414B),
     dividerHighlight = Color(0xFF3D444C), dividerShadow = Color(0xFF0D0F12),
     neonGreen = Color(0xFF39FF14), neonBlue = Color(0xFF00F3FF), neonPurple = Color(0xFFBC13FE), neonRed = Color(0xFFFF3131), neonYellow = Color(0xFFFFF01F),
     textPrimary = Color(0xFFC9D1D9), textSecondary = Color(0xFF8B949E), textMuted = Color(0xFF484F58),
