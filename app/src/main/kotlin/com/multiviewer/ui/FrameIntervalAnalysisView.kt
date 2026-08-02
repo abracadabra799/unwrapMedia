@@ -5,6 +5,7 @@ import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -30,9 +31,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -93,6 +101,20 @@ fun FrameIntervalAnalysisView(intervals: List<FrameInterval>, fps: Double?, modi
     }
     fun xFraction(frameIndex: Int): Float = (frameIndex - minFrameIndex).toFloat() / frameSpan
 
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
+    // Moves the highlighted point one position left/right through intervals (list order, not raw
+    // frameIndex arithmetic, since frameIndex can have gaps) -- same selectedFrameIndex state the
+    // click handlers already use, so arrow-key and click selection stay in sync automatically.
+    // indexOfFirst returns -1 when nothing is selected yet, so -1 + either delta clamps to
+    // position 0 -- the first arrow press (either direction) selects the first point.
+    fun stepSelection(delta: Int) {
+        val currentPosition = intervals.indexOfFirst { it.frameIndex == selectedFrameIndex }
+        val targetPosition = (currentPosition + delta).coerceIn(0, intervals.size - 1)
+        selectedFrameIndex = intervals[targetPosition].frameIndex
+    }
+
     Column(modifier = modifier) {
         Box(
             modifier = Modifier
@@ -100,7 +122,17 @@ fun FrameIntervalAnalysisView(intervals: List<FrameInterval>, fps: Double?, modi
                 .weight(1f)
                 .padding(8.dp)
                 .border(1.dp, AppColors.Border)
-                .background(AppColors.Panel),
+                .background(AppColors.Panel)
+                .focusRequester(focusRequester)
+                .focusable()
+                .onKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                    when (event.key) {
+                        Key.DirectionLeft -> { stepSelection(-1); true }
+                        Key.DirectionRight -> { stepSelection(1); true }
+                        else -> false
+                    }
+                },
         ) {
             // BoxWithConstraints (not plain Box) so the tick labels below can be positioned by
             // maxHeight * fraction -- same technique AudioMinimap.kt already uses for its
