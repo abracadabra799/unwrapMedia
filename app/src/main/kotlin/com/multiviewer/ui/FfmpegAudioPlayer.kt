@@ -482,6 +482,16 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
             onWindowChange = { visibleWindow = it },
             modifier = Modifier.padding(top = 2.dp),
         )
+
+        AudioMinimap(
+            peaks = waveformPeaks,
+            window = visibleWindow,
+            totalDuration = info.duration,
+            elapsedSeconds = elapsedSeconds,
+            onWindowChange = { visibleWindow = it },
+            onSeek = { fraction -> seekToFraction(fraction) },
+            modifier = Modifier.padding(top = 2.dp),
+        )
     }
 }
 
