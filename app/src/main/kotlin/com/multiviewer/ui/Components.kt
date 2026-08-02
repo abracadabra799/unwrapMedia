@@ -41,7 +41,7 @@ fun PreviewCaption(text: String, modifier: Modifier = Modifier) {
         modifier = modifier
             .background(AppColors.Background.copy(alpha = 0.75f), RoundedCornerShape(3.dp))
             .padding(horizontal = 5.dp, vertical = 2.dp),
-        style = AppTypography.labelLarge.copy(fontSize = 12.sp, color = Color.White),
+        style = AppTypography.labelLarge.copy(fontSize = 12.sp, color = AppColors.TextPrimary),
     )
 }
 

@@ -137,6 +137,7 @@ private fun runGuiApplication() = application {
         size = DpSize(1280.dp, 800.dp),
     )
     Window(onCloseRequest = ::exitApplication, title = "unwrapMedia", state = windowState) {
+        var themeMode by remember { mutableStateOf(loadThemeMode()) }
         MenuBar {
             Menu("File") {
                 Item("Open", shortcut = KeyShortcut(Key.O, meta = true), onClick = { showOpenFileDialog(appState) })
@@ -173,6 +174,16 @@ private fun runGuiApplication() = application {
                     "오디오 추출 (.m4a)",
                     enabled = hasAudioTrack,
                     onClick = { currentTab?.let { extractAudioTrackFromCurrentFile(appState, it) } },
+                )
+            }
+            Menu("보기") {
+                CheckboxItem(
+                    "라이트 테마",
+                    checked = themeMode == ThemeMode.LIGHT,
+                    onCheckedChange = { checked ->
+                        themeMode = if (checked) ThemeMode.LIGHT else ThemeMode.DARK
+                        saveThemeMode(themeMode)
+                    },
                 )
             }
         }
@@ -218,7 +229,7 @@ private fun runGuiApplication() = application {
             attachRecursively(window)
         }
 
-        MaterialTheme(colorScheme = darkColorScheme(background = AppColors.Background), typography = AppTypography) {
+        AppTheme(themeMode) {
           CompositionLocalProvider(LocalScrollbarStyle provides AppScrollbarStyle) {
             appState.pendingRawPixelFile?.let { pendingFile ->
                 RawPixelOpenDialog(

@@ -63,8 +63,6 @@ private fun charIndexToByteIndex(charIndex: Int, rowByteCount: Int): Int? {
     }
 }
 
-private val SelectedByteHighlight = Color(0xFF39FF14).copy(alpha = 0.35f)
-
 private fun copyBytesAsHex(raf: RandomAccessFile, range: LongRange) {
     val length = (range.last - range.first + 1).toInt()
     val buf = ByteArray(length)
@@ -193,7 +191,7 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
                                                 val hex = "%02X ".format(buf[i])
                                                 when {
                                                     selectedRange?.contains(byteOffset) == true ->
-                                                        withStyle(SpanStyle(background = SelectedByteHighlight)) { append(hex) }
+                                                        withStyle(SpanStyle(background = AppColors.NeonGreen.copy(alpha = 0.35f))) { append(hex) }
                                                     highlightRange?.contains(byteOffset) == true ->
                                                         withStyle(SpanStyle(background = AppColors.Highlight)) { append(hex) }
                                                     else -> append(hex)
@@ -209,7 +207,7 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
                                             val char = if (byteValue in 0x20..0x7E) byteValue.toChar() else '.'
                                             when {
                                                 selectedRange?.contains(byteOffset) == true ->
-                                                    withStyle(SpanStyle(background = SelectedByteHighlight)) { append(char) }
+                                                    withStyle(SpanStyle(background = AppColors.NeonGreen.copy(alpha = 0.35f))) { append(char) }
                                                 highlightRange?.contains(byteOffset) == true ->
                                                     withStyle(SpanStyle(background = AppColors.Highlight)) { append(char) }
                                                 else -> append(char)

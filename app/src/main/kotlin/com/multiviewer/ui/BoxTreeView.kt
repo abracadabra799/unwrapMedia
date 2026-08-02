@@ -86,7 +86,7 @@ fun BoxTreeView(root: BoxNode, selected: BoxNode?, onSelect: (BoxNode) -> Unit) 
                         Text(if (isExpanded) "▼" else "▶", color = AppColors.TextPrimary)
                     }
                 }
-                Text(text = buildLabel(row.node), color = if (isSelected) Color.White else AppColors.TextPrimary)
+                Text(text = buildLabel(row.node), color = AppColors.TextPrimary)
             }
         }
     }
