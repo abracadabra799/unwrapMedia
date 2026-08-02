@@ -15,6 +15,12 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 fun HistogramView(data: HistogramData, modifier: Modifier = Modifier) {
+    // Read @Composable colors in the outer @Composable context
+    val redColor = AppColors.NeonRed
+    val greenColor = AppColors.NeonGreen
+    val blueColor = AppColors.NeonBlue
+    val textColor = AppColors.TextPrimary
+
     Column(modifier = modifier.padding(8.dp)) {
         Text("Color Histogram", style = AppTypography.labelLarge)
         Spacer(Modifier.height(8.dp))
@@ -22,7 +28,7 @@ fun HistogramView(data: HistogramData, modifier: Modifier = Modifier) {
             val width = size.width
             val height = size.height
             val step = width / 256
-            
+
             fun drawChannel(values: FloatArray, color: androidx.compose.ui.graphics.Color) {
                 val path = Path()
                 path.moveTo(0f, height)
@@ -34,11 +40,11 @@ fun HistogramView(data: HistogramData, modifier: Modifier = Modifier) {
                 path.lineTo(width, height)
                 drawPath(path, color, style = Stroke(width = 2f))
             }
-            
-            drawChannel(data.r, AppColors.NeonRed)
-            drawChannel(data.g, AppColors.NeonGreen)
-            drawChannel(data.b, AppColors.NeonBlue)
-            drawChannel(data.y, AppColors.TextPrimary)
+
+            drawChannel(data.r, redColor)
+            drawChannel(data.g, greenColor)
+            drawChannel(data.b, blueColor)
+            drawChannel(data.y, textColor)
         }
     }
 }
