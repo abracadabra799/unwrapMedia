@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,6 +43,12 @@ private const val GRAPH_POINT_RADIUS_DP = 2.5f
 private const val GRAPH_HIGHLIGHT_RADIUS_DP = 5f
 private const val GRAPH_HIT_RADIUS_DP = 10f
 
+// The Y axis always starts at 0 (an absolute interval scale, not normalized to the observed
+// min/max) and defaults to showing 0-600ms -- wide enough to compare typical frame rates (16ms @
+// 60fps up to 40ms @ 25fps) against a real multi-hundred-ms stall at a glance. If any interval in
+// the file actually exceeds 600ms, the axis grows to fit it (never crops real data).
+private const val DEFAULT_Y_AXIS_MAX_MS = 600.0
+
 // Pure UI: given already-computed intervals and the (optional) container fps, draws the scatter
 // plot + data table with bidirectional click highlighting. Fetching/caching intervals and fps,
 // and handling the loading/empty/error states, is the caller's job (see
@@ -65,99 +72,104 @@ fun FrameIntervalAnalysisView(intervals: List<FrameInterval>, fps: Double?, modi
 
     val minFrameIndex = intervals.first().frameIndex
     val maxFrameIndex = intervals.last().frameIndex
-    val minIntervalMs = intervals.minOf { it.intervalMs }
     val maxIntervalMs = intervals.maxOf { it.intervalMs }
     val expectedIntervalMs = fps?.takeIf { it > 0.0 }?.let { 1000.0 / it }
     val frameSpan = (maxFrameIndex - minFrameIndex).coerceAtLeast(1)
-    // A perfectly regular video (the common, healthy case) has minIntervalMs == maxIntervalMs --
-    // naively dividing by a near-zero span would pin every point to the very bottom of the graph
-    // instead of the vertical center, which would look alarming/wrong for exactly the case that
-    // should look the most reassuring. yFraction returns 0.5 (dead center) when there's no
-    // variance to show, and the true proportional fraction otherwise.
-    val hasIntervalVariance = maxIntervalMs > minIntervalMs
-    fun yFraction(value: Double): Float =
-        if (hasIntervalVariance) ((value - minIntervalMs) / (maxIntervalMs - minIntervalMs)).toFloat() else 0.5f
+    // Absolute scale from 0, not normalized to the observed min/max -- with only a couple of
+    // distinct interval values (e.g. exactly two frame durations in a variable-frame-rate file),
+    // min-max normalization would snap every point onto one of two lines at the very top/bottom
+    // of the graph, which reads as a rendering bug rather than real data. Starting at a fixed 0
+    // and defaulting the ceiling to DEFAULT_Y_AXIS_MAX_MS (expanding only if real data exceeds
+    // it) keeps points positioned by their true magnitude instead. Coerced to 0..1 so a
+    // (theoretically possible, e.g. non-monotonic PTS) negative interval clamps to the bottom
+    // rather than drawing off-canvas.
+    val yAxisMaxMs = maxOf(DEFAULT_Y_AXIS_MAX_MS, maxIntervalMs)
+    fun yFraction(value: Double): Float = (value / yAxisMaxMs).toFloat().coerceIn(0f, 1f)
 
     Column(modifier = modifier) {
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .padding(8.dp)
-                .border(1.dp, AppColors.Border)
-                .background(AppColors.Panel),
+            modifier = Modifier.fillMaxWidth().weight(1f).padding(8.dp),
+            contentAlignment = Alignment.Center,
         ) {
-            Canvas(
+            Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .pointerInput(intervals) {
-                        detectTapGestures { offset ->
-                            val widthPx = size.width.toFloat()
-                            val heightPx = size.height.toFloat()
-                            val hitRadiusPx = GRAPH_HIT_RADIUS_DP.dp.toPx()
-                            var nearest: FrameInterval? = null
-                            var nearestDistanceSq = Float.MAX_VALUE
-                            for (interval in intervals) {
-                                val x = widthPx * (interval.frameIndex - minFrameIndex).toFloat() / frameSpan
-                                val y = heightPx - heightPx * yFraction(interval.intervalMs)
-                                val dx = offset.x - x
-                                val dy = offset.y - y
-                                val distanceSq = dx * dx + dy * dy
-                                if (distanceSq < nearestDistanceSq) {
-                                    nearestDistanceSq = distanceSq
-                                    nearest = interval
+                    .fillMaxHeight()
+                    .aspectRatio(1f)
+                    .border(1.dp, AppColors.Border)
+                    .background(AppColors.Panel),
+            ) {
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(intervals) {
+                            detectTapGestures { offset ->
+                                val widthPx = size.width.toFloat()
+                                val heightPx = size.height.toFloat()
+                                val hitRadiusPx = GRAPH_HIT_RADIUS_DP.dp.toPx()
+                                var nearest: FrameInterval? = null
+                                var nearestDistanceSq = Float.MAX_VALUE
+                                for (interval in intervals) {
+                                    val x = widthPx * (interval.frameIndex - minFrameIndex).toFloat() / frameSpan
+                                    val y = heightPx - heightPx * yFraction(interval.intervalMs)
+                                    val dx = offset.x - x
+                                    val dy = offset.y - y
+                                    val distanceSq = dx * dx + dy * dy
+                                    if (distanceSq < nearestDistanceSq) {
+                                        nearestDistanceSq = distanceSq
+                                        nearest = interval
+                                    }
+                                }
+                                if (nearest != null && nearestDistanceSq <= hitRadiusPx * hitRadiusPx) {
+                                    selectedFrameIndex = nearest.frameIndex
                                 }
                             }
-                            if (nearest != null && nearestDistanceSq <= hitRadiusPx * hitRadiusPx) {
-                                selectedFrameIndex = nearest.frameIndex
-                            }
+                        },
+                ) {
+                    if (expectedIntervalMs != null && expectedIntervalMs in 0.0..yAxisMaxMs) {
+                        val referenceY = size.height - size.height * yFraction(expectedIntervalMs)
+                        drawLine(
+                            color = Color.White.copy(alpha = 0.3f),
+                            start = Offset(0f, referenceY),
+                            end = Offset(size.width, referenceY),
+                            strokeWidth = 1f,
+                        )
+                    }
+
+                    val pointRadiusPx = GRAPH_POINT_RADIUS_DP.dp.toPx()
+                    val highlightRadiusPx = GRAPH_HIGHLIGHT_RADIUS_DP.dp.toPx()
+                    for (interval in intervals) {
+                        val x = size.width * (interval.frameIndex - minFrameIndex).toFloat() / frameSpan
+                        val y = size.height - size.height * yFraction(interval.intervalMs)
+                        val color = when (interval.type) {
+                            'I' -> colorI
+                            'P' -> colorP
+                            'B' -> colorB
+                            else -> colorDefault
                         }
-                    },
-            ) {
-                if (expectedIntervalMs != null && expectedIntervalMs in minIntervalMs..maxIntervalMs) {
-                    val referenceY = size.height - size.height * yFraction(expectedIntervalMs)
-                    drawLine(
-                        color = Color.White.copy(alpha = 0.3f),
-                        start = Offset(0f, referenceY),
-                        end = Offset(size.width, referenceY),
-                        strokeWidth = 1f,
-                    )
+                        if (interval.frameIndex == selectedFrameIndex) {
+                            drawCircle(color = Color.White, radius = highlightRadiusPx, center = Offset(x, y), style = Stroke(width = 2f))
+                        }
+                        drawCircle(color = color, radius = pointRadiusPx, center = Offset(x, y))
+                    }
                 }
 
-                val pointRadiusPx = GRAPH_POINT_RADIUS_DP.dp.toPx()
-                val highlightRadiusPx = GRAPH_HIGHLIGHT_RADIUS_DP.dp.toPx()
-                for (interval in intervals) {
-                    val x = size.width * (interval.frameIndex - minFrameIndex).toFloat() / frameSpan
-                    val y = size.height - size.height * yFraction(interval.intervalMs)
-                    val color = when (interval.type) {
-                        'I' -> colorI
-                        'P' -> colorP
-                        'B' -> colorB
-                        else -> colorDefault
-                    }
-                    if (interval.frameIndex == selectedFrameIndex) {
-                        drawCircle(color = Color.White, radius = highlightRadiusPx, center = Offset(x, y), style = Stroke(width = 2f))
-                    }
-                    drawCircle(color = color, radius = pointRadiusPx, center = Offset(x, y))
-                }
-            }
-
-            Text(
-                "${"%.1f".format(maxIntervalMs)}ms",
-                modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
-                style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = textSecondary),
-            )
-            Text(
-                "${"%.1f".format(minIntervalMs)}ms",
-                modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
-                style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = textSecondary),
-            )
-            if (expectedIntervalMs != null) {
                 Text(
-                    "기준 ${"%.1f".format(expectedIntervalMs)}ms",
-                    modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
+                    "${"%.1f".format(yAxisMaxMs)}ms",
+                    modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
                     style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = textSecondary),
                 )
+                Text(
+                    "0ms",
+                    modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
+                    style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = textSecondary),
+                )
+                if (expectedIntervalMs != null) {
+                    Text(
+                        "기준 ${"%.1f".format(expectedIntervalMs)}ms",
+                        modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
+                        style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = textSecondary),
+                    )
+                }
             }
         }
 
