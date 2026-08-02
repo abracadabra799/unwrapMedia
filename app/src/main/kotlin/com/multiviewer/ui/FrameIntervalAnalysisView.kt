@@ -32,6 +32,9 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Window
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private const val GRAPH_POINT_RADIUS_DP = 2.5f
 private const val GRAPH_HIGHLIGHT_RADIUS_DP = 5f
@@ -166,6 +169,44 @@ fun FrameIntervalAnalysisView(intervals: List<FrameInterval>, fps: Double?, modi
                 }
             }
             VerticalScrollbar(adapter = rememberScrollbarAdapter(listState), modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight())
+        }
+    }
+}
+
+// Owns data-fetching: reuses the same tab.gopFrames/AppState.analyzeFrames the GOP panel already
+// populates (no duplicate ffprobe call if the user already opened GOP analysis for this tab), plus
+// a fresh probeVideo call for fps (not cached anywhere else on TabState). Opens an independent,
+// resizable Window rather than a modal Dialog since the data table can be long.
+@Composable
+fun FrameIntervalAnalysisWindow(appState: AppState, tab: TabState, onCloseRequest: () -> Unit) {
+    LaunchedEffect(tab) {
+        appState.analyzeFrames(tab)
+    }
+    var videoInfo by remember(tab) { mutableStateOf<VideoInfo?>(null) }
+    LaunchedEffect(tab) {
+        videoInfo = withContext(Dispatchers.IO) { probeVideo(tab.file) }
+    }
+
+    Window(onCloseRequest = onCloseRequest, title = "프레임 간격 분석 - ${tab.file.name}") {
+        val frames = tab.gopFrames
+        val intervals = remember(frames) { frames?.let { computeFrameIntervals(it) } ?: emptyList() }
+
+        Box(modifier = Modifier.fillMaxSize().background(AppColors.Background)) {
+            when {
+                tab.isAnalyzingFrames || frames == null -> {
+                    DecodingIndicator("프레임 분석 중...", modifier = Modifier.align(Alignment.Center))
+                }
+                intervals.isEmpty() -> {
+                    Text(
+                        "간격 정보 없음",
+                        modifier = Modifier.align(Alignment.Center),
+                        style = AppTypography.bodyLarge.copy(color = AppColors.TextSecondary),
+                    )
+                }
+                else -> {
+                    FrameIntervalAnalysisView(intervals = intervals, fps = videoInfo?.fps, modifier = Modifier.fillMaxSize())
+                }
+            }
         }
     }
 }

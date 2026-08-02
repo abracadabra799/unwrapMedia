@@ -138,6 +138,7 @@ private fun runGuiApplication() = application {
     )
     Window(onCloseRequest = ::exitApplication, title = "unwrapMedia", state = windowState) {
         var themeMode by remember { mutableStateOf(loadThemeMode()) }
+        var frameIntervalWindowOpen by remember { mutableStateOf(false) }
         MenuBar {
             Menu("File") {
                 Item("Open", shortcut = KeyShortcut(Key.O, meta = true), onClick = { showOpenFileDialog(appState) })
@@ -174,6 +175,16 @@ private fun runGuiApplication() = application {
                     "오디오 추출 (.m4a)",
                     enabled = hasAudioTrack,
                     onClick = { currentTab?.let { extractAudioTrackFromCurrentFile(appState, it) } },
+                )
+            }
+            Menu("프레임 간격 분석") {
+                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                val isVideo = currentTab?.type == MediaType.VIDEO
+                val hasVideoTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Video" } == true
+                Item(
+                    "프레임 간격 분석 보기",
+                    enabled = hasVideoTrack,
+                    onClick = { frameIntervalWindowOpen = true },
                 )
             }
             Menu("보기") {
@@ -292,6 +303,14 @@ private fun runGuiApplication() = application {
                             Button(onClick = { appState.openFileError = null }) { Text("확인") }
                         }
                     }
+                }
+            }
+            if (frameIntervalWindowOpen) {
+                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                if (currentTab != null) {
+                    FrameIntervalAnalysisWindow(appState = appState, tab = currentTab, onCloseRequest = { frameIntervalWindowOpen = false })
+                } else {
+                    frameIntervalWindowOpen = false
                 }
             }
             Surface(modifier = Modifier.fillMaxSize(), color = AppColors.Background) {
