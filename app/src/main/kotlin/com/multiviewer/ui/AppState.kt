@@ -170,9 +170,15 @@ class TabState(val file: File) {
     // Non-blocking notice shown when an opened image/video's resolution is above the soft warning
     // threshold but still under the hard limit (see AppState.openFile) -- null means no warning.
     var largeResolutionWarning: String? by mutableStateOf(null)
+
+    // Headerless raw PCM audio parameters (see RawAudioOpenDialog) -- null unless this tab was
+    // opened via the raw-audio path. FfmpegAudioPlayer uses this to supply ffmpeg the input-side
+    // format hints raw PCM can't self-describe.
+    var rawAudioParams: RawAudioParams? by mutableStateOf(null)
 }
 
 private val RAW_PIXEL_EXTENSIONS = listOf("raw", "rgb", "rgba", "yuv")
+private val RAW_AUDIO_EXTENSIONS = listOf("pcm")
 
 class AppState {
     val tabs = mutableStateListOf<TabState>()
@@ -188,9 +194,77 @@ class AppState {
     // them here instead of the normal parse flow, and RawPixelOpenDialog (shown while this is
     // non-null) collects the parameters needed to actually decode the file.
     var pendingRawPixelFile: File? by mutableStateOf(null)
+    // Same idea for headerless raw PCM audio -- RawAudioOpenDialog collects sample rate/channels/
+    // format/byte order/offset while this is non-null.
+    var pendingRawAudioFile: File? by mutableStateOf(null)
+    // .raw is ambiguous between the raw-pixel and raw-audio features (both use it in the wild) --
+    // openFile() routes a .raw file here first so Main.kt can show a two-button chooser, which
+    // then sets pendingRawPixelFile or pendingRawAudioFile based on the user's answer.
+    var pendingRawFileChoice: File? by mutableStateOf(null)
 
     fun cancelRawPixelFile() {
         pendingRawPixelFile = null
+    }
+
+    fun chooseRawFileAsPixel() {
+        val file = pendingRawFileChoice ?: return
+        pendingRawFileChoice = null
+        pendingRawPixelFile = file
+    }
+
+    fun chooseRawFileAsAudio() {
+        val file = pendingRawFileChoice ?: return
+        pendingRawFileChoice = null
+        pendingRawAudioFile = file
+    }
+
+    fun cancelRawFileChoice() {
+        pendingRawFileChoice = null
+    }
+
+    fun cancelRawAudioFile() {
+        pendingRawAudioFile = null
+    }
+
+    fun confirmRawAudioFile(params: RawAudioParams) {
+        val file = pendingRawAudioFile ?: return
+        pendingRawAudioFile = null
+        val existingIndex = tabs.indexOfFirst { it.file.absolutePath == file.absolutePath }
+        if (existingIndex >= 0) {
+            selectedTabIndex = existingIndex
+            return
+        }
+        if (tabs.size >= MAX_OPEN_FILES) {
+            statusMessage = "You can only have $MAX_OPEN_FILES files open at a time."
+            return
+        }
+        statusMessage = null
+        val tab = TabState(file)
+        tabs.add(tab)
+        selectedTabIndex = tabs.size - 1
+        val duration = computeRawAudioDuration(
+            file.length(), params.offsetBytes, params.sampleRate, params.channels, params.format.bytesPerSample,
+        )
+        tab.type = MediaType.AUDIO
+        tab.rawAudioParams = params
+        tab.root = BoxNode(
+            type = "root", offset = 0, headerSize = 0, size = file.length(),
+            children = listOf(
+                BoxNode(
+                    type = "RawAudioData", offset = 0, headerSize = 0, size = file.length(),
+                    fields = listOf(
+                        BoxField("Sample Rate", "${params.sampleRate} Hz", 0, file.length()),
+                        BoxField("Channels", params.channels.toString(), 0, file.length()),
+                        BoxField("Format", params.format.label, 0, file.length()),
+                        BoxField("Byte Order", params.byteOrder.label, 0, file.length()),
+                        BoxField("Offset", "${params.offsetBytes} bytes", 0, file.length()),
+                        BoxField("Duration", "%.2f seconds".format(duration), 0, file.length()),
+                    ),
+                    summary = "${params.sampleRate} Hz, ${params.channels}ch, ${params.format.label}",
+                ),
+            ),
+        )
+        tab.isLoading = false
     }
 
     fun confirmRawPixelFile(width: Int, height: Int, format: RawPixelFormat, byteOrder: RawPixelByteOrder, fps: Double) {
@@ -271,9 +345,21 @@ class AppState {
             return
         }
         val extension = file.extension.lowercase()
+        // .raw is ambiguous with raw-audio (both use this extension in the wild) -- checked before
+        // RAW_PIXEL_EXTENSIONS below so it goes through the chooser instead of assuming pixel data.
+        if (extension == "raw") {
+            statusMessage = null
+            pendingRawFileChoice = file
+            return
+        }
         if (extension in RAW_PIXEL_EXTENSIONS) {
             statusMessage = null
             pendingRawPixelFile = file
+            return
+        }
+        if (extension in RAW_AUDIO_EXTENSIONS) {
+            statusMessage = null
+            pendingRawAudioFile = file
             return
         }
         // Reject anything else outright rather than falling through to parseFile(): its magic-byte
@@ -282,7 +368,7 @@ class AppState {
         // as if it might be one -- undefined behavior on genuinely arbitrary bytes, not something
         // this app can promise won't hang or crash. See README's "Supported Specs & Limits".
         if (extension !in IMAGE_EXTENSIONS && extension !in VIDEO_EXTENSIONS && extension !in AUDIO_EXTENSIONS) {
-            val supported = (IMAGE_EXTENSIONS + VIDEO_EXTENSIONS + AUDIO_EXTENSIONS + RAW_PIXEL_EXTENSIONS).joinToString(", ")
+            val supported = (IMAGE_EXTENSIONS + VIDEO_EXTENSIONS + AUDIO_EXTENSIONS + RAW_PIXEL_EXTENSIONS + RAW_AUDIO_EXTENSIONS).joinToString(", ")
             openFileError = "지원하지 않는 파일 형식입니다 (.$extension).\n지원 형식: $supported"
             return
         }

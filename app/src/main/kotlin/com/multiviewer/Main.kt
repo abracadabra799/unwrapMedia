@@ -231,11 +231,46 @@ private fun runGuiApplication() = application {
 
         AppTheme(themeMode) {
           CompositionLocalProvider(LocalScrollbarStyle provides AppScrollbarStyle) {
+            appState.pendingRawFileChoice?.let { pendingFile ->
+                Dialog(onDismissRequest = { appState.cancelRawFileChoice() }) {
+                    Column(
+                        modifier = Modifier
+                            .width(360.dp)
+                            .background(AppColors.Surface, RoundedCornerShape(8.dp))
+                            .border(1.dp, AppColors.Border, RoundedCornerShape(8.dp))
+                            .padding(20.dp),
+                    ) {
+                        Text("파일 종류 선택", style = AppTypography.headlineSmall)
+                        Spacer(Modifier.height(4.dp))
+                        Text(pendingFile.name, style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = AppColors.TextSecondary))
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            ".raw 파일은 이미지 또는 오디오일 수 있습니다. 어느 쪽인가요?",
+                            style = AppTypography.labelLarge.copy(fontSize = 12.sp, color = AppColors.TextPrimary),
+                        )
+                        Spacer(Modifier.height(20.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = { appState.cancelRawFileChoice() }) { Text("취소") }
+                            Spacer(Modifier.width(8.dp))
+                            Button(onClick = { appState.chooseRawFileAsAudio() }) { Text("오디오") }
+                            Spacer(Modifier.width(8.dp))
+                            Button(onClick = { appState.chooseRawFileAsPixel() }) { Text("이미지") }
+                        }
+                    }
+                }
+            }
             appState.pendingRawPixelFile?.let { pendingFile ->
                 RawPixelOpenDialog(
                     file = pendingFile,
                     onConfirm = { width, height, format, byteOrder, fps -> appState.confirmRawPixelFile(width, height, format, byteOrder, fps) },
                     onCancel = { appState.cancelRawPixelFile() },
+                )
+            }
+            appState.pendingRawAudioFile?.let { pendingFile ->
+                RawAudioOpenDialog(
+                    file = pendingFile,
+                    onConfirm = { params -> appState.confirmRawAudioFile(params) },
+                    onCancel = { appState.cancelRawAudioFile() },
                 )
             }
             // Blocking popup for openFile() outright refusals (unsupported extension, or a
