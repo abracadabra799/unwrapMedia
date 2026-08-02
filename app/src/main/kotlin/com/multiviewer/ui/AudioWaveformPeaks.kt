@@ -108,6 +108,7 @@ fun computeWaveformPeaks(
         null
     } finally {
         process.destroyForcibly()
+        if (inputFile != file) inputFile.delete()
     }
 }
 

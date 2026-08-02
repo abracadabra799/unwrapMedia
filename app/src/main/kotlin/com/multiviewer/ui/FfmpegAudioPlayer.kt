@@ -94,8 +94,10 @@ private fun renderAudioVisualization(file: File, filter: String, rawAudioParams:
         return null
     }
     tempPng.deleteOnExit()
+    var inputFile: File? = null
     return try {
-        val inputFile = if (rawAudioParams != null) rawAudioSourceFile(file, rawAudioParams.offsetBytes) else file
+        val resolvedInputFile = if (rawAudioParams != null) rawAudioSourceFile(file, rawAudioParams.offsetBytes) else file
+        inputFile = resolvedInputFile
         val rawInputArgs = if (rawAudioParams != null) {
             listOf("-f", rawAudioParams.ffmpegFormatCode(), "-ar", rawAudioParams.sampleRate.toString(), "-ac", rawAudioParams.channels.toString())
         } else {
@@ -103,7 +105,7 @@ private fun renderAudioVisualization(file: File, filter: String, rawAudioParams:
         }
         val process = ProcessBuilder(
             listOf(FfmpegLocator.ffmpegPath(), "-y") + rawInputArgs + listOf(
-                "-i", inputFile.absolutePath,
+                "-i", resolvedInputFile.absolutePath,
                 "-lavfi", filter, "-frames:v", "1", tempPng.absolutePath,
             ),
         ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD)
@@ -121,6 +123,8 @@ private fun renderAudioVisualization(file: File, filter: String, rawAudioParams:
         null
     } finally {
         tempPng.delete()
+        val fileToClean = inputFile
+        if (fileToClean != null && fileToClean != file) fileToClean.delete()
     }
 }
 
@@ -269,6 +273,7 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
             stopped.set(true)
             readerThread?.interrupt()
             process?.destroyForcibly()
+            if (inputFile != file) inputFile.delete()
         }
     }
 
