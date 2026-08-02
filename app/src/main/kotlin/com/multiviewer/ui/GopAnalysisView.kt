@@ -58,16 +58,11 @@ private const val FRAME_BAR_SPACING_DP = 2
 // proportionally along with it so their relative size differences are preserved.
 private const val FRAME_BAR_MAX_HEIGHT_FRACTION = 0.6f
 
-// Muted, desaturated palette instead of the app's full-saturation neon accents -- neon reads fine
-// for a single small badge but was overwhelming across a wide row of adjacent bars.
-private val IFrameColor = Color(0xFFE06C75)
-private val PFrameColor = Color(0xFF7EC699)
-private val BFrameColor = Color(0xFF6CA6E0)
-
+@Composable
 private fun colorForFrameType(type: Char) = when (type) {
-    'I' -> IFrameColor
-    'P' -> PFrameColor
-    'B' -> BFrameColor
+    'I' -> AppColors.FrameTypeI
+    'P' -> AppColors.FrameTypeP
+    'B' -> AppColors.FrameTypeB
     else -> AppColors.TextSecondary
 }
 
