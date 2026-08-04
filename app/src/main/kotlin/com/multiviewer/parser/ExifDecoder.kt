@@ -258,6 +258,125 @@ private val TAG_NAMES_MAKERNOTE_SAMSUNG = mapOf(
     0xA054 to "VignettingSetting",
 )
 
+// Enum/flag tags whose raw integer value is translated to a label ExifTool would also show --
+// keyed by (IFD group label, tag ID) so the same numeric tag ID under a different group (e.g. a
+// vendor MakerNote reusing a low tag number) is never misinterpreted. Only single-value SHORT/
+// LONG/SSHORT/SLONG fields are looked up here (see interpretedDisplay) -- ASCII ref tags like
+// GPSLatitudeRef ("N"/"S") are already human-readable as raw text and never reach this table.
+private val TAG_VALUE_LABELS: Map<Pair<String, Int>, Map<Int, String>> = mapOf(
+    ("IFD0" to 0x0112) to mapOf(
+        1 to "Horizontal (normal)", 2 to "Mirror horizontal", 3 to "Rotate 180",
+        4 to "Mirror vertical", 5 to "Mirror horizontal and rotate 270 CW", 6 to "Rotate 90 CW",
+        7 to "Mirror horizontal and rotate 90 CW", 8 to "Rotate 270 CW",
+    ),
+    ("IFD0" to 0x0128) to mapOf(1 to "None", 2 to "inches", 3 to "cm"),
+    ("IFD0" to 0x0213) to mapOf(1 to "Centered", 2 to "Co-sited"),
+    ("IFD0" to 0x0106) to mapOf(0 to "WhiteIsZero", 1 to "BlackIsZero", 2 to "RGB", 6 to "YCbCr"),
+    ("IFD0" to 0x0103) to mapOf(1 to "Uncompressed", 6 to "JPEG (old-style)", 7 to "JPEG", 8 to "Adobe Deflate"),
+    ("Exif" to 0x8822) to mapOf(
+        0 to "Not defined", 1 to "Manual", 2 to "Normal program", 3 to "Aperture priority",
+        4 to "Shutter priority", 5 to "Creative program", 6 to "Action program",
+        7 to "Portrait mode", 8 to "Landscape mode",
+    ),
+    ("Exif" to 0x9207) to mapOf(
+        0 to "Unknown", 1 to "Average", 2 to "Center-weighted average", 3 to "Spot",
+        4 to "Multi-spot", 5 to "Pattern", 6 to "Partial", 255 to "Other",
+    ),
+    // ExifTool's published Flash bitmask table -- the low bits mean "fired", higher bits encode
+    // return-light detection and flash mode, so this is a lookup table of known composite values
+    // rather than a formula.
+    ("Exif" to 0x9209) to mapOf(
+        0x0 to "No Flash", 0x1 to "Fired", 0x5 to "Fired, Return not detected",
+        0x7 to "Fired, Return detected", 0x8 to "Did not fire, compulsory",
+        0x9 to "Fired, compulsory", 0x10 to "Did not fire, auto mode",
+        0x18 to "Did not fire, auto mode", 0x19 to "Fired, auto mode",
+        0x1D to "Fired, auto mode, Return not detected", 0x1F to "Fired, auto mode, Return detected",
+        0x20 to "No flash function", 0x41 to "Fired, red-eye reduction",
+        0x45 to "Fired, red-eye reduction, Return not detected",
+        0x47 to "Fired, red-eye reduction, Return detected",
+        0x49 to "Fired, compulsory, red-eye reduction",
+        0x4D to "Fired, compulsory, red-eye reduction, Return not detected",
+        0x4F to "Fired, compulsory, red-eye reduction, Return detected",
+        0x59 to "Fired, auto, red-eye reduction",
+    ),
+    ("Exif" to 0xA403) to mapOf(0 to "Auto", 1 to "Manual"),
+    ("Exif" to 0xA001) to mapOf(1 to "sRGB", 65535 to "Uncalibrated"),
+    ("Exif" to 0xA402) to mapOf(0 to "Auto", 1 to "Manual", 2 to "Auto bracket"),
+    ("Exif" to 0xA406) to mapOf(0 to "Standard", 1 to "Landscape", 2 to "Portrait", 3 to "Night scene"),
+    ("Exif" to 0x9208) to mapOf(
+        0 to "Unknown", 1 to "Daylight", 2 to "Fluorescent", 3 to "Tungsten", 4 to "Flash",
+        9 to "Fine weather", 10 to "Cloudy", 11 to "Shade", 17 to "Standard light A",
+        18 to "Standard light B", 19 to "Standard light C", 24 to "ISO studio tungsten", 255 to "Other",
+    ),
+    ("Exif" to 0xA217) to mapOf(
+        1 to "Not defined", 2 to "One-chip color area", 3 to "Two-chip color area",
+        4 to "Three-chip color area", 5 to "Color sequential area", 7 to "Trilinear",
+        8 to "Color sequential linear",
+    ),
+    ("Exif" to 0xA300) to mapOf(3 to "Digital Camera"),
+    ("Exif" to 0xA301) to mapOf(1 to "Directly photographed"),
+    ("Exif" to 0xA401) to mapOf(0 to "Normal", 1 to "Custom"),
+    ("Exif" to 0xA407) to mapOf(
+        0 to "None", 1 to "Low gain up", 2 to "High gain up", 3 to "Low gain down", 4 to "High gain down",
+    ),
+    ("Exif" to 0xA408) to mapOf(0 to "Normal", 1 to "Soft", 2 to "Hard"),
+    ("Exif" to 0xA409) to mapOf(0 to "Normal", 1 to "Low saturation", 2 to "High saturation"),
+    ("Exif" to 0xA40A) to mapOf(0 to "Normal", 1 to "Soft", 2 to "Hard"),
+    ("Exif" to 0xA40C) to mapOf(0 to "Unknown", 1 to "Macro", 2 to "Close", 3 to "Distant"),
+)
+
+// Direct-unit rational tags (the stored fraction IS the displayed unit, e.g. FNumber's "28/10"
+// literally means f/2.8) -- deliberately excludes APEX-encoded tags like ApertureValue/
+// ShutterSpeedValue/BrightnessValue, whose displayed value requires a 2^(APEX/n) conversion, not
+// just a nicer fraction format; those still show as a raw rational until that conversion is added.
+private fun formatExposureTime(num: Long, den: Long): String {
+    if (den == 0L) return "$num/$den"
+    if (num == 0L) return "0s"
+    return if (num < den) "$num/${den}s" else "%.1fs".format(num.toDouble() / den)
+}
+
+private fun formatFNumber(num: Long, den: Long): String {
+    if (den == 0L) return "$num/$den"
+    return "f/%.1f".format(num.toDouble() / den)
+}
+
+private fun formatFocalLength(num: Long, den: Long): String {
+    if (den == 0L) return "$num/$den"
+    return "%.1fmm".format(num.toDouble() / den)
+}
+
+private val RATIONAL_FORMATTERS: Map<Pair<String, Int>, (Long, Long) -> String> = mapOf(
+    ("Exif" to 0x829A) to ::formatExposureTime,
+    ("Exif" to 0x829D) to ::formatFNumber,
+    ("Exif" to 0x920A) to ::formatFocalLength,
+)
+
+// Returns a human-readable override for a single-value SHORT/LONG/SSHORT/SLONG (enum/flag lookup)
+// or RATIONAL/SRATIONAL (unit formatter) field when this task's tables have an entry for
+// (group, tag); null otherwise, in which case the caller falls back to formatTiffValue's raw
+// output exactly as before. Multi-value fields (count != 1) are never interpreted -- an "average"
+// or "list" reading of an enum table wouldn't be meaningful.
+private fun interpretedDisplay(group: String, tag: Int, fieldType: Int, count: Int, reader: ByteReader, valuePos: Long, littleEndian: Boolean): String? {
+    if (count != 1) return null
+    return when (fieldType) {
+        3 -> TAG_VALUE_LABELS[group to tag]?.get(readUInt16Endian(reader, valuePos, littleEndian))
+        8 -> TAG_VALUE_LABELS[group to tag]?.get(readUInt16Endian(reader, valuePos, littleEndian).toShort().toInt())
+        4 -> TAG_VALUE_LABELS[group to tag]?.get(readUInt32Endian(reader, valuePos, littleEndian).toInt())
+        9 -> TAG_VALUE_LABELS[group to tag]?.get(readUInt32Endian(reader, valuePos, littleEndian).toInt())
+        5 -> {
+            val num = readUInt32Endian(reader, valuePos, littleEndian)
+            val den = readUInt32Endian(reader, valuePos + 4, littleEndian)
+            RATIONAL_FORMATTERS[group to tag]?.invoke(num, den)
+        }
+        10 -> {
+            val num = readUInt32Endian(reader, valuePos, littleEndian).toInt().toLong()
+            val den = readUInt32Endian(reader, valuePos + 4, littleEndian).toInt().toLong()
+            RATIONAL_FORMATTERS[group to tag]?.invoke(num, den)
+        }
+        else -> null
+    }
+}
+
 fun decodeExif(reader: ByteReader, itemStart: Long, itemEnd: Long): List<BoxNode> {
     if (itemEnd - itemStart < 4) return emptyList()
     val tiffHeaderOffsetField = reader.readUInt32(itemStart)
@@ -407,7 +526,8 @@ private fun decodeIfd(
                 if (valueAbsolutePos < 0 || valueAbsolutePos + totalSize > itemEnd) {
                     fields.add(BoxField(name, "(out of bounds)", valueAbsolutePos, totalSize))
                 } else {
-                    val display = formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian)
+                    val display = interpretedDisplay(label, tag, fieldType, count.toInt(), reader, valueAbsolutePos, littleEndian)
+                        ?: formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian)
                     fields.add(BoxField(name, display, valueAbsolutePos, totalSize))
                 }
             }
