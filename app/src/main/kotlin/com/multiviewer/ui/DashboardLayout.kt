@@ -28,9 +28,12 @@ private const val LEFT_PANEL_MAX_WIDTH_DP = 700f
 // can always drag it wider (or resize the whole window) when they need more room, so the default
 // favors leaving more space to the center preview instead.
 private const val RIGHT_PANEL_MIN_WIDTH_DP = 220f
-// 350 -> 420 (+20%): the right panel now carries the Overview tab's full-width summary cards
-// (see CoreMetadataDisplay), which reads more comfortably with a bit more room.
-private const val RIGHT_PANEL_DEFAULT_WIDTH_DP = 420f
+// 350 -> 420 -> 530: the right panel now carries the Overview tab's full-width summary cards (see
+// CoreMetadataDisplay), which reads more comfortably with more room -- and since the center panel
+// takes whatever's left after left+right (weight(1f) in the Row below), growing the right panel's
+// default is what actually shrinks the center (thumbnail/image/video preview) panel's real
+// allocated width, rather than leaving dead margin inside a same-size center panel.
+private const val RIGHT_PANEL_DEFAULT_WIDTH_DP = 530f
 private const val RIGHT_PANEL_MAX_WIDTH_DP = 1000f
 
 // Thin draggable strip between two side-by-side panels. onDragDeltaDp receives the horizontal
@@ -70,9 +73,10 @@ fun DashboardLayout(
     rightPanelDefaultWidthDp: Float = RIGHT_PANEL_DEFAULT_WIDTH_DP,
 ) {
     var containerHeightPx by remember { mutableStateOf(0) }
-    // 0.75f roughly matches the old fixed 250dp bottom panel on a typical window size, but is now
-    // a user-draggable ratio instead of a fixed pixel height.
-    var verticalSplit by remember { mutableStateOf(0.75f) }
+    // 0.75 -> 0.6: shrinks the top row's (left+center+right) real height allocation so the bottom
+    // Hex & Raw Data Viewer panel gets more room by default -- still a user-draggable ratio, not a
+    // fixed pixel height.
+    var verticalSplit by remember { mutableStateOf(0.6f) }
     // Left (Structure) and right (Detailed Properties) panels start at their old fixed widths but
     // the user can drag either wider -- e.g. pretty-printed XMP in the right panel needs much more
     // horizontal room than 350dp to avoid wrapping mid-line.

@@ -45,7 +45,6 @@ fun ImageInspectorUI(
 
     DashboardLayout(
         leftPanel = leftPanel,
-        rightPanelDefaultWidthDp = 336f, // 280 -> 336 (+20%)
         centerPanel = {
             Column(modifier = Modifier.fillMaxSize()) {
                 tab.largeResolutionWarning?.let { warning ->
@@ -55,19 +54,18 @@ fun ImageInspectorUI(
                 // full-width frame filmstrip instead (see
                 // docs/superpowers/specs/2026-08-01-gif-animation-playback-design.md). Any other
                 // case -- non-GIF file, or a GIF whose animation decode hasn't finished/failed --
-                // falls through to the unchanged three-box row below. Sized to 80% width/height
-                // (was 100%) and centered -- at full size the preview boxes read as too dominant
-                // now that they're not sharing the center panel with anything else.
+                // falls through to the unchanged three-box row below. Fills the whole center
+                // panel -- the panel's own allocated space is what shrank (see DashboardLayout's
+                // rightPanelDefaultWidthDp/verticalSplit), not this content within it.
                 val gifAnimation = tab.gifAnimation
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 if (tab.file.extension.lowercase() == "gif" && gifAnimation != null) {
                     GifFilmstripPlayer(
                         tab = tab,
                         animation = gifAnimation,
-                        modifier = Modifier.fillMaxWidth(0.8f).fillMaxHeight(0.8f),
+                        modifier = Modifier.fillMaxSize(),
                     )
                 } else {
-                Row(modifier = Modifier.fillMaxWidth(0.8f).fillMaxHeight(0.8f)) {
+                Row(modifier = Modifier.fillMaxSize()) {
                     // Left Panel: Embedded EXIF Thumbnail
                     Box(
                         modifier = Modifier
@@ -158,7 +156,6 @@ fun ImageInspectorUI(
                             )
                         }
                     }
-                }
                 }
                 }
             }
