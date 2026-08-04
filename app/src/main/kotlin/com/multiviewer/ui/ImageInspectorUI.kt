@@ -13,6 +13,8 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -269,12 +271,49 @@ private fun MotionPhotoVideoPreview(tab: TabState, video: EmbeddedVideo) {
     }
 }
 
+private enum class DetailPanelTab { OVERVIEW, DETAIL }
+
+// Starts on Overview for every newly-opened file (remember(tab) resets it -- same per-file-reset
+// convention used throughout this app, e.g. waveformSplit/selectedFrame), and auto-switches to
+// Detail the first time the user actually selects something in the tree, so they don't have to
+// manually click over after clicking a node/marker.
 @Composable
 fun DetailedPropertiesPanel(tab: TabState) {
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        PanelHeader("Detailed Properties")
-        Spacer(Modifier.height(16.dp))
+    var activeTab by remember(tab) { mutableStateOf(DetailPanelTab.OVERVIEW) }
+    LaunchedEffect(tab.selected, tab.selectedFrame) {
+        if (tab.selected != null || tab.selectedFrame != null) {
+            activeTab = DetailPanelTab.DETAIL
+        }
+    }
 
+    Column(modifier = Modifier.fillMaxSize()) {
+        TabRow(
+            selectedTabIndex = activeTab.ordinal,
+            containerColor = AppColors.Panel,
+            contentColor = AppColors.NeonBlue,
+        ) {
+            Tab(
+                selected = activeTab == DetailPanelTab.OVERVIEW,
+                onClick = { activeTab = DetailPanelTab.OVERVIEW },
+                text = { Text("Overview", style = AppTypography.labelLarge) },
+            )
+            Tab(
+                selected = activeTab == DetailPanelTab.DETAIL,
+                onClick = { activeTab = DetailPanelTab.DETAIL },
+                text = { Text("Detailed Properties", style = AppTypography.labelLarge) },
+            )
+        }
+
+        when (activeTab) {
+            DetailPanelTab.OVERVIEW -> MediaSummaryView(tab.mediaSummary)
+            DetailPanelTab.DETAIL -> DetailPropertiesTabContent(tab)
+        }
+    }
+}
+
+@Composable
+private fun DetailPropertiesTabContent(tab: TabState) {
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         // A single LazyColumn (with a visible scrollbar) for all three cases below, instead of a
         // plain non-scrolling Column for the frame case and two separately-scrollable LazyColumns
         // for the others -- this way every case scrolls the same way once content is longer than
