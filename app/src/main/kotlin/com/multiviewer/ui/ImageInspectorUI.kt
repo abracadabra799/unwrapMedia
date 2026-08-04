@@ -275,85 +275,107 @@ fun DetailedPropertiesPanel(tab: TabState) {
         PanelHeader("Detailed Properties")
         Spacer(Modifier.height(16.dp))
 
+        // A single LazyColumn (with a visible scrollbar) for all three cases below, instead of a
+        // plain non-scrolling Column for the frame case and two separately-scrollable LazyColumns
+        // for the others -- this way every case scrolls the same way once content is longer than
+        // the panel, and a visible thumb always shows there's more below (LazyColumn alone
+        // scrolls fine with the wheel/trackpad, but gives no visual hint that it can).
+        val listState = rememberLazyListState()
         val selectedFrame = tab.selectedFrame
-        if (selectedFrame != null) {
-            PropertyRow("Frame #", selectedFrame.index.toString())
-            PropertyRow("Type", selectedFrame.type.toString())
-            PropertyRow("Size", "${selectedFrame.sizeBytes} bytes")
-            PropertyRow("PTS", "${selectedFrame.ptsSeconds}s")
-            return@Column
-        }
-
         val selectedNode = tab.selected
-        if (selectedNode != null) {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                item {
-                    PropertyRow("Type", selectedNode.type)
-                    PropertyRow("Offset", "0x${selectedNode.offset.toString(16).uppercase()}")
-                    PropertyRow("Size", "${selectedNode.size} bytes")
-                    Spacer(Modifier.height(8.dp))
-                }
-                items(selectedNode.fields) { field ->
-                    if (field.name == "xmp") {
-                        XmpFieldDisplay(field.value)
-                    } else {
-                        PropertyRow(field.name, field.value)
-                    }
-                }
-                selectedNode.grid?.let { grid ->
-                    item { GridDisplay(grid) }
-                }
-                selectedNode.table?.let { table ->
-                    item { EmbeddedTableView(tab.file, table) }
-                }
-                if (selectedNode.type == "SOS") {
-                    item { SosScanStatistics(tab, selectedNode) }
-                }
-                if (selectedNode.warnings.isNotEmpty()) {
-                    item {
-                        Spacer(Modifier.height(8.dp))
-                        Text("Warnings:", style = AppTypography.labelLarge.copy(color = AppColors.NeonRed))
-                        selectedNode.warnings.forEach { warning ->
-                            Text("- $warning", style = AppTypography.bodyLarge.copy(color = AppColors.NeonRed))
+        val root = tab.root
+        // remember() needs a @Composable context, which the LazyColumn content lambda below is
+        // NOT (it's a LazyListScope builder, only item {}/items {} inside it are composable) --
+        // computed here instead, same as the original non-lazy version did.
+        val warnings = if (selectedFrame == null && selectedNode == null && root != null) {
+            remember(root) { collectWarnings(root) }
+        } else {
+            emptyList()
+        }
+        Box(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                when {
+                    selectedFrame != null -> {
+                        item {
+                            PropertyRow("Frame #", selectedFrame.index.toString())
+                            PropertyRow("Type", selectedFrame.type.toString())
+                            PropertyRow("Size", "${selectedFrame.sizeBytes} bytes")
+                            PropertyRow("PTS", "${selectedFrame.ptsSeconds}s")
                         }
                     }
-                }
-            }
-        } else {
-            val root = tab.root
-            val warnings = if (root != null) remember(root) { collectWarnings(root) } else emptyList()
-            if (warnings.isNotEmpty()) {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    item {
-                        Text(
-                            "⚠ ${warnings.size}개의 구조적 이상 징후",
-                            style = AppTypography.labelLarge.copy(color = AppColors.NeonRed),
-                        )
-                        Spacer(Modifier.height(8.dp))
+                    selectedNode != null -> {
+                        item {
+                            PropertyRow("Type", selectedNode.type)
+                            PropertyRow("Offset", "0x${selectedNode.offset.toString(16).uppercase()}")
+                            PropertyRow("Size", "${selectedNode.size} bytes")
+                            Spacer(Modifier.height(8.dp))
+                        }
+                        items(selectedNode.fields) { field ->
+                            if (field.name == "xmp") {
+                                XmpFieldDisplay(field.value)
+                            } else {
+                                PropertyRow(field.name, field.value)
+                            }
+                        }
+                        selectedNode.grid?.let { grid ->
+                            item { GridDisplay(grid) }
+                        }
+                        selectedNode.table?.let { table ->
+                            item { EmbeddedTableView(tab.file, table) }
+                        }
+                        if (selectedNode.type == "SOS") {
+                            item { SosScanStatistics(tab, selectedNode) }
+                        }
+                        if (selectedNode.warnings.isNotEmpty()) {
+                            item {
+                                Spacer(Modifier.height(8.dp))
+                                Text("Warnings:", style = AppTypography.labelLarge.copy(color = AppColors.NeonRed))
+                                selectedNode.warnings.forEach { warning ->
+                                    Text("- $warning", style = AppTypography.bodyLarge.copy(color = AppColors.NeonRed))
+                                }
+                            }
+                        }
                     }
-                    items(warnings) { entry ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .clickable { tab.selected = entry.node },
-                        ) {
-                            Column {
+                    else -> {
+                        if (warnings.isNotEmpty()) {
+                            item {
                                 Text(
-                                    "${entry.node.type} — 0x${entry.node.offset.toString(16).uppercase()}",
-                                    style = AppTypography.labelLarge.copy(color = AppColors.TextPrimary, fontSize = 12.sp),
+                                    "⚠ ${warnings.size}개의 구조적 이상 징후",
+                                    style = AppTypography.labelLarge.copy(color = AppColors.NeonRed),
                                 )
-                                Text(
-                                    entry.warning,
-                                    style = AppTypography.bodyLarge.copy(color = AppColors.NeonRed, fontSize = 12.sp),
-                                )
+                                Spacer(Modifier.height(8.dp))
+                            }
+                            items(warnings) { entry ->
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .clickable { tab.selected = entry.node },
+                                ) {
+                                    Column {
+                                        Text(
+                                            "${entry.node.type} — 0x${entry.node.offset.toString(16).uppercase()}",
+                                            style = AppTypography.labelLarge.copy(color = AppColors.TextPrimary, fontSize = 12.sp),
+                                        )
+                                        Text(
+                                            entry.warning,
+                                            style = AppTypography.bodyLarge.copy(color = AppColors.NeonRed, fontSize = 12.sp),
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            item {
+                                Text("✓ 구조적 이상 없음", style = AppTypography.bodyLarge.copy(color = AppColors.NeonGreen))
                             }
                         }
                     }
                 }
-            } else {
-                Text("✓ 구조적 이상 없음", style = AppTypography.bodyLarge.copy(color = AppColors.NeonGreen))
             }
+            VerticalScrollbar(
+                adapter = rememberScrollbarAdapter(listState),
+                modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
+            )
         }
     }
 }
