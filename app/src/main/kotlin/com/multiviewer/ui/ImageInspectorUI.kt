@@ -55,18 +55,19 @@ fun ImageInspectorUI(
                 // full-width frame filmstrip instead (see
                 // docs/superpowers/specs/2026-08-01-gif-animation-playback-design.md). Any other
                 // case -- non-GIF file, or a GIF whose animation decode hasn't finished/failed --
-                // falls through to the unchanged three-box row below. Now fills the whole center
-                // panel -- the analysis summary that used to split this space with a
-                // DraggableDivider moved to DetailedPropertiesPanel's Overview tab.
+                // falls through to the unchanged three-box row below. Sized to 80% width/height
+                // (was 100%) and centered -- at full size the preview boxes read as too dominant
+                // now that they're not sharing the center panel with anything else.
                 val gifAnimation = tab.gifAnimation
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 if (tab.file.extension.lowercase() == "gif" && gifAnimation != null) {
                     GifFilmstripPlayer(
                         tab = tab,
                         animation = gifAnimation,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxWidth(0.8f).fillMaxHeight(0.8f),
                     )
                 } else {
-                Row(modifier = Modifier.fillMaxSize()) {
+                Row(modifier = Modifier.fillMaxWidth(0.8f).fillMaxHeight(0.8f)) {
                     // Left Panel: Embedded EXIF Thumbnail
                     Box(
                         modifier = Modifier
@@ -157,6 +158,7 @@ fun ImageInspectorUI(
                             )
                         }
                     }
+                }
                 }
                 }
             }

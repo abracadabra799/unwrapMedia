@@ -132,11 +132,9 @@ private fun runGuiApplication() = application {
 
     val windowState = rememberWindowState(
         position = WindowPosition(Alignment.Center),
-        // 800 -> 560 -> 392 (two successive -30% cuts): the center preview panel no longer
-        // shares its height with the analysis summary (moved to DetailedPropertiesPanel's
-        // Overview tab), so the default window doesn't need to be as tall -- still freely
-        // resizable larger when needed.
-        size = DpSize(1280.dp, 392.dp),
+        // 1366x768 is still a common laptop resolution (notably on Windows) -- 1280x800 leaves
+        // room for the taskbar/title bar instead of the window opening larger than the screen.
+        size = DpSize(1280.dp, 800.dp),
     )
     Window(onCloseRequest = ::exitApplication, title = "unwrapMedia", state = windowState) {
         var themeMode by remember { mutableStateOf(loadThemeMode()) }
