@@ -234,7 +234,7 @@ fun RawPixelInspectorUI(
             }
         },
         rightPanel = {
-            DetailedPropertiesPanel(tab)
+            DetailedPropertiesPanel(appState, tab)
         },
         bottomPanel = bottomPanel,
     )

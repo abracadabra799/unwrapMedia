@@ -9,7 +9,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollbarAdapter
-import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedButton
@@ -20,13 +19,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.asSkiaBitmap
 import com.multiviewer.parser.BoxNode
 import com.multiviewer.parser.EmbeddedVideo
 import com.multiviewer.parser.extractEmbeddedVideo
+import com.multiviewer.parser.MediaCategory
 import com.multiviewer.parser.ScanStatistics
 import com.multiviewer.parser.computeScanStatistics
 import com.multiviewer.parser.WarningEntry
@@ -43,40 +42,31 @@ fun ImageInspectorUI(
     bottomPanel: @Composable ColumnScope.() -> Unit
 ) {
     val forensic = tab.imageForensic ?: return
-    val summary = tab.mediaSummary
-    var containerHeightPx by remember { mutableStateOf(0) }
-    var verticalSplit by remember { mutableStateOf(0.7f) }
-    
+
     DashboardLayout(
         leftPanel = leftPanel,
         rightPanelDefaultWidthDp = 280f,
         centerPanel = {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .onGloballyPositioned { containerHeightPx = it.size.height }
-            ) {
+            Column(modifier = Modifier.fillMaxSize()) {
                 tab.largeResolutionWarning?.let { warning ->
                     ResolutionWarningBanner(warning, onDismiss = { tab.largeResolutionWarning = null })
                 }
-                // Top: Dual Preview (50/50 Split) -- or, for an animated GIF whose frames decoded
-                // successfully, a full-width frame filmstrip instead (see
-                // docs/superpowers/specs/2026-08-01-gif-animation-playback-design.md. Any other
+                // Dual Preview -- or, for an animated GIF whose frames decoded successfully, a
+                // full-width frame filmstrip instead (see
+                // docs/superpowers/specs/2026-08-01-gif-animation-playback-design.md). Any other
                 // case -- non-GIF file, or a GIF whose animation decode hasn't finished/failed --
-                // falls through to the unchanged three-box row below.
+                // falls through to the unchanged three-box row below. Now fills the whole center
+                // panel -- the analysis summary that used to split this space with a
+                // DraggableDivider moved to DetailedPropertiesPanel's Overview tab.
                 val gifAnimation = tab.gifAnimation
                 if (tab.file.extension.lowercase() == "gif" && gifAnimation != null) {
                     GifFilmstripPlayer(
                         tab = tab,
                         animation = gifAnimation,
-                        modifier = Modifier.weight(verticalSplit).fillMaxWidth(),
+                        modifier = Modifier.fillMaxSize(),
                     )
                 } else {
-                Row(
-                    modifier = Modifier
-                        .weight(verticalSplit)
-                        .fillMaxWidth()
-                ) {
+                Row(modifier = Modifier.fillMaxSize()) {
                     // Left Panel: Embedded EXIF Thumbnail
                     Box(
                         modifier = Modifier
@@ -169,68 +159,10 @@ fun ImageInspectorUI(
                     }
                 }
                 }
-
-                // Resizable Divider
-                DraggableDivider(
-                    orientation = Orientation.Horizontal,
-                    containerSizePx = containerHeightPx,
-                    getSplit = { verticalSplit },
-                    setSplit = { verticalSplit = it }
-                )
-                
-                // Bottom: Scrollable Analysis Dashboard
-                val summaryScrollState = rememberLazyListState()
-                Box(
-                    modifier = Modifier
-                        .weight(1f - verticalSplit)
-                        .fillMaxWidth()
-                ) {
-                LazyColumn(
-                    state = summaryScrollState,
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    item {
-                        if (summary != null) {
-                            SummaryBox("📷 이미지 분석 요약", summary.sections)
-                        }
-                    }
-                    item {
-                        val videoSections = summary?.motionPhotoVideoSections
-                        if (videoSections != null) {
-                            Spacer(Modifier.height(16.dp))
-                            SummaryBox(
-                                "🎬 동영상(모션포토) 분석 요약", videoSections,
-                                titleTrailingContent = {
-                                    if (tab.isAnalyzingMotionPhotoCodec) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(12.dp),
-                                                color = AppColors.NeonBlue,
-                                                strokeWidth = 1.5.dp,
-                                            )
-                                            Spacer(Modifier.width(6.dp))
-                                            Text("코덱 분석 중...", color = AppColors.TextSecondary, fontSize = 12.sp)
-                                        }
-                                    } else if (!tab.motionPhotoCodecDetailsLoaded) {
-                                        OutlinedButton(onClick = { appState.analyzeMotionPhotoCodecDetails(tab) }) {
-                                            Text("코덱 상세정보 보기 ▶", fontSize = 12.sp)
-                                        }
-                                    }
-                                },
-                            )
-                        }
-                    }
-                    item { Spacer(Modifier.height(32.dp)) }
-                }
-                VerticalScrollbar(
-                    adapter = rememberScrollbarAdapter(summaryScrollState),
-                    modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
-                )
-                }
             }
         },
         rightPanel = {
-            DetailedPropertiesPanel(tab)
+            DetailedPropertiesPanel(appState, tab)
         },
         bottomPanel = bottomPanel
     )
@@ -278,7 +210,7 @@ private enum class DetailPanelTab { OVERVIEW, DETAIL }
 // Detail the first time the user actually selects something in the tree, so they don't have to
 // manually click over after clicking a node/marker.
 @Composable
-fun DetailedPropertiesPanel(tab: TabState) {
+fun DetailedPropertiesPanel(appState: AppState, tab: TabState) {
     var activeTab by remember(tab) { mutableStateOf(DetailPanelTab.OVERVIEW) }
     LaunchedEffect(tab.selected, tab.selectedFrame) {
         if (tab.selected != null || tab.selectedFrame != null) {
@@ -305,9 +237,60 @@ fun DetailedPropertiesPanel(tab: TabState) {
         }
 
         when (activeTab) {
-            DetailPanelTab.OVERVIEW -> MediaSummaryView(tab.mediaSummary)
+            DetailPanelTab.OVERVIEW -> OverviewTabContent(appState, tab)
             DetailPanelTab.DETAIL -> DetailPropertiesTabContent(tab)
         }
+    }
+}
+
+// No thumbnail here -- the embedded EXIF thumbnail is already shown prominently in its own
+// "EMBEDDED EXIF THUMBNAIL" preview panel above (see ImageInspectorUI's centerPanel), so
+// repeating it here would just be the same bytes shown twice. The motion-photo codec-detail
+// button (previously only reachable from the now-removed center-panel summary) lives here now.
+@Composable
+private fun OverviewTabContent(appState: AppState, tab: TabState) {
+    val summary = tab.mediaSummary ?: return
+    val title = when (summary.category) {
+        MediaCategory.IMAGE -> "📷 이미지 분석 요약"
+        MediaCategory.VIDEO -> "🎬 동영상 분석 요약"
+        MediaCategory.AUDIO -> "🎵 오디오 분석 요약"
+    }
+    val listState = rememberLazyListState()
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+            item { SummaryBox(title, summary.sections) }
+            val videoSections = summary.motionPhotoVideoSections
+            if (videoSections != null) {
+                item {
+                    Spacer(Modifier.height(16.dp))
+                    SummaryBox(
+                        "🎬 동영상(모션포토) 분석 요약", videoSections,
+                        titleTrailingContent = {
+                            if (tab.isAnalyzingMotionPhotoCodec) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(12.dp),
+                                        color = AppColors.NeonBlue,
+                                        strokeWidth = 1.5.dp,
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("코덱 분석 중...", color = AppColors.TextSecondary, fontSize = 12.sp)
+                                }
+                            } else if (!tab.motionPhotoCodecDetailsLoaded) {
+                                OutlinedButton(onClick = { appState.analyzeMotionPhotoCodecDetails(tab) }) {
+                                    Text("코덱 상세정보 보기 ▶", fontSize = 12.sp)
+                                }
+                            }
+                        },
+                    )
+                }
+            }
+            item { Spacer(Modifier.height(32.dp)) }
+        }
+        VerticalScrollbar(
+            adapter = rememberScrollbarAdapter(listState),
+            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
+        )
     }
 }
 
