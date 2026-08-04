@@ -30,20 +30,14 @@ fun VideoInspectorUI(
 
     DashboardLayout(
         leftPanel = leftPanel,
-        rightPanelDefaultWidthDp = 358f, // 298 -> 358 (+20%)
         centerPanel = {
             Column(modifier = Modifier.fillMaxSize()) {
                 tab.largeResolutionWarning?.let { warning ->
                     ResolutionWarningBanner(warning, onDismiss = { tab.largeResolutionWarning = null })
                 }
-                // Sized to 80% width/height (was 100%) and centered -- at full size the
-                // player/GOP row read as too dominant now that it's not sharing the center panel
-                // with anything else.
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Row(
                     modifier = Modifier
-                        .fillMaxWidth(0.8f)
-                        .fillMaxHeight(0.8f)
+                        .fillMaxSize()
                         .onGloballyPositioned { topContainerWidthPx = it.size.width }
                 ) {
                     // Left: Live Player (full height of the top region)
@@ -81,7 +75,6 @@ fun VideoInspectorUI(
                         onAnalyze = { appState.analyzeFrames(tab) },
                         modifier = Modifier.weight(1f - videoGopSplit).fillMaxHeight(),
                     )
-                }
                 }
             }
         },
