@@ -28,7 +28,9 @@ private const val LEFT_PANEL_MAX_WIDTH_DP = 700f
 // can always drag it wider (or resize the whole window) when they need more room, so the default
 // favors leaving more space to the center preview instead.
 private const val RIGHT_PANEL_MIN_WIDTH_DP = 220f
-private const val RIGHT_PANEL_DEFAULT_WIDTH_DP = 350f
+// 350 -> 420 (+20%): the right panel now carries the Overview tab's full-width summary cards
+// (see CoreMetadataDisplay), which reads more comfortably with a bit more room.
+private const val RIGHT_PANEL_DEFAULT_WIDTH_DP = 420f
 private const val RIGHT_PANEL_MAX_WIDTH_DP = 1000f
 
 // Thin draggable strip between two side-by-side panels. onDragDeltaDp receives the horizontal

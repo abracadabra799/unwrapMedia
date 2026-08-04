@@ -30,7 +30,7 @@ fun VideoInspectorUI(
 
     DashboardLayout(
         leftPanel = leftPanel,
-        rightPanelDefaultWidthDp = 298f,
+        rightPanelDefaultWidthDp = 358f, // 298 -> 358 (+20%)
         centerPanel = {
             Column(modifier = Modifier.fillMaxSize()) {
                 tab.largeResolutionWarning?.let { warning ->
