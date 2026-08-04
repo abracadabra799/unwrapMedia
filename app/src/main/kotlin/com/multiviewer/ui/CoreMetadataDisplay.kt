@@ -16,19 +16,23 @@ fun CoreMetadataDisplay(summary: MediaSummary, modifier: Modifier = Modifier) {
     CoreMetadataDisplay(sections = summary.sections, modifier = modifier)
 }
 
+// Stacked vertically (was a horizontal Row with each card at weight(1f)) -- that layout assumed
+// the wide center panel it used to share with the preview; now that this is the only remaining
+// caller (the right-side DetailedPropertiesPanel's Overview tab, always narrow), a Row squeezed
+// every card down to a sliver, wrapping every field's label/value onto separate misaligned lines.
+// Also no longer filters by section title -- the old whitelist ("General"/"Video"/"Audio"/
+// "Image"/"Camera Info") silently dropped sections like "GPS Location" and "Samsung Metadata"
+// that MediaSummaryBuilder deliberately produces; an at-a-glance overview should show all of them.
 @Composable
 fun CoreMetadataDisplay(sections: List<SummarySection>, modifier: Modifier = Modifier) {
-    Row(
+    Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         sections.forEach { section ->
-            // Filter sections to show only General, Video, Audio or Image specific core ones
-            if (section.title in listOf("General", "Video", "Audio", "Image", "Camera Info")) {
-                MetadataCard(section, modifier = Modifier.weight(1f))
-            }
+            MetadataCard(section, modifier = Modifier.fillMaxWidth())
         }
     }
 }
