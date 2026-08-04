@@ -15,7 +15,7 @@ fun buildMediaSummary(root: BoxNode, file: File): MediaSummary {
     val sections = when (category) {
         MediaCategory.IMAGE -> buildImageSummary(root, file)
         MediaCategory.VIDEO -> if (isWebm(root)) buildWebmVideoSummary(root, file.length()) else buildVideoSummary(root, file.length())
-        MediaCategory.AUDIO -> buildStandaloneAudioSummary(root, file.length())
+        MediaCategory.AUDIO -> if (root.children.any { it.type == "moov" }) buildVideoSummary(root, file.length()) else buildStandaloneAudioSummary(root, file.length())
     }
     val motionPhotoVideoSections = if (category == MediaCategory.IMAGE) {
         buildMotionPhotoVideoSummary(root, file)
@@ -70,11 +70,14 @@ private fun detectCategory(root: BoxNode): MediaCategory {
     if (root.children.any { it.type == "COMM" }) return MediaCategory.AUDIO
 
     val moov = root.children.find { it.type == "moov" } ?: return MediaCategory.IMAGE
-    val hasVideoOrAudioTrack = moov.children.filter { it.type == "trak" }.any { trak ->
-        val handlerType = findFirst(trak) { it.type == "hdlr" }?.fields?.find { it.name == "handler_type" }?.value
-        handlerType == "vide" || handlerType == "soun"
+    val trakHandlerTypes = moov.children.filter { it.type == "trak" }.mapNotNull { trak ->
+        findFirst(trak) { it.type == "hdlr" }?.fields?.find { it.name == "handler_type" }?.value
     }
-    return if (hasVideoOrAudioTrack) MediaCategory.VIDEO else MediaCategory.IMAGE
+    return when {
+        trakHandlerTypes.contains("vide") -> MediaCategory.VIDEO
+        trakHandlerTypes.contains("soun") -> MediaCategory.AUDIO
+        else -> MediaCategory.IMAGE
+    }
 }
 
 private fun isWebm(root: BoxNode): Boolean = root.children.any { it.type == "EBML" }

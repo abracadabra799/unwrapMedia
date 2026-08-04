@@ -36,6 +36,16 @@ class MediaSummaryBuilderTest {
     }
 
     @Test
+    fun `an ISOBMFF root with a moov track whose handler is audio-only (M4A-shaped) is classified as AUDIO`() {
+        val hdlr = BoxNode(type = "hdlr", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("handler_type", "soun", 0, 4)))
+        val mdia = BoxNode(type = "mdia", offset = 0, headerSize = 0, size = 0, children = listOf(hdlr))
+        val trak = BoxNode(type = "trak", offset = 0, headerSize = 0, size = 0, children = listOf(mdia))
+        val moov = BoxNode(type = "moov", offset = 0, headerSize = 0, size = 0, children = listOf(trak))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(moov))
+        assertEquals(MediaCategory.AUDIO, buildMediaSummary(root, tempFile()).category)
+    }
+
+    @Test
     fun `an ISOBMFF root with no moov (HEIC-shaped) is classified as IMAGE`() {
         val meta = BoxNode(type = "meta", offset = 0, headerSize = 0, size = 0)
         val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(meta))
@@ -240,6 +250,40 @@ class MediaSummaryBuilderTest {
         assertEquals(null, summary.sections.find { it.title == "Audio" })
         val trackList = summary.sections.first { it.title == "Track List" }
         assertEquals("0", trackList.fields.first { it.label == "Audio Tracks" }.value)
+    }
+
+    @Test
+    fun `an audio-only MP4-family tree (M4A-shaped) is classified as AUDIO and produces General, Track List, and Audio sections with no Video section`() {
+        val audioHdlr = BoxNode(type = "hdlr", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("handler_type", "soun", 0, 4)))
+        val mp4a = BoxNode(type = "mp4a", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("channelcount", "2", 0, 2), BoxField("samplerate", "44100.0", 0, 4)))
+        val audioStsd = BoxNode(type = "stsd", offset = 0, headerSize = 0, size = 0, children = listOf(mp4a))
+        val audioStbl = BoxNode(type = "stbl", offset = 0, headerSize = 0, size = 0, children = listOf(audioStsd))
+        val audioMinf = BoxNode(type = "minf", offset = 0, headerSize = 0, size = 0, children = listOf(audioStbl))
+        val audioMdia = BoxNode(type = "mdia", offset = 0, headerSize = 0, size = 0, children = listOf(audioHdlr, audioMinf))
+        val audioTkhd = BoxNode(type = "tkhd", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("track_ID", "1", 0, 4)))
+        val audioTrak = BoxNode(type = "trak", offset = 0, headerSize = 0, size = 0, children = listOf(audioTkhd, audioMdia))
+        val mvhd = BoxNode(type = "mvhd", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("timescale", "1000", 0, 4), BoxField("duration", "20000", 0, 4)))
+        val moov = BoxNode(type = "moov", offset = 0, headerSize = 0, size = 0, children = listOf(mvhd, audioTrak))
+        val ftyp = BoxNode(type = "ftyp", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("major_brand", "M4A ", 0, 4)))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ftyp, moov))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        assertEquals(MediaCategory.AUDIO, summary.category)
+        assertEquals(null, summary.sections.find { it.title == "Video" })
+
+        val general = summary.sections.first { it.title == "General" }
+        assertEquals("0:00:20.000", general.fields.first { it.label == "Duration" }.value)
+        assertEquals("M4A ", general.fields.first { it.label == "Format" }.value)
+
+        val trackList = summary.sections.first { it.title == "Track List" }
+        assertEquals("0", trackList.fields.first { it.label == "Video Tracks" }.value)
+        assertEquals("1", trackList.fields.first { it.label == "Audio Tracks" }.value)
+
+        val audioDetail = summary.sections.first { it.title == "Audio" }
+        assertEquals("AAC", audioDetail.fields.first { it.label == "Format" }.value)
+        assertEquals("44100.0 Hz", audioDetail.fields.first { it.label == "Sampling Rate" }.value)
+        assertEquals("2", audioDetail.fields.first { it.label == "Channel(s)" }.value)
     }
 
     @Test
