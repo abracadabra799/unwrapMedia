@@ -346,10 +346,22 @@ private fun runGuiApplication() = application {
 
                         val currentTab = appState.tabs[appState.selectedTabIndex]
                         val hexListState = remember(currentTab) { androidx.compose.foundation.lazy.LazyListState() }
+                        // A field selected on a PREVIOUSLY-selected node is stale once the tree
+                        // selection moves on -- membership-checking against the current node's own
+                        // field list here means Main.kt never has to hunt down and reset
+                        // selectedField at every place currentTab.selected gets reassigned.
+                        val activeField = currentTab.selected?.fields?.let { fields ->
+                            currentTab.selectedField?.takeIf { it in fields }
+                        }
 
-                        LaunchedEffect(currentTab.selected) {
-                            currentTab.selected?.let {
-                                hexListState.scrollToItem((it.offset / BYTES_PER_ROW).toInt())
+                        LaunchedEffect(currentTab.selected, currentTab.selectedField) {
+                            val field = activeField
+                            if (field != null) {
+                                hexListState.scrollToItem((field.offset / BYTES_PER_ROW).toInt())
+                            } else {
+                                currentTab.selected?.let {
+                                    hexListState.scrollToItem((it.offset / BYTES_PER_ROW).toInt())
+                                }
                             }
                         }
 
@@ -371,7 +383,8 @@ private fun runGuiApplication() = application {
                             PanelHeader("Hex & Raw Data Viewer", color = AppColors.NeonGreen)
                             HexView(
                                 file = currentTab.file,
-                                highlightRange = currentTab.selected?.let { it.offset until (it.offset + it.size) },
+                                highlightRange = activeField?.let { it.offset until (it.offset + it.length) }
+                                    ?: currentTab.selected?.let { it.offset until (it.offset + it.size) },
                                 listState = hexListState,
                             )
                         }

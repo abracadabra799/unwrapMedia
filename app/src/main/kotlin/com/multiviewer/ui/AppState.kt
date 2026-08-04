@@ -125,6 +125,11 @@ class TabState(val file: File) {
     var gifIsPlaying: Boolean by mutableStateOf(false)
     var error: String? by mutableStateOf(null)
     var selected: BoxNode? by mutableStateOf(null)
+    // Drives field-level hex highlighting (Main.kt) -- deliberately NOT reset every time
+    // `selected` changes; instead Main.kt checks membership (`selectedField in selected.fields`)
+    // before using it, so a stale value from a previously-selected node is simply ignored rather
+    // than needing to be cleared at every one of `selected`'s several assignment sites.
+    var selectedField: BoxField? by mutableStateOf(null)
     var verticalSplit: Float by mutableStateOf(0.5f)
     var horizontalSplit: Float by mutableStateOf(1f / 1.3f)
     var summaryTabIndex: Int by mutableStateOf(0)
