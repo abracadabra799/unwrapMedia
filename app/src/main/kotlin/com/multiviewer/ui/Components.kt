@@ -16,6 +16,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -27,6 +29,7 @@ import com.multiviewer.parser.GridData
 import com.multiviewer.parser.SummarySection
 import com.multiviewer.parser.TableData
 import com.multiviewer.parser.readTableRow
+import java.awt.Cursor
 import java.io.File
 
 private const val TABLE_PAGE_SIZE = 50
@@ -230,27 +233,36 @@ fun DraggableDivider(
     } else {
         Modifier.fillMaxWidth().height(8.dp)
     }
+    // 2dp lines (was 1dp) -- beta testers reported not realizing panels were resizable at all; a
+    // hairline was too easy to miss even with good highlight/shadow contrast.
     val lineModifier = if (orientation == Orientation.Vertical) {
-        Modifier.width(1.dp).fillMaxHeight()
+        Modifier.width(2.dp).fillMaxHeight()
     } else {
-        Modifier.fillMaxWidth().height(1.dp)
+        Modifier.fillMaxWidth().height(2.dp)
     }
     // Highlight on the side facing the notional light source (left for a vertical strip, top for
     // a horizontal one), shadow on the other -- a raised-ridge look instead of one flat line,
     // same treatment as DashboardLayout's VerticalResizeHandle.
     val highlightAlignment = if (orientation == Orientation.Vertical) Alignment.CenterStart else Alignment.TopCenter
     val shadowAlignment = if (orientation == Orientation.Vertical) Alignment.CenterEnd else Alignment.BottomCenter
+    // Resize cursor on hover is the standard cross-platform signal for "this is draggable" --
+    // E_RESIZE/N_RESIZE render as the familiar double-headed resize arrow on desktop OSes.
+    val resizeCursor = remember(orientation) {
+        PointerIcon(Cursor.getPredefinedCursor(if (orientation == Orientation.Vertical) Cursor.E_RESIZE_CURSOR else Cursor.N_RESIZE_CURSOR))
+    }
     Box(
-        modifier = handleModifier.pointerInput(orientation, containerSizePx) {
-            detectDragGestures { change, dragAmount ->
-                change.consume()
-                if (containerSizePx > 0) {
-                    val deltaPx = if (orientation == Orientation.Vertical) dragAmount.x else dragAmount.y
-                    val delta = deltaPx / containerSizePx
-                    setSplit((getSplit() + delta).coerceIn(0.1f, 0.9f))
+        modifier = handleModifier
+            .pointerHoverIcon(resizeCursor)
+            .pointerInput(orientation, containerSizePx) {
+                detectDragGestures { change, dragAmount ->
+                    change.consume()
+                    if (containerSizePx > 0) {
+                        val deltaPx = if (orientation == Orientation.Vertical) dragAmount.x else dragAmount.y
+                        val delta = deltaPx / containerSizePx
+                        setSplit((getSplit() + delta).coerceIn(0.1f, 0.9f))
+                    }
                 }
-            }
-        },
+            },
     ) {
         Box(modifier = lineModifier.align(highlightAlignment).background(AppColors.DividerHighlight))
         Box(modifier = lineModifier.align(shadowAlignment).background(AppColors.DividerShadow))

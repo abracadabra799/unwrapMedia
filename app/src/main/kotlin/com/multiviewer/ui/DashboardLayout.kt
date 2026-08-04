@@ -13,10 +13,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import java.awt.Cursor
 
 private const val LEFT_PANEL_MIN_WIDTH_DP = 180f
 private const val LEFT_PANEL_MAX_WIDTH_DP = 700f
@@ -35,10 +38,14 @@ private const val RIGHT_PANEL_MAX_WIDTH_DP = 1000f
 @Composable
 private fun VerticalResizeHandle(onDragDeltaDp: (Float) -> Unit) {
     val density = LocalDensity.current
+    // Resize cursor on hover is the standard cross-platform signal for "this is draggable" --
+    // beta testers reported not realizing the side panels could be resized at all.
+    val resizeCursor = remember { PointerIcon(Cursor.getPredefinedCursor(Cursor.E_RESIZE_CURSOR)) }
     Box(
         modifier = Modifier
             .width(6.dp)
             .fillMaxHeight()
+            .pointerHoverIcon(resizeCursor)
             .pointerInput(Unit) {
                 detectDragGestures { change, dragAmount ->
                     change.consume()
@@ -46,8 +53,9 @@ private fun VerticalResizeHandle(onDragDeltaDp: (Float) -> Unit) {
                 }
             },
     ) {
-        Box(modifier = Modifier.align(Alignment.CenterStart).width(1.dp).fillMaxHeight().background(AppColors.DividerHighlight))
-        Box(modifier = Modifier.align(Alignment.CenterEnd).width(1.dp).fillMaxHeight().background(AppColors.DividerShadow))
+        // 2dp lines (was 1dp) for better visibility.
+        Box(modifier = Modifier.align(Alignment.CenterStart).width(2.dp).fillMaxHeight().background(AppColors.DividerHighlight))
+        Box(modifier = Modifier.align(Alignment.CenterEnd).width(2.dp).fillMaxHeight().background(AppColors.DividerShadow))
     }
 }
 
