@@ -45,7 +45,7 @@ fun ImageInspectorUI(
 
     DashboardLayout(
         leftPanel = leftPanel,
-        rightPanelDefaultWidthDp = 280f,
+        rightPanelDefaultWidthDp = 336f, // 280 -> 336 (+20%)
         centerPanel = {
             Column(modifier = Modifier.fillMaxSize()) {
                 tab.largeResolutionWarning?.let { warning ->
