@@ -27,8 +27,11 @@ class StreamCodecDetailsTest {
         assertEquals("8 bit", videoFields["Bit Depth"])
         assertEquals("Constant", videoFields["Frame Rate Mode"])
         assertTrue(videoFields["Bit Rate"]?.contains("Kbps") == true, "Expected a Kbps bit rate, got ${videoFields["Bit Rate"]}")
-        assertEquals("0:00:02.000", videoFields["Duration"])
         assertEquals("20", videoFields["Frame Count"])
+        // Duration is deliberately omitted here -- MediaSummaryBuilder's General section already
+        // shows the container-level duration (from moov/mvhd), so a near-identical per-stream
+        // duration next to it in the Video/Audio section read as the same info shown twice.
+        assertNull(videoFields["Duration"])
         assertTrue(details.audioFields.isEmpty(), "This synthetic video has no audio stream")
         video.delete()
     }
