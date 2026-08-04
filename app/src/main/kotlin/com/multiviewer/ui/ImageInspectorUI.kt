@@ -11,7 +11,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -244,8 +243,10 @@ fun DetailedPropertiesPanel(appState: AppState, tab: TabState) {
 
 // No thumbnail here -- the embedded EXIF thumbnail is already shown prominently in its own
 // "EMBEDDED EXIF THUMBNAIL" preview panel above (see ImageInspectorUI's centerPanel), so
-// repeating it here would just be the same bytes shown twice. The motion-photo codec-detail
-// button (previously only reachable from the now-removed center-panel summary) lives here now.
+// repeating it here would just be the same bytes shown twice. Motion-photo codec details load
+// automatically (no button) -- analyzeMotionPhotoCodecDetails already guards against redundant
+// calls once loaded/in-flight, so this LaunchedEffect is safe to re-key on every recomposition
+// where a motion-photo video section is present.
 @Composable
 private fun OverviewTabContent(appState: AppState, tab: TabState) {
     val summary = tab.mediaSummary ?: return
@@ -254,11 +255,14 @@ private fun OverviewTabContent(appState: AppState, tab: TabState) {
         MediaCategory.VIDEO -> "🎬 동영상 분석 요약"
         MediaCategory.AUDIO -> "🎵 오디오 분석 요약"
     }
+    val videoSections = summary.motionPhotoVideoSections
+    if (videoSections != null) {
+        LaunchedEffect(tab) { appState.analyzeMotionPhotoCodecDetails(tab) }
+    }
     val listState = rememberLazyListState()
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             item { SummaryBox(title, summary.sections) }
-            val videoSections = summary.motionPhotoVideoSections
             if (videoSections != null) {
                 item {
                     Spacer(Modifier.height(16.dp))
@@ -274,10 +278,6 @@ private fun OverviewTabContent(appState: AppState, tab: TabState) {
                                     )
                                     Spacer(Modifier.width(6.dp))
                                     Text("코덱 분석 중...", color = AppColors.TextSecondary, fontSize = 12.sp)
-                                }
-                            } else if (!tab.motionPhotoCodecDetailsLoaded) {
-                                OutlinedButton(onClick = { appState.analyzeMotionPhotoCodecDetails(tab) }) {
-                                    Text("코덱 상세정보 보기 ▶", fontSize = 12.sp)
                                 }
                             }
                         },
