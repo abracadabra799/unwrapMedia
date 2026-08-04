@@ -314,7 +314,14 @@ fun DetailedPropertiesPanel(tab: TabState) {
                             if (field.name == "xmp") {
                                 XmpFieldDisplay(field.value)
                             } else {
-                                PropertyRow(field.name, field.value)
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(if (tab.selectedField == field) AppColors.Selection else Color.Transparent)
+                                        .clickable { tab.selectedField = field },
+                                ) {
+                                    PropertyRow(field.name, field.value)
+                                }
                             }
                         }
                         selectedNode.grid?.let { grid ->
