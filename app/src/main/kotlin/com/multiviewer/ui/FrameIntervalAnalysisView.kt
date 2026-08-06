@@ -300,13 +300,47 @@ fun FrameIntervalAnalysisWindow(appState: AppState, tab: TabState, onCloseReques
         videoInfo = withContext(Dispatchers.IO) { probeVideo(tab.file) }
     }
 
-    Window(onCloseRequest = onCloseRequest, title = "프레임 간격 분석 - ${tab.file.name}") {
-        val frames = tab.gopFrames
+    FrameIntervalAnalysisWindowContent(
+        title = "프레임 간격 분석 - ${tab.file.name}",
+        frames = tab.gopFrames,
+        isAnalyzing = tab.isAnalyzingFrames,
+        fps = videoInfo?.fps,
+        onCloseRequest = onCloseRequest,
+    )
+}
+
+// Same shape as FrameIntervalAnalysisWindow above, but analyzes the Motion Photo's *embedded*
+// video (tab.embeddedVideo, extracted to a temp file by analyzeMotionPhotoFrames) -- never the
+// live preview player and never tab.file itself, which is the photo, not a video.
+@Composable
+fun MotionPhotoFrameIntervalAnalysisWindow(appState: AppState, tab: TabState, onCloseRequest: () -> Unit) {
+    LaunchedEffect(tab) {
+        appState.analyzeMotionPhotoFrames(tab)
+    }
+
+    FrameIntervalAnalysisWindowContent(
+        title = "모션포토 동영상 프레임 간격 분석 - ${tab.file.name}",
+        frames = tab.motionPhotoGopFrames,
+        isAnalyzing = tab.isAnalyzingMotionPhotoFrames,
+        fps = tab.motionPhotoVideoFps,
+        onCloseRequest = onCloseRequest,
+    )
+}
+
+@Composable
+private fun FrameIntervalAnalysisWindowContent(
+    title: String,
+    frames: List<FrameInfo>?,
+    isAnalyzing: Boolean,
+    fps: Double?,
+    onCloseRequest: () -> Unit,
+) {
+    Window(onCloseRequest = onCloseRequest, title = title) {
         val intervals = remember(frames) { frames?.let { computeFrameIntervals(it) } ?: emptyList() }
 
         Box(modifier = Modifier.fillMaxSize().background(AppColors.Background)) {
             when {
-                tab.isAnalyzingFrames || frames == null -> {
+                isAnalyzing || frames == null -> {
                     DecodingIndicator("프레임 분석 중...", modifier = Modifier.align(Alignment.Center))
                 }
                 intervals.isEmpty() -> {
@@ -317,7 +351,7 @@ fun FrameIntervalAnalysisWindow(appState: AppState, tab: TabState, onCloseReques
                     )
                 }
                 else -> {
-                    FrameIntervalAnalysisView(intervals = intervals, fps = videoInfo?.fps, modifier = Modifier.fillMaxSize())
+                    FrameIntervalAnalysisView(intervals = intervals, fps = fps, modifier = Modifier.fillMaxSize())
                 }
             }
         }
