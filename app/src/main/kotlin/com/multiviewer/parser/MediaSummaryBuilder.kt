@@ -783,6 +783,12 @@ private fun buildVideoDetail(videoTrak: BoxNode?): SummarySection? {
         fields.add(SummaryField("Frame Rate", "%.2f fps".format(fps)))
     }
 
+    val handlerName = findFirst(videoTrak) { it.type == "hdlr" }?.fields?.find { it.name == "name" }?.value
+    if (!handlerName.isNullOrBlank()) fields.add(SummaryField("Handler Name", handlerName))
+    mdhd?.fields?.find { it.name == "language" }?.value?.takeIf { it != "und" }?.let {
+        fields.add(SummaryField("Language", it))
+    }
+
     return if (fields.isNotEmpty()) SummarySection("Video", fields) else null
 }
 
@@ -794,6 +800,13 @@ private fun buildAudioDetail(audioTrak: BoxNode?): SummarySection? {
     audioEntry?.type?.let { fields.add(SummaryField("Format", CODEC_DISPLAY_NAMES[it] ?: it)) }
     audioEntry?.fields?.find { it.name == "samplerate" }?.let { fields.add(SummaryField("Sampling Rate", "${it.value} Hz")) }
     audioEntry?.fields?.find { it.name == "channelcount" }?.let { fields.add(SummaryField("Channel(s)", it.value)) }
+
+    val handlerName = findFirst(audioTrak) { it.type == "hdlr" }?.fields?.find { it.name == "name" }?.value
+    if (!handlerName.isNullOrBlank()) fields.add(SummaryField("Handler Name", handlerName))
+    findFirst(audioTrak) { it.type == "mdhd" }?.fields?.find { it.name == "language" }?.value?.takeIf { it != "und" }?.let {
+        fields.add(SummaryField("Language", it))
+    }
+
     return if (fields.isNotEmpty()) SummarySection("Audio", fields) else null
 }
 
