@@ -123,6 +123,7 @@ private fun buildImageSummary(root: BoxNode, file: File): List<SummarySection> {
     buildJpegDetail(root)?.let { sections.add(it) }
     buildPngDetail(root)?.let { sections.add(it) }
     buildBmpDetail(root)?.let { sections.add(it) }
+    buildGifDetail(root)?.let { sections.add(it) }
 
     val ifd0 = findFirst(root) { it.type == "IFD0" }
     if (ifd0 != null) {
@@ -487,6 +488,40 @@ private fun buildBmpDetail(root: BoxNode): SummarySection? {
     }
 
     return if (fields.isNotEmpty()) SummarySection("BMP Detail", fields) else null
+}
+
+private val GIF_DISPOSAL_METHOD_NAMES = mapOf(
+    0 to "Unspecified",
+    1 to "Do Not Dispose",
+    2 to "Restore to Background",
+    3 to "Restore to Previous",
+)
+
+private fun buildGifDetail(root: BoxNode): SummarySection? {
+    val lsd = root.children.find { it.type == "LogicalScreenDescriptor" } ?: return null
+    val fields = mutableListOf<SummaryField>()
+
+    lsd.fields.find { it.name == "color_resolution" }?.value?.toIntOrNull()?.let { fields.add(SummaryField("Color Resolution", "${it + 1}-bit")) }
+
+    val globalColorTableFlag = lsd.fields.find { it.name == "global_color_table_flag" }?.value
+    if (globalColorTableFlag == "1") {
+        lsd.fields.find { it.name == "global_color_table_size" }?.value?.toIntOrNull()?.let { size ->
+            fields.add(SummaryField("Global Color Table", "Yes (${1 shl (size + 1)} colors)"))
+        }
+    }
+
+    val gce = root.children.find { it.type == "GraphicControlExtension" }
+    gce?.fields?.find { it.name == "disposal_method" }?.value?.toIntOrNull()?.let { method ->
+        fields.add(SummaryField("Disposal Method", GIF_DISPOSAL_METHOD_NAMES[method] ?: method.toString()))
+    }
+    gce?.fields?.find { it.name == "delay_time" }?.value?.toIntOrNull()?.let { delay ->
+        fields.add(SummaryField("Frame Delay", "${delay * 10} ms"))
+    }
+
+    val comment = root.children.find { it.type == "CommentExtension" }
+    comment?.fields?.find { it.name == "comment" }?.let { fields.add(SummaryField("Comment", it.value)) }
+
+    return if (fields.isNotEmpty()) SummarySection("GIF Detail", fields) else null
 }
 
 private val WEBM_CODEC_DISPLAY_NAMES = mapOf(
