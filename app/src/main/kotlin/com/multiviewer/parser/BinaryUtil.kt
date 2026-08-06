@@ -23,5 +23,17 @@ internal fun formatMp4Time(secondsSince1904: Long): String {
     }
 }
 
+private const val WEBM_EPOCH_OFFSET_SECONDS = 978307200L // 2001-01-01T00:00:00Z in Unix epoch seconds
+
+internal fun formatWebmDate(nanosSince2001: Long): String {
+    if (nanosSince2001 == 0L) return "0 (not set)"
+    return try {
+        val instant = Instant.ofEpochSecond(WEBM_EPOCH_OFFSET_SECONDS + nanosSince2001 / 1_000_000_000L, nanosSince2001 % 1_000_000_000L)
+        ISO_DATE_FORMATTER.format(instant)
+    } catch (e: Exception) {
+        nanosSince2001.toString()
+    }
+}
+
 internal fun pluralize(count: Long, singular: String, plural: String = "${singular}s"): String =
     "$count " + if (count == 1L) singular else plural
