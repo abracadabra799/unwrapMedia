@@ -701,6 +701,7 @@ private fun buildVideoSummary(root: BoxNode, fileSizeBytes: Long): List<SummaryS
     sections.add(buildVideoGeneral(root, fileSizeBytes, moov, videoTrak, audioTrak))
     sections.add(buildTrackList(traks))
     buildVideoDetail(videoTrak)?.let { sections.add(it) }
+    buildVideoStructureDetail(videoTrak, movieTimescale(moov))?.let { sections.add(it) }
     buildAudioDetail(audioTrak)?.let { sections.add(it) }
 
     return sections
@@ -818,6 +819,68 @@ private fun buildAudioDetail(audioTrak: BoxNode?): SummarySection? {
     }
 
     return if (fields.isNotEmpty()) SummarySection("Audio", fields) else null
+}
+
+private fun movieTimescale(moov: BoxNode?): Long? =
+    moov?.children?.find { it.type == "mvhd" }?.fields?.find { it.name == "timescale" }?.value?.toLongOrNull()
+
+private fun buildVideoStructureDetail(videoTrak: BoxNode?, movieTimescale: Long?): SummarySection? {
+    if (videoTrak == null) return null
+    val fields = mutableListOf<SummaryField>()
+
+    val avcC = findFirst(videoTrak) { it.type == "avcC" }
+    val hvcC = findFirst(videoTrak) { it.type == "hvcC" }
+    when {
+        avcC != null -> {
+            avcC.fields.find { it.name == "length_size" }?.let { fields.add(SummaryField("NAL Length Size", "${it.value} bytes")) }
+            val numSps = avcC.fields.find { it.name == "num_sps" }?.value
+            val numPps = avcC.fields.find { it.name == "num_pps" }?.value
+            if (numSps != null && numPps != null) fields.add(SummaryField("Parameter Sets", "$numSps SPS, $numPps PPS"))
+        }
+        hvcC != null -> {
+            hvcC.fields.find { it.name == "length_size" }?.let { fields.add(SummaryField("NAL Length Size", "${it.value} bytes")) }
+            val numVps = hvcC.fields.find { it.name == "num_vps" }?.value
+            val numSps = hvcC.fields.find { it.name == "num_sps" }?.value
+            val numPps = hvcC.fields.find { it.name == "num_pps" }?.value
+            if (numVps != null && numSps != null && numPps != null) {
+                fields.add(SummaryField("Parameter Sets", "$numVps VPS, $numSps SPS, $numPps PPS"))
+            }
+        }
+    }
+
+    val elst = findFirst(videoTrak) { it.type == "elst" }
+    if (elst != null && elst.fields.isNotEmpty()) {
+        val editCount = elst.fields.count { it.name == "segment_duration" }
+        val firstMediaTime = elst.fields.find { it.name == "media_time" }?.value
+        val firstSegmentDuration = elst.fields.find { it.name == "segment_duration" }?.value?.toDoubleOrNull()
+        val label = if (firstMediaTime == "-1" && firstSegmentDuration != null && movieTimescale != null && movieTimescale > 0) {
+            val offsetSeconds = firstSegmentDuration / movieTimescale
+            "${pluralize(editCount.toLong(), "edit", "edits")} (empty edit, ${formatDuration(offsetSeconds)} offset)"
+        } else {
+            pluralize(editCount.toLong(), "edit", "edits")
+        }
+        fields.add(SummaryField("Edit List", label))
+    }
+
+    val stss = findFirst(videoTrak) { it.type == "stss" }
+    val stsz = findFirst(videoTrak) { it.type == "stsz" }
+    val totalSamples = stsz?.fields?.find { it.name == "sample_count" }?.value?.toLongOrNull() ?: stsz?.table?.entryCount
+    if (totalSamples != null && totalSamples > 0) {
+        if (stss == null) {
+            fields.add(SummaryField("Keyframe Interval", "All frames (no separate sync sample table)"))
+        } else {
+            val keyframeCount = stss.table?.entryCount ?: 0
+            if (keyframeCount > 0) {
+                val avgInterval = totalSamples.toDouble() / keyframeCount
+                fields.add(SummaryField("Keyframe Interval", "$keyframeCount of $totalSamples frames (every ~${"%.0f".format(avgInterval)} frames)"))
+            }
+        }
+    }
+
+    val ctts = findFirst(videoTrak) { it.type == "ctts" }
+    fields.add(SummaryField("B-Frames", if (ctts != null && (ctts.table?.entryCount ?: 0) > 0) "Yes" else "No"))
+
+    return if (fields.isNotEmpty()) SummarySection("Video Detail", fields) else null
 }
 
 private val MP3_TEXT_FRAME_LABELS = setOf("TIT2", "TPE1", "TALB", "TYER", "TDRC", "TCON", "TRCK", "TCOM", "TENC", "TSSE")

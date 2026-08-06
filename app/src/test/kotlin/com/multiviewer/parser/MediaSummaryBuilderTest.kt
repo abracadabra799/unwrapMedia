@@ -218,7 +218,10 @@ class MediaSummaryBuilderTest {
         val summary = buildMediaSummary(root, tmp)
 
         assertEquals(MediaCategory.VIDEO, summary.category)
-        assertEquals(4, summary.sections.size)
+        // 5, not 4: this fixture's video track (stsz sample_count=300, no stss) now also produces
+        // a "Video Detail" section (Keyframe Interval + B-Frames, both unconditional once any
+        // sample count is known).
+        assertEquals(5, summary.sections.size)
 
         val general = summary.sections.first { it.title == "General" }
         assertEquals("0:00:20.000", general.fields.first { it.label == "Duration" }.value)
@@ -251,7 +254,8 @@ class MediaSummaryBuilderTest {
         val root = buildVideoFixture(includeAudioTrack = false)
         val summary = buildMediaSummary(root, tempFile())
 
-        assertEquals(3, summary.sections.size)
+        // 4, not 3: see the comment on the "full video tree" test above -- same cause.
+        assertEquals(4, summary.sections.size)
         assertEquals(null, summary.sections.find { it.title == "Audio" })
         val trackList = summary.sections.first { it.title == "Track List" }
         assertEquals("0", trackList.fields.first { it.label == "Audio Tracks" }.value)
@@ -1884,5 +1888,175 @@ class MediaSummaryBuilderTest {
 
         val videoDetail = summary.sections.first { it.title == "Video" }
         assertEquals(null, videoDetail.fields.find { it.label == "Stereo Mode" })
+    }
+
+    @Test
+    fun `Video Detail reports NAL Length Size and Parameter Sets from avcC`() {
+        val avcC = BoxNode(
+            type = "avcC", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(
+                BoxField("length_size", "4", 0, 1),
+                BoxField("num_sps", "1", 0, 1),
+                BoxField("num_pps", "1", 0, 1),
+            ),
+        )
+        val avc1 = BoxNode(type = "avc1", offset = 0, headerSize = 0, size = 0, children = listOf(avcC))
+        val videoStsd = BoxNode(type = "stsd", offset = 0, headerSize = 0, size = 0, children = listOf(avc1))
+        val videoStsz = BoxNode(type = "stsz", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("sample_count", "300", 0, 4)))
+        val videoStbl = BoxNode(type = "stbl", offset = 0, headerSize = 0, size = 0, children = listOf(videoStsd, videoStsz))
+        val videoMinf = BoxNode(type = "minf", offset = 0, headerSize = 0, size = 0, children = listOf(videoStbl))
+        val videoHdlr = BoxNode(type = "hdlr", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("handler_type", "vide", 0, 4)))
+        val videoMdia = BoxNode(type = "mdia", offset = 0, headerSize = 0, size = 0, children = listOf(videoHdlr, videoMinf))
+        val videoTrak = BoxNode(type = "trak", offset = 0, headerSize = 0, size = 0, children = listOf(videoMdia))
+        val moov = BoxNode(type = "moov", offset = 0, headerSize = 0, size = 0, children = listOf(videoTrak))
+        val ftyp = BoxNode(type = "ftyp", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("major_brand", "isom", 0, 4)))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ftyp, moov))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val videoDetail = summary.sections.first { it.title == "Video Detail" }
+        assertEquals("4 bytes", videoDetail.fields.first { it.label == "NAL Length Size" }.value)
+        assertEquals("1 SPS, 1 PPS", videoDetail.fields.first { it.label == "Parameter Sets" }.value)
+    }
+
+    @Test
+    fun `Video Detail reports NAL Length Size and Parameter Sets from hvcC`() {
+        val hvcC = BoxNode(
+            type = "hvcC", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(
+                BoxField("length_size", "4", 0, 1),
+                BoxField("num_vps", "1", 0, 1),
+                BoxField("num_sps", "1", 0, 1),
+                BoxField("num_pps", "1", 0, 1),
+            ),
+        )
+        val hvc1 = BoxNode(type = "hvc1", offset = 0, headerSize = 0, size = 0, children = listOf(hvcC))
+        val videoStsd = BoxNode(type = "stsd", offset = 0, headerSize = 0, size = 0, children = listOf(hvc1))
+        val videoStbl = BoxNode(type = "stbl", offset = 0, headerSize = 0, size = 0, children = listOf(videoStsd))
+        val videoMinf = BoxNode(type = "minf", offset = 0, headerSize = 0, size = 0, children = listOf(videoStbl))
+        val videoHdlr = BoxNode(type = "hdlr", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("handler_type", "vide", 0, 4)))
+        val videoMdia = BoxNode(type = "mdia", offset = 0, headerSize = 0, size = 0, children = listOf(videoHdlr, videoMinf))
+        val videoTrak = BoxNode(type = "trak", offset = 0, headerSize = 0, size = 0, children = listOf(videoMdia))
+        val moov = BoxNode(type = "moov", offset = 0, headerSize = 0, size = 0, children = listOf(videoTrak))
+        val ftyp = BoxNode(type = "ftyp", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("major_brand", "isom", 0, 4)))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ftyp, moov))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val videoDetail = summary.sections.first { it.title == "Video Detail" }
+        assertEquals("4 bytes", videoDetail.fields.first { it.label == "NAL Length Size" }.value)
+        assertEquals("1 VPS, 1 SPS, 1 PPS", videoDetail.fields.first { it.label == "Parameter Sets" }.value)
+    }
+
+    @Test
+    fun `Video Detail describes an empty edit's offset using the movie timescale`() {
+        val elst = BoxNode(
+            type = "elst", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(
+                BoxField("segment_duration", "1000", 0, 4),
+                BoxField("media_time", "-1", 0, 4),
+                BoxField("media_rate", "1.0", 0, 4),
+            ),
+        )
+        val edts = BoxNode(type = "edts", offset = 0, headerSize = 0, size = 0, children = listOf(elst))
+        val videoHdlr = BoxNode(type = "hdlr", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("handler_type", "vide", 0, 4)))
+        val videoMdia = BoxNode(type = "mdia", offset = 0, headerSize = 0, size = 0, children = listOf(videoHdlr))
+        val videoTrak = BoxNode(type = "trak", offset = 0, headerSize = 0, size = 0, children = listOf(edts, videoMdia))
+        val mvhd = BoxNode(type = "mvhd", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("timescale", "1000", 0, 4)))
+        val moov = BoxNode(type = "moov", offset = 0, headerSize = 0, size = 0, children = listOf(mvhd, videoTrak))
+        val ftyp = BoxNode(type = "ftyp", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("major_brand", "isom", 0, 4)))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ftyp, moov))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val videoDetail = summary.sections.first { it.title == "Video Detail" }
+        // segment_duration=1000 in a movie timescale of 1000 -> 1.000s offset
+        assertEquals("1 edit (empty edit, 0:00:01.000 offset)", videoDetail.fields.first { it.label == "Edit List" }.value)
+    }
+
+    @Test
+    fun `Video Detail reports a plain edit count when the first edit is not empty`() {
+        val elst = BoxNode(
+            type = "elst", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(
+                BoxField("segment_duration", "1000", 0, 4),
+                BoxField("media_time", "0", 0, 4),
+                BoxField("media_rate", "1.0", 0, 4),
+                BoxField("segment_duration", "2000", 0, 4),
+                BoxField("media_time", "1000", 0, 4),
+                BoxField("media_rate", "1.0", 0, 4),
+            ),
+        )
+        val edts = BoxNode(type = "edts", offset = 0, headerSize = 0, size = 0, children = listOf(elst))
+        val videoHdlr = BoxNode(type = "hdlr", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("handler_type", "vide", 0, 4)))
+        val videoMdia = BoxNode(type = "mdia", offset = 0, headerSize = 0, size = 0, children = listOf(videoHdlr))
+        val videoTrak = BoxNode(type = "trak", offset = 0, headerSize = 0, size = 0, children = listOf(edts, videoMdia))
+        val mvhd = BoxNode(type = "mvhd", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("timescale", "1000", 0, 4)))
+        val moov = BoxNode(type = "moov", offset = 0, headerSize = 0, size = 0, children = listOf(mvhd, videoTrak))
+        val ftyp = BoxNode(type = "ftyp", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("major_brand", "isom", 0, 4)))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ftyp, moov))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val videoDetail = summary.sections.first { it.title == "Video Detail" }
+        assertEquals("2 edits", videoDetail.fields.first { it.label == "Edit List" }.value)
+    }
+
+    @Test
+    fun `Video Detail reports the actual Keyframe Interval when stss is present, and B-Frames Yes when ctts has entries`() {
+        val stss = BoxNode(
+            type = "stss", offset = 0, headerSize = 0, size = 0,
+            table = TableData(columns = listOf("sample_number"), fieldWidths = listOf(4), entriesStart = 0, entryCount = 10),
+        )
+        val stsz = BoxNode(type = "stsz", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("sample_count", "300", 0, 4)))
+        val ctts = BoxNode(
+            type = "ctts", offset = 0, headerSize = 0, size = 0,
+            table = TableData(columns = listOf("sample_count", "sample_offset"), fieldWidths = listOf(4, 4), entriesStart = 0, entryCount = 5),
+        )
+        val videoStbl = BoxNode(type = "stbl", offset = 0, headerSize = 0, size = 0, children = listOf(stss, stsz, ctts))
+        val videoMinf = BoxNode(type = "minf", offset = 0, headerSize = 0, size = 0, children = listOf(videoStbl))
+        val videoHdlr = BoxNode(type = "hdlr", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("handler_type", "vide", 0, 4)))
+        val videoMdia = BoxNode(type = "mdia", offset = 0, headerSize = 0, size = 0, children = listOf(videoHdlr, videoMinf))
+        val videoTrak = BoxNode(type = "trak", offset = 0, headerSize = 0, size = 0, children = listOf(videoMdia))
+        val moov = BoxNode(type = "moov", offset = 0, headerSize = 0, size = 0, children = listOf(videoTrak))
+        val ftyp = BoxNode(type = "ftyp", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("major_brand", "isom", 0, 4)))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ftyp, moov))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val videoDetail = summary.sections.first { it.title == "Video Detail" }
+        assertEquals("10 of 300 frames (every ~30 frames)", videoDetail.fields.first { it.label == "Keyframe Interval" }.value)
+        assertEquals("Yes", videoDetail.fields.first { it.label == "B-Frames" }.value)
+    }
+
+    @Test
+    fun `Video Detail reports No B-Frames and an All-frames Keyframe Interval when stss and ctts are both absent`() {
+        val stsz = BoxNode(type = "stsz", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("sample_count", "300", 0, 4)))
+        val videoStbl = BoxNode(type = "stbl", offset = 0, headerSize = 0, size = 0, children = listOf(stsz))
+        val videoMinf = BoxNode(type = "minf", offset = 0, headerSize = 0, size = 0, children = listOf(videoStbl))
+        val videoHdlr = BoxNode(type = "hdlr", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("handler_type", "vide", 0, 4)))
+        val videoMdia = BoxNode(type = "mdia", offset = 0, headerSize = 0, size = 0, children = listOf(videoHdlr, videoMinf))
+        val videoTrak = BoxNode(type = "trak", offset = 0, headerSize = 0, size = 0, children = listOf(videoMdia))
+        val moov = BoxNode(type = "moov", offset = 0, headerSize = 0, size = 0, children = listOf(videoTrak))
+        val ftyp = BoxNode(type = "ftyp", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("major_brand", "isom", 0, 4)))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ftyp, moov))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val videoDetail = summary.sections.first { it.title == "Video Detail" }
+        assertEquals("All frames (no separate sync sample table)", videoDetail.fields.first { it.label == "Keyframe Interval" }.value)
+        assertEquals("No", videoDetail.fields.first { it.label == "B-Frames" }.value)
+    }
+
+    @Test
+    fun `a non-video media type (JPEG) has no Video Detail section`() {
+        val root = BoxNode(
+            type = "root", offset = 0, headerSize = 0, size = 0,
+            children = listOf(BoxNode(type = "SOI", offset = 0, headerSize = 2, size = 2)),
+        )
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        assertEquals(null, summary.sections.find { it.title == "Video Detail" })
     }
 }
