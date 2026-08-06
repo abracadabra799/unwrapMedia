@@ -70,7 +70,7 @@ private fun decodeExtension(reader: ByteReader, label: Int, offset: Long, end: L
     when (label) {
         GRAPHIC_CONTROL_LABEL -> decodeGraphicControlExtension(reader, offset, end)
         APPLICATION_LABEL -> decodeApplicationExtension(reader, offset, end)
-        COMMENT_LABEL -> decodeGenericSubBlockExtension(reader, "CommentExtension", offset, end)
+        COMMENT_LABEL -> decodeCommentExtension(reader, offset, end)
         PLAIN_TEXT_LABEL -> decodeGenericSubBlockExtension(reader, "PlainTextExtension", offset, end)
         else -> decodeGenericSubBlockExtension(reader, "Extension_0x${label.toString(16).padStart(2, '0').uppercase()}", offset, end)
     }
@@ -78,6 +78,13 @@ private fun decodeExtension(reader: ByteReader, label: Int, offset: Long, end: L
 private fun decodeGenericSubBlockExtension(reader: ByteReader, type: String, offset: Long, end: Long): Pair<BoxNode, Long>? {
     val nextPos = skipSubBlocks(reader, offset + 2, end) ?: return null
     return BoxNode(type = type, offset = offset, headerSize = 2, size = nextPos - offset) to nextPos
+}
+
+private fun decodeCommentExtension(reader: ByteReader, offset: Long, end: Long): Pair<BoxNode, Long>? {
+    val (blocks, nextPos) = readSubBlocks(reader, offset + 2, end) ?: return null
+    val text = blocks.joinToString("") { String(it, Charsets.ISO_8859_1) }
+    val fields = if (text.isNotEmpty()) listOf(BoxField("comment", text, offset + 2, nextPos - (offset + 2))) else emptyList()
+    return BoxNode(type = "CommentExtension", offset = offset, headerSize = 2, size = nextPos - offset, fields = fields) to nextPos
 }
 
 private fun decodeGraphicControlExtension(reader: ByteReader, offset: Long, end: Long): Pair<BoxNode, Long>? {
