@@ -35,6 +35,14 @@ class AppStateTest {
         }
     }
 
+    private fun waitForMotionPhotoFrameAnalysis(tab: TabState, timeoutMs: Long = 15000) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (tab.isAnalyzingMotionPhotoFrames) {
+            check(System.currentTimeMillis() < deadline) { "Timed out waiting for motion photo frame analysis of ${tab.file.name}" }
+            Thread.sleep(10)
+        }
+    }
+
     @Test
     fun `analyzeFrames populates gopFrames from a real synthetic video without blocking`() {
         val video = File.createTempFile("appstate-frame-analysis-test-", ".mp4")
@@ -560,5 +568,54 @@ class AppStateTest {
         assertEquals(null, tab.error)
         assertEquals(MediaType.VIDEO, tab.type)
         video.delete()
+    }
+
+    @Test
+    fun `analyzeMotionPhotoFrames populates motionPhotoGopFrames and motionPhotoVideoFps from the real embedded video`() {
+        // Build a real, decodable embedded video via ffmpeg (same lavfi source as
+        // analyzeFrames's own test above, so the same 20-frame/'I'-first-frame assertions apply),
+        // then wrap it in a minimal ftyp+mpvd shell -- the same structural pattern
+        // MediaSummaryBuilderTest and MotionPhotoExtractorTest already use to represent a
+        // Samsung/HEIC-style motion photo (mpvd box containing the embedded video's own ftyp as
+        // its first child).
+        val embeddedVideo = File.createTempFile("motion-photo-frame-test-embedded-", ".mp4")
+        embeddedVideo.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=2:size=64x48:rate=10",
+            embeddedVideo.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+        val embeddedVideoBytes = embeddedVideo.readBytes()
+        embeddedVideo.delete()
+
+        val outerFtyp = byteArrayOf(
+            0x00, 0x00, 0x00, 0x10, 'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte(),
+            'i'.code.toByte(), 's'.code.toByte(), 'o'.code.toByte(), 'm'.code.toByte(), 0x00, 0x00, 0x00, 0x00,
+        )
+        val mpvdSize = 8L + embeddedVideoBytes.size
+        val mpvdHeader = byteArrayOf(
+            ((mpvdSize shr 24) and 0xFF).toByte(), ((mpvdSize shr 16) and 0xFF).toByte(),
+            ((mpvdSize shr 8) and 0xFF).toByte(), (mpvdSize and 0xFF).toByte(),
+            'm'.code.toByte(), 'p'.code.toByte(), 'v'.code.toByte(), 'd'.code.toByte(),
+        )
+        val photoFile = File.createTempFile("motion-photo-frame-test-photo-", ".mp4")
+        photoFile.deleteOnExit()
+        photoFile.writeBytes(outerFtyp + mpvdHeader + embeddedVideoBytes)
+
+        val appState = AppState()
+        appState.openFile(photoFile)
+        val tab = appState.tabs.single()
+        waitForLoad(tab)
+        assertTrue(tab.embeddedVideo != null, "Expected embeddedVideo to be populated from the mpvd box")
+
+        appState.analyzeMotionPhotoFrames(tab)
+        assertEquals(true, tab.isAnalyzingMotionPhotoFrames)
+
+        waitForMotionPhotoFrameAnalysis(tab)
+
+        assertEquals(false, tab.isAnalyzingMotionPhotoFrames)
+        assertEquals(20, tab.motionPhotoGopFrames?.size)
+        assertEquals('I', tab.motionPhotoGopFrames?.first()?.type)
+        assertTrue((tab.motionPhotoVideoFps ?: 0.0) > 0.0, "Expected a positive fps from the embedded video, got ${tab.motionPhotoVideoFps}")
+        photoFile.delete()
     }
 }

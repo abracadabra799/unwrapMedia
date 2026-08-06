@@ -162,6 +162,14 @@ class TabState(val file: File) {
     var isAnalyzingMotionPhotoCodec: Boolean by mutableStateOf(false)
     var motionPhotoCodecDetailsLoaded: Boolean by mutableStateOf(false)
 
+    // Motion Photo Video frame-interval analysis (see FrameIntervalAnalysisView.kt) -- same
+    // extract-to-temp-file requirement as the codec-detail enrichment above, but reuses the
+    // regular video path's own probeFrameTypes/probeVideo instead of probeStreamDetails. null
+    // motionPhotoGopFrames means "never asked" (same convention as gopFrames above).
+    var motionPhotoGopFrames: List<FrameInfo>? by mutableStateOf(null)
+    var isAnalyzingMotionPhotoFrames: Boolean by mutableStateOf(false)
+    var motionPhotoVideoFps: Double? by mutableStateOf(null)
+
     // Headerless raw pixel dump state (see RawPixelInspectorUI) -- null unless type == RAW_PIXEL.
     var rawPixelParams: RawPixelParams? by mutableStateOf(null)
     var rawPixelFrameIndex: Int by mutableStateOf(0)
@@ -593,6 +601,30 @@ class AppState {
                 }
                 tab.motionPhotoCodecDetailsLoaded = true
                 tab.isAnalyzingMotionPhotoCodec = false
+            }
+        }
+    }
+
+    fun analyzeMotionPhotoFrames(tab: TabState) {
+        val video = tab.embeddedVideo ?: return
+        if (tab.isAnalyzingMotionPhotoFrames || tab.motionPhotoGopFrames != null) return
+        tab.isAnalyzingMotionPhotoFrames = true
+        runInBackground {
+            val temp = try {
+                val dest = File.createTempFile("motion-photo-frame-interval-", ".${video.extension}")
+                dest.deleteOnExit()
+                extractEmbeddedVideo(tab.file, video, dest)
+                dest
+            } catch (e: Exception) {
+                null
+            }
+            val frames = temp?.let { probeFrameTypes(it) }
+            val videoInfo = temp?.let { probeVideo(it) }
+            temp?.delete()
+            EventQueue.invokeLater {
+                tab.motionPhotoGopFrames = frames ?: emptyList()
+                tab.motionPhotoVideoFps = videoInfo?.fps
+                tab.isAnalyzingMotionPhotoFrames = false
             }
         }
     }
