@@ -1845,4 +1845,44 @@ class MediaSummaryBuilderTest {
         assertEquals(null, videoDetail.fields.find { it.label == "Handler Name" })
         assertEquals(null, videoDetail.fields.find { it.label == "Language" })
     }
+
+    @Test
+    fun `WebM Video reports a labeled Stereo Mode when non-zero`() {
+        val codecId = BoxNode(type = "CodecID", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("value", "V_VP9", 0, 5)))
+        val stereoMode = BoxNode(type = "StereoMode", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("value", "1", 0, 1)))
+        val pixelWidth = BoxNode(type = "PixelWidth", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("value", "1920", 0, 2)))
+        val pixelHeight = BoxNode(type = "PixelHeight", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("value", "1080", 0, 2)))
+        val video = BoxNode(type = "Video", offset = 0, headerSize = 0, size = 0, children = listOf(stereoMode, pixelWidth, pixelHeight))
+        val trackType = BoxNode(type = "TrackType", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("value", "1", 0, 1)))
+        val videoTrack = BoxNode(type = "TrackEntry", offset = 0, headerSize = 0, size = 0, children = listOf(trackType, codecId, video))
+        val tracks = BoxNode(type = "Tracks", offset = 0, headerSize = 0, size = 0, children = listOf(videoTrack))
+        val segment = BoxNode(type = "Segment", offset = 0, headerSize = 0, size = 0, children = listOf(tracks))
+        val ebml = BoxNode(type = "EBML", offset = 0, headerSize = 0, size = 0)
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ebml, segment))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val videoDetail = summary.sections.first { it.title == "Video" }
+        assertEquals("Side by Side (Left Eye First)", videoDetail.fields.first { it.label == "Stereo Mode" }.value)
+    }
+
+    @Test
+    fun `WebM Video omits Stereo Mode when 0 (mono)`() {
+        val codecId = BoxNode(type = "CodecID", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("value", "V_VP9", 0, 5)))
+        val stereoMode = BoxNode(type = "StereoMode", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("value", "0", 0, 1)))
+        val pixelWidth = BoxNode(type = "PixelWidth", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("value", "1920", 0, 2)))
+        val pixelHeight = BoxNode(type = "PixelHeight", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("value", "1080", 0, 2)))
+        val video = BoxNode(type = "Video", offset = 0, headerSize = 0, size = 0, children = listOf(stereoMode, pixelWidth, pixelHeight))
+        val trackType = BoxNode(type = "TrackType", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("value", "1", 0, 1)))
+        val videoTrack = BoxNode(type = "TrackEntry", offset = 0, headerSize = 0, size = 0, children = listOf(trackType, codecId, video))
+        val tracks = BoxNode(type = "Tracks", offset = 0, headerSize = 0, size = 0, children = listOf(videoTrack))
+        val segment = BoxNode(type = "Segment", offset = 0, headerSize = 0, size = 0, children = listOf(tracks))
+        val ebml = BoxNode(type = "EBML", offset = 0, headerSize = 0, size = 0)
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ebml, segment))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val videoDetail = summary.sections.first { it.title == "Video" }
+        assertEquals(null, videoDetail.fields.find { it.label == "Stereo Mode" })
+    }
 }
