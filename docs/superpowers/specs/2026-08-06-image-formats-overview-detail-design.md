@@ -184,12 +184,12 @@ object ImirBoxDecoder : BoxDecoder {
 }
 ```
 
-**`PixiBoxDecoder`** (`num_channels` byte, then that many 1-byte bits-per-channel values):
+**`PixiBoxDecoder`** (a FullBox — 4-byte version/flags prefix, same as the existing `IspeBoxDecoder`'s own `payloadStart + 4` convention — then `num_channels` byte, then that many 1-byte bits-per-channel values):
 ```kotlin
 object PixiBoxDecoder : BoxDecoder {
     override fun decode(reader: ByteReader, type: String, offset: Long, headerSize: Int, size: Long, warnings: List<String>): BoxNode {
         val w = warnings.toMutableList()
-        val payloadStart = offset + headerSize
+        val payloadStart = offset + headerSize + 4 // skip version(1)+flags(3)
         val payloadEnd = offset + size
         if (payloadEnd - payloadStart < 1) {
             w.add("Box too short for pixi num_channels")
@@ -210,13 +210,17 @@ object PixiBoxDecoder : BoxDecoder {
 }
 ```
 
-**`AuxCBoxDecoder`** (null-terminated `aux_type` string):
+**`AuxCBoxDecoder`** (also a FullBox — same 4-byte version/flags skip — then a null-terminated `aux_type` string):
 ```kotlin
 object AuxCBoxDecoder : BoxDecoder {
     override fun decode(reader: ByteReader, type: String, offset: Long, headerSize: Int, size: Long, warnings: List<String>): BoxNode {
         val w = warnings.toMutableList()
-        val payloadStart = offset + headerSize
+        val payloadStart = offset + headerSize + 4 // skip version(1)+flags(3)
         val payloadEnd = offset + size
+        if (payloadEnd - payloadStart < 1) {
+            w.add("Box too short for auxC aux_type")
+            return BoxNode(type, offset, headerSize, size, warnings = w)
+        }
         val bytes = reader.readBytes(payloadStart, (payloadEnd - payloadStart).toInt())
         val nullIndex = bytes.indexOf(0)
         val auxType = String(bytes, 0, if (nullIndex >= 0) nullIndex else bytes.size, Charsets.US_ASCII)
