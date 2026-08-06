@@ -10,7 +10,7 @@ Also folds in a related, explicitly requested addition: per-track (video/audio) 
 
 - Audio-only formats (M4A/MP3/WAV/etc.) — the next, separate sub-project.
 - Signature Analysis (re-encoding/editing detection) — deferred indefinitely per earlier agreement.
-- Any new parsing. If a real-file verification pass (Task N, this plan's equivalent of the JPEG sub-project's Task 3) surfaces a genuine gap that needs new parsing, that becomes a follow-up, not silently folded into this plan.
+- Any new parsing, with one narrow exception found while writing the implementation plan: `EbmlWalker.kt` already tags `DateUTC` as `EbmlElementType.DATE` but `decodeLeafElement` treats `DATE` identically to `UINT`, so the field's value is a raw nanoseconds-since-2001-01-01 integer, never actually formatted as a date -- a pre-existing bug (visible today by clicking a `DateUTC` node in the tree), not new functionality. Fixing it (a `formatWebmDate` helper mirroring the existing `formatMp4Time`) is in scope here since "Creation Date" is meaningless without it. Beyond that one fix, if a real-file verification pass (this plan's equivalent of the JPEG sub-project's Task 3) surfaces a further gap needing new parsing, that becomes a follow-up, not silently folded into this plan.
 - Per-block keyframe/B-frame detection for WebM — this app does not currently parse individual `SimpleBlock` keyframe flags into a table the way MP4's `stss`/`ctts` are already parsed, so WebM does not get an equivalent "Keyframe Interval"/"B-Frames" facts. Only `StereoMode` (already parsed) is added for WebM's video track.
 - Any change to the Detailed Properties (tree) tab or any UI/Compose file — the Overview tab already renders arbitrary `SummarySection` lists generically.
 
@@ -54,8 +54,50 @@ Modify `buildVideoGeneral(root, fileSizeBytes, moov, videoTrak, audioTrak)` (sig
 
 Modify `buildWebmGeneral(fileSizeBytes, info)`:
 
-- **Creation Date**: `Info`'s `DateUTC` child (`webmFieldValue(info, "DateUTC")` — already a parsed date string per `EbmlElementType.DATE`). Omitted if absent (many encoders don't write it).
+- **Creation Date**: `Info`'s `DateUTC` child (`webmFieldValue(info, "DateUTC")`). Requires the `formatWebmDate` fix below -- as currently parsed this is a raw nanoseconds-since-2001-01-01 integer, not a date string. Omitted if absent (many encoders don't write it) or zero (not set).
 - **Muxing App** / **Writing App**: `Info`'s `MuxingApp`/`WritingApp` children (`webmFieldValue(info, "MuxingApp")`/`"WritingApp"`, already UTF8-decoded strings). Independently optional.
+
+### `formatWebmDate` fix (`BinaryUtil.kt`)
+
+Matroska's `Date` type is nanoseconds since `2001-01-01T00:00:00.000000000Z` (a third epoch, distinct from MP4's 1904 epoch and Unix's 1970 epoch). Add, right next to the existing `formatMp4Time`:
+
+```kotlin
+private const val WEBM_EPOCH_OFFSET_SECONDS = 978307200L // 2001-01-01T00:00:00Z in Unix epoch seconds
+
+internal fun formatWebmDate(nanosSince2001: Long): String {
+    if (nanosSince2001 == 0L) return "0 (not set)"
+    return try {
+        val instant = Instant.ofEpochSecond(WEBM_EPOCH_OFFSET_SECONDS + nanosSince2001 / 1_000_000_000L, nanosSince2001 % 1_000_000_000L)
+        ISO_DATE_FORMATTER.format(instant)
+    } catch (e: Exception) {
+        nanosSince2001.toString()
+    }
+}
+```
+
+Then in `EbmlWalker.kt`'s `decodeLeafElement`, split `DATE` out of the `UINT` branch it currently shares:
+
+```kotlin
+EbmlElementType.UINT -> {
+    val value = readUnsignedBigEndian(reader, dataStart, dataLength)
+    BoxNode(
+        name, offset, headerSize, size,
+        fields = listOf(BoxField("value", value.toString(), dataStart, dataLength.toLong())),
+        summary = value.toString(), warnings = warnings,
+    )
+}
+EbmlElementType.DATE -> {
+    val value = readUnsignedBigEndian(reader, dataStart, dataLength)
+    val formatted = formatWebmDate(value)
+    BoxNode(
+        name, offset, headerSize, size,
+        fields = listOf(BoxField("value", formatted, dataStart, dataLength.toLong())),
+        summary = formatted, warnings = warnings,
+    )
+}
+```
+
+This also fixes the same pre-existing display bug in the Detailed Properties tree tab for free (any `DateUTC` node, not just the new Overview field) -- a byproduct of fixing the root cause rather than working around it in `MediaSummaryBuilder.kt` alone.
 
 ## Video / Audio sections (MP4-family)
 
