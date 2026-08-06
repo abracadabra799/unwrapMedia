@@ -122,6 +122,7 @@ private fun buildImageSummary(root: BoxNode, file: File): List<SummarySection> {
     buildImageDetail(root)?.let { sections.add(it) }
     buildJpegDetail(root)?.let { sections.add(it) }
     buildPngDetail(root)?.let { sections.add(it) }
+    buildBmpDetail(root)?.let { sections.add(it) }
 
     val ifd0 = findFirst(root) { it.type == "IFD0" }
     if (ifd0 != null) {
@@ -465,6 +466,27 @@ private fun buildPngDetail(root: BoxNode): SummarySection? {
     }
 
     return if (fields.isNotEmpty()) SummarySection("PNG Detail", fields) else null
+}
+
+private val BMP_COMPRESSION_NAMES = mapOf(
+    0 to "None (BI_RGB)",
+    1 to "RLE 8-bit (BI_RLE8)",
+    2 to "RLE 4-bit (BI_RLE4)",
+    3 to "Bit Fields (BI_BITFIELDS)",
+    4 to "JPEG (BI_JPEG)",
+    5 to "PNG (BI_PNG)",
+)
+
+private fun buildBmpDetail(root: BoxNode): SummarySection? {
+    val infoHeader = root.children.find { it.type == "BITMAPINFOHEADER" } ?: return null
+    val fields = mutableListOf<SummaryField>()
+
+    infoHeader.fields.find { it.name == "bit_count" }?.let { fields.add(SummaryField("Bit Count", "${it.value}-bit")) }
+    infoHeader.fields.find { it.name == "compression" }?.value?.toIntOrNull()?.let { compression ->
+        fields.add(SummaryField("Compression", BMP_COMPRESSION_NAMES[compression] ?: compression.toString()))
+    }
+
+    return if (fields.isNotEmpty()) SummarySection("BMP Detail", fields) else null
 }
 
 private val WEBM_CODEC_DISPLAY_NAMES = mapOf(

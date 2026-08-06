@@ -1314,4 +1314,72 @@ class MediaSummaryBuilderTest {
 
         assertEquals(null, summary.sections.find { it.title == "PNG Detail" })
     }
+
+    @Test
+    fun `a BMP with bit_count and compression fields reports BMP Detail`() {
+        val fileHeader = BoxNode(type = "BITMAPFILEHEADER", offset = 0, headerSize = 0, size = 14)
+        val infoHeader = BoxNode(
+            type = "BITMAPINFOHEADER", offset = 0, headerSize = 0, size = 40,
+            fields = listOf(
+                BoxField("width", "100", 0, 4),
+                BoxField("height", "50", 0, 4),
+                BoxField("bit_count", "24", 0, 2),
+                BoxField("compression", "0", 0, 4),
+            ),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(fileHeader, infoHeader))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val bmpDetail = summary.sections.first { it.title == "BMP Detail" }
+        assertEquals("24-bit", bmpDetail.fields.first { it.label == "Bit Count" }.value)
+        assertEquals("None (BI_RGB)", bmpDetail.fields.first { it.label == "Compression" }.value)
+    }
+
+    @Test
+    fun `an RLE8-compressed BMP labels Compression as RLE 8-bit (BI_RLE8)`() {
+        val fileHeader = BoxNode(type = "BITMAPFILEHEADER", offset = 0, headerSize = 0, size = 14)
+        val infoHeader = BoxNode(
+            type = "BITMAPINFOHEADER", offset = 0, headerSize = 0, size = 40,
+            fields = listOf(
+                BoxField("width", "100", 0, 4),
+                BoxField("height", "50", 0, 4),
+                BoxField("bit_count", "8", 0, 2),
+                BoxField("compression", "1", 0, 4),
+            ),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(fileHeader, infoHeader))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val bmpDetail = summary.sections.first { it.title == "BMP Detail" }
+        assertEquals("RLE 8-bit (BI_RLE8)", bmpDetail.fields.first { it.label == "Compression" }.value)
+    }
+
+    @Test
+    fun `a BMP with no bit_count or compression fields has no BMP Detail section`() {
+        val fileHeader = BoxNode(type = "BITMAPFILEHEADER", offset = 0, headerSize = 0, size = 0)
+        val infoHeader = BoxNode(
+            type = "BITMAPINFOHEADER", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("width", "100", 0, 4), BoxField("height", "-50", 0, 4)),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(fileHeader, infoHeader))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        assertEquals(null, summary.sections.find { it.title == "BMP Detail" })
+    }
+
+    @Test
+    fun `a non-BMP image (GIF) has no BMP Detail section`() {
+        val lsd = BoxNode(
+            type = "LogicalScreenDescriptor", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("width", "320", 0, 2), BoxField("height", "240", 0, 2)),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(lsd))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        assertEquals(null, summary.sections.find { it.title == "BMP Detail" })
+    }
 }
