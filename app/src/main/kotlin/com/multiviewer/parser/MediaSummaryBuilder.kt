@@ -358,8 +358,20 @@ private fun huffmanTableMatchesStandard(table: BoxNode): Boolean {
     return actualValues.contentEquals(standardValues)
 }
 
+// A real-world file can hold more than one complete JPEG stream back-to-back at the top level
+// (e.g. a Samsung Motion Photo's outer photo followed by an embedded MPF-style secondary/preview
+// JPEG, both landing as direct root children -- confirmed against a real device photo during
+// manual verification). Scoping to children up through the first EOI keeps every field here
+// (Quality Estimate, Huffman Tables, Adobe Color Transform, Restart Interval, Comment) describing
+// only the primary image, not an indiscriminate mix of both streams' markers.
+private fun primaryJpegStreamChildren(root: BoxNode): List<BoxNode> {
+    val eoiIndex = root.children.indexOfFirst { it.type == "EOI" }
+    return if (eoiIndex >= 0) root.children.subList(0, eoiIndex + 1) else root.children
+}
+
 private fun buildJpegDetail(root: BoxNode): SummarySection? {
-    val sof = findFirst(root) { it.type.startsWith("SOF") } ?: return null
+    val streamChildren = primaryJpegStreamChildren(root)
+    val sof = streamChildren.find { it.type.startsWith("SOF") } ?: return null
     val fields = mutableListOf<SummaryField>()
 
     sof.type.removePrefix("SOF").toIntOrNull()?.let { sofNumber ->
@@ -367,7 +379,7 @@ private fun buildJpegDetail(root: BoxNode): SummarySection? {
     }
     sof.fields.find { it.name == "precision" }?.let { fields.add(SummaryField("Precision", "${it.value}-bit")) }
 
-    val quantizationTables = root.children.filter { it.type == "DQT" }.flatMap { it.children }
+    val quantizationTables = streamChildren.filter { it.type == "DQT" }.flatMap { it.children }
     val luminanceTable = quantizationTables.find {
         it.fields.find { f -> f.name == "destination_id" }?.value?.startsWith("0") == true
     }
@@ -375,7 +387,7 @@ private fun buildJpegDetail(root: BoxNode): SummarySection? {
         ?.fields?.find { it.name == "quality_estimate" }
         ?.let { fields.add(SummaryField("Quality Estimate", it.value)) }
 
-    val huffmanTables = root.children.filter { it.type == "DHT" }.flatMap { it.children }
+    val huffmanTables = streamChildren.filter { it.type == "DHT" }.flatMap { it.children }
     if (huffmanTables.isNotEmpty()) {
         val mismatchLabels = huffmanTables.mapNotNull { table ->
             if (huffmanTableMatchesStandard(table)) {
@@ -394,7 +406,7 @@ private fun buildJpegDetail(root: BoxNode): SummarySection? {
         fields.add(SummaryField("Huffman Tables", huffmanValue))
     }
 
-    val app14 = root.children.find { it.type == "APP14" }
+    val app14 = streamChildren.find { it.type == "APP14" }
     app14?.fields?.find { it.name == "color_transform" }?.value?.toIntOrNull()?.let { transform ->
         val numComponents = sof.fields.find { it.name == "num_components" }?.value?.toIntOrNull()
         val label = when (transform) {
@@ -406,11 +418,11 @@ private fun buildJpegDetail(root: BoxNode): SummarySection? {
         fields.add(SummaryField("Adobe Color Transform", label))
     }
 
-    val dri = root.children.find { it.type == "DRI" }
+    val dri = streamChildren.find { it.type == "DRI" }
     dri?.fields?.find { it.name == "restart_interval" }
         ?.let { fields.add(SummaryField("Restart Interval", "${it.value} MCUs")) }
 
-    val com = root.children.find { it.type == "COM" }
+    val com = streamChildren.find { it.type == "COM" }
     com?.fields?.find { it.name == "comment" }?.let { fields.add(SummaryField("Comment", it.value)) }
 
     return if (fields.isNotEmpty()) SummarySection("JPEG Detail", fields) else null
