@@ -659,6 +659,13 @@ private fun buildWebmTrackList(trackEntries: List<BoxNode>): SummarySection {
     return SummarySection("Track List", fields)
 }
 
+private val WEBM_STEREO_MODE_NAMES = mapOf(
+    1 to "Side by Side (Left Eye First)",
+    2 to "Top-Bottom (Right Eye First)",
+    3 to "Top-Bottom (Left Eye First)",
+    11 to "Side by Side (Right Eye First)",
+)
+
 private fun buildWebmVideoDetail(videoTrack: BoxNode?): SummarySection? {
     if (videoTrack == null) return null
     val fields = mutableListOf<SummaryField>()
@@ -666,6 +673,9 @@ private fun buildWebmVideoDetail(videoTrack: BoxNode?): SummarySection? {
     val video = videoTrack.children.find { it.type == "Video" }
     webmFieldValue(video, "PixelWidth")?.let { fields.add(SummaryField("Width", it)) }
     webmFieldValue(video, "PixelHeight")?.let { fields.add(SummaryField("Height", it)) }
+    webmFieldValue(video, "StereoMode")?.toIntOrNull()?.takeIf { it != 0 }?.let { mode ->
+        fields.add(SummaryField("Stereo Mode", WEBM_STEREO_MODE_NAMES[mode] ?: mode.toString()))
+    }
     return if (fields.isEmpty()) null else SummarySection("Video", fields)
 }
 
