@@ -116,7 +116,7 @@ class GifWalkerTest {
     }
 
     @Test
-    fun `a Comment Extension shows as a generic, field-less node`() {
+    fun `a Comment Extension decodes its text into a comment field`() {
         val commentData = subBlock("hello".toByteArray(Charsets.US_ASCII)) + SUB_BLOCK_TERMINATOR
         val bytes = logicalScreenDescriptor(width = 4, height = 4, globalColorTableFlag = false, globalColorTableSize = 0) +
             byteArrayOf(0x21, 0xFE.toByte()) + commentData +
@@ -124,7 +124,20 @@ class GifWalkerTest {
         readerOver(bytes, "gif-walker-comment").use { reader ->
             val nodes = parseGifBlocks(reader, 0, bytes.size.toLong())
             val commentNode = nodes.first { it.type == "CommentExtension" }
-            assertTrue(commentNode.fields.isEmpty())
+            assertEquals("hello", commentNode.fields.first { it.name == "comment" }.value)
+        }
+    }
+
+    @Test
+    fun `a Comment Extension spanning multiple sub-blocks concatenates them into one comment field`() {
+        val commentData = subBlock("hello ".toByteArray(Charsets.US_ASCII)) + subBlock("world".toByteArray(Charsets.US_ASCII)) + SUB_BLOCK_TERMINATOR
+        val bytes = logicalScreenDescriptor(width = 4, height = 4, globalColorTableFlag = false, globalColorTableSize = 0) +
+            byteArrayOf(0x21, 0xFE.toByte()) + commentData +
+            byteArrayOf(0x3B)
+        readerOver(bytes, "gif-walker-comment-multi").use { reader ->
+            val nodes = parseGifBlocks(reader, 0, bytes.size.toLong())
+            val commentNode = nodes.first { it.type == "CommentExtension" }
+            assertEquals("hello world", commentNode.fields.first { it.name == "comment" }.value)
         }
     }
 
