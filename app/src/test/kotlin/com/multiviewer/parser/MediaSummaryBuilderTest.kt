@@ -1670,4 +1670,78 @@ class MediaSummaryBuilderTest {
 
         assertEquals(null, summary.sections.find { it.title == "HEIC/AVIF Detail" })
     }
+
+    @Test
+    fun `mvhd creation_time and modification_time appear in General when actually set`() {
+        val videoHdlr = BoxNode(type = "hdlr", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("handler_type", "vide", 0, 4)))
+        val videoMdia = BoxNode(type = "mdia", offset = 0, headerSize = 0, size = 0, children = listOf(videoHdlr))
+        val videoTrak = BoxNode(type = "trak", offset = 0, headerSize = 0, size = 0, children = listOf(videoMdia))
+        val mvhd = BoxNode(
+            type = "mvhd", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(
+                BoxField("timescale", "1000", 0, 4),
+                BoxField("duration", "5000", 0, 4),
+                BoxField("creation_time", "2026-01-15T10:30:00", 0, 4),
+                BoxField("modification_time", "2026-01-16T09:00:00", 0, 4),
+            ),
+        )
+        val moov = BoxNode(type = "moov", offset = 0, headerSize = 0, size = 0, children = listOf(mvhd, videoTrak))
+        val ftyp = BoxNode(type = "ftyp", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("major_brand", "isom", 0, 4)))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ftyp, moov))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val general = summary.sections.first { it.title == "General" }
+        assertEquals("2026-01-15T10:30:00", general.fields.first { it.label == "Creation Time" }.value)
+        assertEquals("2026-01-16T09:00:00", general.fields.first { it.label == "Modification Time" }.value)
+    }
+
+    @Test
+    fun `mvhd creation_time and modification_time of 0 (not set) are omitted from General`() {
+        val videoHdlr = BoxNode(type = "hdlr", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("handler_type", "vide", 0, 4)))
+        val videoMdia = BoxNode(type = "mdia", offset = 0, headerSize = 0, size = 0, children = listOf(videoHdlr))
+        val videoTrak = BoxNode(type = "trak", offset = 0, headerSize = 0, size = 0, children = listOf(videoMdia))
+        val mvhd = BoxNode(
+            type = "mvhd", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(
+                BoxField("timescale", "1000", 0, 4),
+                BoxField("duration", "5000", 0, 4),
+                BoxField("creation_time", "0 (not set)", 0, 4),
+                BoxField("modification_time", "0 (not set)", 0, 4),
+            ),
+        )
+        val moov = BoxNode(type = "moov", offset = 0, headerSize = 0, size = 0, children = listOf(mvhd, videoTrak))
+        val ftyp = BoxNode(type = "ftyp", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("major_brand", "isom", 0, 4)))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ftyp, moov))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val general = summary.sections.first { it.title == "General" }
+        assertEquals(null, general.fields.find { it.label == "Creation Time" })
+        assertEquals(null, general.fields.find { it.label == "Modification Time" })
+    }
+
+    @Test
+    fun `Video Track Duration and Audio Track Duration reflect each track's own mdhd with millisecond precision`() {
+        val videoHdlr = BoxNode(type = "hdlr", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("handler_type", "vide", 0, 4)))
+        val videoMdhd = BoxNode(type = "mdhd", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("timescale", "30000", 0, 4), BoxField("duration", "300000", 0, 4)))
+        val videoMdia = BoxNode(type = "mdia", offset = 0, headerSize = 0, size = 0, children = listOf(videoHdlr, videoMdhd))
+        val videoTrak = BoxNode(type = "trak", offset = 0, headerSize = 0, size = 0, children = listOf(videoMdia))
+
+        val audioHdlr = BoxNode(type = "hdlr", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("handler_type", "soun", 0, 4)))
+        val audioMdhd = BoxNode(type = "mdhd", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("timescale", "1000", 0, 4), BoxField("duration", "10500", 0, 4)))
+        val audioMdia = BoxNode(type = "mdia", offset = 0, headerSize = 0, size = 0, children = listOf(audioHdlr, audioMdhd))
+        val audioTrak = BoxNode(type = "trak", offset = 0, headerSize = 0, size = 0, children = listOf(audioMdia))
+
+        val mvhd = BoxNode(type = "mvhd", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("timescale", "1000", 0, 4), BoxField("duration", "20000", 0, 4)))
+        val moov = BoxNode(type = "moov", offset = 0, headerSize = 0, size = 0, children = listOf(mvhd, videoTrak, audioTrak))
+        val ftyp = BoxNode(type = "ftyp", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("major_brand", "isom", 0, 4)))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ftyp, moov))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val general = summary.sections.first { it.title == "General" }
+        assertEquals("0:00:10.000", general.fields.first { it.label == "Video Track Duration" }.value)
+        assertEquals("0:00:10.500", general.fields.first { it.label == "Audio Track Duration" }.value)
+    }
 }
