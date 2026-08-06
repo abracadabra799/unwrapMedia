@@ -2,6 +2,7 @@ package com.multiviewer.parser
 
 import java.io.File
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 private val CODEC_DISPLAY_NAMES = mapOf(
     "avc1" to "AVC",
@@ -120,6 +121,7 @@ private fun buildImageSummary(root: BoxNode, file: File): List<SummarySection> {
     sections.add(buildImageGeneral(root, file))
     buildImageDetail(root)?.let { sections.add(it) }
     buildJpegDetail(root)?.let { sections.add(it) }
+    buildPngDetail(root)?.let { sections.add(it) }
 
     val ifd0 = findFirst(root) { it.type == "IFD0" }
     if (ifd0 != null) {
@@ -426,6 +428,43 @@ private fun buildJpegDetail(root: BoxNode): SummarySection? {
     com?.fields?.find { it.name == "comment" }?.let { fields.add(SummaryField("Comment", it.value)) }
 
     return if (fields.isNotEmpty()) SummarySection("JPEG Detail", fields) else null
+}
+
+private val PNG_INTERLACE_NAMES = mapOf(0 to "None", 1 to "Adam7")
+
+private fun buildPngDetail(root: BoxNode): SummarySection? {
+    val ihdr = root.children.find { it.type == "IHDR" } ?: return null
+    val fields = mutableListOf<SummaryField>()
+
+    ihdr.fields.find { it.name == "bit_depth" }?.let { fields.add(SummaryField("Bit Depth", "${it.value}-bit")) }
+    ihdr.fields.find { it.name == "compression_method" }?.value?.toIntOrNull()?.let { method ->
+        fields.add(SummaryField("Compression Method", if (method == 0) "Deflate/Inflate" else method.toString()))
+    }
+    ihdr.fields.find { it.name == "interlace_method" }?.value?.toIntOrNull()?.let { method ->
+        fields.add(SummaryField("Interlace", PNG_INTERLACE_NAMES[method] ?: method.toString()))
+    }
+
+    val phys = root.children.find { it.type == "pHYs" }
+    val ppuX = phys?.fields?.find { it.name == "pixels_per_unit_x" }?.value?.toDoubleOrNull()
+    val ppuY = phys?.fields?.find { it.name == "pixels_per_unit_y" }?.value?.toDoubleOrNull()
+    val unitSpecifier = phys?.fields?.find { it.name == "unit_specifier" }?.value
+    if (ppuX != null && ppuY != null) {
+        if (unitSpecifier == "meter") {
+            val dpiX = (ppuX * 0.0254).roundToInt()
+            val dpiY = (ppuY * 0.0254).roundToInt()
+            fields.add(SummaryField("Pixel Density", if (dpiX == dpiY) "$dpiX DPI" else "$dpiX x $dpiY DPI"))
+        } else {
+            fields.add(SummaryField("Pixel Density", "${ppuX.toInt()} x ${ppuY.toInt()} px/unit"))
+        }
+    }
+
+    root.children.filter { it.type == "tEXt" }.forEach { chunk ->
+        val keyword = chunk.fields.find { it.name == "keyword" }?.value
+        val text = chunk.fields.find { it.name == "text" }?.value
+        if (keyword != null && text != null) fields.add(SummaryField(keyword, text))
+    }
+
+    return if (fields.isNotEmpty()) SummarySection("PNG Detail", fields) else null
 }
 
 private val WEBM_CODEC_DISPLAY_NAMES = mapOf(

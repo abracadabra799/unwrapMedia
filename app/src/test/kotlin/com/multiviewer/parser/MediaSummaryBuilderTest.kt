@@ -1207,4 +1207,111 @@ class MediaSummaryBuilderTest {
         val image = summary.sections.first { it.title == "Image" }
         assertEquals("640", image.fields.first { it.label == "Width" }.value)
     }
+
+    @Test
+    fun `a PNG with full IHDR fields, pHYs, and tEXt chunks reports PNG Detail`() {
+        val ihdr = BoxNode(
+            type = "IHDR", offset = 0, headerSize = 8, size = 25,
+            fields = listOf(
+                BoxField("width", "640", 0, 4),
+                BoxField("height", "480", 0, 4),
+                BoxField("bit_depth", "8", 0, 1),
+                BoxField("color_type", "6", 0, 1),
+                BoxField("compression_method", "0", 0, 1),
+                BoxField("filter_method", "0", 0, 1),
+                BoxField("interlace_method", "1", 0, 1),
+            ),
+        )
+        val phys = BoxNode(
+            type = "pHYs", offset = 0, headerSize = 8, size = 21,
+            fields = listOf(
+                BoxField("pixels_per_unit_x", "2835", 0, 4),
+                BoxField("pixels_per_unit_y", "2835", 0, 4),
+                BoxField("unit_specifier", "meter", 0, 1),
+            ),
+        )
+        val text = BoxNode(
+            type = "tEXt", offset = 0, headerSize = 8, size = 20,
+            fields = listOf(BoxField("keyword", "Software", 0, 8), BoxField("text", "GIMP", 0, 4)),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ihdr, phys, text))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val pngDetail = summary.sections.first { it.title == "PNG Detail" }
+        assertEquals("8-bit", pngDetail.fields.first { it.label == "Bit Depth" }.value)
+        assertEquals("Deflate/Inflate", pngDetail.fields.first { it.label == "Compression Method" }.value)
+        assertEquals("Adam7", pngDetail.fields.first { it.label == "Interlace" }.value)
+        assertEquals("72 DPI", pngDetail.fields.first { it.label == "Pixel Density" }.value)
+        assertEquals("GIMP", pngDetail.fields.first { it.label == "Software" }.value)
+    }
+
+    @Test
+    fun `PNG pHYs with an unknown unit specifier reports raw pixels-per-unit instead of a DPI conversion`() {
+        val ihdr = BoxNode(
+            type = "IHDR", offset = 0, headerSize = 8, size = 25,
+            fields = listOf(
+                BoxField("width", "640", 0, 4),
+                BoxField("height", "480", 0, 4),
+                BoxField("bit_depth", "8", 0, 1),
+                BoxField("color_type", "6", 0, 1),
+                BoxField("compression_method", "0", 0, 1),
+                BoxField("filter_method", "0", 0, 1),
+                BoxField("interlace_method", "0", 0, 1),
+            ),
+        )
+        val phys = BoxNode(
+            type = "pHYs", offset = 0, headerSize = 8, size = 21,
+            fields = listOf(
+                BoxField("pixels_per_unit_x", "1", 0, 4),
+                BoxField("pixels_per_unit_y", "1", 0, 4),
+                BoxField("unit_specifier", "unknown", 0, 1),
+            ),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ihdr, phys))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val pngDetail = summary.sections.first { it.title == "PNG Detail" }
+        assertEquals("1 x 1 px/unit", pngDetail.fields.first { it.label == "Pixel Density" }.value)
+        assertEquals("None", pngDetail.fields.first { it.label == "Interlace" }.value)
+    }
+
+    @Test
+    fun `a minimal PNG with no pHYs or tEXt still reports Bit Depth, Compression Method, and Interlace`() {
+        val ihdr = BoxNode(
+            type = "IHDR", offset = 0, headerSize = 8, size = 25,
+            fields = listOf(
+                BoxField("width", "100", 0, 4),
+                BoxField("height", "100", 0, 4),
+                BoxField("bit_depth", "1", 0, 1),
+                BoxField("color_type", "0", 0, 1),
+                BoxField("compression_method", "0", 0, 1),
+                BoxField("filter_method", "0", 0, 1),
+                BoxField("interlace_method", "0", 0, 1),
+            ),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ihdr))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val pngDetail = summary.sections.first { it.title == "PNG Detail" }
+        assertEquals("1-bit", pngDetail.fields.first { it.label == "Bit Depth" }.value)
+        assertEquals(null, pngDetail.fields.find { it.label == "Pixel Density" })
+        assertEquals(3, pngDetail.fields.size)
+    }
+
+    @Test
+    fun `a non-PNG image (BMP) has no PNG Detail section`() {
+        val fileHeader = BoxNode(type = "BITMAPFILEHEADER", offset = 0, headerSize = 0, size = 0)
+        val infoHeader = BoxNode(
+            type = "BITMAPINFOHEADER", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("width", "100", 0, 4), BoxField("height", "50", 0, 4)),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(fileHeader, infoHeader))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        assertEquals(null, summary.sections.find { it.title == "PNG Detail" })
+    }
 }
