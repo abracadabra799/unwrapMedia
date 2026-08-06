@@ -641,6 +641,9 @@ private fun buildWebmGeneral(fileSizeBytes: Long, info: BoxNode?): SummarySectio
         val bitrate = (fileSizeBytes * 8) / durationSeconds
         fields.add(SummaryField("Overall Bit Rate", formatBitrate(bitrate)))
     }
+    webmFieldValue(info, "DateUTC")?.takeIf { !it.startsWith("0 ") }?.let { fields.add(SummaryField("Creation Date", it)) }
+    webmFieldValue(info, "MuxingApp")?.let { fields.add(SummaryField("Muxing App", it)) }
+    webmFieldValue(info, "WritingApp")?.let { fields.add(SummaryField("Writing App", it)) }
     return SummarySection("General", fields)
 }
 
