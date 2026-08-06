@@ -1382,4 +1382,74 @@ class MediaSummaryBuilderTest {
 
         assertEquals(null, summary.sections.find { it.title == "BMP Detail" })
     }
+
+    @Test
+    fun `a GIF with color resolution, a global color table, disposal, delay, and a comment reports GIF Detail`() {
+        val lsd = BoxNode(
+            type = "LogicalScreenDescriptor", offset = 0, headerSize = 0, size = 7,
+            fields = listOf(
+                BoxField("width", "320", 0, 2),
+                BoxField("height", "240", 0, 2),
+                BoxField("global_color_table_flag", "1", 0, 1),
+                BoxField("color_resolution", "7", 0, 1),
+                BoxField("global_color_table_size", "7", 0, 1),
+            ),
+        )
+        val gce = BoxNode(
+            type = "GraphicControlExtension", offset = 0, headerSize = 2, size = 8,
+            fields = listOf(
+                BoxField("disposal_method", "2", 0, 1),
+                BoxField("delay_time", "50", 0, 2),
+            ),
+        )
+        val comment = BoxNode(
+            type = "CommentExtension", offset = 0, headerSize = 2, size = 10,
+            fields = listOf(BoxField("comment", "Created with GIMP", 0, 18)),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(lsd, gce, comment))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val gifDetail = summary.sections.first { it.title == "GIF Detail" }
+        assertEquals("8-bit", gifDetail.fields.first { it.label == "Color Resolution" }.value)
+        assertEquals("Yes (256 colors)", gifDetail.fields.first { it.label == "Global Color Table" }.value)
+        assertEquals("Restore to Background", gifDetail.fields.first { it.label == "Disposal Method" }.value)
+        assertEquals("500 ms", gifDetail.fields.first { it.label == "Frame Delay" }.value)
+        assertEquals("Created with GIMP", gifDetail.fields.first { it.label == "Comment" }.value)
+    }
+
+    @Test
+    fun `a GIF with no global color table omits the Global Color Table, Disposal Method, and Comment fields`() {
+        val lsd = BoxNode(
+            type = "LogicalScreenDescriptor", offset = 0, headerSize = 0, size = 7,
+            fields = listOf(
+                BoxField("width", "320", 0, 2),
+                BoxField("height", "240", 0, 2),
+                BoxField("global_color_table_flag", "0", 0, 1),
+                BoxField("color_resolution", "7", 0, 1),
+                BoxField("global_color_table_size", "0", 0, 1),
+            ),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(lsd))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val gifDetail = summary.sections.first { it.title == "GIF Detail" }
+        assertEquals(null, gifDetail.fields.find { it.label == "Global Color Table" })
+        assertEquals(null, gifDetail.fields.find { it.label == "Disposal Method" })
+        assertEquals(null, gifDetail.fields.find { it.label == "Comment" })
+    }
+
+    @Test
+    fun `a non-GIF image (PNG) has no GIF Detail section`() {
+        val ihdr = BoxNode(
+            type = "IHDR", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("width", "1920", 0, 4), BoxField("height", "1080", 0, 4), BoxField("color_type", "6", 0, 1)),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ihdr))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        assertEquals(null, summary.sections.find { it.title == "GIF Detail" })
+    }
 }
