@@ -1744,4 +1744,51 @@ class MediaSummaryBuilderTest {
         assertEquals("0:00:10.000", general.fields.first { it.label == "Video Track Duration" }.value)
         assertEquals("0:00:10.500", general.fields.first { it.label == "Audio Track Duration" }.value)
     }
+
+    @Test
+    fun `WebM General reports Creation Date, Muxing App, and Writing App when present`() {
+        val dateUtc = BoxNode(type = "DateUTC", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("value", "2026-01-15T10:30:01", 0, 8)))
+        val muxingApp = BoxNode(type = "MuxingApp", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("value", "libwebm-0.3.0", 0, 13)))
+        val writingApp = BoxNode(type = "WritingApp", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("value", "google/video-file", 0, 18)))
+        val info = BoxNode(type = "Info", offset = 0, headerSize = 0, size = 0, children = listOf(dateUtc, muxingApp, writingApp))
+        val segment = BoxNode(type = "Segment", offset = 0, headerSize = 0, size = 0, children = listOf(info))
+        val ebml = BoxNode(type = "EBML", offset = 0, headerSize = 0, size = 0)
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ebml, segment))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val general = summary.sections.first { it.title == "General" }
+        assertEquals("2026-01-15T10:30:01", general.fields.first { it.label == "Creation Date" }.value)
+        assertEquals("libwebm-0.3.0", general.fields.first { it.label == "Muxing App" }.value)
+        assertEquals("google/video-file", general.fields.first { it.label == "Writing App" }.value)
+    }
+
+    @Test
+    fun `WebM General omits Creation Date, Muxing App, and Writing App when absent`() {
+        val info = BoxNode(type = "Info", offset = 0, headerSize = 0, size = 0)
+        val segment = BoxNode(type = "Segment", offset = 0, headerSize = 0, size = 0, children = listOf(info))
+        val ebml = BoxNode(type = "EBML", offset = 0, headerSize = 0, size = 0)
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ebml, segment))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val general = summary.sections.first { it.title == "General" }
+        assertEquals(null, general.fields.find { it.label == "Creation Date" })
+        assertEquals(null, general.fields.find { it.label == "Muxing App" })
+        assertEquals(null, general.fields.find { it.label == "Writing App" })
+    }
+
+    @Test
+    fun `WebM General omits Creation Date when DateUTC is 0 (not set)`() {
+        val dateUtc = BoxNode(type = "DateUTC", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("value", "0 (not set)", 0, 8)))
+        val info = BoxNode(type = "Info", offset = 0, headerSize = 0, size = 0, children = listOf(dateUtc))
+        val segment = BoxNode(type = "Segment", offset = 0, headerSize = 0, size = 0, children = listOf(info))
+        val ebml = BoxNode(type = "EBML", offset = 0, headerSize = 0, size = 0)
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ebml, segment))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val general = summary.sections.first { it.title == "General" }
+        assertEquals(null, general.fields.find { it.label == "Creation Date" })
+    }
 }
