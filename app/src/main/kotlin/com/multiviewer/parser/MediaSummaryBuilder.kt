@@ -685,7 +685,7 @@ private fun buildVideoSummary(root: BoxNode, fileSizeBytes: Long): List<SummaryS
     val videoTrak = traks.find { trakHandlerType(it) == "vide" }
     val audioTrak = traks.find { trakHandlerType(it) == "soun" }
 
-    sections.add(buildVideoGeneral(root, fileSizeBytes, moov))
+    sections.add(buildVideoGeneral(root, fileSizeBytes, moov, videoTrak, audioTrak))
     sections.add(buildTrackList(traks))
     buildVideoDetail(videoTrak)?.let { sections.add(it) }
     buildAudioDetail(audioTrak)?.let { sections.add(it) }
@@ -698,7 +698,7 @@ private fun trakHandlerType(trak: BoxNode): String? {
     return hdlr?.fields?.find { it.name == "handler_type" }?.value
 }
 
-private fun buildVideoGeneral(root: BoxNode, fileSizeBytes: Long, moov: BoxNode?): SummarySection {
+private fun buildVideoGeneral(root: BoxNode, fileSizeBytes: Long, moov: BoxNode?, videoTrak: BoxNode?, audioTrak: BoxNode?): SummarySection {
     val fields = mutableListOf<SummaryField>()
 
     val mvhd = moov?.children?.find { it.type == "mvhd" }
@@ -718,7 +718,26 @@ private fun buildVideoGeneral(root: BoxNode, fileSizeBytes: Long, moov: BoxNode?
         fields.add(SummaryField("Overall Bit Rate", formatBitrate(bitrate)))
     }
 
+    mvhd?.fields?.find { it.name == "creation_time" }?.value?.takeIf { !it.startsWith("0 ") }?.let {
+        fields.add(SummaryField("Creation Time", it))
+    }
+    mvhd?.fields?.find { it.name == "modification_time" }?.value?.takeIf { !it.startsWith("0 ") }?.let {
+        fields.add(SummaryField("Modification Time", it))
+    }
+
+    trackDuration(videoTrak)?.let { fields.add(SummaryField("Video Track Duration", it)) }
+    trackDuration(audioTrak)?.let { fields.add(SummaryField("Audio Track Duration", it)) }
+
     return SummarySection("General", fields)
+}
+
+private fun trackDuration(trak: BoxNode?): String? {
+    if (trak == null) return null
+    val mdhd = findFirst(trak) { it.type == "mdhd" }
+    val timescale = mdhd?.fields?.find { it.name == "timescale" }?.value?.toLongOrNull()
+    val duration = mdhd?.fields?.find { it.name == "duration" }?.value?.toLongOrNull()
+    if (timescale == null || timescale <= 0 || duration == null) return null
+    return formatDuration(duration.toDouble() / timescale)
 }
 
 private fun buildTrackList(traks: List<BoxNode>): SummarySection {
