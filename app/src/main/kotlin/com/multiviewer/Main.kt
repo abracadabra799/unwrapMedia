@@ -139,6 +139,7 @@ private fun runGuiApplication() = application {
     Window(onCloseRequest = ::exitApplication, title = "unwrapMedia", state = windowState) {
         var themeMode by remember { mutableStateOf(loadThemeMode()) }
         var frameIntervalWindowOpen by remember { mutableStateOf(false) }
+        var motionPhotoFrameIntervalWindowOpen by remember { mutableStateOf(false) }
         MenuBar {
             Menu("File") {
                 Item("Open", shortcut = KeyShortcut(Key.O, meta = true), onClick = { showOpenFileDialog(appState) })
@@ -155,6 +156,11 @@ private fun runGuiApplication() = application {
                     "모션포토 미리보기 재생용 비디오 추출",
                     enabled = currentTab?.motionPhotoPreview != null,
                     onClick = { currentTab?.let { extractMotionPhotoPreviewVideo(appState, it) } },
+                )
+                Item(
+                    "모션포토 동영상 프레임 드랍 분석",
+                    enabled = currentTab?.embeddedVideo != null,
+                    onClick = { motionPhotoFrameIntervalWindowOpen = true },
                 )
             }
             Menu("비트스트림 추출") {
@@ -311,6 +317,14 @@ private fun runGuiApplication() = application {
                     FrameIntervalAnalysisWindow(appState = appState, tab = currentTab, onCloseRequest = { frameIntervalWindowOpen = false })
                 } else {
                     frameIntervalWindowOpen = false
+                }
+            }
+            if (motionPhotoFrameIntervalWindowOpen) {
+                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                if (currentTab != null) {
+                    MotionPhotoFrameIntervalAnalysisWindow(appState = appState, tab = currentTab, onCloseRequest = { motionPhotoFrameIntervalWindowOpen = false })
+                } else {
+                    motionPhotoFrameIntervalWindowOpen = false
                 }
             }
             Surface(modifier = Modifier.fillMaxSize(), color = AppColors.Background) {
