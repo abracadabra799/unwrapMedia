@@ -124,6 +124,7 @@ private fun buildImageSummary(root: BoxNode, file: File): List<SummarySection> {
     buildPngDetail(root)?.let { sections.add(it) }
     buildBmpDetail(root)?.let { sections.add(it) }
     buildGifDetail(root)?.let { sections.add(it) }
+    buildWebpDetail(root)?.let { sections.add(it) }
 
     val ifd0 = findFirst(root) { it.type == "IFD0" }
     if (ifd0 != null) {
@@ -522,6 +523,30 @@ private fun buildGifDetail(root: BoxNode): SummarySection? {
     comment?.fields?.find { it.name == "comment" }?.let { fields.add(SummaryField("Comment", it.value)) }
 
     return if (fields.isNotEmpty()) SummarySection("GIF Detail", fields) else null
+}
+
+private fun buildWebpDetail(root: BoxNode): SummarySection? {
+    val isWebp = root.children.any { it.type == "RIFF" }
+    if (!isWebp) return null
+    val fields = mutableListOf<SummaryField>()
+
+    val vp8x = root.children.find { it.type == "VP8X" }
+    val codec = when {
+        vp8x != null -> "Extended (VP8X)"
+        root.children.any { it.type == "VP8 " } -> "Lossy (VP8)"
+        root.children.any { it.type == "VP8L" } -> "Lossless (VP8L)"
+        else -> null
+    }
+    codec?.let { fields.add(SummaryField("Codec", it)) }
+
+    val flags = vp8x?.fields?.find { it.name == "flags" }?.value?.removePrefix("0x")?.toIntOrNull(16)
+    if (flags != null) {
+        fields.add(SummaryField("Has Alpha", if (flags and 0x10 != 0) "Yes" else "No"))
+        fields.add(SummaryField("Has Animation", if (flags and 0x02 != 0) "Yes" else "No"))
+        fields.add(SummaryField("Has ICC Profile", if (flags and 0x20 != 0) "Yes" else "No"))
+    }
+
+    return if (fields.isNotEmpty()) SummarySection("WebP Detail", fields) else null
 }
 
 private val WEBM_CODEC_DISPLAY_NAMES = mapOf(

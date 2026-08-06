@@ -1452,4 +1452,66 @@ class MediaSummaryBuilderTest {
 
         assertEquals(null, summary.sections.find { it.title == "GIF Detail" })
     }
+
+    @Test
+    fun `a VP8X WebP reports Codec Extended and decodes alpha, animation, and ICC flags`() {
+        val vp8x = BoxNode(
+            type = "VP8X", offset = 0, headerSize = 8, size = 18,
+            fields = listOf(BoxField("flags", "0x30", 0, 1), BoxField("width", "640", 0, 3), BoxField("height", "480", 0, 3)),
+        )
+        val riff = BoxNode(type = "RIFF", offset = 0, headerSize = 8, size = 12)
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(riff, vp8x))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val webpDetail = summary.sections.first { it.title == "WebP Detail" }
+        assertEquals("Extended (VP8X)", webpDetail.fields.first { it.label == "Codec" }.value)
+        assertEquals("Yes", webpDetail.fields.first { it.label == "Has Alpha" }.value)
+        assertEquals("No", webpDetail.fields.first { it.label == "Has Animation" }.value)
+        assertEquals("Yes", webpDetail.fields.first { it.label == "Has ICC Profile" }.value)
+    }
+
+    @Test
+    fun `a plain VP8 WebP (no VP8X) reports Codec Lossy with no alpha, animation, or ICC fields`() {
+        val vp8 = BoxNode(
+            type = "VP8 ", offset = 0, headerSize = 8, size = 10,
+            fields = listOf(BoxField("width", "320", 0, 2), BoxField("height", "240", 0, 2)),
+        )
+        val riff = BoxNode(type = "RIFF", offset = 0, headerSize = 8, size = 12)
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(riff, vp8))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val webpDetail = summary.sections.first { it.title == "WebP Detail" }
+        assertEquals("Lossy (VP8)", webpDetail.fields.first { it.label == "Codec" }.value)
+        assertEquals(null, webpDetail.fields.find { it.label == "Has Alpha" })
+    }
+
+    @Test
+    fun `a plain VP8L WebP reports Codec Lossless`() {
+        val vp8l = BoxNode(
+            type = "VP8L", offset = 0, headerSize = 8, size = 9,
+            fields = listOf(BoxField("width", "320", 0, 2), BoxField("height", "240", 0, 2)),
+        )
+        val riff = BoxNode(type = "RIFF", offset = 0, headerSize = 8, size = 12)
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(riff, vp8l))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val webpDetail = summary.sections.first { it.title == "WebP Detail" }
+        assertEquals("Lossless (VP8L)", webpDetail.fields.first { it.label == "Codec" }.value)
+    }
+
+    @Test
+    fun `a non-WebP image (PNG) has no WebP Detail section`() {
+        val ihdr = BoxNode(
+            type = "IHDR", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("width", "1920", 0, 4), BoxField("height", "1080", 0, 4), BoxField("color_type", "6", 0, 1)),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ihdr))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        assertEquals(null, summary.sections.find { it.title == "WebP Detail" })
+    }
 }
