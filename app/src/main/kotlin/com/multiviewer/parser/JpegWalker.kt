@@ -141,6 +141,8 @@ private fun decodeSegment(reader: ByteReader, marker: Int, offset: Long, declare
         marker == 0xDA -> decodeSos(reader, name, offset, declaredSize, totalSize)
         marker == 0xFE -> decodeCom(reader, name, offset, declaredSize, totalSize)
         marker == 0xE0 -> decodeApp0(reader, name, offset, declaredSize, totalSize)
+        marker == 0xDD -> decodeDri(reader, name, offset, declaredSize, totalSize)
+        marker == 0xEE -> decodeApp14(reader, name, offset, declaredSize, totalSize)
         else -> BoxNode(type = name, offset = offset, headerSize = 4, size = totalSize)
     }
 }
@@ -474,6 +476,40 @@ private fun decodeApp0(reader: ByteReader, name: String, offset: Long, declaredS
         )
     }
     return BoxNode(type = name, offset = offset, headerSize = 4, size = totalSize)
+}
+
+private fun decodeDri(reader: ByteReader, name: String, offset: Long, declaredSize: Long, totalSize: Long): BoxNode {
+    val payloadStart = offset + 4
+    val payloadEnd = offset + declaredSize
+    if (payloadEnd - payloadStart < 2) {
+        return BoxNode(name, offset, 4, totalSize, warnings = listOf("Segment too short to contain a restart interval"))
+    }
+    val restartInterval = reader.readUInt16(payloadStart)
+    return BoxNode(
+        type = name, offset = offset, headerSize = 4, size = totalSize,
+        fields = listOf(BoxField("restart_interval", restartInterval.toString(), payloadStart, 2)),
+        summary = "restart_interval=$restartInterval",
+    )
+}
+
+private val ADOBE_PREFIX = byteArrayOf(0x41, 0x64, 0x6F, 0x62, 0x65) // "Adobe"
+
+private fun decodeApp14(reader: ByteReader, name: String, offset: Long, declaredSize: Long, totalSize: Long): BoxNode {
+    val payloadStart = offset + 4
+    val payloadEnd = offset + declaredSize
+    val bodySize = 7 // version(2) + flags0(2) + flags1(2) + transform(1)
+    val hasAdobePrefix = payloadEnd - payloadStart >= ADOBE_PREFIX.size &&
+        reader.readBytes(payloadStart, ADOBE_PREFIX.size).contentEquals(ADOBE_PREFIX)
+    if (!hasAdobePrefix || payloadEnd - payloadStart < ADOBE_PREFIX.size + bodySize) {
+        return BoxNode(type = name, offset = offset, headerSize = 4, size = totalSize)
+    }
+    val transformPos = payloadStart + ADOBE_PREFIX.size + 6 // skip version(2)+flags0(2)+flags1(2)
+    val colorTransform = reader.readUInt8(transformPos)
+    return BoxNode(
+        type = name, offset = offset, headerSize = 4, size = totalSize,
+        fields = listOf(BoxField("color_transform", colorTransform.toString(), transformPos, 1)),
+        summary = "Adobe, color_transform=$colorTransform",
+    )
 }
 
 private fun tryDecodeSefdTrailer(reader: ByteReader, start: Long, end: Long): BoxNode? {

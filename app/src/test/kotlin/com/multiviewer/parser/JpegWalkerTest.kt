@@ -577,4 +577,65 @@ class JpegWalkerTest {
         assertTrue(segments[2].warnings.isNotEmpty())
         reader.close()
     }
+
+    @Test
+    fun `DRI decodes the restart interval`() {
+        val bytes = byteArrayOf(
+            0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xdd.toByte(), 0x00, 0x04, 0x00, 0x10,
+            0xff.toByte(), 0xd9.toByte(),
+        )
+        val reader = byteReaderOf(bytes)
+        val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
+
+        assertEquals(listOf("SOI", "DRI", "EOI"), segments.map { it.type })
+        assertEquals("16", segments[1].fields.first { it.name == "restart_interval" }.value)
+        reader.close()
+    }
+
+    @Test
+    fun `DRI with a truncated payload produces a warning and no fields`() {
+        val bytes = byteArrayOf(
+            0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xdd.toByte(), 0x00, 0x03, 0x00,
+            0xff.toByte(), 0xd9.toByte(),
+        )
+        val reader = byteReaderOf(bytes)
+        val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
+
+        val dri = segments[1]
+        assertEquals(0, dri.fields.size)
+        assertTrue(dri.warnings.isNotEmpty())
+        reader.close()
+    }
+
+    @Test
+    fun `APP14 decodes the Adobe color_transform byte`() {
+        val bytes = byteArrayOf(
+            0xff.toByte(), 0xd8.toByte(),
+            0xff.toByte(), 0xee.toByte(), 0x00, 0x0e,
+            0x41, 0x64, 0x6f, 0x62, 0x65, 0x00, 0x64, 0x00, 0x00, 0x00, 0x00, 0x01,
+            0xff.toByte(), 0xd9.toByte(),
+        )
+        val reader = byteReaderOf(bytes)
+        val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
+
+        assertEquals(listOf("SOI", "APP14", "EOI"), segments.map { it.type })
+        assertEquals("1", segments[1].fields.first { it.name == "color_transform" }.value)
+        reader.close()
+    }
+
+    @Test
+    fun `a non-Adobe APP14 falls back to a plain structural node`() {
+        val bytes = byteArrayOf(
+            0xff.toByte(), 0xd8.toByte(),
+            0xff.toByte(), 0xee.toByte(), 0x00, 0x0e,
+            0x58, 0x58, 0x58, 0x58, 0x58, 0x58, 0x58, 0x58, 0x58, 0x58, 0x58, 0x58,
+            0xff.toByte(), 0xd9.toByte(),
+        )
+        val reader = byteReaderOf(bytes)
+        val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
+
+        assertEquals(listOf("SOI", "APP14", "EOI"), segments.map { it.type })
+        assertEquals(0, segments[1].fields.size)
+        reader.close()
+    }
 }
