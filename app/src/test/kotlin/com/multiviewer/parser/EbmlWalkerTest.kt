@@ -152,4 +152,39 @@ class EbmlWalkerTest {
         assertEquals("4 byte(s)", elements[0].summary)
         reader.close()
     }
+
+    @Test
+    fun `DateUTC decodes to a formatted date string, not a raw nanosecond integer`() {
+        // DateUTC (ID 0x4461, 2 bytes), size=8, value=1_000_000_000 ns after 2001-01-01T00:00:00Z
+        // (0x3B9ACA00), i.e. 2001-01-01T00:00:01Z.
+        val reader = byteReaderOf(
+            byteArrayOf(
+                0x44, 0x61.toByte(), // DateUTC element ID (2 bytes)
+                0x88.toByte(), // size = 8 (1-byte VINT)
+                0x00, 0x00, 0x00, 0x00, 0x3B, 0x9A.toByte(), 0xCA.toByte(), 0x00,
+            )
+        )
+        val elements = parseEbmlElements(reader, 0, reader.length)
+
+        assertEquals(1, elements.size)
+        assertEquals("DateUTC", elements[0].type)
+        assertEquals("2001-01-01T00:00:01", elements[0].fields.single { it.name == "value" }.value)
+        assertEquals("2001-01-01T00:00:01", elements[0].summary)
+        reader.close()
+    }
+
+    @Test
+    fun `a DateUTC of 0 shows as not set, matching the MP4 zero-timestamp convention`() {
+        val reader = byteReaderOf(
+            byteArrayOf(
+                0x44, 0x61.toByte(),
+                0x88.toByte(),
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            )
+        )
+        val elements = parseEbmlElements(reader, 0, reader.length)
+
+        assertEquals("0 (not set)", elements[0].fields.single { it.name == "value" }.value)
+        reader.close()
+    }
 }
