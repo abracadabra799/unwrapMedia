@@ -1138,4 +1138,73 @@ class MediaSummaryBuilderTest {
 
         assertEquals(null, summary.sections.find { it.title == "JPEG Detail" })
     }
+
+    @Test
+    fun `JPEG Detail describes only the first of two back-to-back JPEG streams at the root`() {
+        // Mirrors a real Samsung Motion Photo file: the primary photo's own SOI..EOI stream is
+        // immediately followed by a second, unrelated JPEG stream (e.g. an MPF secondary/preview
+        // image) as further direct root children.
+        val sof0Primary = BoxNode(
+            type = "SOF0", offset = 0, headerSize = 4, size = 19,
+            fields = listOf(
+                BoxField("precision", "8", 0, 1),
+                BoxField("height", "480", 0, 2),
+                BoxField("width", "640", 0, 2),
+                BoxField("num_components", "3", 0, 1),
+            ),
+        )
+        val dqtPrimary = BoxNode(
+            type = "DQT", offset = 0, headerSize = 0, size = 0,
+            children = listOf(
+                BoxNode(
+                    type = "QuantizationTable", offset = 0, headerSize = 0, size = 0,
+                    fields = listOf(
+                        BoxField("destination_id", "0 (Luminance)", 0, 1),
+                        BoxField("quality_estimate", "~90%", 0, 65),
+                    ),
+                ),
+            ),
+        )
+        val sof0Secondary = BoxNode(
+            type = "SOF0", offset = 0, headerSize = 4, size = 19,
+            fields = listOf(
+                BoxField("precision", "8", 0, 1),
+                BoxField("height", "120", 0, 2),
+                BoxField("width", "160", 0, 2),
+                BoxField("num_components", "3", 0, 1),
+            ),
+        )
+        val dqtSecondary = BoxNode(
+            type = "DQT", offset = 0, headerSize = 0, size = 0,
+            children = listOf(
+                BoxNode(
+                    type = "QuantizationTable", offset = 0, headerSize = 0, size = 0,
+                    fields = listOf(
+                        BoxField("destination_id", "0 (Luminance)", 0, 1),
+                        BoxField("quality_estimate", "~10%", 0, 65),
+                    ),
+                ),
+            ),
+        )
+        val root = BoxNode(
+            type = "root", offset = 0, headerSize = 0, size = 0,
+            children = listOf(
+                BoxNode(type = "SOI", offset = 0, headerSize = 2, size = 2),
+                sof0Primary,
+                dqtPrimary,
+                BoxNode(type = "EOI", offset = 0, headerSize = 2, size = 2),
+                BoxNode(type = "SOI", offset = 0, headerSize = 2, size = 2),
+                sof0Secondary,
+                dqtSecondary,
+                BoxNode(type = "EOI", offset = 0, headerSize = 2, size = 2),
+            ),
+        )
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val jpegDetail = summary.sections.first { it.title == "JPEG Detail" }
+        assertEquals("~90%", jpegDetail.fields.first { it.label == "Quality Estimate" }.value)
+        val image = summary.sections.first { it.title == "Image" }
+        assertEquals("640", image.fields.first { it.label == "Width" }.value)
+    }
 }
