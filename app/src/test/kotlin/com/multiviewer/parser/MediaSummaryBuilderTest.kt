@@ -1589,4 +1589,85 @@ class MediaSummaryBuilderTest {
 
         assertEquals(null, summary.sections.find { it.title == "TIFF Detail" })
     }
+
+    @Test
+    fun `HEIC primary item properties (irot, imir, pixi) and an alpha auxC report HEIC-AVIF Detail`() {
+        val irot = BoxNode(type = "irot", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("angle", "1", 0, 1)))
+        val imir = BoxNode(type = "imir", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("axis", "0", 0, 1)))
+        val pixi = BoxNode(type = "pixi", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("bits_per_channel", "8, 8, 8", 0, 3)))
+        val ipco = BoxNode(type = "ipco", offset = 0, headerSize = 0, size = 0, children = listOf(irot, imir, pixi))
+        val ipmaPrimaryItem = BoxNode(
+            type = "item_1", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(
+                BoxField("property_index", "1", 0, 1),
+                BoxField("property_index", "2", 0, 1),
+                BoxField("property_index", "3", 0, 1),
+            ),
+        )
+        val ipma = BoxNode(type = "ipma", offset = 0, headerSize = 0, size = 0, children = listOf(ipmaPrimaryItem))
+        val iprp = BoxNode(type = "iprp", offset = 0, headerSize = 0, size = 0, children = listOf(ipco, ipma))
+        val pitm = BoxNode(type = "pitm", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("primary_item_ID", "1", 0, 4)))
+        val auxC = BoxNode(
+            type = "auxC", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("aux_type", "urn:mpeg:mpegB:cicp:systems:auxiliary:alpha", 0, 44)),
+        )
+        val meta = BoxNode(type = "meta", offset = 0, headerSize = 0, size = 0, children = listOf(pitm, iprp, auxC))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(meta))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val heicDetail = summary.sections.first { it.title == "HEIC/AVIF Detail" }
+        assertEquals("90°", heicDetail.fields.first { it.label == "Rotation" }.value)
+        assertEquals("Horizontal Flip (좌우반전)", heicDetail.fields.first { it.label == "Mirror" }.value)
+        assertEquals("8, 8, 8", heicDetail.fields.first { it.label == "Bit Depth" }.value)
+        assertEquals("Yes", heicDetail.fields.first { it.label == "Has Alpha Channel" }.value)
+    }
+
+    @Test
+    fun `a HEIC with no irot, imir, pixi, or auxC has no HEIC-AVIF Detail section`() {
+        val ispe = BoxNode(type = "ispe", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("image_width", "800", 0, 4), BoxField("image_height", "600", 0, 4)))
+        val ipco = BoxNode(type = "ipco", offset = 0, headerSize = 0, size = 0, children = listOf(ispe))
+        val iprp = BoxNode(type = "iprp", offset = 0, headerSize = 0, size = 0, children = listOf(ipco))
+        val meta = BoxNode(type = "meta", offset = 0, headerSize = 0, size = 0, children = listOf(iprp))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(meta))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        assertEquals(null, summary.sections.find { it.title == "HEIC/AVIF Detail" })
+    }
+
+    @Test
+    fun `an auxC with a non-alpha aux_type does not set Has Alpha Channel`() {
+        val auxC = BoxNode(
+            type = "auxC", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("aux_type", "urn:mpeg:mpegB:cicp:systems:auxiliary:depth", 0, 44)),
+        )
+        val irot = BoxNode(type = "irot", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("angle", "0", 0, 1)))
+        val ipco = BoxNode(type = "ipco", offset = 0, headerSize = 0, size = 0, children = listOf(irot))
+        val ipmaPrimaryItem = BoxNode(type = "item_1", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("property_index", "1", 0, 1)))
+        val ipma = BoxNode(type = "ipma", offset = 0, headerSize = 0, size = 0, children = listOf(ipmaPrimaryItem))
+        val iprp = BoxNode(type = "iprp", offset = 0, headerSize = 0, size = 0, children = listOf(ipco, ipma))
+        val pitm = BoxNode(type = "pitm", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("primary_item_ID", "1", 0, 4)))
+        val meta = BoxNode(type = "meta", offset = 0, headerSize = 0, size = 0, children = listOf(pitm, iprp, auxC))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(meta))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val heicDetail = summary.sections.first { it.title == "HEIC/AVIF Detail" }
+        assertEquals(null, heicDetail.fields.find { it.label == "Has Alpha Channel" })
+        assertEquals("0°", heicDetail.fields.first { it.label == "Rotation" }.value)
+    }
+
+    @Test
+    fun `a non-HEIC image (PNG) has no HEIC-AVIF Detail section`() {
+        val ihdr = BoxNode(
+            type = "IHDR", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("width", "1920", 0, 4), BoxField("height", "1080", 0, 4), BoxField("color_type", "6", 0, 1)),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ihdr))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        assertEquals(null, summary.sections.find { it.title == "HEIC/AVIF Detail" })
+    }
 }

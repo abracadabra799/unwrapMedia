@@ -126,6 +126,7 @@ private fun buildImageSummary(root: BoxNode, file: File): List<SummarySection> {
     buildGifDetail(root)?.let { sections.add(it) }
     buildWebpDetail(root)?.let { sections.add(it) }
     buildTiffDetail(root)?.let { sections.add(it) }
+    buildHeicDetail(root)?.let { sections.add(it) }
 
     val ifd0 = findFirst(root) { it.type == "IFD0" }
     if (ifd0 != null) {
@@ -568,6 +569,31 @@ private fun buildTiffDetail(root: BoxNode): SummarySection? {
     }
 
     return if (fields.isNotEmpty()) SummarySection("TIFF Detail", fields) else null
+}
+
+private fun buildHeicDetail(root: BoxNode): SummarySection? {
+    val fields = mutableListOf<SummaryField>()
+
+    val irot = findPrimaryItemProperty(root, "irot")
+    irot?.fields?.find { it.name == "angle" }?.value?.toIntOrNull()?.let { angle ->
+        fields.add(SummaryField("Rotation", "${angle * 90}°"))
+    }
+
+    val imir = findPrimaryItemProperty(root, "imir")
+    imir?.fields?.find { it.name == "axis" }?.value?.toIntOrNull()?.let { axis ->
+        fields.add(SummaryField("Mirror", if (axis == 0) "Horizontal Flip (좌우반전)" else "Vertical Flip (상하반전)"))
+    }
+
+    val pixi = findPrimaryItemProperty(root, "pixi")
+    pixi?.fields?.find { it.name == "bits_per_channel" }?.let { fields.add(SummaryField("Bit Depth", it.value)) }
+
+    val auxC = findFirst(root) { it.type == "auxC" }
+    val auxType = auxC?.fields?.find { it.name == "aux_type" }?.value
+    if (auxType != null && auxType.contains("alpha", ignoreCase = true)) {
+        fields.add(SummaryField("Has Alpha Channel", "Yes"))
+    }
+
+    return if (fields.isNotEmpty()) SummarySection("HEIC/AVIF Detail", fields) else null
 }
 
 private val WEBM_CODEC_DISPLAY_NAMES = mapOf(
