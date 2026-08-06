@@ -125,6 +125,7 @@ private fun buildImageSummary(root: BoxNode, file: File): List<SummarySection> {
     buildBmpDetail(root)?.let { sections.add(it) }
     buildGifDetail(root)?.let { sections.add(it) }
     buildWebpDetail(root)?.let { sections.add(it) }
+    buildTiffDetail(root)?.let { sections.add(it) }
 
     val ifd0 = findFirst(root) { it.type == "IFD0" }
     if (ifd0 != null) {
@@ -547,6 +548,26 @@ private fun buildWebpDetail(root: BoxNode): SummarySection? {
     }
 
     return if (fields.isNotEmpty()) SummarySection("WebP Detail", fields) else null
+}
+
+private fun buildTiffDetail(root: BoxNode): SummarySection? {
+    val ifd0 = findFirst(root) { it.type == "IFD0" } ?: return null
+    val fields = mutableListOf<SummaryField>()
+
+    ifd0.fields.find { it.name == "Orientation" }?.let { fields.add(SummaryField("Orientation", it.value)) }
+    ifd0.fields.find { it.name == "Compression" }?.let { fields.add(SummaryField("Compression", it.value)) }
+    ifd0.fields.find { it.name == "PhotometricInterpretation" }?.let { fields.add(SummaryField("Photometric Interpretation", it.value)) }
+    ifd0.fields.find { it.name == "BitsPerSample" }?.let { fields.add(SummaryField("Bits Per Sample", it.value)) }
+    ifd0.fields.find { it.name == "SamplesPerPixel" }?.let { fields.add(SummaryField("Samples Per Pixel", it.value)) }
+
+    val xRes = ifd0.fields.find { it.name == "XResolution" }?.value
+    val yRes = ifd0.fields.find { it.name == "YResolution" }?.value
+    if (xRes != null && yRes != null) {
+        val unit = ifd0.fields.find { it.name == "ResolutionUnit" }?.value
+        fields.add(SummaryField("Resolution", if (unit != null) "$xRes x $yRes $unit" else "$xRes x $yRes"))
+    }
+
+    return if (fields.isNotEmpty()) SummarySection("TIFF Detail", fields) else null
 }
 
 private val WEBM_CODEC_DISPLAY_NAMES = mapOf(

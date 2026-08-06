@@ -1514,4 +1514,79 @@ class MediaSummaryBuilderTest {
 
         assertEquals(null, summary.sections.find { it.title == "WebP Detail" })
     }
+
+    @Test
+    fun `a TIFF with Orientation, Compression, PhotometricInterpretation, sample fields, and Resolution reports TIFF Detail`() {
+        val ifd0 = BoxNode(
+            type = "IFD0", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(
+                BoxField("ImageWidth", "640", 0, 2),
+                BoxField("ImageLength", "480", 0, 2),
+                BoxField("Orientation", "Horizontal (normal)", 0, 2),
+                BoxField("Compression", "Uncompressed", 0, 2),
+                BoxField("PhotometricInterpretation", "RGB", 0, 2),
+                BoxField("BitsPerSample", "8, 8, 8", 0, 6),
+                BoxField("SamplesPerPixel", "3", 0, 2),
+                BoxField("XResolution", "300/1", 0, 8),
+                BoxField("YResolution", "300/1", 0, 8),
+                BoxField("ResolutionUnit", "inches", 0, 2),
+            ),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ifd0))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val tiffDetail = summary.sections.first { it.title == "TIFF Detail" }
+        assertEquals("Horizontal (normal)", tiffDetail.fields.first { it.label == "Orientation" }.value)
+        assertEquals("Uncompressed", tiffDetail.fields.first { it.label == "Compression" }.value)
+        assertEquals("RGB", tiffDetail.fields.first { it.label == "Photometric Interpretation" }.value)
+        assertEquals("8, 8, 8", tiffDetail.fields.first { it.label == "Bits Per Sample" }.value)
+        assertEquals("3", tiffDetail.fields.first { it.label == "Samples Per Pixel" }.value)
+        assertEquals("300/1 x 300/1 inches", tiffDetail.fields.first { it.label == "Resolution" }.value)
+    }
+
+    @Test
+    fun `a TIFF with XResolution and YResolution but no ResolutionUnit omits the unit suffix`() {
+        val ifd0 = BoxNode(
+            type = "IFD0", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(
+                BoxField("ImageWidth", "640", 0, 2),
+                BoxField("ImageLength", "480", 0, 2),
+                BoxField("XResolution", "72/1", 0, 8),
+                BoxField("YResolution", "72/1", 0, 8),
+            ),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ifd0))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val tiffDetail = summary.sections.first { it.title == "TIFF Detail" }
+        assertEquals("72/1 x 72/1", tiffDetail.fields.first { it.label == "Resolution" }.value)
+    }
+
+    @Test
+    fun `a TIFF with no Orientation, Compression, or Resolution fields has no TIFF Detail section`() {
+        val ifd0 = BoxNode(
+            type = "IFD0", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("ImageWidth", "640", 0, 2), BoxField("ImageLength", "480", 0, 2), BoxField("Make", "TiffCam", 0, 7)),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ifd0))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        assertEquals(null, summary.sections.find { it.title == "TIFF Detail" })
+    }
+
+    @Test
+    fun `a non-TIFF image (PNG) has no TIFF Detail section`() {
+        val ihdr = BoxNode(
+            type = "IHDR", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("width", "1920", 0, 4), BoxField("height", "1080", 0, 4), BoxField("color_type", "6", 0, 1)),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ihdr))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        assertEquals(null, summary.sections.find { it.title == "TIFF Detail" })
+    }
 }
