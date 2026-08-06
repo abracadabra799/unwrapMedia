@@ -119,6 +119,7 @@ private fun buildImageSummary(root: BoxNode, file: File): List<SummarySection> {
     val sections = mutableListOf<SummarySection>()
     sections.add(buildImageGeneral(root, file))
     buildImageDetail(root)?.let { sections.add(it) }
+    buildJpegDetail(root)?.let { sections.add(it) }
 
     val ifd0 = findFirst(root) { it.type == "IFD0" }
     if (ifd0 != null) {
@@ -279,6 +280,140 @@ private fun buildImageDetail(root: BoxNode): SummarySection? {
     }
 
     return if (fields.isNotEmpty()) SummarySection("Image", fields) else null
+}
+
+private val SOF_ENCODING_NAMES = mapOf(
+    0 to "Baseline DCT (Huffman)",
+    1 to "Extended Sequential DCT (Huffman)",
+    2 to "Progressive DCT (Huffman)",
+    3 to "Lossless (Sequential, Huffman)",
+    5 to "Differential Sequential DCT (Huffman)",
+    6 to "Differential Progressive DCT (Huffman)",
+    7 to "Differential Lossless (Huffman)",
+    9 to "Extended Sequential DCT (Arithmetic)",
+    10 to "Progressive DCT (Arithmetic)",
+    11 to "Lossless (Sequential, Arithmetic)",
+    13 to "Differential Sequential DCT (Arithmetic)",
+    14 to "Differential Progressive DCT (Arithmetic)",
+    15 to "Differential Lossless (Arithmetic)",
+)
+
+private val STANDARD_DC_LUMINANCE_BITS = intArrayOf(0, 1, 5, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0)
+private val STANDARD_DC_LUMINANCE_VALUES = intArrayOf(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+
+private val STANDARD_DC_CHROMINANCE_BITS = intArrayOf(0, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0)
+private val STANDARD_DC_CHROMINANCE_VALUES = intArrayOf(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+
+private val STANDARD_AC_LUMINANCE_BITS = intArrayOf(0, 2, 1, 3, 3, 2, 4, 3, 5, 5, 4, 4, 0, 0, 1, 0x7D)
+private val STANDARD_AC_LUMINANCE_VALUES = intArrayOf(
+    0x01, 0x02, 0x03, 0x00, 0x04, 0x11, 0x05, 0x12, 0x21, 0x31, 0x41, 0x06, 0x13, 0x51, 0x61, 0x07,
+    0x22, 0x71, 0x14, 0x32, 0x81, 0x91, 0xA1, 0x08, 0x23, 0x42, 0xB1, 0xC1, 0x15, 0x52, 0xD1, 0xF0,
+    0x24, 0x33, 0x62, 0x72, 0x82, 0x09, 0x0A, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x25, 0x26, 0x27, 0x28,
+    0x29, 0x2A, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49,
+    0x4A, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69,
+    0x6A, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89,
+    0x8A, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7,
+    0xA8, 0xA9, 0xAA, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xC2, 0xC3, 0xC4, 0xC5,
+    0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA, 0xE1, 0xE2,
+    0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8,
+    0xF9, 0xFA,
+)
+
+private val STANDARD_AC_CHROMINANCE_BITS = intArrayOf(0, 2, 1, 2, 4, 4, 3, 4, 7, 5, 4, 4, 0, 1, 2, 0x77)
+private val STANDARD_AC_CHROMINANCE_VALUES = intArrayOf(
+    0x00, 0x01, 0x02, 0x03, 0x11, 0x04, 0x05, 0x21, 0x31, 0x06, 0x12, 0x41, 0x51, 0x07, 0x61, 0x71,
+    0x13, 0x22, 0x32, 0x81, 0x08, 0x14, 0x42, 0x91, 0xA1, 0xB1, 0xC1, 0x09, 0x23, 0x33, 0x52, 0xF0,
+    0x15, 0x62, 0x72, 0xD1, 0x0A, 0x16, 0x24, 0x34, 0xE1, 0x25, 0xF1, 0x17, 0x18, 0x19, 0x1A, 0x26,
+    0x27, 0x28, 0x29, 0x2A, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48,
+    0x49, 0x4A, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68,
+    0x69, 0x6A, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87,
+    0x88, 0x89, 0x8A, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0xA2, 0xA3, 0xA4, 0xA5,
+    0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xC2, 0xC3,
+    0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA,
+    0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8,
+    0xF9, 0xFA,
+)
+
+private fun standardHuffmanTable(className: String, destinationId: String): Pair<IntArray, IntArray>? = when {
+    className == "DC" && destinationId == "0" -> STANDARD_DC_LUMINANCE_BITS to STANDARD_DC_LUMINANCE_VALUES
+    className == "DC" && destinationId == "1" -> STANDARD_DC_CHROMINANCE_BITS to STANDARD_DC_CHROMINANCE_VALUES
+    className == "AC" && destinationId == "0" -> STANDARD_AC_LUMINANCE_BITS to STANDARD_AC_LUMINANCE_VALUES
+    className == "AC" && destinationId == "1" -> STANDARD_AC_CHROMINANCE_BITS to STANDARD_AC_CHROMINANCE_VALUES
+    else -> null
+}
+
+private fun huffmanTableMatchesStandard(table: BoxNode): Boolean {
+    val className = table.fields.find { it.name == "class" }?.value ?: return false
+    val destinationId = table.fields.find { it.name == "destination_id" }?.value ?: return false
+    val (standardBits, standardValues) = standardHuffmanTable(className, destinationId) ?: return false
+
+    val actualBits = table.fields.find { it.name == "bit_counts" }?.value
+        ?.split(", ")?.map { it.trim().toInt() }?.toIntArray() ?: return false
+    if (!actualBits.contentEquals(standardBits)) return false
+
+    val actualValues = (1..16).flatMap { length ->
+        val field = table.fields.find { it.name == "codes_length_${length.toString().padStart(2, '0')}" }
+        field?.value?.split(", ")?.map { it.trim().toInt(16) } ?: emptyList()
+    }.toIntArray()
+    return actualValues.contentEquals(standardValues)
+}
+
+private fun buildJpegDetail(root: BoxNode): SummarySection? {
+    val sof = findFirst(root) { it.type.startsWith("SOF") } ?: return null
+    val fields = mutableListOf<SummaryField>()
+
+    sof.type.removePrefix("SOF").toIntOrNull()?.let { sofNumber ->
+        SOF_ENCODING_NAMES[sofNumber]?.let { fields.add(SummaryField("Encoding", it)) }
+    }
+    sof.fields.find { it.name == "precision" }?.let { fields.add(SummaryField("Precision", "${it.value}-bit")) }
+
+    val quantizationTables = root.children.filter { it.type == "DQT" }.flatMap { it.children }
+    val luminanceTable = quantizationTables.find {
+        it.fields.find { f -> f.name == "destination_id" }?.value?.startsWith("0") == true
+    }
+    (luminanceTable ?: quantizationTables.firstOrNull())
+        ?.fields?.find { it.name == "quality_estimate" }
+        ?.let { fields.add(SummaryField("Quality Estimate", it.value)) }
+
+    val huffmanTables = root.children.filter { it.type == "DHT" }.flatMap { it.children }
+    if (huffmanTables.isNotEmpty()) {
+        val mismatchLabels = huffmanTables.mapNotNull { table ->
+            if (huffmanTableMatchesStandard(table)) {
+                null
+            } else {
+                val className = table.fields.find { it.name == "class" }?.value ?: "?"
+                val destinationId = table.fields.find { it.name == "destination_id" }?.value ?: "?"
+                "$className$destinationId"
+            }
+        }
+        val huffmanValue = if (mismatchLabels.isEmpty()) {
+            "Standard"
+        } else {
+            "Custom/Optimized (differs: ${mismatchLabels.joinToString(", ")})"
+        }
+        fields.add(SummaryField("Huffman Tables", huffmanValue))
+    }
+
+    val app14 = root.children.find { it.type == "APP14" }
+    app14?.fields?.find { it.name == "color_transform" }?.value?.toIntOrNull()?.let { transform ->
+        val numComponents = sof.fields.find { it.name == "num_components" }?.value?.toIntOrNull()
+        val label = when (transform) {
+            1 -> "YCbCr"
+            2 -> "YCCK"
+            0 -> if (numComponents == 4) "CMYK" else "RGB"
+            else -> "Unknown ($transform)"
+        }
+        fields.add(SummaryField("Adobe Color Transform", label))
+    }
+
+    val dri = root.children.find { it.type == "DRI" }
+    dri?.fields?.find { it.name == "restart_interval" }
+        ?.let { fields.add(SummaryField("Restart Interval", "${it.value} MCUs")) }
+
+    val com = root.children.find { it.type == "COM" }
+    com?.fields?.find { it.name == "comment" }?.let { fields.add(SummaryField("Comment", it.value)) }
+
+    return if (fields.isNotEmpty()) SummarySection("JPEG Detail", fields) else null
 }
 
 private val WEBM_CODEC_DISPLAY_NAMES = mapOf(
