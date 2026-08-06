@@ -117,7 +117,9 @@ class MediaSummaryBuilderTest {
         val summary = buildMediaSummary(root, tmp)
 
         assertEquals(MediaCategory.IMAGE, summary.category)
-        assertEquals(5, summary.sections.size)
+        // 6, not 5: this fixture's SOF0 node now also produces a "JPEG Detail" section
+        // (Encoding + Precision, since this fixture has no DQT/DHT/APP14/DRI/COM).
+        assertEquals(6, summary.sections.size)
 
         val general = summary.sections.first { it.title == "General" }
         assertEquals("1.5 MB", general.fields.first { it.label == "File Size" }.value)
@@ -162,9 +164,12 @@ class MediaSummaryBuilderTest {
         )
         val summary = buildMediaSummary(root, tempFile())
 
-        assertEquals(2, summary.sections.size)
+        // 3, not 2: this fixture's SOF0 node now also produces a "JPEG Detail" section
+        // (Encoding + Precision, since this fixture has no DQT/DHT/APP14/DRI/COM).
+        assertEquals(3, summary.sections.size)
         assertEquals("General", summary.sections[0].title)
         assertEquals("Image", summary.sections[1].title)
+        assertEquals("JPEG Detail", summary.sections[2].title)
         val image = summary.sections.first { it.title == "Image" }
         assertEquals("Grayscale", image.fields.first { it.label == "Color Space" }.value)
     }
@@ -772,5 +777,365 @@ class MediaSummaryBuilderTest {
         assertEquals(listOf(SummaryField("Format", "MOV")), merged[0].fields)
         assertEquals(listOf(SummaryField("Format", "HEVC"), SummaryField("Profile", "Main")), merged[1].fields)
         assertEquals(listOf(SummaryField("Format", "AAC"), SummaryField("Profile", "LC")), merged[2].fields)
+    }
+
+    @Test
+    fun `a JPEG with all-standard Huffman tables reports Huffman Tables as Standard`() {
+        val sof0 = BoxNode(
+            type = "SOF0", offset = 0, headerSize = 4, size = 19,
+            fields = listOf(
+                BoxField("precision", "8", 0, 1),
+                BoxField("height", "480", 0, 2),
+                BoxField("width", "640", 0, 2),
+                BoxField("num_components", "3", 0, 1),
+            ),
+        )
+        val dcLuminance = BoxNode(
+            type = "HuffmanTable", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(
+                BoxField("class", "DC", 0, 1),
+                BoxField("destination_id", "0", 0, 1),
+                BoxField("bit_counts", "0, 1, 5, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0", 0, 16),
+                BoxField("codes_length_02", "00", 0, 1),
+                BoxField("codes_length_03", "01, 02, 03, 04, 05", 0, 5),
+                BoxField("codes_length_04", "06", 0, 1),
+                BoxField("codes_length_05", "07", 0, 1),
+                BoxField("codes_length_06", "08", 0, 1),
+                BoxField("codes_length_07", "09", 0, 1),
+                BoxField("codes_length_08", "0A", 0, 1),
+                BoxField("codes_length_09", "0B", 0, 1),
+            ),
+        )
+        val dcChrominance = BoxNode(
+            type = "HuffmanTable", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(
+                BoxField("class", "DC", 0, 1),
+                BoxField("destination_id", "1", 0, 1),
+                BoxField("bit_counts", "0, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0", 0, 16),
+                BoxField("codes_length_02", "00, 01, 02", 0, 3),
+                BoxField("codes_length_03", "03", 0, 1),
+                BoxField("codes_length_04", "04", 0, 1),
+                BoxField("codes_length_05", "05", 0, 1),
+                BoxField("codes_length_06", "06", 0, 1),
+                BoxField("codes_length_07", "07", 0, 1),
+                BoxField("codes_length_08", "08", 0, 1),
+                BoxField("codes_length_09", "09", 0, 1),
+                BoxField("codes_length_10", "0A", 0, 1),
+                BoxField("codes_length_11", "0B", 0, 1),
+            ),
+        )
+        val dht = BoxNode(type = "DHT", offset = 0, headerSize = 0, size = 0, children = listOf(dcLuminance, dcChrominance))
+        val root = BoxNode(
+            type = "root", offset = 0, headerSize = 0, size = 0,
+            children = listOf(BoxNode(type = "SOI", offset = 0, headerSize = 2, size = 2), sof0, dht),
+        )
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val jpegDetail = summary.sections.first { it.title == "JPEG Detail" }
+        assertEquals("Standard", jpegDetail.fields.first { it.label == "Huffman Tables" }.value)
+    }
+
+    @Test
+    fun `a JPEG with one non-standard Huffman table reports Custom Optimized with the mismatched table labeled`() {
+        val sof0 = BoxNode(
+            type = "SOF0", offset = 0, headerSize = 4, size = 19,
+            fields = listOf(
+                BoxField("precision", "8", 0, 1),
+                BoxField("height", "480", 0, 2),
+                BoxField("width", "640", 0, 2),
+                BoxField("num_components", "3", 0, 1),
+            ),
+        )
+        val dcLuminanceStandard = BoxNode(
+            type = "HuffmanTable", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(
+                BoxField("class", "DC", 0, 1),
+                BoxField("destination_id", "0", 0, 1),
+                BoxField("bit_counts", "0, 1, 5, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0", 0, 16),
+                BoxField("codes_length_02", "00", 0, 1),
+                BoxField("codes_length_03", "01, 02, 03, 04, 05", 0, 5),
+                BoxField("codes_length_04", "06", 0, 1),
+                BoxField("codes_length_05", "07", 0, 1),
+                BoxField("codes_length_06", "08", 0, 1),
+                BoxField("codes_length_07", "09", 0, 1),
+                BoxField("codes_length_08", "0A", 0, 1),
+                BoxField("codes_length_09", "0B", 0, 1),
+            ),
+        )
+        val dcChrominanceCustom = BoxNode(
+            type = "HuffmanTable", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(
+                BoxField("class", "DC", 0, 1),
+                BoxField("destination_id", "1", 0, 1),
+                BoxField("bit_counts", "0, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0", 0, 16),
+                BoxField("codes_length_02", "00, 01, 02, 03, 04, 05, 06, 07, 08, 09, 0A, 0B", 0, 12),
+            ),
+        )
+        val dht = BoxNode(type = "DHT", offset = 0, headerSize = 0, size = 0, children = listOf(dcLuminanceStandard, dcChrominanceCustom))
+        val root = BoxNode(
+            type = "root", offset = 0, headerSize = 0, size = 0,
+            children = listOf(BoxNode(type = "SOI", offset = 0, headerSize = 2, size = 2), sof0, dht),
+        )
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val jpegDetail = summary.sections.first { it.title == "JPEG Detail" }
+        assertEquals("Custom/Optimized (differs: DC1)", jpegDetail.fields.first { it.label == "Huffman Tables" }.value)
+    }
+
+    @Test
+    fun `a JPEG with no DHT omits the Huffman Tables field but still reports Encoding and Precision`() {
+        val sof0 = BoxNode(
+            type = "SOF0", offset = 0, headerSize = 4, size = 19,
+            fields = listOf(
+                BoxField("precision", "8", 0, 1),
+                BoxField("height", "480", 0, 2),
+                BoxField("width", "640", 0, 2),
+                BoxField("num_components", "3", 0, 1),
+            ),
+        )
+        val root = BoxNode(
+            type = "root", offset = 0, headerSize = 0, size = 0,
+            children = listOf(BoxNode(type = "SOI", offset = 0, headerSize = 2, size = 2), sof0),
+        )
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val jpegDetail = summary.sections.first { it.title == "JPEG Detail" }
+        assertEquals(null, jpegDetail.fields.find { it.label == "Huffman Tables" })
+        assertEquals("Baseline DCT (Huffman)", jpegDetail.fields.first { it.label == "Encoding" }.value)
+        assertEquals("8-bit", jpegDetail.fields.first { it.label == "Precision" }.value)
+    }
+
+    @Test
+    fun `a SOF2 JPEG reports Encoding as Progressive DCT (Huffman)`() {
+        val sof2 = BoxNode(
+            type = "SOF2", offset = 0, headerSize = 4, size = 19,
+            fields = listOf(
+                BoxField("precision", "8", 0, 1),
+                BoxField("height", "480", 0, 2),
+                BoxField("width", "640", 0, 2),
+                BoxField("num_components", "3", 0, 1),
+            ),
+        )
+        val root = BoxNode(
+            type = "root", offset = 0, headerSize = 0, size = 0,
+            children = listOf(BoxNode(type = "SOI", offset = 0, headerSize = 2, size = 2), sof2),
+        )
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val jpegDetail = summary.sections.first { it.title == "JPEG Detail" }
+        assertEquals("Progressive DCT (Huffman)", jpegDetail.fields.first { it.label == "Encoding" }.value)
+    }
+
+    @Test
+    fun `Quality Estimate prefers the Luminance (destination_id 0) quantization table when both are present`() {
+        val sof0 = BoxNode(
+            type = "SOF0", offset = 0, headerSize = 4, size = 19,
+            fields = listOf(
+                BoxField("precision", "8", 0, 1),
+                BoxField("height", "480", 0, 2),
+                BoxField("width", "640", 0, 2),
+                BoxField("num_components", "3", 0, 1),
+            ),
+        )
+        val chrominanceTable = BoxNode(
+            type = "QuantizationTable", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(
+                BoxField("destination_id", "1 (Chrominance)", 0, 1),
+                BoxField("quality_estimate", "~50%", 0, 65),
+            ),
+        )
+        val luminanceTable = BoxNode(
+            type = "QuantizationTable", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(
+                BoxField("destination_id", "0 (Luminance)", 0, 1),
+                BoxField("quality_estimate", "~90%", 0, 65),
+            ),
+        )
+        // Chrominance listed first in tree order to prove selection is by destination_id, not position.
+        val dqt = BoxNode(type = "DQT", offset = 0, headerSize = 0, size = 0, children = listOf(chrominanceTable, luminanceTable))
+        val root = BoxNode(
+            type = "root", offset = 0, headerSize = 0, size = 0,
+            children = listOf(BoxNode(type = "SOI", offset = 0, headerSize = 2, size = 2), sof0, dqt),
+        )
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val jpegDetail = summary.sections.first { it.title == "JPEG Detail" }
+        assertEquals("~90%", jpegDetail.fields.first { it.label == "Quality Estimate" }.value)
+    }
+
+    @Test
+    fun `APP14 color_transform 0 with 4 components reports Adobe Color Transform as CMYK`() {
+        val sof0 = BoxNode(
+            type = "SOF0", offset = 0, headerSize = 4, size = 19,
+            fields = listOf(
+                BoxField("precision", "8", 0, 1),
+                BoxField("height", "480", 0, 2),
+                BoxField("width", "640", 0, 2),
+                BoxField("num_components", "4", 0, 1),
+            ),
+        )
+        val app14 = BoxNode(
+            type = "APP14", offset = 0, headerSize = 4, size = 16,
+            fields = listOf(BoxField("color_transform", "0", 0, 1)),
+        )
+        val root = BoxNode(
+            type = "root", offset = 0, headerSize = 0, size = 0,
+            children = listOf(BoxNode(type = "SOI", offset = 0, headerSize = 2, size = 2), sof0, app14),
+        )
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val jpegDetail = summary.sections.first { it.title == "JPEG Detail" }
+        assertEquals("CMYK", jpegDetail.fields.first { it.label == "Adobe Color Transform" }.value)
+    }
+
+    @Test
+    fun `APP14 color_transform 0 with 3 components reports Adobe Color Transform as RGB`() {
+        val sof0 = BoxNode(
+            type = "SOF0", offset = 0, headerSize = 4, size = 19,
+            fields = listOf(
+                BoxField("precision", "8", 0, 1),
+                BoxField("height", "480", 0, 2),
+                BoxField("width", "640", 0, 2),
+                BoxField("num_components", "3", 0, 1),
+            ),
+        )
+        val app14 = BoxNode(
+            type = "APP14", offset = 0, headerSize = 4, size = 16,
+            fields = listOf(BoxField("color_transform", "0", 0, 1)),
+        )
+        val root = BoxNode(
+            type = "root", offset = 0, headerSize = 0, size = 0,
+            children = listOf(BoxNode(type = "SOI", offset = 0, headerSize = 2, size = 2), sof0, app14),
+        )
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val jpegDetail = summary.sections.first { it.title == "JPEG Detail" }
+        assertEquals("RGB", jpegDetail.fields.first { it.label == "Adobe Color Transform" }.value)
+    }
+
+    @Test
+    fun `APP14 color_transform 1 reports Adobe Color Transform as YCbCr`() {
+        val sof0 = BoxNode(
+            type = "SOF0", offset = 0, headerSize = 4, size = 19,
+            fields = listOf(
+                BoxField("precision", "8", 0, 1),
+                BoxField("height", "480", 0, 2),
+                BoxField("width", "640", 0, 2),
+                BoxField("num_components", "3", 0, 1),
+            ),
+        )
+        val app14 = BoxNode(
+            type = "APP14", offset = 0, headerSize = 4, size = 16,
+            fields = listOf(BoxField("color_transform", "1", 0, 1)),
+        )
+        val root = BoxNode(
+            type = "root", offset = 0, headerSize = 0, size = 0,
+            children = listOf(BoxNode(type = "SOI", offset = 0, headerSize = 2, size = 2), sof0, app14),
+        )
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val jpegDetail = summary.sections.first { it.title == "JPEG Detail" }
+        assertEquals("YCbCr", jpegDetail.fields.first { it.label == "Adobe Color Transform" }.value)
+    }
+
+    @Test
+    fun `a JPEG with no APP14 omits the Adobe Color Transform field`() {
+        val sof0 = BoxNode(
+            type = "SOF0", offset = 0, headerSize = 4, size = 19,
+            fields = listOf(
+                BoxField("precision", "8", 0, 1),
+                BoxField("height", "480", 0, 2),
+                BoxField("width", "640", 0, 2),
+                BoxField("num_components", "3", 0, 1),
+            ),
+        )
+        val root = BoxNode(
+            type = "root", offset = 0, headerSize = 0, size = 0,
+            children = listOf(BoxNode(type = "SOI", offset = 0, headerSize = 2, size = 2), sof0),
+        )
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val jpegDetail = summary.sections.first { it.title == "JPEG Detail" }
+        assertEquals(null, jpegDetail.fields.find { it.label == "Adobe Color Transform" })
+    }
+
+    @Test
+    fun `a JPEG with DRI and COM segments reports Restart Interval and Comment`() {
+        val sof0 = BoxNode(
+            type = "SOF0", offset = 0, headerSize = 4, size = 19,
+            fields = listOf(
+                BoxField("precision", "8", 0, 1),
+                BoxField("height", "480", 0, 2),
+                BoxField("width", "640", 0, 2),
+                BoxField("num_components", "3", 0, 1),
+            ),
+        )
+        val dri = BoxNode(
+            type = "DRI", offset = 0, headerSize = 4, size = 6,
+            fields = listOf(BoxField("restart_interval", "16", 0, 2)),
+        )
+        val com = BoxNode(
+            type = "COM", offset = 0, headerSize = 4, size = 14,
+            fields = listOf(BoxField("comment", "Created with GIMP", 0, 10)),
+        )
+        val root = BoxNode(
+            type = "root", offset = 0, headerSize = 0, size = 0,
+            children = listOf(BoxNode(type = "SOI", offset = 0, headerSize = 2, size = 2), sof0, dri, com),
+        )
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val jpegDetail = summary.sections.first { it.title == "JPEG Detail" }
+        assertEquals("16 MCUs", jpegDetail.fields.first { it.label == "Restart Interval" }.value)
+        assertEquals("Created with GIMP", jpegDetail.fields.first { it.label == "Comment" }.value)
+    }
+
+    @Test
+    fun `a JPEG with no DRI or COM segments omits Restart Interval and Comment`() {
+        val sof0 = BoxNode(
+            type = "SOF0", offset = 0, headerSize = 4, size = 19,
+            fields = listOf(
+                BoxField("precision", "8", 0, 1),
+                BoxField("height", "480", 0, 2),
+                BoxField("width", "640", 0, 2),
+                BoxField("num_components", "3", 0, 1),
+            ),
+        )
+        val root = BoxNode(
+            type = "root", offset = 0, headerSize = 0, size = 0,
+            children = listOf(BoxNode(type = "SOI", offset = 0, headerSize = 2, size = 2), sof0),
+        )
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val jpegDetail = summary.sections.first { it.title == "JPEG Detail" }
+        assertEquals(null, jpegDetail.fields.find { it.label == "Restart Interval" })
+        assertEquals(null, jpegDetail.fields.find { it.label == "Comment" })
+    }
+
+    @Test
+    fun `a non-JPEG image (PNG) has no JPEG Detail section`() {
+        val ihdr = BoxNode(
+            type = "IHDR", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(
+                BoxField("width", "1920", 0, 4),
+                BoxField("height", "1080", 0, 4),
+                BoxField("color_type", "6", 0, 1),
+            ),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ihdr))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        assertEquals(null, summary.sections.find { it.title == "JPEG Detail" })
     }
 }
