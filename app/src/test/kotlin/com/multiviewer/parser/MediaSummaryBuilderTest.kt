@@ -1791,4 +1791,58 @@ class MediaSummaryBuilderTest {
         val general = summary.sections.first { it.title == "General" }
         assertEquals(null, general.fields.find { it.label == "Creation Date" })
     }
+
+    @Test
+    fun `Video and Audio sections report Handler Name and Language when present and not the und default`() {
+        val videoHdlr = BoxNode(type = "hdlr", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("handler_type", "vide", 0, 4), BoxField("name", "VideoHandler", 0, 12)))
+        val videoMdhd = BoxNode(type = "mdhd", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("timescale", "30000", 0, 4), BoxField("duration", "300000", 0, 4), BoxField("language", "eng", 0, 2)))
+        val avc1 = BoxNode(type = "avc1", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("width", "1920.0", 0, 2), BoxField("height", "1080.0", 0, 2)))
+        val videoStsd = BoxNode(type = "stsd", offset = 0, headerSize = 0, size = 0, children = listOf(avc1))
+        val videoStbl = BoxNode(type = "stbl", offset = 0, headerSize = 0, size = 0, children = listOf(videoStsd))
+        val videoMinf = BoxNode(type = "minf", offset = 0, headerSize = 0, size = 0, children = listOf(videoStbl))
+        val videoMdia = BoxNode(type = "mdia", offset = 0, headerSize = 0, size = 0, children = listOf(videoHdlr, videoMdhd, videoMinf))
+        val videoTrak = BoxNode(type = "trak", offset = 0, headerSize = 0, size = 0, children = listOf(videoMdia))
+
+        val audioHdlr = BoxNode(type = "hdlr", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("handler_type", "soun", 0, 4), BoxField("name", "SoundHandler", 0, 12)))
+        val audioMdhd = BoxNode(type = "mdhd", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("language", "kor", 0, 2)))
+        val mp4a = BoxNode(type = "mp4a", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("channelcount", "2", 0, 2), BoxField("samplerate", "44100.0", 0, 4)))
+        val audioStsd = BoxNode(type = "stsd", offset = 0, headerSize = 0, size = 0, children = listOf(mp4a))
+        val audioMdia = BoxNode(type = "mdia", offset = 0, headerSize = 0, size = 0, children = listOf(audioHdlr, audioMdhd, BoxNode(type = "minf", offset = 0, headerSize = 0, size = 0, children = listOf(BoxNode(type = "stbl", offset = 0, headerSize = 0, size = 0, children = listOf(audioStsd))))))
+        val audioTrak = BoxNode(type = "trak", offset = 0, headerSize = 0, size = 0, children = listOf(audioMdia))
+
+        val moov = BoxNode(type = "moov", offset = 0, headerSize = 0, size = 0, children = listOf(videoTrak, audioTrak))
+        val ftyp = BoxNode(type = "ftyp", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("major_brand", "isom", 0, 4)))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ftyp, moov))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val videoDetail = summary.sections.first { it.title == "Video" }
+        assertEquals("VideoHandler", videoDetail.fields.first { it.label == "Handler Name" }.value)
+        assertEquals("eng", videoDetail.fields.first { it.label == "Language" }.value)
+
+        val audioDetail = summary.sections.first { it.title == "Audio" }
+        assertEquals("SoundHandler", audioDetail.fields.first { it.label == "Handler Name" }.value)
+        assertEquals("kor", audioDetail.fields.first { it.label == "Language" }.value)
+    }
+
+    @Test
+    fun `Video section omits Handler Name when blank and Language when und`() {
+        val videoHdlr = BoxNode(type = "hdlr", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("handler_type", "vide", 0, 4), BoxField("name", "", 0, 0)))
+        val videoMdhd = BoxNode(type = "mdhd", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("timescale", "30000", 0, 4), BoxField("duration", "300000", 0, 4), BoxField("language", "und", 0, 2)))
+        val avc1 = BoxNode(type = "avc1", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("width", "1920.0", 0, 2), BoxField("height", "1080.0", 0, 2)))
+        val videoStsd = BoxNode(type = "stsd", offset = 0, headerSize = 0, size = 0, children = listOf(avc1))
+        val videoStbl = BoxNode(type = "stbl", offset = 0, headerSize = 0, size = 0, children = listOf(videoStsd))
+        val videoMinf = BoxNode(type = "minf", offset = 0, headerSize = 0, size = 0, children = listOf(videoStbl))
+        val videoMdia = BoxNode(type = "mdia", offset = 0, headerSize = 0, size = 0, children = listOf(videoHdlr, videoMdhd, videoMinf))
+        val videoTrak = BoxNode(type = "trak", offset = 0, headerSize = 0, size = 0, children = listOf(videoMdia))
+        val moov = BoxNode(type = "moov", offset = 0, headerSize = 0, size = 0, children = listOf(videoTrak))
+        val ftyp = BoxNode(type = "ftyp", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("major_brand", "isom", 0, 4)))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ftyp, moov))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val videoDetail = summary.sections.first { it.title == "Video" }
+        assertEquals(null, videoDetail.fields.find { it.label == "Handler Name" })
+        assertEquals(null, videoDetail.fields.find { it.label == "Language" })
+    }
 }
