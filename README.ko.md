@@ -2,13 +2,16 @@
 
 # unwrapMedia
 
-**unwrapMedia**는 이미지·영상·오디오 파일의 내부 구조(박스, 마커, IFD, 청크 등)를 구조 트리, 헥스 뷰, 디코딩된 메타데이터로 보여주는 파일 분석 도구입니다. (Kotlin + Compose Multiplatform Desktop)
+**unwrapMedia**는 
+이미지·영상·오디오 파일의 내부 구조(박스, 마커, IFD, 청크 등)를 구조 트리, 헥스 뷰, 
+디코딩된 메타데이터로 보여주는 파일 분석 도구입니다. 
 
 ---
 
 ## 다운로드 및 설치
 
-매 push마다 Windows/Linux/macOS용으로 자동 빌드됩니다 -- [Actions](https://github.com/abracadabra799/unwrapMedia/actions) 페이지에서 가장 최근 **"Package unwrapMedia"** 실행의 Artifacts에서 받으세요.
+매 push마다 Windows/Linux/macOS용으로 자동 빌드됩니다.
+[Actions](https://github.com/abracadabra799/unwrapMedia/actions) 페이지에서 가장 최근 **"Package unwrapMedia"** 실행의 Artifacts에서 받으세요.
 
 | 플랫폼 | 파일 | 비고 |
 |---|---|---|
@@ -52,14 +55,14 @@
 - 포맷/샘플레이트/채널/비트 심도/길이
 
 **Raw 픽셀 뷰어** -- 
-헤더 없는 원시 픽셀 덤프
-YUV420(NV12/NV21/I420/YV12), RGB565/BGR565, RGB888/BGR888, RGBA8888/ARGB8888. 
-멀티 프레임(동영상) 지원(영상처럼 재생)
+- 헤더 없는 원시 픽셀 덤프
+- YUV420(NV12/NV21/I420/YV12), RGB565/BGR565, RGB888/BGR888, RGBA8888/ARGB8888. 
+- 멀티 프레임(동영상) 지원(영상처럼 재생)
 
 **바이너리 탐색기** -- 
-구조 트리 + 
-우측 패널(선택 전엔 한눈에 보는 Overview, 트리 노드 선택 시 상세 속성으로 전환, 필드 클릭 시 헥스 뷰가 해당 바이트로 이동) + 
-드래그 선택 가능한 헥스/raw 바이트 뷰어. 모든 패널 크기 조절 가능, 다크/라이트 테마 전환(설정 유지).
+- 구조 트리 + 
+- 우측 패널(선택 전엔 한눈에 보는 Overview, 트리 노드 선택 시 상세 속성으로 전환, 필드 클릭 시 헥스 뷰가 해당 바이트로 이동) + 
+- 드래그 선택 가능한 헥스/raw 바이트 뷰어. 모든 패널 크기 조절 가능, 다크/라이트 테마 전환(설정 유지).
 
 **CLI 모드** -- GUI 없이 스크립트/CI에서 사용:
 ```bash
