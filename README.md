@@ -1,3 +1,5 @@
+**Language:** English | [한국어](README.ko.md)
+
 # unwrapMedia
 
 **unwrapMedia** is a media file inspection tool (Kotlin + Compose Multiplatform for Desktop) that parses the internal structure of image, video, and audio files -- boxes, markers, IFDs, chunks -- into an inspectable structure tree, hex view, and decoded metadata, all cross-referenced by byte offset.
