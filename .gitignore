@@ -16,4 +16,5 @@ local.properties
 .superpowers/
 .kotlin/
 .claude/worktrees/
+.artifacts/
 /app/resources/
