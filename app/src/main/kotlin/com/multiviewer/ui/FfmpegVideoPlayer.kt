@@ -327,6 +327,17 @@ fun FfmpegVideoPlayer(
                     // a different (e.g. tiny grayscale preview) track than the one probeVideo()
                     // measured.
                     "-map", "0:v:0",
+                    // Caps the piped raw frame at 1280px on its longer side (never upscales --
+                    // force_original_aspect_ratio=decrease only shrinks). Source device footage
+                    // routinely exceeds 1920x1440, meaning >10MB of uncompressed BGRA per frame
+                    // over a plain OS pipe -- reported (and, per this file's other comments,
+                    // previously measured) to be dramatically slower on Windows than macOS/Linux
+                    // for the same raw-pipe volume. The player only ever displays this bitmap
+                    // scaled to fit its own panel, which is never near source resolution, so
+                    // there is no visible quality cost. actualWidth/actualHeight below is read
+                    // from ffmpeg's own stderr banner (watchForActualDimensions), so it already
+                    // reflects this filter's real output size with no separate prediction needed.
+                    "-vf", "scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease:flags=fast_bilinear",
                     "-f", "rawvideo", "-pix_fmt", "bgra", "-an", "-",
                 ),
             ).also { FfmpegLocator.configureEnvironment(it) }.start()
