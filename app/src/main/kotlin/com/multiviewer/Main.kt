@@ -195,10 +195,18 @@ private fun runGuiApplication() = application {
             }
             Menu("보기") {
                 CheckboxItem(
+                    "다크 테마",
+                    checked = themeMode == ThemeMode.DARK,
+                    onCheckedChange = {
+                        themeMode = ThemeMode.DARK
+                        saveThemeMode(themeMode)
+                    },
+                )
+                CheckboxItem(
                     "라이트 테마",
                     checked = themeMode == ThemeMode.LIGHT,
-                    onCheckedChange = { checked ->
-                        themeMode = if (checked) ThemeMode.LIGHT else ThemeMode.DARK
+                    onCheckedChange = {
+                        themeMode = ThemeMode.LIGHT
                         saveThemeMode(themeMode)
                     },
                 )

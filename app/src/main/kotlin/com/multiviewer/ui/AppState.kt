@@ -9,7 +9,7 @@ import com.multiviewer.parser.*
 import java.awt.EventQueue
 import java.io.File
 
-private const val MAX_OPEN_FILES = 2
+private const val MAX_OPEN_FILES = 20
 
 val IMAGE_EXTENSIONS = listOf(
     "jpg", "jpeg", "png", "bmp", "gif", "webp", "avif", "heic",

@@ -68,20 +68,17 @@ class AppStateTest {
     }
 
     @Test
-    fun `openFile rejects a third distinct file and sets statusMessage`() {
+    fun `openFile rejects a file beyond the open-file limit and sets statusMessage`() {
         val appState = AppState()
-        val file1 = tempFile("appstate-test-1")
-        val file2 = tempFile("appstate-test-2")
-        val file3 = tempFile("appstate-test-3")
-
-        appState.openFile(file1)
-        appState.openFile(file2)
-        assertEquals(2, appState.tabs.size)
+        val maxFiles = List(20) { tempFile("appstate-test-limit-$it") }
+        maxFiles.forEach { appState.openFile(it) }
+        assertEquals(20, appState.tabs.size)
         assertEquals(null, appState.statusMessage)
 
-        appState.openFile(file3)
-        assertEquals(2, appState.tabs.size)
-        assertEquals("You can only have 2 files open at a time.", appState.statusMessage)
+        val oneTooMany = tempFile("appstate-test-limit-overflow")
+        appState.openFile(oneTooMany)
+        assertEquals(20, appState.tabs.size)
+        assertEquals("You can only have 20 files open at a time.", appState.statusMessage)
     }
 
     @Test
