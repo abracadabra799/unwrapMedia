@@ -82,10 +82,3 @@ Kotlin, Compose Multiplatform Desktop (JVM 21+), Gradle, ffmpeg/ffprobe(외부 �
 ./gradlew test                                # 테스트
 ./gradlew :app:packageDistributionForCurrentOS # 배포 패키지 빌드
 ```
-
----
-
-## 추가 코멘트
-
-- 사내 공유 전 확인 필요: ffmpeg/ffprobe를 서브프로세스로 호출하며(LGPL, 소스 내장 아님), H.264/HEVC/AAC 등 코덱을 디코드/재생합니다. LGPL은 ffmpeg 자체 코드에 대한 것이고 코덱 특허 라이선스와는 별개이므로, 개인 사용 범위를 넘어 배포할 경우 법무팀 검토가 필요합니다.
-- 라이선스: MIT -- [LICENSE](LICENSE) 참고.
