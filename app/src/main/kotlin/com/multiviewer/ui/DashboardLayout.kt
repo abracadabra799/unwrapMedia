@@ -107,21 +107,10 @@ fun DashboardLayout(
                 leftPanelWidthDp = (leftPanelWidthDp + deltaDp).coerceIn(LEFT_PANEL_MIN_WIDTH_DP, LEFT_PANEL_MAX_WIDTH_DP)
             }
 
-            // Center Panel (Visual Canvas)
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .border(1.dp, AppColors.Border)
-            ) {
-                centerPanel()
-            }
-
-            VerticalResizeHandle { deltaDp ->
-                rightPanelWidthDp = (rightPanelWidthDp - deltaDp).coerceIn(RIGHT_PANEL_MIN_WIDTH_DP, RIGHT_PANEL_MAX_WIDTH_DP)
-            }
-
-            // Right Panel (Properties)
+            // Right Panel (Properties) -- rendered immediately beside the structure tree rather
+            // than at the far edge, so Overview/Detailed Properties sits next to the structure
+            // node driving it. Still called "rightPanel" (its logical role, matched by every
+            // DashboardLayout call site) even though it no longer renders on the physical right.
             Column(
                 modifier = Modifier
                     .width(rightPanelWidthDp.dp)
@@ -130,6 +119,22 @@ fun DashboardLayout(
                     .background(AppColors.Surface)
             ) {
                 rightPanel()
+            }
+
+            VerticalResizeHandle { deltaDp ->
+                // This panel is now left-of-handle (like leftPanelWidthDp above), so a rightward
+                // drag grows it too -- sign flipped from the old right-edge position.
+                rightPanelWidthDp = (rightPanelWidthDp + deltaDp).coerceIn(RIGHT_PANEL_MIN_WIDTH_DP, RIGHT_PANEL_MAX_WIDTH_DP)
+            }
+
+            // Center Panel (Visual Canvas) -- now last, taking whatever width remains.
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .border(1.dp, AppColors.Border)
+            ) {
+                centerPanel()
             }
         }
 
