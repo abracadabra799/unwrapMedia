@@ -26,7 +26,9 @@
 - Each format has a dedicated structural parser (or reuses the MP4 box parser for M4A)
 - Format, sample rate, channels, bit depth, duration
 
-**Raw Pixel Viewer** -- headerless `.raw`/`.rgb`/`.rgba`/`.yuv` dumps; YUV420 (NV12/NV21/I420/YV12), RGB565/BGR565, RGB888/BGR888, RGBA8888/ARGB8888. Multi-frame files play back as raw video. (`.raw` is ambiguous with raw PCM audio -- opening one asks which it is.)
+**Raw Pixel Viewer** -- headerless `.raw`/`.rgb`/`.rgba`/`.yuv` dumps; 
+- YUV420 (NV12/NV21/I420/YV12), RGB565/BGR565, RGB888/BGR888, RGBA8888/ARGB8888.
+- Multi-frame files play back as raw video. (`.raw` is ambiguous with raw PCM audio -- opening one asks which it is.)
 
 **Binary Explorer** -- structure tree; right panel opens on an at-a-glance Overview (general/camera/codec info in one view) and switches to Detailed Properties once you select a tree node, where clicking a field jumps the hex view to its exact bytes; hex/raw byte viewer with drag-select. All panels resizable. Dark/light theme toggle (View menu), preference persisted across launches.
 
