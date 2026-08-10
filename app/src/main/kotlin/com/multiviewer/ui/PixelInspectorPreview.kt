@@ -2,15 +2,30 @@ package com.multiviewer.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.onPointerEvent
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.runtime.Composable
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.unit.toSize
 
 const val MAX_ZOOM_SCALE = 8f
 private const val ZOOM_STEP_FACTOR = 0.08f
@@ -41,13 +56,50 @@ fun clampPanOffset(offset: Offset, boxSize: Size, scale: Float): Offset {
     )
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun PixelInspectorPreview(bitmap: ImageBitmap, modifier: Modifier = Modifier) {
-    Box(modifier = modifier.fillMaxSize().background(Color.Black)) {
+    var scale by remember(bitmap) { mutableStateOf(1f) }
+    var offset by remember(bitmap) { mutableStateOf(Offset.Zero) }
+    var boxSize by remember(bitmap) { mutableStateOf(Size.Zero) }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .onGloballyPositioned { boxSize = it.size.toSize() }
+            .onPointerEvent(PointerEventType.Scroll, pass = PointerEventPass.Initial) { event ->
+                val change = event.changes.firstOrNull() ?: return@onPointerEvent
+                val (newScale, rawOffset) = zoomTowardPoint(scale, offset, change.position, change.scrollDelta.y)
+                scale = newScale
+                offset = clampPanOffset(rawOffset, boxSize, newScale)
+                event.changes.forEach { it.consume() }
+            }
+            .pointerInput(bitmap) {
+                detectDragGestures { change, dragAmount ->
+                    change.consume()
+                    offset = clampPanOffset(offset + dragAmount, boxSize, scale)
+                }
+            }
+            .pointerInput(bitmap) {
+                detectTapGestures(onDoubleTap = {
+                    scale = 1f
+                    offset = Offset.Zero
+                })
+            },
+    ) {
         Image(
             bitmap = bitmap,
             contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer(
+                    scaleX = scale,
+                    scaleY = scale,
+                    translationX = offset.x,
+                    translationY = offset.y,
+                    transformOrigin = TransformOrigin(0f, 0f),
+                ),
             contentScale = ContentScale.Fit,
         )
     }
