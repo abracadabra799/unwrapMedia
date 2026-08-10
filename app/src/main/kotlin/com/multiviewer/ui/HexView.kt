@@ -140,11 +140,8 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
                 )
             }
         }
-        Row(modifier = Modifier.fillMaxSize()) {
-            // Hex/ASCII grid takes whatever width is left after the value inspector -- wrapped in
-            // its own weighted Box since ContextMenuArea's content lambda isn't a RowScope, so
-            // Modifier.weight() has to be applied one level up from where the grid itself lives.
-            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+        // Hex/ASCII grid.
+        Box(modifier = Modifier.fillMaxSize()) {
                 // Right-click brings up the same native-look context menu BasicTextField uses for
                 // its own copy/paste -- items() is re-evaluated each time the menu opens, so it
                 // always reflects whatever's selected (or nothing) at that moment rather than what
@@ -222,15 +219,8 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
                             adapter = rememberScrollbarAdapter(listState),
                             modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
                         )
-                    }
                 }
             }
-            ValueInspectorPanel(
-                raf = raf,
-                fileLength = fileLength,
-                anchorOffset = selectedRange?.first,
-                selectionByteCount = selectedRange?.let { it.last - it.first + 1 } ?: 0L,
-            )
         }
     }
 }
