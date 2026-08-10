@@ -127,14 +127,17 @@ fun DashboardLayout(
                 rightPanelWidthDp = (rightPanelWidthDp + deltaDp).coerceIn(RIGHT_PANEL_MIN_WIDTH_DP, RIGHT_PANEL_MAX_WIDTH_DP)
             }
 
-            // Center Panel (Visual Canvas) -- now last, taking whatever width remains.
+            // Bottom Panel (Hex) -- rendered here now, directly beside Properties, so the byte
+            // view sits next to the field that jumps it to an offset. Takes whatever width
+            // remains, same slot the Center Panel used to occupy.
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
                     .border(1.dp, AppColors.Border)
+                    .background(AppColors.Panel)
             ) {
-                centerPanel()
+                bottomPanel()
             }
         }
 
@@ -145,15 +148,15 @@ fun DashboardLayout(
             setSplit = { verticalSplit = it },
         )
 
-        // Bottom Panel (Hex)
+        // Center Panel (Visual Canvas: thumbnail/image/video player/frame analysis/waveform/
+        // spectrogram) -- now full-width along the bottom, the old Hex panel's former spot.
         Column(
             modifier = Modifier
                 .weight(1f - verticalSplit)
                 .fillMaxWidth()
                 .border(1.dp, AppColors.Border)
-                .background(AppColors.Panel)
         ) {
-            bottomPanel()
+            centerPanel()
         }
     }
 }
