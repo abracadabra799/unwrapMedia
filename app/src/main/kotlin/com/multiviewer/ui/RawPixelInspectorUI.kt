@@ -114,11 +114,10 @@ fun RawPixelInspectorUI(
                 ) {
                     val bitmap = tab.imageForensic?.bitmap
                     if (bitmap != null) {
-                        Image(
+                        PixelInspectorPreview(
                             bitmap = bitmap,
-                            contentDescription = null,
                             modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Fit,
+                            resetKey = tab.file,
                         )
                     } else {
                         DecodingIndicator("프레임 디코딩 중...")
