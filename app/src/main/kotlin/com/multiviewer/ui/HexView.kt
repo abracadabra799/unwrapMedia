@@ -45,6 +45,15 @@ import java.io.RandomAccessFile
 
 private const val BYTES_PER_ROW = 16
 
+const val MIN_HEX_FONT_SP = 8f
+const val MAX_HEX_FONT_SP = 28f
+private const val HEX_ZOOM_STEP_FACTOR = 0.08f // matches PixelInspectorPreview's ZOOM_STEP_FACTOR
+
+// Cmd/Ctrl+scroll font-size zoom for the hex/ASCII grid below. Scroll-up (negative delta) zooms
+// in, matching PixelInspectorPreview's own scroll-up-zooms-in convention.
+fun hexZoomFontSize(currentSp: Float, scrollDeltaY: Float): Float =
+    (currentSp * (1f - scrollDeltaY * HEX_ZOOM_STEP_FACTOR)).coerceIn(MIN_HEX_FONT_SP, MAX_HEX_FONT_SP)
+
 // Row text layout: "%08X  " (8 hex digits + 2 spaces) then 16 * "XX " hex byte groups, then one
 // more space, then up to 16 ASCII characters. Used to translate a click's character offset (from
 // TextLayoutResult.getOffsetForPosition) back to which byte in the row was clicked.
