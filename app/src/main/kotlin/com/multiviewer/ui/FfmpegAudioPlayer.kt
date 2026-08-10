@@ -1,6 +1,5 @@
 package com.multiviewer.ui
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
@@ -42,12 +41,9 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image
 import java.awt.EventQueue
@@ -173,8 +169,6 @@ fun generateSpectrogramImage(
 ): ImageBitmap? =
     renderAudioVisualization(file, "showspectrumpic=s=${width}x${height}:legend=0,scale=${width}:${height}", rawAudioParams, window)
 
-private const val SPECTROGRAM_RESIZE_DEBOUNCE_MS = 400L
-
 // Both scale with the CURRENT visible duration rather than being a fixed number of seconds per
 // scroll unit, so zoom/pan feel consistent whether the view is showing the whole track or one
 // second of it -- a fixed-seconds step would feel glacial zoomed out and twitchy zoomed in.
@@ -216,6 +210,7 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
         probing = false
         if (info != null) {
             waveformPeaks = withContext(Dispatchers.IO) { computeWaveformPeaks(file, info, rawAudioParams = rawAudioParams) }
+            spectrogramBitmap = withContext(Dispatchers.IO) { generateFullSpectrogramImage(file, rawAudioParams = rawAudioParams) }
         }
     }
 
@@ -322,7 +317,6 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
 
     var waveformSplit by remember(file) { mutableStateOf(0.6f) }
     var containerHeightPx by remember(file) { mutableStateOf(0) }
-    var spectrogramBoxSize by remember(file) { mutableStateOf(IntSize.Zero) }
     val elapsedSeconds = (startFromSeconds + playedSeconds).coerceIn(0.0, if (info.duration > 0) info.duration else Double.MAX_VALUE)
 
     // Shared by the waveform, spectrogram, scrollbar, and minimap -- fully zoomed out (the whole
@@ -352,23 +346,6 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
                 info.duration,
             )
         }
-    }
-
-    // Regenerates the spectrogram for the current visible window at the panel's actual pixel
-    // size, debounced so a drag resize or a burst of zoom/pan scroll events doesn't spawn ffmpeg
-    // on every intermediate frame -- LaunchedEffect's key-change semantics cancel the previous
-    // coroutine and start a fresh one on every change, so only the last window/size that survives
-    // the delay without being superseded actually triggers a regeneration. The old bitmap (if
-    // any) stays visible via contentScale = FillBounds until the new one is ready, so there's no
-    // flicker or blank flash mid-resize or mid-zoom.
-    LaunchedEffect(file, spectrogramBoxSize, visibleWindow) {
-        val boxSize = spectrogramBoxSize
-        if (boxSize.width <= 0 || boxSize.height <= 0) return@LaunchedEffect
-        delay(SPECTROGRAM_RESIZE_DEBOUNCE_MS)
-        val newBitmap = withContext(Dispatchers.IO) {
-            generateSpectrogramImage(file, boxSize.width, boxSize.height, rawAudioParams = rawAudioParams, window = visibleWindow)
-        }
-        if (newBitmap != null) spectrogramBitmap = newBitmap
     }
 
     fun seekToFraction(fraction: Float) {
@@ -465,12 +442,12 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
                     val delta = event.changes.firstOrNull()?.scrollDelta ?: return@onPointerEvent
                     applyZoomOrPan(delta.x, delta.y)
                     event.changes.forEach { it.consume() }
-                }
-                .onGloballyPositioned { spectrogramBoxSize = it.size },
+                },
         ) {
             val spectrogram = spectrogramBitmap
             if (spectrogram != null) {
-                Image(bitmap = spectrogram, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+                val visibleRange = visibleBucketRange(visibleWindow, info.duration, SPECTROGRAM_WIDTH_PX)
+                SpectrogramDisplay(bitmap = spectrogram, visibleRange = visibleRange, modifier = Modifier.fillMaxSize())
             } else {
                 DecodingIndicator("스펙트로그램 생성 중...", modifier = Modifier.align(Alignment.Center))
             }
