@@ -61,6 +61,13 @@ class FfmpegVideoPlayerTest {
     }
 
     @Test
+    fun `formatMmSsMs renders minutes, seconds, and milliseconds`() {
+        assertEquals("1:03.133", formatMmSsMs(63.1332))
+        assertEquals("0:00.000", formatMmSsMs(0.0))
+        assertEquals("0:59.999", formatMmSsMs(59.9994)) // truncates, doesn't round up into 1:00.000
+    }
+
+    @Test
     fun `parseFrameRate reads a simple integer fraction`() {
         assertEquals(30.0, parseFrameRate("30/1"))
     }
