@@ -180,6 +180,14 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
                                 raf.readFully(buf)
 
                                 Text(
+                                    // Smaller than the app's default 14sp body text -- at 14sp a
+                                    // row ("%08X  " + 16 "XX " hex groups + 16 ASCII chars, ~75
+                                    // monospace chars) could exceed the panel's available width
+                                    // and wrap, breaking the hex/ASCII column alignment this grid
+                                    // depends on. softWrap = false is a second guard against the
+                                    // same failure mode if the panel is ever narrower than a row.
+                                    style = AppTypography.bodyLarge.copy(fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.2.sp),
+                                    softWrap = false,
                                     text = buildAnnotatedString {
                                         append("%08X  ".format(rowStart))
                                         for (i in 0 until BYTES_PER_ROW) {
