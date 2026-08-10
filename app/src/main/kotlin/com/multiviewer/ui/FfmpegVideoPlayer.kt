@@ -59,6 +59,12 @@ fun formatMmSs(seconds: Double): String {
     return "%d:%02d".format(total / 60, total % 60)
 }
 
+fun formatMmSsMs(seconds: Double): String {
+    val totalMillis = (seconds * 1000).toLong()
+    val totalSeconds = totalMillis / 1000
+    return "%d:%02d.%03d".format(totalSeconds / 60, totalSeconds % 60, totalMillis % 1000)
+}
+
 fun parseFrameRate(fraction: String): Double? {
     val parts = fraction.split("/")
     val num = parts.getOrNull(0)?.toDoubleOrNull() ?: return null
@@ -519,7 +525,7 @@ fun FfmpegVideoPlayer(
             val elapsedSeconds = (startFromSeconds + playedSeconds).coerceIn(0.0, info.duration)
             LaunchedEffect(elapsedSeconds) { onElapsedChanged(elapsedSeconds) }
             PreviewCaption(
-                "${formatMmSs(elapsedSeconds)} / ${formatMmSs(info.duration)}",
+                "${formatMmSsMs(elapsedSeconds)} / ${formatMmSsMs(info.duration)}",
                 modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),
             )
             val progress = (elapsedSeconds / info.duration).toFloat().coerceIn(0f, 1f)
