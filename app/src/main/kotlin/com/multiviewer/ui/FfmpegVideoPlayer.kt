@@ -223,6 +223,47 @@ fun probeVideo(file: File): VideoInfo? {
     }
 }
 
+// Extracted so the exact ffmpeg args (in particular -fps_mode, below) are unit-testable without
+// shelling out to a real process.
+fun ffmpegPipeArgs(ffmpegPath: String, filePath: String, seekArgs: List<String>): List<String> =
+    listOf(ffmpegPath) + seekArgs + listOf(
+        "-i", filePath,
+        // Explicit stream selection, matching probeVideo()'s own "-select_streams
+        // v:0" -- some device footage (Samsung Motion Photo, iPhone) muxes several
+        // video tracks into one file (a main track plus small preview/depth tracks),
+        // and without -map ffmpeg's own default "best stream" heuristic decides which
+        // one to pipe. It happened to agree with v:0 in local testing, but nothing
+        // guarantees that in general -- an implicit mismatch here would silently pipe
+        // a different (e.g. tiny grayscale preview) track than the one probeVideo()
+        // measured.
+        "-map", "0:v:0",
+        // Some device footage declares a container frame-rate far above its real content rate
+        // (verified against a real Samsung Motion Photo clip: r_frame_rate 120/1 vs
+        // avg_frame_rate ~30.3 -- the same mismatch already noted below for probeVideo()'s fps
+        // parsing). Without this flag, ffmpeg's default frame-rate-conversion behavior silently
+        // duplicates each real decoded frame (~4x here) to fill that declared rate, so the piped
+        // frame count no longer matches probeFrameTimestamps()'s real per-frame count (measured:
+        // 372 piped vs 94 real). The reader loop then keeps reading/pacing through the extra
+        // duplicate frames (using the fallback duration once the real per-frame durations list is
+        // exhausted) well after playedSeconds has already reached info.duration -- the video
+        // visibly keeps playing for several extra seconds after its own progress bar reads 100%.
+        // "passthrough" (ffmpeg's current name for legacy -vsync 0) outputs decoded frames as-is,
+        // matching probeFrameTimestamps()'s real frame count exactly (verified: 94 == 94).
+        "-fps_mode", "passthrough",
+        // Caps the piped raw frame at 1280px on its longer side (never upscales --
+        // force_original_aspect_ratio=decrease only shrinks). Source device footage
+        // routinely exceeds 1920x1440, meaning >10MB of uncompressed BGRA per frame
+        // over a plain OS pipe -- reported (and, per this file's other comments,
+        // previously measured) to be dramatically slower on Windows than macOS/Linux
+        // for the same raw-pipe volume. The player only ever displays this bitmap
+        // scaled to fit its own panel, which is never near source resolution, so
+        // there is no visible quality cost. actualWidth/actualHeight below is read
+        // from ffmpeg's own stderr banner (watchForActualDimensions), so it already
+        // reflects this filter's real output size with no separate prediction needed.
+        "-vf", "scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease:flags=fast_bilinear",
+        "-f", "rawvideo", "-pix_fmt", "bgra", "-an", "-",
+    )
+
 @Composable
 fun FfmpegVideoPlayer(
     file: File,
@@ -317,30 +358,7 @@ fun FfmpegVideoPlayer(
         val seekArgs = if (seekSeconds > 0.0) listOf("-ss", seekSeconds.toString()) else emptyList()
         val process = try {
             ProcessBuilder(
-                listOf(FfmpegLocator.ffmpegPath()) + seekArgs + listOf(
-                    "-i", file.absolutePath,
-                    // Explicit stream selection, matching probeVideo()'s own "-select_streams
-                    // v:0" -- some device footage (Samsung Motion Photo, iPhone) muxes several
-                    // video tracks into one file (a main track plus small preview/depth tracks),
-                    // and without -map ffmpeg's own default "best stream" heuristic decides which
-                    // one to pipe. It happened to agree with v:0 in local testing, but nothing
-                    // guarantees that in general -- an implicit mismatch here would silently pipe
-                    // a different (e.g. tiny grayscale preview) track than the one probeVideo()
-                    // measured.
-                    "-map", "0:v:0",
-                    // Caps the piped raw frame at 1280px on its longer side (never upscales --
-                    // force_original_aspect_ratio=decrease only shrinks). Source device footage
-                    // routinely exceeds 1920x1440, meaning >10MB of uncompressed BGRA per frame
-                    // over a plain OS pipe -- reported (and, per this file's other comments,
-                    // previously measured) to be dramatically slower on Windows than macOS/Linux
-                    // for the same raw-pipe volume. The player only ever displays this bitmap
-                    // scaled to fit its own panel, which is never near source resolution, so
-                    // there is no visible quality cost. actualWidth/actualHeight below is read
-                    // from ffmpeg's own stderr banner (watchForActualDimensions), so it already
-                    // reflects this filter's real output size with no separate prediction needed.
-                    "-vf", "scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease:flags=fast_bilinear",
-                    "-f", "rawvideo", "-pix_fmt", "bgra", "-an", "-",
-                ),
+                ffmpegPipeArgs(FfmpegLocator.ffmpegPath(), file.absolutePath, seekArgs),
             ).also { FfmpegLocator.configureEnvironment(it) }.start()
         } catch (e: Exception) {
             null

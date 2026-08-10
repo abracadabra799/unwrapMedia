@@ -218,6 +218,26 @@ class FfmpegVideoPlayerTest {
     }
 
     @Test
+    fun `ffmpegPipeArgs requests passthrough frame timing, not ffmpeg's own frame-rate conversion`() {
+        // Some device footage (verified against a real Samsung Motion Photo clip: r_frame_rate
+        // 120/1 vs avg_frame_rate ~30.3) declares a container frame-rate far above its real content
+        // rate. Without this flag, ffmpeg's default CFR behavior silently duplicates each real
+        // decoded frame ~4x to fill that declared rate -- the piped frame count (measured: 372)
+        // no longer matches probeFrameTimestamps' real per-frame count (measured: 94), so the
+        // reader loop keeps reading/pacing ~278 extra duplicate frames using the fallback duration
+        // after the real per-frame durations list is exhausted, well past when playedSeconds
+        // already reached info.duration -- the video visibly keeps playing for several extra
+        // seconds after its own progress bar reads 100%. "-fps_mode passthrough" (ffmpeg's current
+        // name for legacy "-vsync 0") outputs decoded frames as-is, with no duplication/dropping,
+        // matching probeFrameTimestamps' real frame count exactly (verified: 94 == 94).
+        val args = ffmpegPipeArgs("ffmpeg", "/some/file.mp4", emptyList())
+
+        val fpsModeIndex = args.indexOf("-fps_mode")
+        assertTrue(fpsModeIndex >= 0, "expected -fps_mode flag in ffmpeg pipe args, got $args")
+        assertEquals("passthrough", args.getOrNull(fpsModeIndex + 1))
+    }
+
+    @Test
     fun `shouldSkipFrame is false while cumulative lag is below the frame's own budget`() {
         assertTrue(!shouldSkipFrame(cumulativeLagMillis = 0L, budgetMillis = 33L))
         assertTrue(!shouldSkipFrame(cumulativeLagMillis = 32L, budgetMillis = 33L))
