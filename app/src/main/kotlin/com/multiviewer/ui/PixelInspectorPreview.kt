@@ -28,7 +28,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.toSize
 
-const val MAX_ZOOM_SCALE = 8f
+// 64x (not the original 8x) so the pixel grid overlay (PixelGridOverlay.kt) can actually
+// activate on real high-resolution photos: it requires fitScale * scale >= 8, and at a typical
+// ~1000px panel a 4000-8000px-wide source image has fitScale as low as ~0.125-0.25, needing
+// scale up to ~64 to cross that threshold. 8x was never enough to reach it for real photos.
+const val MAX_ZOOM_SCALE = 64f
 private const val ZOOM_STEP_FACTOR = 0.08f
 
 // Cursor-anchored zoom: re-derives offset so the content point currently under the cursor stays
