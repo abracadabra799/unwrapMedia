@@ -27,10 +27,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isCtrlPressed
+import androidx.compose.ui.input.pointer.isMetaPressed
 import androidx.compose.ui.input.pointer.isShiftPressed
+import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
@@ -44,6 +50,15 @@ import java.io.File
 import java.io.RandomAccessFile
 
 private const val BYTES_PER_ROW = 16
+
+const val MIN_HEX_FONT_SP = 8f
+const val MAX_HEX_FONT_SP = 28f
+private const val HEX_ZOOM_STEP_FACTOR = 0.08f // matches PixelInspectorPreview's ZOOM_STEP_FACTOR
+
+// Cmd/Ctrl+scroll font-size zoom for the hex/ASCII grid below. Scroll-up (negative delta) zooms
+// in, matching PixelInspectorPreview's own scroll-up-zooms-in convention.
+fun hexZoomFontSize(currentSp: Float, scrollDeltaY: Float): Float =
+    (currentSp * (1f - scrollDeltaY * HEX_ZOOM_STEP_FACTOR)).coerceIn(MIN_HEX_FONT_SP, MAX_HEX_FONT_SP)
 
 // Row text layout: "%08X  " (8 hex digits + 2 spaces) then 16 * "XX " hex byte groups, then one
 // more space, then up to 16 ASCII characters. Used to translate a click's character offset (from
@@ -96,6 +111,7 @@ private fun resolveByteAt(
     return rowStart + byteIndex
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
     val raf = remember(file) { RandomAccessFile(file, "r") }
@@ -111,6 +127,7 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
     // per-row pointer input.
     var selectionAnchor by remember(file) { mutableStateOf<Long?>(null) }
     var selectionEnd by remember(file) { mutableStateOf<Long?>(null) }
+    var fontSizeSp by remember(file) { mutableStateOf(12f) }
     val layoutResults = remember(file) { mutableStateMapOf<Int, TextLayoutResult>() }
     val selectedRange = if (selectionAnchor != null && selectionEnd != null) {
         minOf(selectionAnchor!!, selectionEnd!!)..maxOf(selectionAnchor!!, selectionEnd!!)
@@ -152,7 +169,15 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
                     },
                 ) {
                     Box(
-                        modifier = Modifier.fillMaxSize().pointerInput(file) {
+                        modifier = Modifier.fillMaxSize()
+                            .onPointerEvent(PointerEventType.Scroll, pass = PointerEventPass.Initial) { event ->
+                                val modifiers = event.keyboardModifiers
+                                if (!modifiers.isCtrlPressed && !modifiers.isMetaPressed) return@onPointerEvent
+                                val delta = event.changes.firstOrNull()?.scrollDelta?.y ?: return@onPointerEvent
+                                fontSizeSp = hexZoomFontSize(fontSizeSp, delta)
+                                event.changes.forEach { it.consume() }
+                            }
+                            .pointerInput(file) {
                             awaitEachGesture {
                                 val down = awaitFirstDown()
                                 val isShiftExtend = currentEvent.keyboardModifiers.isShiftPressed && selectionAnchor != null
@@ -180,13 +205,21 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
                                 raf.readFully(buf)
 
                                 Text(
-                                    // Smaller than the app's default 14sp body text -- at 14sp a
-                                    // row ("%08X  " + 16 "XX " hex groups + 16 ASCII chars, ~75
-                                    // monospace chars) could exceed the panel's available width
-                                    // and wrap, breaking the hex/ASCII column alignment this grid
-                                    // depends on. softWrap = false is a second guard against the
-                                    // same failure mode if the panel is ever narrower than a row.
-                                    style = AppTypography.bodyLarge.copy(fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.2.sp),
+                                    // Smaller than the app's default 14sp body text -- at the
+                                    // default 12sp a row ("%08X  " + 16 "XX " hex groups + 16
+                                    // ASCII chars, ~75 monospace chars) could exceed the panel's
+                                    // available width and wrap, breaking the hex/ASCII column
+                                    // alignment this grid depends on. softWrap = false is a second
+                                    // guard against the same failure mode if the panel is ever
+                                    // narrower than a row -- still true at any zoom level, since a
+                                    // larger fontSizeSp only makes a row wider, never narrower.
+                                    // lineHeight keeps the same 4:3 ratio to fontSizeSp that the
+                                    // fixed 12sp/16sp pair had, at every zoom level.
+                                    style = AppTypography.bodyLarge.copy(
+                                        fontSize = fontSizeSp.sp,
+                                        lineHeight = (fontSizeSp * (16f / 12f)).sp,
+                                        letterSpacing = 0.2.sp,
+                                    ),
                                     softWrap = false,
                                     text = buildAnnotatedString {
                                         append("%08X  ".format(rowStart))

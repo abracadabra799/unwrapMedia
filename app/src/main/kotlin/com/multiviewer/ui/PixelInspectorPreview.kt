@@ -83,10 +83,10 @@ fun panToPoint(offset: Offset, boxSize: Size, scale: Float, tapPosition: Offset)
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun PixelInspectorPreview(bitmap: ImageBitmap, modifier: Modifier = Modifier) {
-    var scale by remember(bitmap) { mutableStateOf(1f) }
-    var offset by remember(bitmap) { mutableStateOf(Offset.Zero) }
-    var boxSize by remember(bitmap) { mutableStateOf(Size.Zero) }
+fun PixelInspectorPreview(bitmap: ImageBitmap, modifier: Modifier = Modifier, resetKey: Any = bitmap) {
+    var scale by remember(resetKey) { mutableStateOf(1f) }
+    var offset by remember(resetKey) { mutableStateOf(Offset.Zero) }
+    var boxSize by remember(resetKey) { mutableStateOf(Size.Zero) }
 
     Box(
         modifier = modifier
@@ -101,13 +101,13 @@ fun PixelInspectorPreview(bitmap: ImageBitmap, modifier: Modifier = Modifier) {
                 offset = clampPanOffset(rawOffset, boxSize, newScale)
                 event.changes.forEach { it.consume() }
             }
-            .pointerInput(bitmap) {
+            .pointerInput(resetKey) {
                 detectDragGestures { change, dragAmount ->
                     change.consume()
                     offset = clampPanOffset(offset + dragAmount, boxSize, scale)
                 }
             }
-            .pointerInput(bitmap) {
+            .pointerInput(resetKey) {
                 detectTapGestures(
                     onTap = { tapPosition -> offset = panToPoint(offset, boxSize, scale, tapPosition) },
                     onDoubleTap = {
