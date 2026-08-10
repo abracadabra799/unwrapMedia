@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -480,6 +481,9 @@ fun FfmpegVideoPlayer(
             Text("Could not start ffmpeg playback", color = Color.White)
         } else if (currentFrame != null) {
             Image(bitmap = currentFrame, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+            if (LocalShowPixelGrid.current) {
+                PixelGridOverlay(nativeSize = Size(info.width.toFloat(), info.height.toFloat()), scale = 1f)
+            }
         } else {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 DecodingIndicator("동영상 디코딩 중...")
