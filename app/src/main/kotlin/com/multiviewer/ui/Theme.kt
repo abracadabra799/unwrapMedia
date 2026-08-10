@@ -131,9 +131,9 @@ val AppScrollbarStyle: ScrollbarStyle
 // AppScrollbarStyle via LocalThemePalette) and the matching Material3 color scheme. Replaces
 // Main.kt's previous direct `MaterialTheme(colorScheme = darkColorScheme(...), ...)` call.
 @Composable
-fun AppTheme(mode: ThemeMode, content: @Composable () -> Unit) {
+fun AppTheme(mode: ThemeMode, showPixelGrid: Boolean, content: @Composable () -> Unit) {
     val palette = if (mode == ThemeMode.LIGHT) LightPalette else DarkPalette
-    CompositionLocalProvider(LocalThemePalette provides palette) {
+    CompositionLocalProvider(LocalThemePalette provides palette, LocalShowPixelGrid provides showPixelGrid) {
         val colorScheme = if (mode == ThemeMode.LIGHT) {
             lightColorScheme(background = AppColors.Background)
         } else {

@@ -138,6 +138,7 @@ private fun runGuiApplication() = application {
     )
     Window(onCloseRequest = ::exitApplication, title = "unwrapMedia", state = windowState) {
         var themeMode by remember { mutableStateOf(loadThemeMode()) }
+        var showPixelGrid by remember { mutableStateOf(loadShowPixelGrid()) }
         var frameIntervalWindowOpen by remember { mutableStateOf(false) }
         var motionPhotoFrameIntervalWindowOpen by remember { mutableStateOf(false) }
         MenuBar {
@@ -210,6 +211,14 @@ private fun runGuiApplication() = application {
                         saveThemeMode(themeMode)
                     },
                 )
+                CheckboxItem(
+                    "픽셀 그리드",
+                    checked = showPixelGrid,
+                    onCheckedChange = {
+                        showPixelGrid = it
+                        saveShowPixelGrid(it)
+                    },
+                )
             }
         }
 
@@ -254,7 +263,7 @@ private fun runGuiApplication() = application {
             attachRecursively(window)
         }
 
-        AppTheme(themeMode) {
+        AppTheme(themeMode, showPixelGrid) {
           CompositionLocalProvider(LocalScrollbarStyle provides AppScrollbarStyle) {
             appState.pendingRawFileChoice?.let { pendingFile ->
                 Dialog(onDismissRequest = { appState.cancelRawFileChoice() }) {
