@@ -7,6 +7,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,10 +51,30 @@ fun zoomTowardPoint(scale: Float, offset: Offset, cursorPosition: Offset, scroll
 fun clampPanOffset(offset: Offset, boxSize: Size, scale: Float): Offset {
     val maxX = ((boxSize.width * scale) - boxSize.width) / 2f
     val maxY = ((boxSize.height * scale) - boxSize.height) / 2f
+    // At scale == 1, maxX/maxY are exactly 0f, and IEEE 754 negation of +0f yields -0f -- so a
+    // negative input coerced against a lower bound of -0f comes out as -0f, not 0f. Kotlin's
+    // Float equality (unlike primitive IEEE compare) treats -0f and 0f as unequal, which broke
+    // Offset.Zero comparisons downstream. Adding +0f normalizes -0f back to 0f (IEEE 754:
+    // -0f + 0f == 0f) without affecting any other value.
     return Offset(
-        offset.x.coerceIn(-maxX, maxX),
-        offset.y.coerceIn(-maxY, maxY),
+        offset.x.coerceIn(-maxX, maxX) + 0f,
+        offset.y.coerceIn(-maxY, maxY) + 0f,
     )
+}
+
+// Re-centers the box on the tapped content point -- click-to-navigate while zoomed in, so the
+// user can jump straight to a pixel/region of interest instead of only dragging there. Reuses
+// clampPanOffset so the result is bounded exactly like a drag's is, and (like every other function
+// here) needs no separate "only when zoomed in" branch: at scale == 1 the clamp collapses any
+// result to (0, 0).
+fun panToPoint(offset: Offset, boxSize: Size, scale: Float, tapPosition: Offset): Offset {
+    val contentX = (tapPosition.x - offset.x) / scale
+    val contentY = (tapPosition.y - offset.y) / scale
+    val recentered = Offset(
+        boxSize.width / 2f - contentX * scale,
+        boxSize.height / 2f - contentY * scale,
+    )
+    return clampPanOffset(recentered, boxSize, scale)
 }
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -66,6 +87,7 @@ fun PixelInspectorPreview(bitmap: ImageBitmap, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .fillMaxSize()
+            .clipToBounds()
             .background(Color.Black)
             .onGloballyPositioned { boxSize = it.size.toSize() }
             .onPointerEvent(PointerEventType.Scroll, pass = PointerEventPass.Initial) { event ->
@@ -82,10 +104,13 @@ fun PixelInspectorPreview(bitmap: ImageBitmap, modifier: Modifier = Modifier) {
                 }
             }
             .pointerInput(bitmap) {
-                detectTapGestures(onDoubleTap = {
-                    scale = 1f
-                    offset = Offset.Zero
-                })
+                detectTapGestures(
+                    onTap = { tapPosition -> offset = panToPoint(offset, boxSize, scale, tapPosition) },
+                    onDoubleTap = {
+                        scale = 1f
+                        offset = Offset.Zero
+                    },
+                )
             },
     ) {
         Image(

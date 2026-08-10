@@ -69,4 +69,31 @@ class PixelInspectorPreviewTest {
         val clamped = clampPanOffset(Offset(50f, 30f), Size(400f, 300f), scale = 2f)
         assertEquals(Offset(50f, 30f), clamped)
     }
+
+    @Test
+    fun `panToPoint re-centers the box on the tapped content point`() {
+        // scale 2, box 400x300, no existing pan: the content point under (300f, 200f) is
+        // ((300-0)/2, (200-0)/2) = (150, 100). Re-centering means that content point should end
+        // up at the box's center (200, 150), so offset = center - contentPoint*scale.
+        val newOffset = panToPoint(offset = Offset.Zero, boxSize = Size(400f, 300f), scale = 2f, tapPosition = Offset(300f, 200f))
+        assertEquals(200f - 150f * 2f, newOffset.x)
+        assertEquals(150f - 100f * 2f, newOffset.y)
+    }
+
+    @Test
+    fun `panToPoint result is clamped to the same pan bounds as dragging`() {
+        // Already panned to (150, 100) (within the scale-2 bound of -200..200 / -150..150), then
+        // tapping the box's top-left corner asks to re-center on a content point far enough away
+        // that the raw result would overshoot the bound on both axes -- it must clamp exactly like
+        // clampPanOffset's own documented bound (200 / 150 at this box size and scale).
+        val newOffset = panToPoint(offset = Offset(150f, 100f), boxSize = Size(400f, 300f), scale = 2f, tapPosition = Offset(0f, 0f))
+        assertEquals(200f, newOffset.x)
+        assertEquals(150f, newOffset.y)
+    }
+
+    @Test
+    fun `panToPoint is always zero at scale 1`() {
+        val newOffset = panToPoint(offset = Offset.Zero, boxSize = Size(400f, 300f), scale = 1f, tapPosition = Offset(300f, 200f))
+        assertEquals(Offset.Zero, newOffset)
+    }
 }
