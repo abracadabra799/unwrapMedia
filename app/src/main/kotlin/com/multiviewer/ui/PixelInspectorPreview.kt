@@ -127,5 +127,18 @@ fun PixelInspectorPreview(bitmap: ImageBitmap, modifier: Modifier = Modifier) {
                 ),
             contentScale = ContentScale.Fit,
         )
+        if (LocalShowPixelGrid.current) {
+            PixelGridOverlay(
+                nativeSize = Size(bitmap.width.toFloat(), bitmap.height.toFloat()),
+                scale = scale,
+                modifier = Modifier.graphicsLayer(
+                    scaleX = scale,
+                    scaleY = scale,
+                    translationX = offset.x,
+                    translationY = offset.y,
+                    transformOrigin = TransformOrigin(0f, 0f),
+                ),
+            )
+        }
     }
 }
