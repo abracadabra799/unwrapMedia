@@ -482,7 +482,7 @@ fun FfmpegVideoPlayer(
         } else if (currentFrame != null) {
             Image(bitmap = currentFrame, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
             if (LocalShowPixelGrid.current) {
-                PixelGridOverlay(nativeSize = Size(info.width.toFloat(), info.height.toFloat()), scale = 1f)
+                PixelGridOverlay(nativeSize = Size(currentFrame.width.toFloat(), currentFrame.height.toFloat()), scale = 1f)
             }
         } else {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
