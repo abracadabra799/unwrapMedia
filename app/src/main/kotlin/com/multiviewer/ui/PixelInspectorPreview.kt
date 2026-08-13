@@ -117,7 +117,7 @@ fun PixelInspectorPreview(
                 detectTapGestures(
                     onTap = { tapPosition ->
                         if (tileGrid != null) {
-                            resolveTileAt(tapPosition, Size(bitmap.width.toFloat(), bitmap.height.toFloat()), boxSize, tileGrid)
+                            resolveTileAt(tapPosition, Size(bitmap.width.toFloat(), bitmap.height.toFloat()), boxSize, tileGrid, scale, offset)
                                 ?.let { onTileClick?.invoke(it) }
                         }
                         offset = panToPoint(offset, boxSize, scale, tapPosition)
