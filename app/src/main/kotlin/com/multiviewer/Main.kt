@@ -385,12 +385,13 @@ private fun runGuiApplication() = application {
                             currentTab.selectedField?.takeIf { it in fields }
                         }
 
-                        LaunchedEffect(currentTab.selected, currentTab.selectedField) {
+                        LaunchedEffect(currentTab.selected, currentTab.selectedField, currentTab.tileHighlightRange) {
+                            val tileRange = currentTab.tileHighlightRange
                             val field = activeField
-                            if (field != null) {
-                                hexListState.scrollToItem((field.offset / BYTES_PER_ROW).toInt())
-                            } else {
-                                currentTab.selected?.let {
+                            when {
+                                tileRange != null -> hexListState.scrollToItem((tileRange.first / BYTES_PER_ROW).toInt())
+                                field != null -> hexListState.scrollToItem((field.offset / BYTES_PER_ROW).toInt())
+                                else -> currentTab.selected?.let {
                                     hexListState.scrollToItem((it.offset / BYTES_PER_ROW).toInt())
                                 }
                             }
@@ -414,7 +415,8 @@ private fun runGuiApplication() = application {
                             PanelHeader("Hex & Raw Data Viewer", color = AppColors.NeonGreen)
                             HexView(
                                 file = currentTab.file,
-                                highlightRange = activeField?.let { it.offset until (it.offset + it.length) }
+                                highlightRange = currentTab.tileHighlightRange
+                                    ?: activeField?.let { it.offset until (it.offset + it.length) }
                                     ?: currentTab.selected?.let { it.offset until (it.offset + it.size) },
                                 listState = hexListState,
                             )
