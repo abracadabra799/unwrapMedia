@@ -52,7 +52,17 @@ fun ImageInspectorUI(
         val iloc = com.multiviewer.parser.findFirst(root) { it.type == "meta" }
             ?.let { meta -> com.multiviewer.parser.findFirst(meta) { it.type == "iloc" } }
         val extent = iloc?.children?.find { it.type == "item_$itemId" }?.children?.firstOrNull()
-        val offset = extent?.fields?.find { it.name == "offset" || it.name == "idat_relative_offset" }?.value?.toLongOrNull()
+        val absoluteOffset = extent?.fields?.find { it.name == "offset" }?.value?.toLongOrNull()
+        val idatRelativeOffset = extent?.fields?.find { it.name == "idat_relative_offset" }?.value?.toLongOrNull()
+        val offset = if (absoluteOffset != null) {
+            absoluteOffset
+        } else if (idatRelativeOffset != null) {
+            val idatBase = com.multiviewer.parser.findFirst(root) { it.type == "idat" }
+                ?.let { it.offset + it.headerSize } ?: 0L
+            idatBase + idatRelativeOffset
+        } else {
+            null
+        }
         val length = extent?.fields?.find { it.name == "length" }?.value?.toLongOrNull()
         tab.tileHighlightRange = if (offset != null && length != null) offset until (offset + length) else null
         tab.selectedTileItemId = itemId
