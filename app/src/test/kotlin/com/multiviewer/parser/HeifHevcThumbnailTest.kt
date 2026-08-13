@@ -160,4 +160,83 @@ class HeifHevcThumbnailTest {
         reconstructed.delete()
         outPng.delete()
     }
+
+    @Test
+    fun `extractHevcItemAnnexB reconstructs a decodable stream for an arbitrary item ID, not just the thumbnail`() {
+        val rawH265 = File.createTempFile("hevc-item-source-", ".h265")
+        rawH265.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "color=blue:size=16x16:duration=1",
+            "-frames:v", "1", "-c:v", "libx265", "-x265-params", "log-level=none",
+            "-f", "hevc", rawH265.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val nals = splitAnnexBNalUnits(rawH265.readBytes())
+        val vps = nals.first { nalType(it) == 32 }
+        val sps = nals.first { nalType(it) == 33 }
+        val pps = nals.first { nalType(it) == 34 }
+        val slice = nals.first { nalType(it) <= 31 }
+        rawH265.delete()
+
+        val hvcCPayload = buildHvcCPayload(vps, sps, pps, lengthSizeMinusOne = 3)
+        val itemBytes = ByteArrayOutputStream().apply {
+            write((slice.size shr 24) and 0xFF); write((slice.size shr 16) and 0xFF)
+            write((slice.size shr 8) and 0xFF); write(slice.size and 0xFF)
+            write(slice)
+        }.toByteArray()
+
+        val hvcCOffset = 0L
+        val itemOffset = hvcCPayload.size.toLong()
+        val fileBytes = hvcCPayload + itemBytes
+        val file = File.createTempFile("heic-hevc-item-fixture-", ".heic")
+        file.deleteOnExit()
+        file.writeBytes(fileBytes)
+
+        // Item ID 7 -- deliberately not 1 or the primary item ID, to prove this isn't secretly
+        // still keyed on "the thumbnail" or "the primary item".
+        val hvcC = BoxNode(type = "hvcC", offset = hvcCOffset, headerSize = 0, size = hvcCPayload.size.toLong())
+        val ipco = BoxNode(type = "ipco", offset = 0, headerSize = 0, size = 0, children = listOf(hvcC))
+        val ipmaItem = BoxNode(
+            type = "item_7", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("property_index", "1", 0, 0)),
+        )
+        val ipma = BoxNode(type = "ipma", offset = 0, headerSize = 0, size = 0, children = listOf(ipmaItem))
+        val iprp = BoxNode(type = "iprp", offset = 0, headerSize = 0, size = 0, children = listOf(ipco, ipma))
+
+        val extent = BoxNode(
+            type = "extent", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("offset", itemOffset.toString(), 0, 0), BoxField("length", itemBytes.size.toString(), 0, 0)),
+        )
+        val ilocItem7 = BoxNode(
+            type = "item_7", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("construction_method", "0", 0, 0)),
+            children = listOf(extent),
+        )
+        val iloc = BoxNode(type = "iloc", offset = 0, headerSize = 0, size = 0, children = listOf(ilocItem7))
+        val meta = BoxNode(type = "meta", offset = 0, headerSize = 0, size = 0, children = listOf(iloc, iprp))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = file.length(), children = listOf(meta))
+
+        val annexB = extractHevcItemAnnexB(file, root, itemId = 7)
+        assertNotNull(annexB, "Expected a reconstructed Annex-B HEVC stream")
+
+        val reconstructed = File.createTempFile("hevc-item-reconstructed-", ".h265")
+        reconstructed.deleteOnExit()
+        reconstructed.writeBytes(annexB)
+        val outPng = File.createTempFile("hevc-item-decoded-", ".png")
+        outPng.deleteOnExit()
+        val process = ProcessBuilder(
+            "ffmpeg", "-y", "-f", "hevc", "-i", reconstructed.absolutePath, "-frames:v", "1", outPng.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start()
+        process.waitFor(10, TimeUnit.SECONDS)
+        assertEquals(0, process.exitValue(), "Expected ffmpeg to decode the reconstructed stream successfully")
+
+        val decoded = javax.imageio.ImageIO.read(outPng)
+        assertNotNull(decoded)
+        assertEquals(16, decoded.width)
+        assertEquals(16, decoded.height)
+
+        file.delete()
+        reconstructed.delete()
+        outPng.delete()
+    }
 }

@@ -21,7 +21,6 @@ private data class HvcCInfo(val parameterSetsAnnexB: ByteArray, val lengthSize: 
 // HEVC-coded, or a required property (hvcC, ispe) is missing.
 fun extractHevcThumbnailAnnexB(file: File, root: BoxNode): ByteArray? {
     val meta = findFirst(root) { it.type == "meta" } ?: return null
-    val iloc = findFirst(meta) { it.type == "iloc" } ?: return null
     val iinf = findFirst(meta) { it.type == "iinf" }
     val iref = findFirst(meta) { it.type == "iref" }
     val pitm = findFirst(meta) { it.type == "pitm" }
@@ -40,13 +39,23 @@ fun extractHevcThumbnailAnnexB(file: File, root: BoxNode): ByteArray? {
         ?.fields?.find { it.name == "item_type" }?.value
     if (itemType?.lowercase() != "hvc1") return null
 
-    val hvcC = findItemProperty(meta, thumbId, "hvcC") ?: return null
+    return extractHevcItemAnnexB(file, root, thumbId)
+}
+
+// Generalized from extractHevcThumbnailAnnexB (originally hardcoded to the "thmb" iref reference)
+// so any item ID -- e.g. one of a grid-tiled image's individual tile items -- can be extracted the
+// same way. Callers resolve their own item ID first (extractHevcThumbnailAnnexB does so via
+// "thmb"; tile extraction does so via "dimg", see HeicTileGrid.kt).
+fun extractHevcItemAnnexB(file: File, root: BoxNode, itemId: Long): ByteArray? {
+    val meta = findFirst(root) { it.type == "meta" } ?: return null
+    val iloc = findFirst(meta) { it.type == "iloc" } ?: return null
+    val hvcC = findItemProperty(meta, itemId, "hvcC") ?: return null
     val idatBase = findFirst(root) { it.type == "idat" }?.let { it.offset + it.headerSize } ?: 0L
 
     return try {
         ByteReader.open(file).use { reader ->
             val hvcCInfo = readHvcCInfo(reader, hvcC) ?: return@use null
-            val itemBytes = extractItemBytes(reader, iloc, thumbId, idatBase) ?: return@use null
+            val itemBytes = extractItemBytes(reader, iloc, itemId, idatBase) ?: return@use null
             val pictureAnnexB = convertLengthPrefixedToAnnexB(itemBytes, hvcCInfo.lengthSize)
             if (pictureAnnexB.isEmpty()) null else hvcCInfo.parameterSetsAnnexB + pictureAnnexB
         }
@@ -57,7 +66,7 @@ fun extractHevcThumbnailAnnexB(file: File, root: BoxNode): ByteArray? {
 
 // Same item/property-association lookup as MediaSummaryBuilder's findPrimaryItemProperty, but for
 // an arbitrary item ID rather than only the file's primary item.
-private fun findItemProperty(meta: BoxNode, itemId: Long, propertyType: String): BoxNode? {
+internal fun findItemProperty(meta: BoxNode, itemId: Long, propertyType: String): BoxNode? {
     val ipma = findFirst(meta) { it.type == "ipma" } ?: return null
     val itemEntry = ipma.children.find { it.type == "item_$itemId" } ?: return null
     val propertyIndices = itemEntry.fields
@@ -71,7 +80,7 @@ private fun findItemProperty(meta: BoxNode, itemId: Long, propertyType: String):
     return null
 }
 
-private fun extractItemBytes(reader: ByteReader, iloc: BoxNode, itemId: Long, idatBase: Long): ByteArray? {
+internal fun extractItemBytes(reader: ByteReader, iloc: BoxNode, itemId: Long, idatBase: Long): ByteArray? {
     val itemNode = iloc.children.find { it.type == "item_$itemId" } ?: return null
     val method = itemNode.fields.find { it.name == "construction_method" }?.value?.toIntOrNull() ?: 0
     val out = ByteArrayOutputStream()
