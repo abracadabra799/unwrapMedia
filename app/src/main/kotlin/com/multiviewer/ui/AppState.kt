@@ -190,7 +190,7 @@ class TabState(val file: File) {
     var rawAudioParams: RawAudioParams? by mutableStateOf(null)
 }
 
-private val RAW_PIXEL_EXTENSIONS = listOf("raw", "rgb", "rgba", "yuv")
+private val RAW_PIXEL_EXTENSIONS = listOf("raw", "rgb", "rgba", "yuv", "nv12", "nv21")
 private val RAW_AUDIO_EXTENSIONS = listOf("pcm")
 
 class AppState {

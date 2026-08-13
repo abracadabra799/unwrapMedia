@@ -45,6 +45,16 @@ enum class RawPixelFormat(val label: String, val ffmpegPixFmt: String?, val need
     ARGB8888("ARGB8888 (32-bit)", null),
 }
 
+// RawPixelOpenDialog's default format selection: a file literally named .nv12/.nv21 tells us its
+// format unambiguously, so pre-select the matching one instead of always defaulting to
+// RawPixelFormat.entries.first() (still the fallback for the genuinely-headerless .raw/.rgb/.rgba/
+// .yuv extensions, which carry no format hint of their own).
+fun defaultRawPixelFormat(extension: String): RawPixelFormat = when (extension.lowercase()) {
+    "nv12" -> RawPixelFormat.YUV420SP_NV12
+    "nv21" -> RawPixelFormat.YUV420SP_NV21
+    else -> RawPixelFormat.entries.first()
+}
+
 // 4:2:0 chroma subsampling covers each plane at ceil(dim/2), not floor(dim/2) -- verified
 // directly: a real ffmpeg-generated 5x3 yuv420p frame is 27 bytes (5*3 + 2*ceil(5/2)*ceil(3/2) =
 // 15 + 12 = 27), not the 19 bytes floor division would predict.
