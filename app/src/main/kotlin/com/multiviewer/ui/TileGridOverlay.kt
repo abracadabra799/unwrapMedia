@@ -6,25 +6,31 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
 import com.multiviewer.parser.TileGridInfo
 
-private val TILE_GRID_LINE_COLOR = Color.White // caller applies AppColors.NeonPurple via tint if desired; see PixelInspectorPreview wiring
-
 // Resolves a tap (in the same Box-local coordinate space PixelInspectorPreview's own gestures use)
-// to the tile item ID at that point, at plain fit-scale (the caller's own graphicsLayer handles
-// zoom/pan, exactly as PixelGridOverlay.kt's drawing does) -- null if the tap landed outside the
-// fitted image bounds (letterboxed margin) or, degenerately, outside the grid's own dimensions.
-fun resolveTileAt(tapPosition: Offset, nativeSize: Size, boxSize: Size, tileGrid: TileGridInfo): Long? {
+// to the tile item ID at that point -- null if the tap landed outside the fitted image bounds
+// (letterboxed margin) or, degenerately, outside the grid's own dimensions. `scale`/`offset` invert
+// the caller's current zoom/pan transform (the same inverse math panToPoint already applies) before
+// the fit-scale/letterbox math runs, so hit-testing stays correct once the user has zoomed or panned.
+fun resolveTileAt(
+    tapPosition: Offset,
+    nativeSize: Size,
+    boxSize: Size,
+    tileGrid: TileGridInfo,
+    scale: Float = 1f,
+    offset: Offset = Offset.Zero,
+): Long? {
     if (nativeSize.width <= 0f || nativeSize.height <= 0f || boxSize.width <= 0f || boxSize.height <= 0f) return null
+    val localTap = Offset((tapPosition.x - offset.x) / scale, (tapPosition.y - offset.y) / scale)
     val fitScale = minOf(boxSize.width / nativeSize.width, boxSize.height / nativeSize.height)
     val fittedWidth = nativeSize.width * fitScale
     val fittedHeight = nativeSize.height * fitScale
     val left = (boxSize.width - fittedWidth) / 2f
     val top = (boxSize.height - fittedHeight) / 2f
 
-    val localX = tapPosition.x - left
-    val localY = tapPosition.y - top
+    val localX = localTap.x - left
+    val localY = localTap.y - top
     if (localX < 0f || localY < 0f || localX >= fittedWidth || localY >= fittedHeight) return null
 
     val nativeX = localX / fitScale
@@ -43,6 +49,7 @@ fun resolveTileAt(tapPosition: Offset, nativeSize: Size, boxSize: Size, tileGrid
 // establishes, so the overlay tracks the zoomed image with no zoom-aware drawing logic here.
 @Composable
 fun TileGridOverlay(tileGrid: TileGridInfo, nativeSize: Size, modifier: Modifier = Modifier) {
+    val lineColor = AppColors.NeonPurple
     Canvas(modifier = modifier.fillMaxSize()) {
         if (nativeSize.width <= 0f || nativeSize.height <= 0f) return@Canvas
         val fitScale = minOf(size.width / nativeSize.width, size.height / nativeSize.height)
@@ -58,7 +65,7 @@ fun TileGridOverlay(tileGrid: TileGridInfo, nativeSize: Size, modifier: Modifier
                 val tileRight = (left + (column + 1) * tileGrid.tileWidth * fitScale).coerceAtMost(left + fittedWidth)
                 val tileBottom = (top + (row + 1) * tileGrid.tileHeight * fitScale).coerceAtMost(top + fittedHeight)
                 drawRect(
-                    color = TILE_GRID_LINE_COLOR,
+                    color = lineColor,
                     topLeft = Offset(tileLeft, tileTop),
                     size = Size(tileRight - tileLeft, tileBottom - tileTop),
                     style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5f),
