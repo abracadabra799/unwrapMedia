@@ -364,6 +364,28 @@ class RawPixelDecoderTest {
     }
 
     @Test
+    fun `defaultRawPixelFormat picks NV12 for a nv12 extension`() {
+        assertEquals(RawPixelFormat.YUV420SP_NV12, defaultRawPixelFormat("nv12"))
+    }
+
+    @Test
+    fun `defaultRawPixelFormat picks NV21 for a nv21 extension`() {
+        assertEquals(RawPixelFormat.YUV420SP_NV21, defaultRawPixelFormat("nv21"))
+    }
+
+    @Test
+    fun `defaultRawPixelFormat is case-insensitive`() {
+        assertEquals(RawPixelFormat.YUV420SP_NV21, defaultRawPixelFormat("NV21"))
+    }
+
+    @Test
+    fun `defaultRawPixelFormat falls back to the first enum entry for any other extension`() {
+        assertEquals(RawPixelFormat.entries.first(), defaultRawPixelFormat("raw"))
+        assertEquals(RawPixelFormat.entries.first(), defaultRawPixelFormat("yuv"))
+        assertEquals(RawPixelFormat.entries.first(), defaultRawPixelFormat("rgba"))
+    }
+
+    @Test
     fun `decodeRawPixelFile returns null for a frame index past the end of the sequence`() {
         val width = 2
         val height = 2
