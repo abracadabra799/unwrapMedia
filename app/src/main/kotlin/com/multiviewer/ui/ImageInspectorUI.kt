@@ -42,6 +42,26 @@ fun ImageInspectorUI(
 ) {
     val forensic = tab.imageForensic ?: return
 
+    LaunchedEffect(tab.file, tab.root) {
+        val root = tab.root ?: return@LaunchedEffect
+        tab.tileGrid = withContext(Dispatchers.IO) { com.multiviewer.parser.findHeicTileGrid(tab.file, root) }
+    }
+
+    fun onTileClick(itemId: Long) {
+        val root = tab.root ?: return
+        val iloc = com.multiviewer.parser.findFirst(root) { it.type == "meta" }
+            ?.let { meta -> com.multiviewer.parser.findFirst(meta) { it.type == "iloc" } }
+        val extent = iloc?.children?.find { it.type == "item_$itemId" }?.children?.firstOrNull()
+        val offset = extent?.fields?.find { it.name == "offset" || it.name == "idat_relative_offset" }?.value?.toLongOrNull()
+        val length = extent?.fields?.find { it.name == "length" }?.value?.toLongOrNull()
+        tab.tileHighlightRange = if (offset != null && length != null) offset until (offset + length) else null
+        tab.selectedTileItemId = itemId
+        tab.selectedTileBitmap = null
+        FfmpegImageSnapshotDecoder.decodeHeicTileAsync(tab.file, root, itemId) { bitmap ->
+            if (tab.selectedTileItemId == itemId) tab.selectedTileBitmap = bitmap
+        }
+    }
+
     DashboardLayout(
         leftPanel = leftPanel,
         centerPanel = {
@@ -115,7 +135,7 @@ fun ImageInspectorUI(
                         contentAlignment = Alignment.Center
                     ) {
                         forensic.bitmap?.let {
-                            PixelInspectorPreview(it)
+                            PixelInspectorPreview(it, tileGrid = tab.tileGrid, onTileClick = ::onTileClick)
                         } ?: if (forensic.isDecodingFallback) {
                             DecodingIndicator("이미지 디코딩 중...")
                         } else {
@@ -164,6 +184,32 @@ fun ImageInspectorUI(
         },
         bottomPanel = bottomPanel
     )
+
+    tab.selectedTileItemId?.let { itemId ->
+        androidx.compose.ui.window.Dialog(onDismissRequest = { tab.selectedTileItemId = null; tab.tileHighlightRange = null }) {
+            Column(
+                modifier = Modifier
+                    .background(AppColors.Surface, androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                    .border(1.dp, AppColors.Border, androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                    .padding(12.dp),
+            ) {
+                Text("Tile item $itemId", style = AppTypography.labelLarge.copy(fontSize = 11.sp, color = AppColors.NeonPurple))
+                Spacer(Modifier.height(8.dp))
+                val tileBitmap = tab.selectedTileBitmap
+                if (tileBitmap != null) {
+                    androidx.compose.foundation.Image(
+                        bitmap = tileBitmap,
+                        contentDescription = null,
+                        modifier = Modifier.size(200.dp),
+                    )
+                } else {
+                    Box(modifier = Modifier.size(200.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
