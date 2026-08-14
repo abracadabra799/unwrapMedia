@@ -22,8 +22,14 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 
 // Toggle-driven preview of a single GOP frame with motion vectors baked onto it (see
 // MotionVectorFrameDecoder.kt). Re-keying on (tab.selectedFrame, tab.motionVectorOverlayEnabled)
-// means Compose itself cancels an in-flight extraction whenever the user steps to a new frame or
-// flips the toggle before the previous one finished -- no manual staleness guard needed.
+// cancels the AWAITING coroutine whenever the user steps to a new frame or flips the toggle
+// before the previous request finished -- the cont.isActive guard then stops a late result from
+// ever being assigned, so no manual staleness guard is needed for what the UI shows. This does
+// NOT kill the underlying ffmpeg subprocess itself: decodeFrameAsync's background Thread runs to
+// completion (bounded by decodeSingleFrameToBitmap's own 8s timeout) regardless of cancellation,
+// since that shared helper doesn't expose its Process handle. Acceptable for this single-frame,
+// click-triggered v1 -- would need revisiting if a future live-playback toggle triggers this
+// continuously instead.
 @Composable
 fun MotionVectorPreview(tab: TabState, modifier: Modifier = Modifier) {
     LaunchedEffect(tab.selectedFrame, tab.motionVectorOverlayEnabled) {
