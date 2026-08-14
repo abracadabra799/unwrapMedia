@@ -166,16 +166,17 @@ class TabState(val file: File) {
     var seekTargetSeconds: Double by mutableStateOf(0.0)
     var seekRequestTick: Int by mutableStateOf(0)
 
-    // Motion vector overlay preview (see MotionVectorFrameDecoder.kt) -- a single selected GOP
-    // frame re-extracted via ffmpeg's codecview filter with motion vectors baked onto its pixels.
-    // Off by default; toggling on (or stepping to a new frame while on) triggers extraction. Only
-    // offered for H.264 video (see motionVectorsSupportedFor) -- ffmpeg's HEVC decoder silently
-    // ignores the export_mvs request, so the panel is hidden entirely rather than shown empty.
-    // null videoCodecName means "not probed yet"; probing happens once per opened video tab.
+    // Codec-view preview (see CodecViewFrameDecoder.kt) -- a single selected GOP frame
+    // re-extracted via ffmpeg's codecview filter, in one of two modes (motion vectors or QP
+    // heatmap) baked onto its pixels. Which mode is active is app-level menu state (Main.kt's
+    // "보기" menu), NOT per-tab, matching the existing "픽셀 그리드" menu toggle's own precedent --
+    // only the decoded result (bitmap/loading flag) is naturally per-tab. Each mode is offered
+    // independently per codecViewSupportedFor -- only H.264 today for both, verified separately
+    // per mode since they use different ffmpeg mechanisms. null videoCodecName means "not probed
+    // yet"; probing happens once per opened video tab.
     var videoCodecName: String? by mutableStateOf(null)
-    var motionVectorOverlayEnabled: Boolean by mutableStateOf(false)
-    var motionVectorFrameBitmap: androidx.compose.ui.graphics.ImageBitmap? by mutableStateOf(null)
-    var isDecodingMotionVectorFrame: Boolean by mutableStateOf(false)
+    var codecViewFrameBitmap: androidx.compose.ui.graphics.ImageBitmap? by mutableStateOf(null)
+    var isDecodingCodecViewFrame: Boolean by mutableStateOf(false)
 
     // Motion Photo Video codec-detail enrichment (see StreamCodecDetails.kt) -- button-triggered
     // since, unlike the main video, this requires extracting the embedded video to a temp file
