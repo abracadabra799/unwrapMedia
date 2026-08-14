@@ -1,6 +1,5 @@
 package com.multiviewer.ui
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,7 +13,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.coroutines.resume
@@ -65,11 +63,15 @@ fun MotionVectorPreview(tab: TabState, modifier: Modifier = Modifier) {
                 frame == null -> Text("프레임을 선택하세요", color = Color.Gray, fontSize = 13.sp)
                 tab.isDecodingMotionVectorFrame -> DecodingIndicator("모션 벡터 추출 중...")
                 bitmap != null -> {
-                    Image(
-                        bitmap = bitmap,
-                        contentDescription = null,
+                    // Motion vector arrows are drawn by ffmpeg at native pixel scale, and a
+                    // typical video frame is far larger than this panel -- a plain fit-to-panel
+                    // Image would shrink them to invisibility. Reuses the same scroll-to-zoom/
+                    // drag-to-pan viewer PIXEL INSPECTOR already uses instead of building a
+                    // second one.
+                    PixelInspectorPreview(
+                        bitmap,
                         modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit,
+                        resetKey = frame,
                     )
                     PreviewCaption(
                         "Frame #${frame.index} (${frame.type})",
