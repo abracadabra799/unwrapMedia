@@ -83,7 +83,14 @@ fun panToPoint(offset: Offset, boxSize: Size, scale: Float, tapPosition: Offset)
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun PixelInspectorPreview(bitmap: ImageBitmap, modifier: Modifier = Modifier, resetKey: Any = bitmap) {
+fun PixelInspectorPreview(
+    bitmap: ImageBitmap,
+    modifier: Modifier = Modifier,
+    resetKey: Any = bitmap,
+    tileGrid: com.multiviewer.parser.TileGridInfo? = null,
+    selectedTileIndex: Int? = null,
+    onTileClick: ((Int) -> Unit)? = null,
+) {
     var scale by remember(resetKey) { mutableStateOf(1f) }
     var offset by remember(resetKey) { mutableStateOf(Offset.Zero) }
     var boxSize by remember(resetKey) { mutableStateOf(Size.Zero) }
@@ -109,7 +116,19 @@ fun PixelInspectorPreview(bitmap: ImageBitmap, modifier: Modifier = Modifier, re
             }
             .pointerInput(resetKey) {
                 detectTapGestures(
-                    onTap = { tapPosition -> offset = panToPoint(offset, boxSize, scale, tapPosition) },
+                    onTap = { tapPosition ->
+                        if (tileGrid != null && onTileClick != null) {
+                            resolveTileIndexAt(
+                                tapPosition = tapPosition,
+                                boxSize = boxSize,
+                                nativeSize = Size(bitmap.width.toFloat(), bitmap.height.toFloat()),
+                                scale = scale,
+                                offset = offset,
+                                tileGrid = tileGrid,
+                            )?.let { onTileClick(it) }
+                        }
+                        offset = panToPoint(offset, boxSize, scale, tapPosition)
+                    },
                     onDoubleTap = {
                         scale = 1f
                         offset = Offset.Zero
@@ -135,6 +154,20 @@ fun PixelInspectorPreview(bitmap: ImageBitmap, modifier: Modifier = Modifier, re
             PixelGridOverlay(
                 nativeSize = Size(bitmap.width.toFloat(), bitmap.height.toFloat()),
                 scale = scale,
+                modifier = Modifier.graphicsLayer(
+                    scaleX = scale,
+                    scaleY = scale,
+                    translationX = offset.x,
+                    translationY = offset.y,
+                    transformOrigin = TransformOrigin(0f, 0f),
+                ),
+            )
+        }
+        if (tileGrid != null && selectedTileIndex != null) {
+            TileGridOverlay(
+                tileGrid = tileGrid,
+                nativeSize = Size(bitmap.width.toFloat(), bitmap.height.toFloat()),
+                selectedTileIndex = selectedTileIndex,
                 modifier = Modifier.graphicsLayer(
                     scaleX = scale,
                     scaleY = scale,
