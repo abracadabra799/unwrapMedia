@@ -175,6 +175,22 @@ class TabState(val file: File) {
     // per mode since they use different ffmpeg mechanisms. null videoCodecName means "not probed
     // yet"; probing happens once per opened video tab.
     var videoCodecName: String? by mutableStateOf(null)
+
+    // Frame thumbnail filmstrip (see FrameThumbnailDecoder.kt) -- keyed by frame index, populated
+    // lazily as the filmstrip scrolls. pendingThumbnailIndices tracks in-flight requests so a
+    // rapid double-trigger (e.g. two scroll events before the first batch returns) doesn't launch
+    // two overlapping ffmpeg calls covering the same range.
+    var thumbnailCache: Map<Int, androidx.compose.ui.graphics.ImageBitmap> by mutableStateOf(emptyMap())
+    var pendingThumbnailIndices: Set<Int> by mutableStateOf(emptySet())
+
+    // Full-size frame preview popup (see FrameFullSizeDecoder.kt) -- true while the popup window
+    // is open, set by clicking a filmstrip thumbnail. The popup always shows whichever frame is
+    // CURRENTLY selectedFrame, live -- not the frame that was selected at the moment it was
+    // opened -- so stepping frames with the filmstrip's arrow keys updates the open popup too.
+    // fullSizeFrameBitmap is the actual native-resolution decode (separate from the small
+    // thumbnailCache entry for the same frame).
+    var fullSizeFramePreviewOpen: Boolean by mutableStateOf(false)
+    var fullSizeFrameBitmap: androidx.compose.ui.graphics.ImageBitmap? by mutableStateOf(null)
     var codecViewFrameBitmap: androidx.compose.ui.graphics.ImageBitmap? by mutableStateOf(null)
     var isDecodingCodecViewFrame: Boolean by mutableStateOf(false)
 
