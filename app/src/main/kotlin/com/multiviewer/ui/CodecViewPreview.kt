@@ -3,13 +3,8 @@ package com.multiviewer.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -23,19 +18,21 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 
 // Toggle-driven preview of a single GOP frame in one of two codec-view modes (see
 // CodecViewFrameDecoder.kt): motion vectors or a QP heatmap, baked onto the frame's own pixels by
-// ffmpeg. Re-keying on (tab.selectedFrame, tab.codecViewMode) cancels the AWAITING coroutine
-// whenever the user steps to a new frame or switches/turns off the mode before the previous
-// request finished -- the cont.isActive guard then stops a late result from ever being assigned,
-// so no manual staleness guard is needed for what the UI shows. This does NOT kill the underlying
-// ffmpeg subprocess itself: decodeFrameAsync's background Thread runs to completion (bounded by
+// ffmpeg. `mode` is driven from the app-level "보기" menu (Main.kt), not owned by this composable
+// or by TabState -- switching video tabs while a mode is checked keeps it checked, matching the
+// existing "픽셀 그리드" menu toggle's own always-on-once-checked precedent, rather than resetting
+// per tab. Re-keying on (tab.selectedFrame, mode) cancels the AWAITING coroutine whenever the user
+// steps to a new frame or the menu switches/turns off the mode before the previous request
+// finished -- the cont.isActive guard then stops a late result from ever being assigned, so no
+// manual staleness guard is needed for what the UI shows. This does NOT kill the underlying ffmpeg
+// subprocess itself: decodeFrameAsync's background Thread runs to completion (bounded by
 // decodeSingleFrameToBitmap's own 8s timeout) regardless of cancellation, since that shared helper
 // doesn't expose its Process handle. Acceptable for this single-frame, click-triggered scope --
 // would need revisiting if a future live-playback toggle triggers this continuously instead.
 @Composable
-fun CodecViewPreview(tab: TabState, modifier: Modifier = Modifier) {
-    LaunchedEffect(tab.selectedFrame, tab.codecViewMode) {
+fun CodecViewPreview(tab: TabState, mode: CodecViewMode?, modifier: Modifier = Modifier) {
+    LaunchedEffect(tab.selectedFrame, mode) {
         val frame = tab.selectedFrame
-        val mode = tab.codecViewMode
         if (mode == null || frame == null) {
             tab.codecViewFrameBitmap = null
             tab.isDecodingCodecViewFrame = false
@@ -52,29 +49,11 @@ fun CodecViewPreview(tab: TabState, modifier: Modifier = Modifier) {
     }
 
     Column(modifier = modifier.background(AppColors.Panel)) {
-        Row(modifier = Modifier.padding(8.dp)) {
-            if (codecViewSupportedFor(CodecViewMode.MOTION_VECTORS, tab.videoCodecName)) {
-                Button(onClick = {
-                    tab.codecViewMode = if (tab.codecViewMode == CodecViewMode.MOTION_VECTORS) null else CodecViewMode.MOTION_VECTORS
-                }) {
-                    Text(if (tab.codecViewMode == CodecViewMode.MOTION_VECTORS) "모션 벡터 끄기" else "모션 벡터 켜기")
-                }
-            }
-            if (codecViewSupportedFor(CodecViewMode.QP_HEATMAP, tab.videoCodecName)) {
-                Spacer(Modifier.width(8.dp))
-                Button(onClick = {
-                    tab.codecViewMode = if (tab.codecViewMode == CodecViewMode.QP_HEATMAP) null else CodecViewMode.QP_HEATMAP
-                }) {
-                    Text(if (tab.codecViewMode == CodecViewMode.QP_HEATMAP) "QP 히트맵 끄기" else "QP 히트맵 켜기")
-                }
-            }
-        }
-
-        Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             val frame = tab.selectedFrame
             val bitmap = tab.codecViewFrameBitmap
             when {
-                tab.codecViewMode == null -> {}
+                mode == null -> {}
                 frame == null -> Text("프레임을 선택하세요", color = Color.Gray, fontSize = 13.sp)
                 tab.isDecodingCodecViewFrame -> DecodingIndicator("추출 중...")
                 bitmap != null -> {
