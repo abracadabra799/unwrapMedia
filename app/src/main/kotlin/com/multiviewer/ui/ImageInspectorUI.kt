@@ -374,6 +374,28 @@ private fun DetailPropertiesTabContent(tab: TabState) {
         } else {
             emptyList()
         }
+        // Resolved OUTSIDE the LazyColumn below for the same reason `warnings` above is -- a
+        // LazyListScope builder lambda isn't itself a @Composable context, so produceState (like
+        // remember) has to run here instead.
+        val resolvedH264Params = if (selectedFrame != null) {
+            produceState<Pair<com.multiviewer.parser.H264Sps, com.multiviewer.parser.H264Pps>?>(
+                null, selectedFrame, tab.avcSpsList, tab.avcPpsList, tab.avcLengthSize,
+            ) {
+                value = null
+                val byteOffset = selectedFrame.byteOffset
+                val lengthSize = tab.avcLengthSize
+                if (byteOffset != null && lengthSize != null && tab.avcPpsList.isNotEmpty()) {
+                    value = withContext(Dispatchers.IO) {
+                        val picParameterSetId = com.multiviewer.parser.resolveActivePicParameterSetId(
+                            tab.file, byteOffset, selectedFrame.sizeBytes, lengthSize,
+                        ) ?: return@withContext null
+                        com.multiviewer.parser.resolveActiveParameterSets(tab.avcSpsList, tab.avcPpsList, picParameterSetId)
+                    }
+                }
+            }.value
+        } else {
+            null
+        }
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                 when {
@@ -392,6 +414,36 @@ private fun DetailPropertiesTabContent(tab: TabState) {
                                     if (gop.distanceFromKeyframe == 0) "Keyframe (I-frame)"
                                     else "+${gop.distanceFromKeyframe} from keyframe #${gop.keyframeIndex}",
                                 )
+                            }
+                            resolvedH264Params?.let { (sps, pps) ->
+                                Spacer(Modifier.height(8.dp))
+                                Text("H.264 Parameter Sets", style = AppTypography.labelLarge.copy(color = AppColors.NeonBlue))
+                                PropertyRow("SPS ID / PPS ID", "${sps.seqParameterSetId} / ${pps.picParameterSetId}")
+                                PropertyRow("Profile / Level", "${sps.profileIdc} / ${sps.levelIdc}")
+                                PropertyRow("Chroma Format", "4:${if (sps.chromaFormatIdc == 0) "0:0" else if (sps.chromaFormatIdc == 1) "2:0" else if (sps.chromaFormatIdc == 2) "2:2" else "4:4"}")
+                                PropertyRow("Bit Depth (Luma/Chroma)", "${sps.bitDepthLuma} / ${sps.bitDepthChroma}")
+                                if (sps.scalingMatrixUnsupported) {
+                                    PropertyRow("Note", "Custom scaling matrix present -- further SPS fields not parsed")
+                                } else {
+                                    PropertyRow("POC Type", sps.picOrderCntType.toString())
+                                    PropertyRow("Max Ref Frames", sps.maxNumRefFrames.toString())
+                                }
+                                PropertyRow(
+                                    "Entropy Coding",
+                                    if (pps.entropyCodingModeFlag) "CABAC" else "CAVLC",
+                                )
+                                pps.deblockingFilterControlPresentFlag?.let {
+                                    PropertyRow("Deblocking Filter Control", if (it) "Present" else "Absent")
+                                }
+                                pps.transform8x8ModeFlag?.let {
+                                    PropertyRow("8x8 Transform Mode", if (it) "Enabled" else "Disabled")
+                                }
+                                sps.vui?.let { vui ->
+                                    vui.colourPrimaries?.let { PropertyRow("Colour Primaries", it.toString()) }
+                                    vui.transferCharacteristics?.let { PropertyRow("Transfer Characteristics", it.toString()) }
+                                    vui.matrixCoefficients?.let { PropertyRow("Matrix Coefficients", it.toString()) }
+                                    vui.videoFullRangeFlag?.let { PropertyRow("Full Range", if (it) "Yes" else "No") }
+                                }
                             }
                         }
                     }
