@@ -183,10 +183,13 @@ class TabState(val file: File) {
     var thumbnailCache: Map<Int, androidx.compose.ui.graphics.ImageBitmap> by mutableStateOf(emptyMap())
     var pendingThumbnailIndices: Set<Int> by mutableStateOf(emptySet())
 
-    // Full-size frame preview popup (see FrameFullSizeDecoder.kt) -- non-null while the popup
-    // window is open, set by clicking a filmstrip thumbnail. fullSizeFrameBitmap is the actual
-    // native-resolution decode (separate from the small thumbnailCache entry for the same frame).
-    var fullSizeFramePreview: FrameInfo? by mutableStateOf(null)
+    // Full-size frame preview popup (see FrameFullSizeDecoder.kt) -- true while the popup window
+    // is open, set by clicking a filmstrip thumbnail. The popup always shows whichever frame is
+    // CURRENTLY selectedFrame, live -- not the frame that was selected at the moment it was
+    // opened -- so stepping frames with the filmstrip's arrow keys updates the open popup too.
+    // fullSizeFrameBitmap is the actual native-resolution decode (separate from the small
+    // thumbnailCache entry for the same frame).
+    var fullSizeFramePreviewOpen: Boolean by mutableStateOf(false)
     var fullSizeFrameBitmap: androidx.compose.ui.graphics.ImageBitmap? by mutableStateOf(null)
     var codecViewFrameBitmap: androidx.compose.ui.graphics.ImageBitmap? by mutableStateOf(null)
     var isDecodingCodecViewFrame: Boolean by mutableStateOf(false)
