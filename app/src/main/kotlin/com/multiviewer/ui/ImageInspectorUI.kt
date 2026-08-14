@@ -47,8 +47,24 @@ fun ImageInspectorUI(
         tab.tileGrid = withContext(Dispatchers.IO) { com.multiviewer.parser.findHeicTileGrid(tab.file, root) }
     }
 
-    fun onTileClick(itemId: Long) {
-        val root = tab.root ?: return
+    // Reacts to the Media Structure tree selection (tab.selected, set generically by BoxTreeView's
+    // onSelect for any node) rather than a gesture on the image itself: whenever the selected node
+    // is one of tileGrid's own tile items (an iloc "item_<ID>" node whose ID appears in
+    // tileGrid.tileItemIds), resolve that tile's real pixel-data byte range and its row-major
+    // index -- both null otherwise, which is what hides the single-tile overlay (PixelInspectorPreview
+    // below) and falls the Hex viewer highlight back to its normal tree-selection behavior
+    // (Main.kt's tileHighlightRange ?: activeField ?: selected chain).
+    LaunchedEffect(tab.selected, tab.tileGrid) {
+        val root = tab.root
+        val tileGrid = tab.tileGrid
+        val selected = tab.selected
+        val itemId = selected?.type?.takeIf { it.startsWith("item_") }?.removePrefix("item_")?.toLongOrNull()
+        val tileIndex = if (root != null && tileGrid != null && itemId != null) tileGrid.tileItemIds.indexOf(itemId).takeIf { it >= 0 } else null
+        if (root == null || tileIndex == null) {
+            tab.tileHighlightRange = null
+            tab.selectedTileIndex = null
+            return@LaunchedEffect
+        }
         val iloc = com.multiviewer.parser.findFirst(root) { it.type == "meta" }
             ?.let { meta -> com.multiviewer.parser.findFirst(meta) { it.type == "iloc" } }
         val extent = iloc?.children?.find { it.type == "item_$itemId" }?.children?.firstOrNull()
@@ -65,11 +81,7 @@ fun ImageInspectorUI(
         }
         val length = extent?.fields?.find { it.name == "length" }?.value?.toLongOrNull()
         tab.tileHighlightRange = if (offset != null && length != null) offset until (offset + length) else null
-        tab.selectedTileItemId = itemId
-        tab.selectedTileBitmap = null
-        FfmpegImageSnapshotDecoder.decodeHeicTileAsync(tab.file, root, itemId) { bitmap ->
-            if (tab.selectedTileItemId == itemId) tab.selectedTileBitmap = bitmap
-        }
+        tab.selectedTileIndex = tileIndex
     }
 
     DashboardLayout(
@@ -145,7 +157,7 @@ fun ImageInspectorUI(
                         contentAlignment = Alignment.Center
                     ) {
                         forensic.bitmap?.let {
-                            PixelInspectorPreview(it, tileGrid = tab.tileGrid, onTileClick = ::onTileClick)
+                            PixelInspectorPreview(it, tileGrid = tab.tileGrid, selectedTileIndex = tab.selectedTileIndex)
                         } ?: if (forensic.isDecodingFallback) {
                             DecodingIndicator("이미지 디코딩 중...")
                         } else {
@@ -194,32 +206,6 @@ fun ImageInspectorUI(
         },
         bottomPanel = bottomPanel
     )
-
-    tab.selectedTileItemId?.let { itemId ->
-        androidx.compose.ui.window.Dialog(onDismissRequest = { tab.selectedTileItemId = null; tab.tileHighlightRange = null }) {
-            Column(
-                modifier = Modifier
-                    .background(AppColors.Surface, androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
-                    .border(1.dp, AppColors.Border, androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
-                    .padding(12.dp),
-            ) {
-                Text("Tile item $itemId", style = AppTypography.labelLarge.copy(fontSize = 11.sp, color = AppColors.NeonPurple))
-                Spacer(Modifier.height(8.dp))
-                val tileBitmap = tab.selectedTileBitmap
-                if (tileBitmap != null) {
-                    androidx.compose.foundation.Image(
-                        bitmap = tileBitmap,
-                        contentDescription = null,
-                        modifier = Modifier.size(200.dp),
-                    )
-                } else {
-                    Box(modifier = Modifier.size(200.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-                }
-            }
-        }
-    }
 }
 
 @Composable
