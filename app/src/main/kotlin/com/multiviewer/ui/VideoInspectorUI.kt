@@ -27,10 +27,6 @@ fun VideoInspectorUI(
     // column (split via a second, vertical DraggableDivider) moved to DetailedPropertiesPanel's
     // Overview tab, so this row now fills the whole center panel.
     var videoGopSplit by remember { mutableStateOf(0.35f) }
-    // GOP timeline gets more of the column by default (0.7) since it's the primary view here --
-    // same asymmetric-default reasoning as videoGopSplit itself giving the live player more width
-    // than the GOP panel.
-    var gopMvSplit by remember { mutableStateOf(0.7f) }
 
     DashboardLayout(
         leftPanel = leftPanel,
@@ -73,34 +69,16 @@ fun VideoInspectorUI(
                         setSplit = { videoGopSplit = it }
                     )
 
-                    // Right: GOP Analysis (top) + Motion Vector Preview (bottom), stacked and
-                    // independently resizable via gopMvSplit -- same DraggableDivider pattern
-                    // videoGopSplit already establishes for the player/GOP split above.
-                    var gopColumnHeightPx by remember { mutableStateOf(0) }
-                    Column(
-                        modifier = Modifier
-                            .weight(1f - videoGopSplit)
-                            .fillMaxHeight()
-                            .onGloballyPositioned { gopColumnHeightPx = it.size.height },
-                    ) {
-                        GopAnalysisView(
-                            tab,
-                            onAnalyze = { appState.analyzeFrames(tab) },
-                            modifier = Modifier.weight(gopMvSplit),
-                        )
-
-                        DraggableDivider(
-                            orientation = Orientation.Horizontal,
-                            containerSizePx = gopColumnHeightPx,
-                            getSplit = { gopMvSplit },
-                            setSplit = { gopMvSplit = it },
-                        )
-
-                        MotionVectorPreview(
-                            tab,
-                            modifier = Modifier.weight(1f - gopMvSplit).fillMaxWidth(),
-                        )
-                    }
+                    // Right: GOP Analysis (full height of the top region). The motion vector
+                    // preview (MotionVectorPreview.kt) is NOT shown here -- it renders beside the
+                    // Hex & Raw Data Viewer instead (see Main.kt's bottomPanel), reusing the empty
+                    // space to the right of the hex byte grid rather than shrinking this already
+                    // vertically-limited GOP column further.
+                    GopAnalysisView(
+                        tab,
+                        onAnalyze = { appState.analyzeFrames(tab) },
+                        modifier = Modifier.weight(1f - videoGopSplit).fillMaxHeight(),
+                    )
                 }
             }
         },
