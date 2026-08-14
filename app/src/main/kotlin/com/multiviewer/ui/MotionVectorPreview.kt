@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 // Toggle-driven preview of a single GOP frame with motion vectors baked onto it (see
@@ -35,7 +36,7 @@ fun MotionVectorPreview(tab: TabState, modifier: Modifier = Modifier) {
         tab.isDecodingMotionVectorFrame = true
         val bitmap = suspendCancellableCoroutine { cont ->
             MotionVectorFrameDecoder.decodeFrameAsync(tab.file, frame.ptsSeconds) { result ->
-                if (cont.isActive) cont.resume(result, onCancellation = null)
+                if (cont.isActive) cont.resume(result)
             }
         }
         tab.motionVectorFrameBitmap = bitmap
