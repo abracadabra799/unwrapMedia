@@ -89,6 +89,7 @@ fun PixelInspectorPreview(
     resetKey: Any = bitmap,
     tileGrid: com.multiviewer.parser.TileGridInfo? = null,
     selectedTileIndex: Int? = null,
+    onTileClick: ((Int) -> Unit)? = null,
 ) {
     var scale by remember(resetKey) { mutableStateOf(1f) }
     var offset by remember(resetKey) { mutableStateOf(Offset.Zero) }
@@ -116,6 +117,16 @@ fun PixelInspectorPreview(
             .pointerInput(resetKey) {
                 detectTapGestures(
                     onTap = { tapPosition ->
+                        if (tileGrid != null && onTileClick != null) {
+                            resolveTileIndexAt(
+                                tapPosition = tapPosition,
+                                boxSize = boxSize,
+                                nativeSize = Size(bitmap.width.toFloat(), bitmap.height.toFloat()),
+                                scale = scale,
+                                offset = offset,
+                                tileGrid = tileGrid,
+                            )?.let { onTileClick(it) }
+                        }
                         offset = panToPoint(offset, boxSize, scale, tapPosition)
                     },
                     onDoubleTap = {

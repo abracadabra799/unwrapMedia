@@ -55,6 +55,49 @@ fun rotateRect(rect: Rect, sourceWidth: Float, sourceHeight: Float, quarterTurns
     }
 }
 
+// Inverse of the draw-time transform TileGridOverlay/tileNativeRect/rotateRect apply: given a tap
+// position in the same coordinate space Compose delivers to a pointerInput callback on the Box
+// wrapping the image (i.e. before that Box's own zoom/pan graphicsLayer, matching how
+// PixelInspectorPreview.panToPoint already un-does scale/offset), first undoes zoom/pan and the
+// fit-scale/letterbox math to land in POST-rotation native bitmap pixel coordinates, then undoes
+// the rotation (rotateRect with the inverse quarter-turn count -- k and 4-k cancel out, see the
+// "at 1 quarter turn is the inverse of 3" test above) to land in the grid's own PRE-rotation
+// space, where row/column follow directly from tileWidth/tileHeight. Returns null when the tap
+// misses the fitted image entirely (letterbox bars) or resolves outside the tile grid's own
+// tileItemIds range.
+fun resolveTileIndexAt(
+    tapPosition: Offset,
+    boxSize: Size,
+    nativeSize: Size,
+    scale: Float,
+    offset: Offset,
+    tileGrid: TileGridInfo,
+): Int? {
+    if (boxSize.width <= 0f || boxSize.height <= 0f || nativeSize.width <= 0f || nativeSize.height <= 0f) return null
+
+    val contentX = (tapPosition.x - offset.x) / scale
+    val contentY = (tapPosition.y - offset.y) / scale
+    val fitScale = minOf(boxSize.width / nativeSize.width, boxSize.height / nativeSize.height)
+    val left = (boxSize.width - nativeSize.width * fitScale) / 2f
+    val top = (boxSize.height - nativeSize.height * fitScale) / 2f
+    val nativeX = (contentX - left) / fitScale
+    val nativeY = (contentY - top) / fitScale
+    if (nativeX < 0f || nativeY < 0f || nativeX >= nativeSize.width || nativeY >= nativeSize.height) return null
+
+    val inverseQuarterTurns = (4 - ((tileGrid.rotationQuarterTurns % 4) + 4) % 4) % 4
+    val gridPoint = rotateRect(
+        Rect(nativeX, nativeY, nativeX, nativeY),
+        sourceWidth = nativeSize.width,
+        sourceHeight = nativeSize.height,
+        quarterTurns = inverseQuarterTurns,
+    )
+
+    val column = (gridPoint.left / tileGrid.tileWidth).toInt().coerceIn(0, tileGrid.layout.columns - 1)
+    val row = (gridPoint.top / tileGrid.tileHeight).toInt().coerceIn(0, tileGrid.layout.rows - 1)
+    val index = row * tileGrid.layout.columns + column
+    return index.takeIf { it in tileGrid.tileItemIds.indices }
+}
+
 // Draws exactly one tile's boundary -- the one currently selected in the Media Structure tree
 // (see ImageInspectorUI.kt) -- in this Canvas's own untransformed coordinate space. A caller that
 // zooms (PixelInspectorPreview) applies the exact same graphicsLayer transform to this composable
