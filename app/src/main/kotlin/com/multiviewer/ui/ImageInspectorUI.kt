@@ -157,7 +157,26 @@ fun ImageInspectorUI(
                         contentAlignment = Alignment.Center
                     ) {
                         forensic.bitmap?.let {
-                            PixelInspectorPreview(it, tileGrid = tab.tileGrid, selectedTileIndex = tab.selectedTileIndex)
+                            PixelInspectorPreview(
+                                it,
+                                tileGrid = tab.tileGrid,
+                                selectedTileIndex = tab.selectedTileIndex,
+                                onTileClick = { index ->
+                                    // Bidirectional counterpart to the tree-selection LaunchedEffect
+                                    // above: rather than duplicating its offset/length resolution,
+                                    // just set tab.selected to the clicked tile's own tree node --
+                                    // that LaunchedEffect (keyed on tab.selected) then recomputes
+                                    // tileHighlightRange/selectedTileIndex itself, and Main.kt's
+                                    // existing scroll-to-item effect (also keyed on tab.selected)
+                                    // reveals the node in the Media Structure tree too.
+                                    val root = tab.root
+                                    val itemId = tab.tileGrid?.tileItemIds?.getOrNull(index)
+                                    val iloc = root?.let { r -> com.multiviewer.parser.findFirst(r) { it.type == "meta" } }
+                                        ?.let { meta -> com.multiviewer.parser.findFirst(meta) { it.type == "iloc" } }
+                                    val node = itemId?.let { id -> iloc?.children?.find { it.type == "item_$id" } }
+                                    if (node != null) tab.selected = node
+                                },
+                            )
                         } ?: if (forensic.isDecodingFallback) {
                             DecodingIndicator("이미지 디코딩 중...")
                         } else {

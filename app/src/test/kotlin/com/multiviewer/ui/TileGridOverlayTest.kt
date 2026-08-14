@@ -1,10 +1,13 @@
 package com.multiviewer.ui
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import com.multiviewer.parser.GridLayout
 import com.multiviewer.parser.TileGridInfo
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class TileGridOverlayTest {
     // A 1-row, 2-column grid of 16x16 tiles (32x16 output).
@@ -83,5 +86,90 @@ class TileGridOverlayTest {
     fun `rotateRect at 2 quarter turns keeps canvas size and flips the rect to the opposite corner`() {
         val rect = Rect(0f, 0f, 16f, 16f)
         assertEquals(Rect(16f, 16f, 32f, 32f), rotateRect(rect, sourceWidth = 32f, sourceHeight = 32f, quarterTurns = 2))
+    }
+
+    // Same 1x2 grid of 16x16 tiles (32x16 output) as the tileNativeRect tests above -- a boxSize
+    // of 64x32 is an exact 2x fit with no letterbox bars, keeping the arithmetic simple.
+    @Test
+    fun `resolveTileIndexAt returns the left tile's index for a tap inside its bounds`() {
+        val index = resolveTileIndexAt(
+            tapPosition = Offset(10f, 10f),
+            boxSize = Size(64f, 32f),
+            nativeSize = Size(32f, 16f),
+            scale = 1f,
+            offset = Offset.Zero,
+            tileGrid = tileGrid,
+        )
+        assertEquals(0, index)
+    }
+
+    @Test
+    fun `resolveTileIndexAt returns the right tile's index for a tap inside its bounds`() {
+        val index = resolveTileIndexAt(
+            tapPosition = Offset(40f, 10f),
+            boxSize = Size(64f, 32f),
+            nativeSize = Size(32f, 16f),
+            scale = 1f,
+            offset = Offset.Zero,
+            tileGrid = tileGrid,
+        )
+        assertEquals(1, index)
+    }
+
+    @Test
+    fun `resolveTileIndexAt returns null for a tap inside the letterbox bars, outside the fitted image`() {
+        // 100x100 box fitting a 32x16 (2:1) image: fitScale = min(100/32, 100/16) = 3.125, fitted
+        // height = 50, so the image is letterboxed with 25px bars above and below -- a tap at
+        // y=10 lands in the top bar, not on the image itself.
+        val index = resolveTileIndexAt(
+            tapPosition = Offset(10f, 10f),
+            boxSize = Size(100f, 100f),
+            nativeSize = Size(32f, 16f),
+            scale = 1f,
+            offset = Offset.Zero,
+            tileGrid = tileGrid,
+        )
+        assertNull(index)
+    }
+
+    @Test
+    fun `resolveTileIndexAt inverts zoom and pan before resolving the tile`() {
+        // Same right-tile tap as above (content-local point 40,10 inside a 64x32 no-letterbox
+        // box), but now expressed in on-screen coordinates after a 2x zoom with a (-16,-8) pan:
+        // screen = content * scale + offset, i.e. (40*2-16, 10*2-8) = (64, 12).
+        val index = resolveTileIndexAt(
+            tapPosition = Offset(64f, 12f),
+            boxSize = Size(64f, 32f),
+            nativeSize = Size(32f, 16f),
+            scale = 2f,
+            offset = Offset(-16f, -8f),
+            tileGrid = tileGrid,
+        )
+        assertEquals(1, index)
+    }
+
+    @Test
+    fun `resolveTileIndexAt accounts for rotation, mapping a post-rotation display tap back to the pre-rotation tile`() {
+        // Real numbers from the same actual HEIC file as the rotateRect tests above (irot
+        // angle=3): a 5x8 grid of 512x512 tiles over a 4000x2252 pre-rotation canvas, displayed
+        // as a 2252x4000 bitmap. Tile index 0's pre-rotation rect (0,0,512,512) rotates to
+        // (1740,0,2252,512) in display space (verified by the rotateRect test above) -- a tap
+        // anywhere inside that displayed rect must resolve back to tile index 0.
+        val realTileGrid = TileGridInfo(
+            layout = GridLayout(rows = 5, columns = 8, outputWidth = 4000, outputHeight = 2252),
+            tileItemIds = (1L..40L).toList(),
+            tileWidth = 512,
+            tileHeight = 512,
+            rotationQuarterTurns = 3,
+        )
+        val index = resolveTileIndexAt(
+            tapPosition = Offset(2000f, 100f),
+            boxSize = Size(2252f, 4000f),
+            nativeSize = Size(2252f, 4000f),
+            scale = 1f,
+            offset = Offset.Zero,
+            tileGrid = realTileGrid,
+        )
+        assertEquals(0, index)
     }
 }
