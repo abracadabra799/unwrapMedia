@@ -137,12 +137,12 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
                 // stepFrame below falls back to it when no frame has been explicitly selected yet.
                 // Shared with FrameThumbnailFilmstrip (see FrameTypeAnalyzer.kt) so both views
                 // track the same frame during playback.
-                val currentFrameIndex = remember(frames, tab.playbackElapsedSeconds) {
+                val playbackFrameIndex = remember(frames, tab.playbackElapsedSeconds) {
                     currentFrameIndex(frames, tab.playbackElapsedSeconds)
                 }
 
                 fun stepFrame(delta: Int) {
-                    val current = tab.selectedFrame?.index ?: currentFrameIndex.coerceAtLeast(0)
+                    val current = tab.selectedFrame?.index ?: playbackFrameIndex.coerceAtLeast(0)
                     val target = (current + delta).coerceIn(0, frames.size - 1)
                     selectFrame(frames[target])
                 }
@@ -183,11 +183,11 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
 
                     val maxSize = remember(frames) { frames.maxOf { it.sizeBytes }.coerceAtLeast(1) }
                     var frameBarWidthDp by remember { mutableStateOf(FRAME_BAR_WIDTH_DP.toFloat()) }
-                    LaunchedEffect(currentFrameIndex) {
-                        if (currentFrameIndex < 0) return@LaunchedEffect
-                        val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == currentFrameIndex }
+                    LaunchedEffect(playbackFrameIndex) {
+                        if (playbackFrameIndex < 0) return@LaunchedEffect
+                        val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == playbackFrameIndex }
                         if (!isVisible) {
-                            listState.animateScrollToItem(currentFrameIndex)
+                            listState.animateScrollToItem(playbackFrameIndex)
                         }
                     }
                     // Keeps a keyboard/click-selected frame in view too -- without this, stepping
@@ -229,7 +229,7 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
                             // zoom state above, not the FRAME_BAR_WIDTH_DP constant (which is now
                             // only the starting/default value).
                             val heightFraction = (frame.sizeBytes.toFloat() / maxSize * FRAME_BAR_MAX_HEIGHT_FRACTION).coerceAtLeast(0.02f)
-                            val isCurrent = index == currentFrameIndex
+                            val isCurrent = index == playbackFrameIndex
                             Column(
                                 modifier = Modifier.width(frameBarWidthDp.dp).fillMaxSize(),
                                 verticalArrangement = Arrangement.Bottom,
