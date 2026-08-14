@@ -42,6 +42,48 @@ fun ImageInspectorUI(
 ) {
     val forensic = tab.imageForensic ?: return
 
+    LaunchedEffect(tab.file, tab.root) {
+        val root = tab.root ?: return@LaunchedEffect
+        tab.tileGrid = withContext(Dispatchers.IO) { com.multiviewer.parser.findHeicTileGrid(tab.file, root) }
+    }
+
+    // Reacts to the Media Structure tree selection (tab.selected, set generically by BoxTreeView's
+    // onSelect for any node) rather than a gesture on the image itself: whenever the selected node
+    // is one of tileGrid's own tile items (an iloc "item_<ID>" node whose ID appears in
+    // tileGrid.tileItemIds), resolve that tile's real pixel-data byte range and its row-major
+    // index -- both null otherwise, which is what hides the single-tile overlay (PixelInspectorPreview
+    // below) and falls the Hex viewer highlight back to its normal tree-selection behavior
+    // (Main.kt's tileHighlightRange ?: activeField ?: selected chain).
+    LaunchedEffect(tab.selected, tab.tileGrid) {
+        val root = tab.root
+        val tileGrid = tab.tileGrid
+        val selected = tab.selected
+        val itemId = selected?.type?.takeIf { it.startsWith("item_") }?.removePrefix("item_")?.toLongOrNull()
+        val tileIndex = if (root != null && tileGrid != null && itemId != null) tileGrid.tileItemIds.indexOf(itemId).takeIf { it >= 0 } else null
+        if (root == null || tileIndex == null) {
+            tab.tileHighlightRange = null
+            tab.selectedTileIndex = null
+            return@LaunchedEffect
+        }
+        val iloc = com.multiviewer.parser.findFirst(root) { it.type == "meta" }
+            ?.let { meta -> com.multiviewer.parser.findFirst(meta) { it.type == "iloc" } }
+        val extent = iloc?.children?.find { it.type == "item_$itemId" }?.children?.firstOrNull()
+        val absoluteOffset = extent?.fields?.find { it.name == "offset" }?.value?.toLongOrNull()
+        val idatRelativeOffset = extent?.fields?.find { it.name == "idat_relative_offset" }?.value?.toLongOrNull()
+        val offset = if (absoluteOffset != null) {
+            absoluteOffset
+        } else if (idatRelativeOffset != null) {
+            val idatBase = com.multiviewer.parser.findFirst(root) { it.type == "idat" }
+                ?.let { it.offset + it.headerSize } ?: 0L
+            idatBase + idatRelativeOffset
+        } else {
+            null
+        }
+        val length = extent?.fields?.find { it.name == "length" }?.value?.toLongOrNull()
+        tab.tileHighlightRange = if (offset != null && length != null) offset until (offset + length) else null
+        tab.selectedTileIndex = tileIndex
+    }
+
     DashboardLayout(
         leftPanel = leftPanel,
         centerPanel = {
@@ -115,7 +157,26 @@ fun ImageInspectorUI(
                         contentAlignment = Alignment.Center
                     ) {
                         forensic.bitmap?.let {
-                            PixelInspectorPreview(it)
+                            PixelInspectorPreview(
+                                it,
+                                tileGrid = tab.tileGrid,
+                                selectedTileIndex = tab.selectedTileIndex,
+                                onTileClick = { index ->
+                                    // Bidirectional counterpart to the tree-selection LaunchedEffect
+                                    // above: rather than duplicating its offset/length resolution,
+                                    // just set tab.selected to the clicked tile's own tree node --
+                                    // that LaunchedEffect (keyed on tab.selected) then recomputes
+                                    // tileHighlightRange/selectedTileIndex itself, and Main.kt's
+                                    // existing scroll-to-item effect (also keyed on tab.selected)
+                                    // reveals the node in the Media Structure tree too.
+                                    val root = tab.root
+                                    val itemId = tab.tileGrid?.tileItemIds?.getOrNull(index)
+                                    val iloc = root?.let { r -> com.multiviewer.parser.findFirst(r) { it.type == "meta" } }
+                                        ?.let { meta -> com.multiviewer.parser.findFirst(meta) { it.type == "iloc" } }
+                                    val node = itemId?.let { id -> iloc?.children?.find { it.type == "item_$id" } }
+                                    if (node != null) tab.selected = node
+                                },
+                            )
                         } ?: if (forensic.isDecodingFallback) {
                             DecodingIndicator("이미지 디코딩 중...")
                         } else {

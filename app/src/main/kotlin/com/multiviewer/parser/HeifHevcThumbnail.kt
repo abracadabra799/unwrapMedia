@@ -21,7 +21,6 @@ private data class HvcCInfo(val parameterSetsAnnexB: ByteArray, val lengthSize: 
 // HEVC-coded, or a required property (hvcC, ispe) is missing.
 fun extractHevcThumbnailAnnexB(file: File, root: BoxNode): ByteArray? {
     val meta = findFirst(root) { it.type == "meta" } ?: return null
-    val iloc = findFirst(meta) { it.type == "iloc" } ?: return null
     val iinf = findFirst(meta) { it.type == "iinf" }
     val iref = findFirst(meta) { it.type == "iref" }
     val pitm = findFirst(meta) { it.type == "pitm" }
@@ -40,13 +39,23 @@ fun extractHevcThumbnailAnnexB(file: File, root: BoxNode): ByteArray? {
         ?.fields?.find { it.name == "item_type" }?.value
     if (itemType?.lowercase() != "hvc1") return null
 
-    val hvcC = findItemProperty(meta, thumbId, "hvcC") ?: return null
+    return extractHevcItemAnnexB(file, root, thumbId)
+}
+
+// Generalized from extractHevcThumbnailAnnexB (originally hardcoded to the "thmb" iref reference)
+// so any item ID -- e.g. one of a grid-tiled image's individual tile items -- can be extracted the
+// same way. Callers resolve their own item ID first (extractHevcThumbnailAnnexB does so via
+// "thmb"; tile extraction does so via "dimg", see HeicTileGrid.kt).
+fun extractHevcItemAnnexB(file: File, root: BoxNode, itemId: Long): ByteArray? {
+    val meta = findFirst(root) { it.type == "meta" } ?: return null
+    val iloc = findFirst(meta) { it.type == "iloc" } ?: return null
+    val hvcC = findItemProperty(meta, itemId, "hvcC") ?: return null
     val idatBase = findFirst(root) { it.type == "idat" }?.let { it.offset + it.headerSize } ?: 0L
 
     return try {
         ByteReader.open(file).use { reader ->
             val hvcCInfo = readHvcCInfo(reader, hvcC) ?: return@use null
-            val itemBytes = extractItemBytes(reader, iloc, thumbId, idatBase) ?: return@use null
+            val itemBytes = extractItemBytes(reader, iloc, itemId, idatBase) ?: return@use null
             val pictureAnnexB = convertLengthPrefixedToAnnexB(itemBytes, hvcCInfo.lengthSize)
             if (pictureAnnexB.isEmpty()) null else hvcCInfo.parameterSetsAnnexB + pictureAnnexB
         }
@@ -57,7 +66,7 @@ fun extractHevcThumbnailAnnexB(file: File, root: BoxNode): ByteArray? {
 
 // Same item/property-association lookup as MediaSummaryBuilder's findPrimaryItemProperty, but for
 // an arbitrary item ID rather than only the file's primary item.
-private fun findItemProperty(meta: BoxNode, itemId: Long, propertyType: String): BoxNode? {
+internal fun findItemProperty(meta: BoxNode, itemId: Long, propertyType: String): BoxNode? {
     val ipma = findFirst(meta) { it.type == "ipma" } ?: return null
     val itemEntry = ipma.children.find { it.type == "item_$itemId" } ?: return null
     val propertyIndices = itemEntry.fields
@@ -71,15 +80,24 @@ private fun findItemProperty(meta: BoxNode, itemId: Long, propertyType: String):
     return null
 }
 
-private fun extractItemBytes(reader: ByteReader, iloc: BoxNode, itemId: Long, idatBase: Long): ByteArray? {
+// Reads whichever offset field is actually present on an extent -- "offset" means it's already
+// absolute (either construction_method=0's own iloc-relative-to-file value, or a
+// construction_method=1 value MetaBoxDecoder.enrichIlocItem has already resolved against the idat
+// box's base before this tree is ever seen); "idat_relative_offset" only survives when that
+// enrichment couldn't run (e.g. no idat box present), and needs idatBase added here as a fallback.
+// Deliberately does NOT branch on the item's own construction_method field: doing so previously
+// re-added idatBase on top of an already-resolved absolute "offset", corrupting every
+// construction_method=1 item's read position (verified against a real HEIC file: silently read
+// garbage bytes from a doubled offset instead of failing loudly).
+internal fun extractItemBytes(reader: ByteReader, iloc: BoxNode, itemId: Long, idatBase: Long): ByteArray? {
     val itemNode = iloc.children.find { it.type == "item_$itemId" } ?: return null
-    val method = itemNode.fields.find { it.name == "construction_method" }?.value?.toIntOrNull() ?: 0
     val out = ByteArrayOutputStream()
     for (extent in itemNode.children) {
-        val offsetVal = extent.fields.find { it.name == "offset" || it.name == "idat_relative_offset" }?.value?.toLongOrNull() ?: continue
+        val absoluteOffset = extent.fields.find { it.name == "offset" }?.value?.toLongOrNull()
+        val idatRelativeOffset = extent.fields.find { it.name == "idat_relative_offset" }?.value?.toLongOrNull()
+        val absOffset = absoluteOffset ?: idatRelativeOffset?.let { idatBase + it } ?: continue
         val length = extent.fields.find { it.name == "length" }?.value?.toLongOrNull() ?: continue
         if (length <= 0) continue
-        val absOffset = if (method == 1) idatBase + offsetVal else offsetVal
         out.write(reader.readBytes(absOffset, length.toInt()))
     }
     val bytes = out.toByteArray()
