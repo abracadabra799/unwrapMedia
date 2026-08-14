@@ -2,6 +2,8 @@ package com.multiviewer.ui
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class MotionVectorFrameDecoderTest {
     @Test
@@ -29,5 +31,13 @@ class MotionVectorFrameDecoderTest {
     fun `buildMotionVectorFfmpegArgs formats an integer-valued pts seconds correctly`() {
         val args = buildMotionVectorFfmpegArgs("/usr/bin/ffmpeg", "/tmp/video.mp4", 2.0)
         assertEquals("2.0", args[args.indexOf("-ss") + 1])
+    }
+
+    @Test
+    fun `motionVectorsSupportedFor is true only for h264`() {
+        assertTrue(motionVectorsSupportedFor("h264"))
+        assertFalse(motionVectorsSupportedFor("hevc"))
+        assertFalse(motionVectorsSupportedFor("vp9"))
+        assertFalse(motionVectorsSupportedFor(null))
     }
 }

@@ -413,17 +413,20 @@ private fun runGuiApplication() = application {
                             }
                         }
 
-                        // Motion vector preview (video tabs only) sits beside the hex grid rather
-                        // than in the GOP column (see VideoInspectorUI.kt) -- the hex grid's own
-                        // row width is fixed by its byte-per-row count, so on any window wider
-                        // than that it already leaves empty space in this panel to reuse, and this
-                        // panel is also taller than the GOP column, where the same content was too
-                        // small to make the motion vector arrows legible even zoomed in.
+                        // Motion vector preview sits beside the hex grid rather than in the GOP
+                        // column (see VideoInspectorUI.kt) -- the hex grid's own row width is
+                        // fixed by its byte-per-row count, so on any window wider than that it
+                        // already leaves empty space in this panel to reuse, and this panel is
+                        // also taller than the GOP column, where the same content was too small
+                        // to make the motion vector arrows legible even zoomed in. Only offered
+                        // for H.264 (motionVectorsSupportedFor) -- ffmpeg's HEVC decoder silently
+                        // ignores the export_mvs request codecview needs, so for any other codec
+                        // this panel is omitted entirely rather than shown with nothing to show.
                         var hexMotionVectorSplit by remember(currentTab) { mutableStateOf(0.6f) }
                         var hexRowWidthPx by remember(currentTab) { mutableStateOf(0) }
                         val bottomPanel: @Composable ColumnScope.() -> Unit = {
                             PanelHeader("Hex & Raw Data Viewer", color = AppColors.NeonGreen)
-                            if (currentTab.type == MediaType.VIDEO) {
+                            if (currentTab.type == MediaType.VIDEO && motionVectorsSupportedFor(currentTab.videoCodecName)) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxSize()
