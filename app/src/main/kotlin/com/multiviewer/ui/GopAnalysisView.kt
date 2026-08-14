@@ -135,9 +135,10 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
                 // meaningful once the video has actually started playing, hence the >= 0 guard
                 // against the 0.0 default before playback begins). Computed up here too since
                 // stepFrame below falls back to it when no frame has been explicitly selected yet.
+                // Shared with FrameThumbnailFilmstrip (see FrameTypeAnalyzer.kt) so both views
+                // track the same frame during playback.
                 val currentFrameIndex = remember(frames, tab.playbackElapsedSeconds) {
-                    if (tab.playbackElapsedSeconds <= 0.0) -1
-                    else frames.indexOfLast { it.ptsSeconds <= tab.playbackElapsedSeconds }
+                    currentFrameIndex(frames, tab.playbackElapsedSeconds)
                 }
 
                 fun stepFrame(delta: Int) {
