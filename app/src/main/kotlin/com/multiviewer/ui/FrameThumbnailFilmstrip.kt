@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -59,7 +60,14 @@ fun FrameThumbnailFilmstrip(tab: TabState, frames: List<FrameInfo>, modifier: Mo
         }
     }
 
-    val currentIndex = currentFrameIndex(frames, tab.playbackElapsedSeconds)
+    // remember, not a plain val -- without it, the O(frames.size) indexOfLast scan inside
+    // currentFrameIndex re-runs on EVERY recomposition of this composable, including ones
+    // triggered by unrelated state (e.g. thumbnailCache updates after each decode batch), not
+    // just actual playback-position changes. Matters here specifically because this feature's own
+    // point is scaling to videos with thousands of frames.
+    val currentIndex = remember(frames, tab.playbackElapsedSeconds) {
+        currentFrameIndex(frames, tab.playbackElapsedSeconds)
+    }
     LaunchedEffect(currentIndex) {
         if (currentIndex < 0) return@LaunchedEffect
         val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == currentIndex }
