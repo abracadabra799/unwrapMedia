@@ -30,7 +30,13 @@ fun decodeGridItemPayload(bytes: ByteArray): GridLayout? {
     return GridLayout(rows, columns, outputWidth, outputHeight)
 }
 
-data class TileGridInfo(val layout: GridLayout, val tileItemIds: List<Long>, val tileWidth: Int, val tileHeight: Int)
+// rotationQuarterTurns: the grid item's own "irot" property (HEIF's "angle" field, in units of 90
+// degrees counter-clockwise) -- 0 when absent (no rotation). The grid's rows/columns/outputWidth/
+// outputHeight above are in the file's raw, PRE-rotation coordinate space; the bitmap this app
+// actually decodes and displays already has rotation baked in (ffmpeg applies it automatically), so
+// any code mapping a tile's grid-space position onto that displayed bitmap must rotate it by this
+// amount first (see TileGridOverlay.kt's rotateRect).
+data class TileGridInfo(val layout: GridLayout, val tileItemIds: List<Long>, val tileWidth: Int, val tileHeight: Int, val rotationQuarterTurns: Int = 0)
 
 // Combines three already-parsed pieces into one lookup: which item is the grid, what its own
 // row/column/output-size payload says (decodeGridItemPayload above), and which tile items it
@@ -69,5 +75,8 @@ fun findHeicTileGrid(file: File, root: BoxNode): TileGridInfo? {
     val tileWidth = ispe.fields.find { it.name == "image_width" }?.value?.toIntOrNull() ?: return null
     val tileHeight = ispe.fields.find { it.name == "image_height" }?.value?.toIntOrNull() ?: return null
 
-    return TileGridInfo(layout, tileItemIds, tileWidth, tileHeight)
+    val rotationQuarterTurns = findItemProperty(meta, gridItemId, "irot")
+        ?.fields?.find { it.name == "angle" }?.value?.toIntOrNull() ?: 0
+
+    return TileGridInfo(layout, tileItemIds, tileWidth, tileHeight, rotationQuarterTurns)
 }

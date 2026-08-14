@@ -80,15 +80,24 @@ internal fun findItemProperty(meta: BoxNode, itemId: Long, propertyType: String)
     return null
 }
 
+// Reads whichever offset field is actually present on an extent -- "offset" means it's already
+// absolute (either construction_method=0's own iloc-relative-to-file value, or a
+// construction_method=1 value MetaBoxDecoder.enrichIlocItem has already resolved against the idat
+// box's base before this tree is ever seen); "idat_relative_offset" only survives when that
+// enrichment couldn't run (e.g. no idat box present), and needs idatBase added here as a fallback.
+// Deliberately does NOT branch on the item's own construction_method field: doing so previously
+// re-added idatBase on top of an already-resolved absolute "offset", corrupting every
+// construction_method=1 item's read position (verified against a real HEIC file: silently read
+// garbage bytes from a doubled offset instead of failing loudly).
 internal fun extractItemBytes(reader: ByteReader, iloc: BoxNode, itemId: Long, idatBase: Long): ByteArray? {
     val itemNode = iloc.children.find { it.type == "item_$itemId" } ?: return null
-    val method = itemNode.fields.find { it.name == "construction_method" }?.value?.toIntOrNull() ?: 0
     val out = ByteArrayOutputStream()
     for (extent in itemNode.children) {
-        val offsetVal = extent.fields.find { it.name == "offset" || it.name == "idat_relative_offset" }?.value?.toLongOrNull() ?: continue
+        val absoluteOffset = extent.fields.find { it.name == "offset" }?.value?.toLongOrNull()
+        val idatRelativeOffset = extent.fields.find { it.name == "idat_relative_offset" }?.value?.toLongOrNull()
+        val absOffset = absoluteOffset ?: idatRelativeOffset?.let { idatBase + it } ?: continue
         val length = extent.fields.find { it.name == "length" }?.value?.toLongOrNull() ?: continue
         if (length <= 0) continue
-        val absOffset = if (method == 1) idatBase + offsetVal else offsetVal
         out.write(reader.readBytes(absOffset, length.toInt()))
     }
     val bytes = out.toByteArray()
