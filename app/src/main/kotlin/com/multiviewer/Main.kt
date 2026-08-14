@@ -366,8 +366,8 @@ private fun runGuiApplication() = application {
                 }
             }
             appState.tabs.forEach { tab ->
-                tab.fullSizeFramePreview?.let { frame ->
-                    FrameFullSizePreviewWindow(tab, frame, onCloseRequest = { tab.fullSizeFramePreview = null })
+                if (tab.fullSizeFramePreviewOpen) {
+                    FrameFullSizePreviewWindow(tab, onCloseRequest = { tab.fullSizeFramePreviewOpen = false })
                 }
             }
             Surface(modifier = Modifier.fillMaxSize(), color = AppColors.Background) {

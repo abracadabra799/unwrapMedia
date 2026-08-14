@@ -154,7 +154,7 @@ fun FrameThumbnailFilmstrip(tab: TabState, frames: List<FrameInfo>, modifier: Mo
                     .clickable {
                         focusRequester.requestFocus()
                         selectFrame(frame)
-                        tab.fullSizeFramePreview = frame
+                        tab.fullSizeFramePreviewOpen = true
                     },
             ) {
                 if (bitmap != null) {
