@@ -78,16 +78,22 @@ fun VideoInspectorUI(
                         setSplit = { videoGopSplit = it }
                     )
 
-                    // Right: GOP Analysis (full height of the top region). The codec-view preview
-                    // (CodecViewPreview.kt -- motion vectors / QP heatmap) is NOT shown here -- it
-                    // renders beside the Hex & Raw Data Viewer instead (see Main.kt's bottomPanel),
-                    // reusing the empty space to the right of the hex byte grid rather than
-                    // shrinking this already vertically-limited GOP column further.
-                    GopAnalysisView(
-                        tab,
-                        onAnalyze = { appState.analyzeFrames(tab) },
-                        modifier = Modifier.weight(1f - videoGopSplit).fillMaxHeight(),
-                    )
+                    // Right: GOP Analysis (top) + frame thumbnail filmstrip (bottom, fixed height
+                    // -- not a resizable split, per the filmstrip's own design). The codec-view
+                    // preview (CodecViewPreview.kt -- motion vectors / QP heatmap) is NOT shown
+                    // here -- it renders beside the Hex & Raw Data Viewer instead (see Main.kt's
+                    // bottomPanel), reusing the empty space to the right of the hex byte grid
+                    // rather than shrinking this already vertically-limited column further.
+                    Column(modifier = Modifier.weight(1f - videoGopSplit).fillMaxHeight()) {
+                        GopAnalysisView(
+                            tab,
+                            onAnalyze = { appState.analyzeFrames(tab) },
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                        )
+                        tab.gopFrames?.takeIf { it.isNotEmpty() }?.let { frames ->
+                            FrameThumbnailFilmstrip(tab, frames, modifier = Modifier.fillMaxWidth())
+                        }
+                    }
                 }
             }
         },
