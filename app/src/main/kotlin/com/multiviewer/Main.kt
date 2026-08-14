@@ -143,6 +143,10 @@ private fun runGuiApplication() = application {
         var showPixelGrid by remember { mutableStateOf(loadShowPixelGrid()) }
         var frameIntervalWindowOpen by remember { mutableStateOf(false) }
         var motionPhotoFrameIntervalWindowOpen by remember { mutableStateOf(false) }
+        // App-level, not per-tab -- matches showPixelGrid's own precedent (switching tabs keeps
+        // whichever mode is checked; unlike a per-panel button, this is a "lens" the user turns on
+        // rather than a per-video setting). null = neither mode active.
+        var codecViewMode by remember { mutableStateOf<CodecViewMode?>(null) }
         MenuBar {
             Menu("File") {
                 Item("Open", shortcut = KeyShortcut(Key.O, meta = true), onClick = { showOpenFileDialog(appState) })
@@ -220,6 +224,21 @@ private fun runGuiApplication() = application {
                         showPixelGrid = it
                         saveShowPixelGrid(it)
                     },
+                )
+                val codecViewCurrentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                CheckboxItem(
+                    "모션 벡터 보기",
+                    checked = codecViewMode == CodecViewMode.MOTION_VECTORS,
+                    enabled = codecViewCurrentTab?.type == MediaType.VIDEO &&
+                        codecViewSupportedFor(CodecViewMode.MOTION_VECTORS, codecViewCurrentTab.videoCodecName),
+                    onCheckedChange = { codecViewMode = if (it) CodecViewMode.MOTION_VECTORS else null },
+                )
+                CheckboxItem(
+                    "QP 히트맵 보기",
+                    checked = codecViewMode == CodecViewMode.QP_HEATMAP,
+                    enabled = codecViewCurrentTab?.type == MediaType.VIDEO &&
+                        codecViewSupportedFor(CodecViewMode.QP_HEATMAP, codecViewCurrentTab.videoCodecName),
+                    onCheckedChange = { codecViewMode = if (it) CodecViewMode.QP_HEATMAP else null },
                 )
             }
         }
@@ -413,26 +432,33 @@ private fun runGuiApplication() = application {
                             }
                         }
 
-                        // Motion vector preview sits beside the hex grid rather than in the GOP
-                        // column (see VideoInspectorUI.kt) -- the hex grid's own row width is
-                        // fixed by its byte-per-row count, so on any window wider than that it
-                        // already leaves empty space in this panel to reuse, and this panel is
-                        // also taller than the GOP column, where the same content was too small
-                        // to make the motion vector arrows legible even zoomed in. Only offered
-                        // for H.264 (motionVectorsSupportedFor) -- ffmpeg's HEVC decoder silently
-                        // ignores the export_mvs request codecview needs, so for any other codec
-                        // this panel is omitted entirely rather than shown with nothing to show.
-                        var hexMotionVectorSplit by remember(currentTab) { mutableStateOf(0.6f) }
+                        // Codec-view preview (motion vectors / QP heatmap) sits beside the hex
+                        // grid rather than in the GOP column (see VideoInspectorUI.kt) -- the hex
+                        // grid's own row width is fixed by its byte-per-row count, so on any
+                        // window wider than that it already leaves empty space in this panel to
+                        // reuse, and this panel is also taller than the GOP column, where the same
+                        // content was too small to make the overlays legible even zoomed in. Only
+                        // shown when the "보기" menu's codecViewMode is explicitly turned on for a
+                        // supported (H.264) video tab -- unlike v1's always-visible-when-supported
+                        // buttons, this panel takes real estate away from the hex grid, so it stays
+                        // out of the way until the user opts in via the menu.
+                        var hexCodecViewSplit by remember(currentTab) { mutableStateOf(0.6f) }
                         var hexRowWidthPx by remember(currentTab) { mutableStateOf(0) }
                         val bottomPanel: @Composable ColumnScope.() -> Unit = {
                             PanelHeader("Hex & Raw Data Viewer", color = AppColors.NeonGreen)
-                            if (currentTab.type == MediaType.VIDEO && motionVectorsSupportedFor(currentTab.videoCodecName)) {
+                            // Local val, not the outer by-delegate property directly -- codecViewMode
+                            // is a `by remember { mutableStateOf(...) }` property with a custom
+                            // getter, so Kotlin can't smart-cast it to non-null across this check.
+                            val activeCodecViewMode = codecViewMode
+                            val codecViewAvailable = currentTab.type == MediaType.VIDEO && activeCodecViewMode != null &&
+                                codecViewSupportedFor(activeCodecViewMode, currentTab.videoCodecName)
+                            if (codecViewAvailable) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .onGloballyPositioned { hexRowWidthPx = it.size.width },
                                 ) {
-                                    Box(modifier = Modifier.weight(hexMotionVectorSplit).fillMaxHeight()) {
+                                    Box(modifier = Modifier.weight(hexCodecViewSplit).fillMaxHeight()) {
                                         HexView(
                                             file = currentTab.file,
                                             highlightRange = currentTab.tileHighlightRange
@@ -445,13 +471,14 @@ private fun runGuiApplication() = application {
                                     DraggableDivider(
                                         orientation = Orientation.Vertical,
                                         containerSizePx = hexRowWidthPx,
-                                        getSplit = { hexMotionVectorSplit },
-                                        setSplit = { hexMotionVectorSplit = it },
+                                        getSplit = { hexCodecViewSplit },
+                                        setSplit = { hexCodecViewSplit = it },
                                     )
 
-                                    MotionVectorPreview(
+                                    CodecViewPreview(
                                         currentTab,
-                                        modifier = Modifier.weight(1f - hexMotionVectorSplit).fillMaxHeight(),
+                                        mode = activeCodecViewMode,
+                                        modifier = Modifier.weight(1f - hexCodecViewSplit).fillMaxHeight(),
                                     )
                                 }
                             } else {

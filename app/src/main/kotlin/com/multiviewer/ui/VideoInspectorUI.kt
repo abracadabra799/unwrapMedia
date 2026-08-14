@@ -22,8 +22,9 @@ fun VideoInspectorUI(
     leftPanel: @Composable ColumnScope.() -> Unit,
     bottomPanel: @Composable ColumnScope.() -> Unit
 ) {
-    // Gates whether the motion vector panel (Main.kt's bottomPanel) is offered at all -- only
-    // H.264 is known to actually produce visible vectors (see motionVectorsSupportedFor).
+    // Gates whether the codec-view panel (motion vectors / QP heatmap; Main.kt's bottomPanel) is
+    // offered at all -- only H.264 is known to export the side data codecview needs (see
+    // codecViewSupportedFor).
     LaunchedEffect(tab.file) {
         tab.videoCodecName = withContext(Dispatchers.IO) { probeVideoCodecName(tab.file) }
     }
@@ -77,11 +78,11 @@ fun VideoInspectorUI(
                         setSplit = { videoGopSplit = it }
                     )
 
-                    // Right: GOP Analysis (full height of the top region). The motion vector
-                    // preview (MotionVectorPreview.kt) is NOT shown here -- it renders beside the
-                    // Hex & Raw Data Viewer instead (see Main.kt's bottomPanel), reusing the empty
-                    // space to the right of the hex byte grid rather than shrinking this already
-                    // vertically-limited GOP column further.
+                    // Right: GOP Analysis (full height of the top region). The codec-view preview
+                    // (CodecViewPreview.kt -- motion vectors / QP heatmap) is NOT shown here -- it
+                    // renders beside the Hex & Raw Data Viewer instead (see Main.kt's bottomPanel),
+                    // reusing the empty space to the right of the hex byte grid rather than
+                    // shrinking this already vertically-limited GOP column further.
                     GopAnalysisView(
                         tab,
                         onAnalyze = { appState.analyzeFrames(tab) },
