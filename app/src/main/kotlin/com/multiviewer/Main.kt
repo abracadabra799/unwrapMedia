@@ -413,26 +413,28 @@ private fun runGuiApplication() = application {
                             }
                         }
 
-                        // Motion vector preview sits beside the hex grid rather than in the GOP
-                        // column (see VideoInspectorUI.kt) -- the hex grid's own row width is
-                        // fixed by its byte-per-row count, so on any window wider than that it
-                        // already leaves empty space in this panel to reuse, and this panel is
-                        // also taller than the GOP column, where the same content was too small
-                        // to make the motion vector arrows legible even zoomed in. Only offered
-                        // for H.264 (motionVectorsSupportedFor) -- ffmpeg's HEVC decoder silently
-                        // ignores the export_mvs request codecview needs, so for any other codec
-                        // this panel is omitted entirely rather than shown with nothing to show.
-                        var hexMotionVectorSplit by remember(currentTab) { mutableStateOf(0.6f) }
+                        // Codec-view preview (motion vectors / QP heatmap) sits beside the hex
+                        // grid rather than in the GOP column (see VideoInspectorUI.kt) -- the hex
+                        // grid's own row width is fixed by its byte-per-row count, so on any
+                        // window wider than that it already leaves empty space in this panel to
+                        // reuse, and this panel is also taller than the GOP column, where the same
+                        // content was too small to make the overlays legible even zoomed in. The
+                        // panel column is offered if EITHER mode is supported; CodecViewPreview
+                        // itself independently hides whichever mode isn't (see codecViewSupportedFor).
+                        var hexCodecViewSplit by remember(currentTab) { mutableStateOf(0.6f) }
                         var hexRowWidthPx by remember(currentTab) { mutableStateOf(0) }
                         val bottomPanel: @Composable ColumnScope.() -> Unit = {
                             PanelHeader("Hex & Raw Data Viewer", color = AppColors.NeonGreen)
-                            if (currentTab.type == MediaType.VIDEO && motionVectorsSupportedFor(currentTab.videoCodecName)) {
+                            val codecViewAvailable = currentTab.type == MediaType.VIDEO &&
+                                (codecViewSupportedFor(CodecViewMode.MOTION_VECTORS, currentTab.videoCodecName) ||
+                                    codecViewSupportedFor(CodecViewMode.QP_HEATMAP, currentTab.videoCodecName))
+                            if (codecViewAvailable) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .onGloballyPositioned { hexRowWidthPx = it.size.width },
                                 ) {
-                                    Box(modifier = Modifier.weight(hexMotionVectorSplit).fillMaxHeight()) {
+                                    Box(modifier = Modifier.weight(hexCodecViewSplit).fillMaxHeight()) {
                                         HexView(
                                             file = currentTab.file,
                                             highlightRange = currentTab.tileHighlightRange
@@ -445,13 +447,13 @@ private fun runGuiApplication() = application {
                                     DraggableDivider(
                                         orientation = Orientation.Vertical,
                                         containerSizePx = hexRowWidthPx,
-                                        getSplit = { hexMotionVectorSplit },
-                                        setSplit = { hexMotionVectorSplit = it },
+                                        getSplit = { hexCodecViewSplit },
+                                        setSplit = { hexCodecViewSplit = it },
                                     )
 
-                                    MotionVectorPreview(
+                                    CodecViewPreview(
                                         currentTab,
-                                        modifier = Modifier.weight(1f - hexMotionVectorSplit).fillMaxHeight(),
+                                        modifier = Modifier.weight(1f - hexCodecViewSplit).fillMaxHeight(),
                                     )
                                 }
                             } else {
