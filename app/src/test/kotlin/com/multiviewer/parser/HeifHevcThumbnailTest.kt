@@ -8,6 +8,37 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 
 class HeifHevcThumbnailTest {
+    @Test
+    fun `extractItemBytes does not double-add idatBase when MetaBoxDecoder has already resolved idat_relative_offset to an absolute offset`() {
+        // MetaBoxDecoder.enrichIlocItem (run as part of real parseFile()/meta decoding, but NOT
+        // exercised by a hand-built BoxNode tree like this one) replaces a construction_method=1
+        // extent's "idat_relative_offset" field with an already-absolute "offset" field before any
+        // consumer ever sees the tree. A real 8-byte payload "the tile data" sits at byte 0 of this
+        // 8-byte file; idatBase is deliberately non-zero (100) to prove the bug: extractItemBytes
+        // must NOT add idatBase again on top of an already-absolute "offset" field.
+        val payload = "the tile".toByteArray() // exactly 8 bytes
+        val reader = byteReaderOf(payload)
+
+        val alreadyResolvedExtent = BoxNode(
+            type = "extent", offset = 0, headerSize = 0, size = 0,
+            // Exactly what MetaBoxDecoder.enrichIlocItem produces: "offset" (not
+            // "idat_relative_offset"), already absolute.
+            fields = listOf(BoxField("offset", "0", 0, 0), BoxField("length", "8", 0, 0)),
+        )
+        val itemNode = BoxNode(
+            type = "item_9", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("construction_method", "1", 0, 0)),
+            children = listOf(alreadyResolvedExtent),
+        )
+        val iloc = BoxNode(type = "iloc", offset = 0, headerSize = 0, size = 0, children = listOf(itemNode))
+
+        val bytes = extractItemBytes(reader, iloc, itemId = 9L, idatBase = 100L)
+        reader.close()
+
+        assertEquals("the tile", bytes?.let { String(it) })
+    }
+
+
     // Splits a real ffmpeg-produced Annex-B HEVC elementary stream into individual NAL units
     // (without their start codes), so the test can pick out real VPS/SPS/PPS/slice payloads to
     // build a synthetic HEIC-shaped fixture from -- not hand-crafted bytes, an actual encoder's
