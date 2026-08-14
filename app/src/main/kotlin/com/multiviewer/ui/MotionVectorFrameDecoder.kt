@@ -3,6 +3,33 @@ package com.multiviewer.ui
 import androidx.compose.ui.graphics.ImageBitmap
 import java.awt.EventQueue
 import java.io.File
+import java.util.concurrent.TimeUnit
+
+// Only H.264 is known to work: ffmpeg's native HEVC decoder does not populate motion vector side
+// data at all when asked to (-flags2 +export_mvs), even though it accepts the flag without
+// warning -- verified by re-encoding the same synthetic clip with guaranteed motion to both H.264
+// and HEVC and comparing codecview's output (arrows on H.264, nothing on HEVC). Other codecs are
+// untested and deliberately NOT assumed to work.
+fun motionVectorsSupportedFor(codecName: String?): Boolean = codecName == "h264"
+
+// One-shot codec name lookup, cheap regardless of file length (unlike probeFrameTypes' -show_frames
+// scan) -- safe to run once per opened video tab to decide whether to offer the motion vector
+// panel at all.
+fun probeVideoCodecName(file: File): String? {
+    return try {
+        val process = ProcessBuilder(
+            FfmpegLocator.ffprobePath(), "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=codec_name",
+            "-of", "default=noprint_wrappers=1:nokey=1", file.absolutePath,
+        ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD)
+            .also { FfmpegLocator.configureEnvironment(it) }.start()
+        val name = process.inputStream.bufferedReader().readLine()?.trim()
+        process.waitFor(10, TimeUnit.SECONDS)
+        name?.takeIf { it.isNotEmpty() }
+    } catch (e: Exception) {
+        null
+    }
+}
 
 // Pure, unit-testable: builds the ffmpeg CLI args for frame-accurate motion-vector-overlay
 // extraction.

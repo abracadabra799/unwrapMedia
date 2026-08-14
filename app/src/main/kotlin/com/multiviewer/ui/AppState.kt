@@ -168,7 +168,11 @@ class TabState(val file: File) {
 
     // Motion vector overlay preview (see MotionVectorFrameDecoder.kt) -- a single selected GOP
     // frame re-extracted via ffmpeg's codecview filter with motion vectors baked onto its pixels.
-    // Off by default; toggling on (or stepping to a new frame while on) triggers extraction.
+    // Off by default; toggling on (or stepping to a new frame while on) triggers extraction. Only
+    // offered for H.264 video (see motionVectorsSupportedFor) -- ffmpeg's HEVC decoder silently
+    // ignores the export_mvs request, so the panel is hidden entirely rather than shown empty.
+    // null videoCodecName means "not probed yet"; probing happens once per opened video tab.
+    var videoCodecName: String? by mutableStateOf(null)
     var motionVectorOverlayEnabled: Boolean by mutableStateOf(false)
     var motionVectorFrameBitmap: androidx.compose.ui.graphics.ImageBitmap? by mutableStateOf(null)
     var isDecodingMotionVectorFrame: Boolean by mutableStateOf(false)
