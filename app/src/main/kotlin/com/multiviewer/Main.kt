@@ -365,6 +365,11 @@ private fun runGuiApplication() = application {
                     motionPhotoFrameIntervalWindowOpen = false
                 }
             }
+            appState.tabs.forEach { tab ->
+                tab.fullSizeFramePreview?.let { frame ->
+                    FrameFullSizePreviewWindow(tab, frame, onCloseRequest = { tab.fullSizeFramePreview = null })
+                }
+            }
             Surface(modifier = Modifier.fillMaxSize(), color = AppColors.Background) {
                 if (appState.tabs.isEmpty()) {
                     Box(

@@ -182,6 +182,12 @@ class TabState(val file: File) {
     // two overlapping ffmpeg calls covering the same range.
     var thumbnailCache: Map<Int, androidx.compose.ui.graphics.ImageBitmap> by mutableStateOf(emptyMap())
     var pendingThumbnailIndices: Set<Int> by mutableStateOf(emptySet())
+
+    // Full-size frame preview popup (see FrameFullSizeDecoder.kt) -- non-null while the popup
+    // window is open, set by clicking a filmstrip thumbnail. fullSizeFrameBitmap is the actual
+    // native-resolution decode (separate from the small thumbnailCache entry for the same frame).
+    var fullSizeFramePreview: FrameInfo? by mutableStateOf(null)
+    var fullSizeFrameBitmap: androidx.compose.ui.graphics.ImageBitmap? by mutableStateOf(null)
     var codecViewFrameBitmap: androidx.compose.ui.graphics.ImageBitmap? by mutableStateOf(null)
     var isDecodingCodecViewFrame: Boolean by mutableStateOf(false)
 
