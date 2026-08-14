@@ -143,6 +143,10 @@ private fun runGuiApplication() = application {
         var showPixelGrid by remember { mutableStateOf(loadShowPixelGrid()) }
         var frameIntervalWindowOpen by remember { mutableStateOf(false) }
         var motionPhotoFrameIntervalWindowOpen by remember { mutableStateOf(false) }
+        // App-level, not per-tab -- matches showPixelGrid's own precedent (switching tabs keeps
+        // whichever mode is checked; unlike a per-panel button, this is a "lens" the user turns on
+        // rather than a per-video setting). null = neither mode active.
+        var codecViewMode by remember { mutableStateOf<CodecViewMode?>(null) }
         MenuBar {
             Menu("File") {
                 Item("Open", shortcut = KeyShortcut(Key.O, meta = true), onClick = { showOpenFileDialog(appState) })
@@ -220,6 +224,21 @@ private fun runGuiApplication() = application {
                         showPixelGrid = it
                         saveShowPixelGrid(it)
                     },
+                )
+                val codecViewCurrentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                CheckboxItem(
+                    "모션 벡터 보기",
+                    checked = codecViewMode == CodecViewMode.MOTION_VECTORS,
+                    enabled = codecViewCurrentTab?.type == MediaType.VIDEO &&
+                        codecViewSupportedFor(CodecViewMode.MOTION_VECTORS, codecViewCurrentTab.videoCodecName),
+                    onCheckedChange = { codecViewMode = if (it) CodecViewMode.MOTION_VECTORS else null },
+                )
+                CheckboxItem(
+                    "QP 히트맵 보기",
+                    checked = codecViewMode == CodecViewMode.QP_HEATMAP,
+                    enabled = codecViewCurrentTab?.type == MediaType.VIDEO &&
+                        codecViewSupportedFor(CodecViewMode.QP_HEATMAP, codecViewCurrentTab.videoCodecName),
+                    onCheckedChange = { codecViewMode = if (it) CodecViewMode.QP_HEATMAP else null },
                 )
             }
         }
@@ -418,16 +437,21 @@ private fun runGuiApplication() = application {
                         // grid's own row width is fixed by its byte-per-row count, so on any
                         // window wider than that it already leaves empty space in this panel to
                         // reuse, and this panel is also taller than the GOP column, where the same
-                        // content was too small to make the overlays legible even zoomed in. The
-                        // panel column is offered if EITHER mode is supported; CodecViewPreview
-                        // itself independently hides whichever mode isn't (see codecViewSupportedFor).
+                        // content was too small to make the overlays legible even zoomed in. Only
+                        // shown when the "보기" menu's codecViewMode is explicitly turned on for a
+                        // supported (H.264) video tab -- unlike v1's always-visible-when-supported
+                        // buttons, this panel takes real estate away from the hex grid, so it stays
+                        // out of the way until the user opts in via the menu.
                         var hexCodecViewSplit by remember(currentTab) { mutableStateOf(0.6f) }
                         var hexRowWidthPx by remember(currentTab) { mutableStateOf(0) }
                         val bottomPanel: @Composable ColumnScope.() -> Unit = {
                             PanelHeader("Hex & Raw Data Viewer", color = AppColors.NeonGreen)
-                            val codecViewAvailable = currentTab.type == MediaType.VIDEO &&
-                                (codecViewSupportedFor(CodecViewMode.MOTION_VECTORS, currentTab.videoCodecName) ||
-                                    codecViewSupportedFor(CodecViewMode.QP_HEATMAP, currentTab.videoCodecName))
+                            // Local val, not the outer by-delegate property directly -- codecViewMode
+                            // is a `by remember { mutableStateOf(...) }` property with a custom
+                            // getter, so Kotlin can't smart-cast it to non-null across this check.
+                            val activeCodecViewMode = codecViewMode
+                            val codecViewAvailable = currentTab.type == MediaType.VIDEO && activeCodecViewMode != null &&
+                                codecViewSupportedFor(activeCodecViewMode, currentTab.videoCodecName)
                             if (codecViewAvailable) {
                                 Row(
                                     modifier = Modifier
@@ -453,6 +477,7 @@ private fun runGuiApplication() = application {
 
                                     CodecViewPreview(
                                         currentTab,
+                                        mode = activeCodecViewMode,
                                         modifier = Modifier.weight(1f - hexCodecViewSplit).fillMaxHeight(),
                                     )
                                 }

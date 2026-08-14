@@ -168,13 +168,13 @@ class TabState(val file: File) {
 
     // Codec-view preview (see CodecViewFrameDecoder.kt) -- a single selected GOP frame
     // re-extracted via ffmpeg's codecview filter, in one of two modes (motion vectors or QP
-    // heatmap) baked onto its pixels. null codecViewMode means the panel is off; selecting a mode
-    // (or stepping to a new frame while one is active) triggers extraction. Each mode is offered
+    // heatmap) baked onto its pixels. Which mode is active is app-level menu state (Main.kt's
+    // "보기" menu), NOT per-tab, matching the existing "픽셀 그리드" menu toggle's own precedent --
+    // only the decoded result (bitmap/loading flag) is naturally per-tab. Each mode is offered
     // independently per codecViewSupportedFor -- only H.264 today for both, verified separately
     // per mode since they use different ffmpeg mechanisms. null videoCodecName means "not probed
     // yet"; probing happens once per opened video tab.
     var videoCodecName: String? by mutableStateOf(null)
-    var codecViewMode: CodecViewMode? by mutableStateOf(null)
     var codecViewFrameBitmap: androidx.compose.ui.graphics.ImageBitmap? by mutableStateOf(null)
     var isDecodingCodecViewFrame: Boolean by mutableStateOf(false)
 
