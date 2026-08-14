@@ -4,12 +4,14 @@ import androidx.compose.foundation.LocalScrollbarStyle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyShortcut
 import androidx.compose.ui.unit.dp
@@ -411,15 +413,56 @@ private fun runGuiApplication() = application {
                             }
                         }
 
+                        // Motion vector preview sits beside the hex grid rather than in the GOP
+                        // column (see VideoInspectorUI.kt) -- the hex grid's own row width is
+                        // fixed by its byte-per-row count, so on any window wider than that it
+                        // already leaves empty space in this panel to reuse, and this panel is
+                        // also taller than the GOP column, where the same content was too small
+                        // to make the motion vector arrows legible even zoomed in. Only offered
+                        // for H.264 (motionVectorsSupportedFor) -- ffmpeg's HEVC decoder silently
+                        // ignores the export_mvs request codecview needs, so for any other codec
+                        // this panel is omitted entirely rather than shown with nothing to show.
+                        var hexMotionVectorSplit by remember(currentTab) { mutableStateOf(0.6f) }
+                        var hexRowWidthPx by remember(currentTab) { mutableStateOf(0) }
                         val bottomPanel: @Composable ColumnScope.() -> Unit = {
                             PanelHeader("Hex & Raw Data Viewer", color = AppColors.NeonGreen)
-                            HexView(
-                                file = currentTab.file,
-                                highlightRange = currentTab.tileHighlightRange
-                                    ?: activeField?.let { it.offset until (it.offset + it.length) }
-                                    ?: currentTab.selected?.let { it.offset until (it.offset + it.size) },
-                                listState = hexListState,
-                            )
+                            if (currentTab.type == MediaType.VIDEO && motionVectorsSupportedFor(currentTab.videoCodecName)) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .onGloballyPositioned { hexRowWidthPx = it.size.width },
+                                ) {
+                                    Box(modifier = Modifier.weight(hexMotionVectorSplit).fillMaxHeight()) {
+                                        HexView(
+                                            file = currentTab.file,
+                                            highlightRange = currentTab.tileHighlightRange
+                                                ?: activeField?.let { it.offset until (it.offset + it.length) }
+                                                ?: currentTab.selected?.let { it.offset until (it.offset + it.size) },
+                                            listState = hexListState,
+                                        )
+                                    }
+
+                                    DraggableDivider(
+                                        orientation = Orientation.Vertical,
+                                        containerSizePx = hexRowWidthPx,
+                                        getSplit = { hexMotionVectorSplit },
+                                        setSplit = { hexMotionVectorSplit = it },
+                                    )
+
+                                    MotionVectorPreview(
+                                        currentTab,
+                                        modifier = Modifier.weight(1f - hexMotionVectorSplit).fillMaxHeight(),
+                                    )
+                                }
+                            } else {
+                                HexView(
+                                    file = currentTab.file,
+                                    highlightRange = currentTab.tileHighlightRange
+                                        ?: activeField?.let { it.offset until (it.offset + it.length) }
+                                        ?: currentTab.selected?.let { it.offset until (it.offset + it.size) },
+                                    listState = hexListState,
+                                )
+                            }
                         }
 
                         if (currentTab.isLoading) {
