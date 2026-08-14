@@ -45,3 +45,12 @@ fun probeFrameTypes(file: File): List<FrameInfo>? {
         null
     }
 }
+
+// The frame at the current playback position -- the last frame whose own pts has already passed,
+// or -1 before playback has started (playbackElapsedSeconds <= 0.0, the default before the first
+// FfmpegVideoPlayer position callback). Shared by GopAnalysisView (its own bar-chart highlight/
+// auto-scroll) and FrameThumbnailFilmstrip (same behavior for its thumbnail cells) so both views
+// track the same frame during playback without duplicating this lookup.
+fun currentFrameIndex(frames: List<FrameInfo>, playbackElapsedSeconds: Double): Int =
+    if (playbackElapsedSeconds <= 0.0) -1
+    else frames.indexOfLast { it.ptsSeconds <= playbackElapsedSeconds }
