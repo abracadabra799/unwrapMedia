@@ -411,12 +411,14 @@ private fun runGuiApplication() = application {
                             currentTab.selectedField?.takeIf { it in fields }
                         }
 
-                        LaunchedEffect(currentTab.selected, currentTab.selectedField, currentTab.tileHighlightRange) {
+                        LaunchedEffect(currentTab.selected, currentTab.selectedField, currentTab.tileHighlightRange, currentTab.selectedFrame) {
                             val tileRange = currentTab.tileHighlightRange
                             val field = activeField
+                            val frameOffset = currentTab.selectedFrame?.byteOffset
                             when {
                                 tileRange != null -> hexListState.scrollToItem((tileRange.first / BYTES_PER_ROW).toInt())
                                 field != null -> hexListState.scrollToItem((field.offset / BYTES_PER_ROW).toInt())
+                                frameOffset != null -> hexListState.scrollToItem((frameOffset / BYTES_PER_ROW).toInt())
                                 else -> currentTab.selected?.let {
                                     hexListState.scrollToItem((it.offset / BYTES_PER_ROW).toInt())
                                 }
@@ -457,6 +459,18 @@ private fun runGuiApplication() = application {
                             val activeCodecViewMode = codecViewMode
                             val codecViewAvailable = currentTab.type == MediaType.VIDEO && activeCodecViewMode != null &&
                                 codecViewSupportedFor(activeCodecViewMode, currentTab.videoCodecName)
+                            // Shared by both HexView call sites below (codec-view-panel and plain)
+                            // instead of duplicating the same fallback chain twice. selectedFrame's
+                            // own byteOffset (ffprobe's pkt_pos) is the last fallback -- lets
+                            // selecting a frame in the GOP timeline/filmstrip jump the hex viewer to
+                            // that frame's actual bytes, the same way tile/tree-node selection
+                            // already does.
+                            val hexHighlightRange = currentTab.tileHighlightRange
+                                ?: activeField?.let { it.offset until (it.offset + it.length) }
+                                ?: currentTab.selected?.let { it.offset until (it.offset + it.size) }
+                                ?: currentTab.selectedFrame?.let { frame ->
+                                    frame.byteOffset?.let { offset -> offset until (offset + frame.sizeBytes) }
+                                }
                             if (codecViewAvailable) {
                                 Row(
                                     modifier = Modifier
@@ -466,9 +480,7 @@ private fun runGuiApplication() = application {
                                     Box(modifier = Modifier.weight(hexCodecViewSplit).fillMaxHeight()) {
                                         HexView(
                                             file = currentTab.file,
-                                            highlightRange = currentTab.tileHighlightRange
-                                                ?: activeField?.let { it.offset until (it.offset + it.length) }
-                                                ?: currentTab.selected?.let { it.offset until (it.offset + it.size) },
+                                            highlightRange = hexHighlightRange,
                                             listState = hexListState,
                                         )
                                     }
@@ -489,9 +501,7 @@ private fun runGuiApplication() = application {
                             } else {
                                 HexView(
                                     file = currentTab.file,
-                                    highlightRange = currentTab.tileHighlightRange
-                                        ?: activeField?.let { it.offset until (it.offset + it.length) }
-                                        ?: currentTab.selected?.let { it.offset until (it.offset + it.size) },
+                                    highlightRange = hexHighlightRange,
                                     listState = hexListState,
                                 )
                             }
