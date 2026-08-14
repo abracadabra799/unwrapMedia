@@ -3,7 +3,6 @@ package com.multiviewer.ui
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import com.multiviewer.parser.BoxNode
-import com.multiviewer.parser.extractHevcItemAnnexB
 import com.multiviewer.parser.extractHevcThumbnailAnnexB
 import org.jetbrains.skia.Image
 import java.awt.EventQueue
@@ -44,39 +43,6 @@ object FfmpegImageSnapshotDecoder {
             }
             val tempH265 = try {
                 File.createTempFile("hevc-thumb-item-", ".h265")
-            } catch (e: Exception) {
-                EventQueue.invokeLater { onResult(null) }
-                return@Thread
-            }
-            tempH265.deleteOnExit()
-            val result = try {
-                tempH265.writeBytes(annexB)
-                decodeSingleFrameToBitmap(
-                    listOf(FfmpegLocator.ffmpegPath(), "-y", "-f", "hevc", "-i", tempH265.absolutePath, "-frames:v", "1", "-update", "1"),
-                )
-            } finally {
-                tempH265.delete()
-            }
-            EventQueue.invokeLater { onResult(result) }
-        }.apply { isDaemon = true }.start()
-    }
-
-    // Same pipeline as decodeEmbeddedHevcThumbnailAsync above, but for an arbitrary tile item ID
-    // (see HeicTileGrid.kt's findHeicTileGrid) instead of the "thmb" thumbnail item -- decodes just
-    // the one tile the user clicked, not the whole grid.
-    fun decodeHeicTileAsync(file: File, root: BoxNode, itemId: Long, onResult: (ImageBitmap?) -> Unit) {
-        Thread {
-            val annexB = try {
-                extractHevcItemAnnexB(file, root, itemId)
-            } catch (e: Exception) {
-                null
-            }
-            if (annexB == null) {
-                EventQueue.invokeLater { onResult(null) }
-                return@Thread
-            }
-            val tempH265 = try {
-                File.createTempFile("hevc-tile-item-", ".h265")
             } catch (e: Exception) {
                 EventQueue.invokeLater { onResult(null) }
                 return@Thread

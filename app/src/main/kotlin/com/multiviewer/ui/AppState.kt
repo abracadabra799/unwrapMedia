@@ -120,13 +120,14 @@ class TabState(val file: File) {
     // grid-tiled structure -- null for every other file, which is what gates PixelInspectorPreview's
     // new tile overlay off entirely for the overwhelming majority of images.
     var tileGrid: com.multiviewer.parser.TileGridInfo? by mutableStateOf(null)
-    // The most recently clicked tile's real pixel-data byte range (see findHeicTileGrid + the iloc
-    // extent's own offset/length field values) -- takes priority over tree-node selection in
-    // Main.kt's Hex viewer highlight, matching activeField's existing precedence over plain node
-    // selection.
+    // Set (in ImageInspectorUI's LaunchedEffect below) when the currently tree-selected node is one
+    // of tileGrid's own tile items -- the tile's real pixel-data byte range (see findHeicTileGrid +
+    // the iloc extent's own offset/length field values, not the small iloc table entry `selected`
+    // alone would resolve to) and its row-major index into tileGrid.tileItemIds, for the Hex
+    // viewer highlight and the single-tile overlay respectively. Both null whenever the selected
+    // node isn't a tile item (including "nothing selected").
     var tileHighlightRange: LongRange? by mutableStateOf(null)
-    var selectedTileItemId: Long? by mutableStateOf(null)
-    var selectedTileBitmap: androidx.compose.ui.graphics.ImageBitmap? by mutableStateOf(null)
+    var selectedTileIndex: Int? by mutableStateOf(null)
     // Decoded GIF animation frames (see GifFrameDecoder.kt) -- null until the background decode
     // in openFile finishes (or forever, for non-GIF files, which never trigger it). A non-null
     // value with frames.size <= 1 means "decoded successfully but not actually animated" -- see
