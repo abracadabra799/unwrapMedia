@@ -383,6 +383,16 @@ private fun DetailPropertiesTabContent(tab: TabState) {
                             PropertyRow("Type", selectedFrame.type.toString())
                             PropertyRow("Size", "${selectedFrame.sizeBytes} bytes")
                             PropertyRow("PTS", "${selectedFrame.ptsSeconds}s")
+                            selectedFrame.byteOffset?.let { offset ->
+                                PropertyRow("Byte Offset", "0x${offset.toString(16).uppercase()} (${offset})")
+                            }
+                            tab.gopFrames?.let { frames -> gopPositionOf(frames, selectedFrame.index) }?.let { gop ->
+                                PropertyRow(
+                                    "GOP Position",
+                                    if (gop.distanceFromKeyframe == 0) "Keyframe (I-frame)"
+                                    else "+${gop.distanceFromKeyframe} from keyframe #${gop.keyframeIndex}",
+                                )
+                            }
                         }
                     }
                     selectedNode != null -> {

@@ -36,6 +36,10 @@ fun VideoInspectorUI(
     // column (split via a second, vertical DraggableDivider) moved to DetailedPropertiesPanel's
     // Overview tab, so this row now fills the whole center panel.
     var videoGopSplit by remember { mutableStateOf(0.35f) }
+    // GOP timeline gets more of the column by default (0.7) -- the filmstrip below it is still
+    // useful at a smaller share, and this is user-draggable wider anytime via the divider between
+    // them.
+    var gopFilmstripSplit by remember { mutableStateOf(0.7f) }
 
     DashboardLayout(
         leftPanel = leftPanel,
@@ -78,16 +82,41 @@ fun VideoInspectorUI(
                         setSplit = { videoGopSplit = it }
                     )
 
-                    // Right: GOP Analysis (full height of the top region). The codec-view preview
+                    // Right: GOP Analysis (top) + frame thumbnail filmstrip (bottom), independently
+                    // resizable via gopFilmstripSplit -- same DraggableDivider pattern videoGopSplit
+                    // already establishes for the player/GOP split above. The codec-view preview
                     // (CodecViewPreview.kt -- motion vectors / QP heatmap) is NOT shown here -- it
                     // renders beside the Hex & Raw Data Viewer instead (see Main.kt's bottomPanel),
                     // reusing the empty space to the right of the hex byte grid rather than
-                    // shrinking this already vertically-limited GOP column further.
-                    GopAnalysisView(
-                        tab,
-                        onAnalyze = { appState.analyzeFrames(tab) },
-                        modifier = Modifier.weight(1f - videoGopSplit).fillMaxHeight(),
-                    )
+                    // shrinking this already vertically-limited column further.
+                    var gopColumnHeightPx by remember { mutableStateOf(0) }
+                    val hasFilmstripFrames = tab.gopFrames?.isNotEmpty() == true
+                    Column(
+                        modifier = Modifier
+                            .weight(1f - videoGopSplit)
+                            .fillMaxHeight()
+                            .onGloballyPositioned { gopColumnHeightPx = it.size.height },
+                    ) {
+                        GopAnalysisView(
+                            tab,
+                            onAnalyze = { appState.analyzeFrames(tab) },
+                            modifier = Modifier.weight(if (hasFilmstripFrames) gopFilmstripSplit else 1f).fillMaxWidth(),
+                        )
+                        if (hasFilmstripFrames) {
+                            DraggableDivider(
+                                orientation = Orientation.Horizontal,
+                                containerSizePx = gopColumnHeightPx,
+                                getSplit = { gopFilmstripSplit },
+                                setSplit = { gopFilmstripSplit = it },
+                            )
+                            tab.gopFrames?.let { frames ->
+                                FrameThumbnailFilmstrip(
+                                    tab, frames,
+                                    modifier = Modifier.weight(1f - gopFilmstripSplit).fillMaxWidth(),
+                                )
+                            }
+                        }
+                    }
                 }
             }
         },
