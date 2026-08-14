@@ -62,7 +62,7 @@ object FfmpegImageSnapshotDecoder {
 
     // Shared "ffmpeg <inputArgs> -> one PNG frame -> Skia decode" pipeline. Runs synchronously on
     // the caller's own thread (both call sites above already run off a dedicated background Thread).
-    private fun decodeSingleFrameToBitmap(inputArgs: List<String>): ImageBitmap? {
+    internal fun decodeSingleFrameToBitmap(inputArgs: List<String>): ImageBitmap? {
         val tempPng = try {
             File.createTempFile("ffmpeg-snapshot-", ".png")
         } catch (e: Exception) {

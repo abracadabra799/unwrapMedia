@@ -12,6 +12,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun VideoInspectorUI(
@@ -20,6 +22,12 @@ fun VideoInspectorUI(
     leftPanel: @Composable ColumnScope.() -> Unit,
     bottomPanel: @Composable ColumnScope.() -> Unit
 ) {
+    // Gates whether the motion vector panel (Main.kt's bottomPanel) is offered at all -- only
+    // H.264 is known to actually produce visible vectors (see motionVectorsSupportedFor).
+    LaunchedEffect(tab.file) {
+        tab.videoCodecName = withContext(Dispatchers.IO) { probeVideoCodecName(tab.file) }
+    }
+
     var topContainerWidthPx by remember { mutableStateOf(0) }
     // Player and GOP sit side-by-side (not stacked) so the player keeps the full center-panel
     // height instead of sharing it vertically with GOP -- videoGopSplit divides that region
@@ -69,7 +77,11 @@ fun VideoInspectorUI(
                         setSplit = { videoGopSplit = it }
                     )
 
-                    // Right: GOP Analysis (full height of the top region)
+                    // Right: GOP Analysis (full height of the top region). The motion vector
+                    // preview (MotionVectorPreview.kt) is NOT shown here -- it renders beside the
+                    // Hex & Raw Data Viewer instead (see Main.kt's bottomPanel), reusing the empty
+                    // space to the right of the hex byte grid rather than shrinking this already
+                    // vertically-limited GOP column further.
                     GopAnalysisView(
                         tab,
                         onAnalyze = { appState.analyzeFrames(tab) },
