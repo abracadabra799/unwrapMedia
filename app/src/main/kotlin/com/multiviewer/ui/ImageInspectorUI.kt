@@ -417,6 +417,7 @@ private fun DetailPropertiesTabContent(tab: TabState) {
         } else {
             null
         }
+        LaunchedEffect(tab.selectedFrame) { tab.parameterSetHighlightRange = null }
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                 when {
@@ -439,7 +440,14 @@ private fun DetailPropertiesTabContent(tab: TabState) {
                             resolvedH264Params?.let { (sps, pps) ->
                                 Spacer(Modifier.height(8.dp))
                                 Text("H.264 Parameter Sets", style = AppTypography.labelLarge.copy(color = AppColors.NeonBlue))
-                                PropertyRow("SPS ID / PPS ID", "${sps.seqParameterSetId} / ${pps.picParameterSetId}")
+                                PropertyRow(
+                                    "SPS ID", sps.seqParameterSetId.toString(),
+                                    onClick = tab.avcSpsOffsets[sps.seqParameterSetId]?.let { range -> { tab.parameterSetHighlightRange = range } },
+                                )
+                                PropertyRow(
+                                    "PPS ID", pps.picParameterSetId.toString(),
+                                    onClick = tab.avcPpsOffsets[pps.picParameterSetId]?.let { range -> { tab.parameterSetHighlightRange = range } },
+                                )
                                 PropertyRow("Profile / Level", "${sps.profileIdc} / ${sps.levelIdc}")
                                 PropertyRow("Chroma Format", "4:${if (sps.chromaFormatIdc == 0) "0:0" else if (sps.chromaFormatIdc == 1) "2:0" else if (sps.chromaFormatIdc == 2) "2:2" else "4:4"}")
                                 PropertyRow("Bit Depth (Luma/Chroma)", "${sps.bitDepthLuma} / ${sps.bitDepthChroma}")
@@ -469,7 +477,18 @@ private fun DetailPropertiesTabContent(tab: TabState) {
                             resolvedHevcParams?.let { (vps, sps, pps) ->
                                 Spacer(Modifier.height(8.dp))
                                 Text("HEVC Parameter Sets", style = AppTypography.labelLarge.copy(color = AppColors.NeonBlue))
-                                PropertyRow("VPS ID / SPS ID / PPS ID", "${vps?.vpsId ?: "-"} / ${sps.spsId} / ${pps.ppsId}")
+                                PropertyRow(
+                                    "VPS ID", vps?.vpsId?.toString() ?: "-",
+                                    onClick = vps?.let { tab.hevcVpsOffsets[it.vpsId] }?.let { range -> { tab.parameterSetHighlightRange = range } },
+                                )
+                                PropertyRow(
+                                    "SPS ID", sps.spsId.toString(),
+                                    onClick = tab.hevcSpsOffsets[sps.spsId]?.let { range -> { tab.parameterSetHighlightRange = range } },
+                                )
+                                PropertyRow(
+                                    "PPS ID", pps.ppsId.toString(),
+                                    onClick = tab.hevcPpsOffsets[pps.ppsId]?.let { range -> { tab.parameterSetHighlightRange = range } },
+                                )
                                 PropertyRow(
                                     "Profile / Tier / Level",
                                     "${sps.ptl.generalProfileIdc} / ${if (sps.ptl.generalTierFlag) "High" else "Main"} / ${sps.ptl.generalLevelIdc}",
