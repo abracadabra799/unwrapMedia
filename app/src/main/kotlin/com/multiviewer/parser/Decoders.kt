@@ -18,6 +18,7 @@ fun registerAllDecoders() {
     BoxRegistry.register("mp4a", AudioSampleEntryDecoder)
     BoxRegistry.register("avcC", AvcCBoxDecoder)
     BoxRegistry.register("hvcC", HvcCBoxDecoder)
+    BoxRegistry.register("av1C", Av1CBoxDecoder)
     BoxRegistry.register("elst", ElstBoxDecoder)
     BoxRegistry.register("dref", ContainerBoxDecoder(childOffsetInPayload = 8, summarize = true))
     BoxRegistry.register("url ", UrlBoxDecoder)
