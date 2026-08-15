@@ -68,7 +68,11 @@ fun resolveActivePicParameterSetId(file: File, byteOffset: Long, sizeBytes: Int,
                 if (nalUnitType == 1 || nalUnitType == 5) {
                     val prefixLength = minOf(nalLength, 16L).toInt()
                     val nalBytes = reader.readBytes(pos, prefixLength)
-                    val bitReader = BitReader(nalBytes, startByteOffset = 1)
+                    // De-emulate before bit-parsing, same as parseH264Sps/Pps -- these three
+                    // fields sit early enough in a typical slice header that an emulation-prevention
+                    // byte landing before them is unlikely, but not impossible, so this costs
+                    // nothing and removes the doubt.
+                    val bitReader = BitReader(removeEmulationPreventionBytes(nalBytes), startByteOffset = 1)
                     return@use try {
                         bitReader.readUe() // first_mb_in_slice
                         bitReader.readUe() // slice_type
