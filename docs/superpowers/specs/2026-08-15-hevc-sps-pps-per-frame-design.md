@@ -56,6 +56,7 @@ cu_qp_delta_enabled_flag=1
 weighted_pred_flag=0, weighted_bipred_flag=0
 tiles_enabled_flag=1, entropy_coding_sync_enabled_flag=0
 deblocking_filter_control_present_flag=1
+pps_deblocking_filter_disabled_flag=0
 ```
 
 **Slice segment header prefix** (first IDR slice, bytes `28 01 af 09 a8 30 01 c5 46 7f...`, NAL header `28 01`: `nal_unit_type=20` = IDR_W_RADL, within the IRAP range 16-23):
@@ -164,7 +165,7 @@ A second `LaunchedEffect(tab.root)`, parallel to the existing `avcC` one, that f
 
 ### 6. `ImageInspectorUI.kt` UI wiring (`DetailPropertiesTabContent`)
 
-A second `produceState` block, parallel to `resolvedH264Params`, keyed on `selectedFrame`/`tab.hevcSpsList`/`tab.hevcPpsList`/`tab.hevcLengthSize`, calling `resolveActiveHevcPicParameterSetId` + `resolveActiveHevcParameterSets`. When resolved, a "HEVC Parameter Sets" section (same visual treatment as the existing "H.264 Parameter Sets" section) shows VPS id / SPS id / PPS id, Profile/Tier/Level, Chroma Format, Bit Depth, resolution, and the curated PPS flags, with the same `ptlUnsupported`-driven partial-result note as H.264's `scalingMatrixUnsupported`. Since a stream is either H.264 or HEVC, at most one of the two sections ever has data to show; both `produceState` blocks and both `let{}` blocks coexist harmlessly (the non-matching one simply resolves to `null`).
+A second `produceState` block, parallel to `resolvedH264Params`, keyed on `selectedFrame`/`tab.hevcSpsList`/`tab.hevcPpsList`/`tab.hevcLengthSize`, calling `resolveActiveHevcPicParameterSetId` + `resolveActiveHevcParameterSets`. When resolved, a "HEVC Parameter Sets" section (same visual treatment as the existing "H.264 Parameter Sets" section) shows VPS id / SPS id / PPS id, Profile/Tier/Level, Chroma Format, Bit Depth, resolution, and the curated PPS flags. Unlike H.264's `scalingMatrixUnsupported` (which still yields a partial, displayable `H264Sps`), an unsupported HEVC PTL makes `parseHevcSps` return `null` outright (see Scope) -- so a SPS ever reaching this UI always has a valid `ptl`, and no partial-result note is needed or shown here; the whole section simply doesn't render for streams that hit that bail-out. Since a stream is either H.264 or HEVC, at most one of the two sections ever has data to show; both `produceState` blocks and both `let{}` blocks coexist harmlessly (the non-matching one simply resolves to `null`).
 
 ## Error handling
 
