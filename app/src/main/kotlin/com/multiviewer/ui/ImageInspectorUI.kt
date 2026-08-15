@@ -396,6 +396,27 @@ private fun DetailPropertiesTabContent(tab: TabState) {
         } else {
             null
         }
+        val resolvedHevcParams = if (selectedFrame != null) {
+            produceState<Triple<com.multiviewer.parser.HevcVps?, com.multiviewer.parser.HevcSps, com.multiviewer.parser.HevcPps>?>(
+                null, selectedFrame, tab.hevcSpsList, tab.hevcPpsList, tab.hevcLengthSize,
+            ) {
+                value = null
+                val byteOffset = selectedFrame.byteOffset
+                val lengthSize = tab.hevcLengthSize
+                if (byteOffset != null && lengthSize != null && tab.hevcPpsList.isNotEmpty()) {
+                    value = withContext(Dispatchers.IO) {
+                        val picParameterSetId = com.multiviewer.parser.resolveActiveHevcPicParameterSetId(
+                            tab.file, byteOffset, selectedFrame.sizeBytes, lengthSize,
+                        ) ?: return@withContext null
+                        com.multiviewer.parser.resolveActiveHevcParameterSets(
+                            tab.hevcVpsList, tab.hevcSpsList, tab.hevcPpsList, picParameterSetId,
+                        )
+                    }
+                }
+            }.value
+        } else {
+            null
+        }
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                 when {
@@ -438,6 +459,38 @@ private fun DetailPropertiesTabContent(tab: TabState) {
                                 pps.transform8x8ModeFlag?.let {
                                     PropertyRow("8x8 Transform Mode", if (it) "Enabled" else "Disabled")
                                 }
+                                sps.vui?.let { vui ->
+                                    vui.colourPrimaries?.let { PropertyRow("Colour Primaries", it.toString()) }
+                                    vui.transferCharacteristics?.let { PropertyRow("Transfer Characteristics", it.toString()) }
+                                    vui.matrixCoefficients?.let { PropertyRow("Matrix Coefficients", it.toString()) }
+                                    vui.videoFullRangeFlag?.let { PropertyRow("Full Range", if (it) "Yes" else "No") }
+                                }
+                            }
+                            resolvedHevcParams?.let { (vps, sps, pps) ->
+                                Spacer(Modifier.height(8.dp))
+                                Text("HEVC Parameter Sets", style = AppTypography.labelLarge.copy(color = AppColors.NeonBlue))
+                                PropertyRow("VPS ID / SPS ID / PPS ID", "${vps?.vpsId ?: "-"} / ${sps.spsId} / ${pps.ppsId}")
+                                PropertyRow(
+                                    "Profile / Tier / Level",
+                                    "${sps.ptl.generalProfileIdc} / ${if (sps.ptl.generalTierFlag) "High" else "Main"} / ${sps.ptl.generalLevelIdc}",
+                                )
+                                PropertyRow("Chroma Format", "4:${if (sps.chromaFormatIdc == 0) "0:0" else if (sps.chromaFormatIdc == 1) "2:0" else if (sps.chromaFormatIdc == 2) "2:2" else "4:4"}")
+                                PropertyRow("Resolution", "${sps.picWidth} x ${sps.picHeight}")
+                                PropertyRow("Bit Depth (Luma/Chroma)", "${sps.bitDepthLuma} / ${sps.bitDepthChroma}")
+                                PropertyRow("Dependent Slice Segments", if (pps.dependentSliceSegmentsEnabledFlag) "Enabled" else "Disabled")
+                                PropertyRow("Sign Data Hiding", if (pps.signDataHidingEnabledFlag) "Enabled" else "Disabled")
+                                PropertyRow("CABAC Init Present", if (pps.cabacInitPresentFlag) "Yes" else "No")
+                                PropertyRow("Constrained Intra Pred", if (pps.constrainedIntraPredFlag) "Enabled" else "Disabled")
+                                PropertyRow("Transform Skip", if (pps.transformSkipEnabledFlag) "Enabled" else "Disabled")
+                                PropertyRow("CU QP Delta", if (pps.cuQpDeltaEnabledFlag) "Enabled" else "Disabled")
+                                PropertyRow("Weighted Pred / Bipred", "${if (pps.weightedPredFlag) "Yes" else "No"} / ${if (pps.weightedBipredFlag) "Yes" else "No"}")
+                                PropertyRow("Tiles Enabled", if (pps.tilesEnabledFlag) "Yes" else "No")
+                                PropertyRow("Entropy Coding Sync (WPP)", if (pps.entropyCodingSyncEnabledFlag) "Enabled" else "Disabled")
+                                PropertyRow(
+                                    "Deblocking Filter",
+                                    if (!pps.deblockingFilterControlPresentFlag) "Default"
+                                    else if (pps.ppsDeblockingFilterDisabledFlag == true) "Disabled" else "Enabled",
+                                )
                                 sps.vui?.let { vui ->
                                     vui.colourPrimaries?.let { PropertyRow("Colour Primaries", it.toString()) }
                                     vui.transferCharacteristics?.let { PropertyRow("Transfer Characteristics", it.toString()) }
