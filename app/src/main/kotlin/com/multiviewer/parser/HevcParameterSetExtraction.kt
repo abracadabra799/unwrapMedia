@@ -4,9 +4,9 @@ import java.io.File
 
 data class HvcCRawParameterSets(
     val lengthSize: Int,
-    val vpsList: List<ByteArray>,
-    val spsList: List<ByteArray>,
-    val ppsList: List<ByteArray>,
+    val vpsList: List<RawNal>,
+    val spsList: List<RawNal>,
+    val ppsList: List<RawNal>,
 )
 
 private const val HVCC_FIXED_HEADER_SIZE = 23
@@ -17,7 +17,7 @@ private const val HEVC_NAL_TYPE_PPS = 34
 // Mirrors HvcCBoxDecoder's own walk of this exact box structure (and HeifHevcThumbnail.kt's
 // private readHvcCInfo, which walks the same structure for a different purpose -- feeding a HEIF
 // image item to ffmpeg as one concatenated Annex-B buffer), but COLLECTS the raw VPS/SPS/PPS
-// bytes as three separate lists instead.
+// bytes (and each one's own file offset) as three separate lists instead.
 fun extractHvcCRawParameterSets(file: File, hvcCNode: BoxNode): HvcCRawParameterSets? {
     return try {
         ByteReader.open(file).use { reader ->
@@ -27,9 +27,9 @@ fun extractHvcCRawParameterSets(file: File, hvcCNode: BoxNode): HvcCRawParameter
             val lengthSize = (reader.readUInt8(payloadStart + 21) and 0x03) + 1
             val numArrays = reader.readUInt8(payloadStart + 22)
 
-            val vpsList = mutableListOf<ByteArray>()
-            val spsList = mutableListOf<ByteArray>()
-            val ppsList = mutableListOf<ByteArray>()
+            val vpsList = mutableListOf<RawNal>()
+            val spsList = mutableListOf<RawNal>()
+            val ppsList = mutableListOf<RawNal>()
             var pos = payloadStart + HVCC_FIXED_HEADER_SIZE
             var arraysWalked = 0
             while (arraysWalked < numArrays && pos + 3 <= payloadEnd) {
@@ -41,11 +41,11 @@ fun extractHvcCRawParameterSets(file: File, hvcCNode: BoxNode): HvcCRawParameter
                     val nalLength = reader.readUInt16(pos)
                     pos += 2
                     if (pos + nalLength > payloadEnd) break
-                    val nalBytes = reader.readBytes(pos, nalLength)
+                    val rawNal = RawNal(reader.readBytes(pos, nalLength), pos)
                     when (nalType) {
-                        HEVC_NAL_TYPE_VPS -> vpsList.add(nalBytes)
-                        HEVC_NAL_TYPE_SPS -> spsList.add(nalBytes)
-                        HEVC_NAL_TYPE_PPS -> ppsList.add(nalBytes)
+                        HEVC_NAL_TYPE_VPS -> vpsList.add(rawNal)
+                        HEVC_NAL_TYPE_SPS -> spsList.add(rawNal)
+                        HEVC_NAL_TYPE_PPS -> ppsList.add(rawNal)
                     }
                     pos += nalLength
                     nalusWalked++

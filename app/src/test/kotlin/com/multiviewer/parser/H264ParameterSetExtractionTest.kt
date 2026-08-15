@@ -26,15 +26,21 @@ class H264ParameterSetExtractionTest {
     }
 
     @Test
-    fun `extractAvcCRawParameterSets reads length_size and the declared SPS and PPS byte ranges`() {
+    fun `extractAvcCRawParameterSets reads length_size and the declared SPS and PPS byte ranges and offsets`() {
         val (node, file) = avcCBoxNode(avcCPayload())
         val result = extractAvcCRawParameterSets(file, node)
         assertNotNull(result)
         assertEquals(4, result.lengthSize) // length_size_minus_one=3 -> 3+1=4
         assertEquals(1, result.spsList.size)
-        assertEquals(byteArrayOf(0x67, 0xAA.toByte(), 0xBB.toByte()).toList(), result.spsList[0].toList())
+        assertEquals(byteArrayOf(0x67, 0xAA.toByte(), 0xBB.toByte()).toList(), result.spsList[0].bytes.toList())
+        // headerSize=8 + payload index 8 (sps bytes start right after the 2-byte length field at
+        // payload index 6-7) = file offset 16.
+        assertEquals(16L, result.spsList[0].offset)
         assertEquals(1, result.ppsList.size)
-        assertEquals(byteArrayOf(0x68, 0xCC.toByte()).toList(), result.ppsList[0].toList())
+        assertEquals(byteArrayOf(0x68, 0xCC.toByte()).toList(), result.ppsList[0].bytes.toList())
+        // headerSize=8 + payload index 14 (pps bytes start right after the 2-byte length field at
+        // payload index 12-13, itself right after the 1-byte declaredPps count at index 11) = 22.
+        assertEquals(22L, result.ppsList[0].offset)
     }
 
     @Test
