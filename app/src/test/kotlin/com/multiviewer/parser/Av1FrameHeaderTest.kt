@@ -120,4 +120,31 @@ class Av1FrameHeaderTest {
         // uniform_tile_spacing_flag=0 (1 more bit) -- 17 bits, packed as 0x10 0x00 0x00.
         assertNull(parseAv1FrameHeader(byteArrayOf(0x10, 0x00, 0x00), seqHeader))
     }
+
+    @Test
+    fun `parseAv1FrameHeader gates allow_intrabc on useSuperres, not just allowScreenContentTools`() {
+        // Synthetic KEY frame, seqHeader.copy(enableSuperres = true) (the real captured stream has
+        // enableSuperres = false, so this path needs its own fixture). Bits: show_existing_frame=0,
+        // frame_type=00 (KEY), show_frame=1, disable_cdf_update=0, allow_screen_content_tools=1
+        // (forces the allow_intrabc read to be considered), force_integer_mv-read-bit=0,
+        // frame_size_override_flag=0, order_hint=0000000 (7 bits), use_superres=1,
+        // coded_denom=000 (3 bits -> SuperresDenom=9 -> frameWidth = (64*8+4)/9 = 57),
+        // render_and_frame_size_different=0, [no allow_intrabc bit -- useSuperres is true],
+        // disable_frame_end_update_cdf=0, uniform_tile_spacing_flag=1, base_q_idx=01010000 (80) ->
+        // packed as 0x14 0x01 0x05 0x40.
+        val seqHeaderWithSuperres = seqHeader.copy(enableSuperres = true)
+        val payload = byteArrayOf(0x14, 0x01, 0x05, 0x40)
+        val header = parseAv1FrameHeader(payload, seqHeaderWithSuperres)
+        assertNotNull(header)
+        assertEquals(Av1FrameType.KEY, header.frameType)
+        assertEquals(true, header.showFrame)
+        assertEquals(false, header.showableFrame)
+        assertEquals(57, header.frameWidth)
+        assertEquals(64, header.frameHeight)
+        assertEquals(80, header.baseQIdx)
+        assertEquals(1, header.tileCols)
+        assertEquals(1, header.tileRows)
+        assertEquals(255, header.refreshFrameFlags)
+        assertEquals(0, header.orderHint)
+    }
 }
