@@ -127,16 +127,19 @@ fun SummaryBox(
 // A hairline divider below each row -- with many fields stacked in a plain LazyColumn (only
 // vertical padding between them) it was hard to tell where one field ended and the next began.
 @Composable
-fun PropertyRow(label: String, value: String) {
+fun PropertyRow(label: String, value: String, onClick: (() -> Unit)? = null) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+            modifier = Modifier.fillMaxWidth()
+                .let { if (onClick != null) it.clickable(onClick = onClick) else it }
+                .padding(vertical = 6.dp),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(label, style = AppTypography.labelLarge, modifier = Modifier.weight(1f))
             Text(
                 value,
                 style = AppTypography.bodyLarge,
+                color = if (onClick != null) AppColors.NeonBlue else Color.Unspecified,
                 modifier = Modifier.weight(1f),
                 textAlign = TextAlign.End
             )

@@ -38,8 +38,12 @@ fun VideoInspectorUI(
         withContext(Dispatchers.IO) {
             val raw = com.multiviewer.parser.extractAvcCRawParameterSets(tab.file, avcCNode) ?: return@withContext
             tab.avcLengthSize = raw.lengthSize
-            tab.avcSpsList = raw.spsList.mapNotNull { com.multiviewer.parser.parseH264Sps(it) }
-            tab.avcPpsList = raw.ppsList.mapNotNull { com.multiviewer.parser.parseH264Pps(it) }
+            val parsedSps = raw.spsList.mapNotNull { nal -> com.multiviewer.parser.parseH264Sps(nal.bytes)?.let { it to nal } }
+            val parsedPps = raw.ppsList.mapNotNull { nal -> com.multiviewer.parser.parseH264Pps(nal.bytes)?.let { it to nal } }
+            tab.avcSpsList = parsedSps.map { it.first }
+            tab.avcPpsList = parsedPps.map { it.first }
+            tab.avcSpsOffsets = parsedSps.associate { (sps, nal) -> sps.seqParameterSetId to (nal.offset until nal.offset + nal.bytes.size) }
+            tab.avcPpsOffsets = parsedPps.associate { (pps, nal) -> pps.picParameterSetId to (nal.offset until nal.offset + nal.bytes.size) }
         }
     }
 
@@ -50,9 +54,15 @@ fun VideoInspectorUI(
         withContext(Dispatchers.IO) {
             val raw = com.multiviewer.parser.extractHvcCRawParameterSets(tab.file, hvcCNode) ?: return@withContext
             tab.hevcLengthSize = raw.lengthSize
-            tab.hevcVpsList = raw.vpsList.mapNotNull { com.multiviewer.parser.parseHevcVps(it) }
-            tab.hevcSpsList = raw.spsList.mapNotNull { com.multiviewer.parser.parseHevcSps(it) }
-            tab.hevcPpsList = raw.ppsList.mapNotNull { com.multiviewer.parser.parseHevcPps(it) }
+            val parsedVps = raw.vpsList.mapNotNull { nal -> com.multiviewer.parser.parseHevcVps(nal.bytes)?.let { it to nal } }
+            val parsedSps = raw.spsList.mapNotNull { nal -> com.multiviewer.parser.parseHevcSps(nal.bytes)?.let { it to nal } }
+            val parsedPps = raw.ppsList.mapNotNull { nal -> com.multiviewer.parser.parseHevcPps(nal.bytes)?.let { it to nal } }
+            tab.hevcVpsList = parsedVps.map { it.first }
+            tab.hevcSpsList = parsedSps.map { it.first }
+            tab.hevcPpsList = parsedPps.map { it.first }
+            tab.hevcVpsOffsets = parsedVps.associate { (vps, nal) -> vps.vpsId to (nal.offset until nal.offset + nal.bytes.size) }
+            tab.hevcSpsOffsets = parsedSps.associate { (sps, nal) -> sps.spsId to (nal.offset until nal.offset + nal.bytes.size) }
+            tab.hevcPpsOffsets = parsedPps.associate { (pps, nal) -> pps.ppsId to (nal.offset until nal.offset + nal.bytes.size) }
         }
     }
 

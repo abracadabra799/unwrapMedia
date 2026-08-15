@@ -194,6 +194,21 @@ class TabState(val file: File) {
     var hevcPpsList: List<com.multiviewer.parser.HevcPps> by mutableStateOf(emptyList())
     var hevcLengthSize: Int? by mutableStateOf(null)
 
+    // Byte-range maps for the "click a Parameter Sets id row to jump the hex viewer to its actual
+    // NAL bytes" feature -- keyed by each parameter set's own id (the same id already used to look
+    // them up in resolveActiveParameterSets/resolveActiveHevcParameterSets above), each value the
+    // exact file byte range of that entry's raw NAL bytes inside the avcC/hvcC box (see RawNal).
+    var avcSpsOffsets: Map<Int, LongRange> by mutableStateOf(emptyMap())
+    var avcPpsOffsets: Map<Int, LongRange> by mutableStateOf(emptyMap())
+    var hevcVpsOffsets: Map<Int, LongRange> by mutableStateOf(emptyMap())
+    var hevcSpsOffsets: Map<Int, LongRange> by mutableStateOf(emptyMap())
+    var hevcPpsOffsets: Map<Int, LongRange> by mutableStateOf(emptyMap())
+    // Set when a Parameter Sets id row is clicked (see ImageInspectorUI.kt); cleared automatically
+    // whenever a different frame is selected (see DetailPropertiesTabContent's LaunchedEffect), so
+    // the hex viewer naturally reverts to highlighting the newly-selected frame's own bytes. Read
+    // by Main.kt's existing hex-highlight/scroll fallback chain as its new top-priority source.
+    var parameterSetHighlightRange: LongRange? by mutableStateOf(null)
+
     // Frame thumbnail filmstrip (see FrameThumbnailDecoder.kt) -- keyed by frame index, populated
     // lazily as the filmstrip scrolls. pendingThumbnailIndices tracks in-flight requests so a
     // rapid double-trigger (e.g. two scroll events before the first batch returns) doesn't launch

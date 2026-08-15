@@ -30,17 +30,26 @@ class HevcParameterSetExtractionTest {
     }
 
     @Test
-    fun `extractHvcCRawParameterSets reads length_size and the declared VPS, SPS, and PPS NAL bytes`() {
+    fun `extractHvcCRawParameterSets reads length_size and the declared VPS, SPS, and PPS NAL bytes and offsets`() {
         val (node, file) = hvcCBoxNode(hvcCPayload())
         val result = extractHvcCRawParameterSets(file, node)
         assertNotNull(result)
         assertEquals(4, result.lengthSize) // length_size_minus_one=3 -> 3+1=4
         assertEquals(1, result.vpsList.size)
-        assertEquals(byteArrayOf(0x40, 0xaa.toByte(), 0xbb.toByte()).toList(), result.vpsList[0].toList())
+        assertEquals(byteArrayOf(0x40, 0xaa.toByte(), 0xbb.toByte()).toList(), result.vpsList[0].bytes.toList())
+        // headerSize=8 + payload index 28 (VPS array: 23-byte fixed header, then type(1)+numNalus(2)
+        // +length(2)=5 bytes before the NAL bytes start at payload index 23+5=28) = file offset 36.
+        assertEquals(36L, result.vpsList[0].offset)
         assertEquals(1, result.spsList.size)
-        assertEquals(byteArrayOf(0x42, 0xcc.toByte(), 0xdd.toByte()).toList(), result.spsList[0].toList())
+        assertEquals(byteArrayOf(0x42, 0xcc.toByte(), 0xdd.toByte()).toList(), result.spsList[0].bytes.toList())
+        // SPS array starts right after VPS array's 8 bytes (payload index 23+8=31); NAL bytes start
+        // 5 bytes into it, at payload index 36 -> file offset 44.
+        assertEquals(44L, result.spsList[0].offset)
         assertEquals(1, result.ppsList.size)
-        assertEquals(byteArrayOf(0x44, 0xee.toByte()).toList(), result.ppsList[0].toList())
+        assertEquals(byteArrayOf(0x44, 0xee.toByte()).toList(), result.ppsList[0].bytes.toList())
+        // PPS array starts right after SPS array's 8 bytes (payload index 31+8=39); NAL bytes start
+        // 5 bytes into it, at payload index 44 -> file offset 52.
+        assertEquals(52L, result.ppsList[0].offset)
     }
 
     @Test

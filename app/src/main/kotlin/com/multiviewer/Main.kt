@@ -411,11 +411,13 @@ private fun runGuiApplication() = application {
                             currentTab.selectedField?.takeIf { it in fields }
                         }
 
-                        LaunchedEffect(currentTab.selected, currentTab.selectedField, currentTab.tileHighlightRange, currentTab.selectedFrame) {
+                        LaunchedEffect(currentTab.selected, currentTab.selectedField, currentTab.tileHighlightRange, currentTab.selectedFrame, currentTab.parameterSetHighlightRange) {
+                            val paramRange = currentTab.parameterSetHighlightRange
                             val tileRange = currentTab.tileHighlightRange
                             val field = activeField
                             val frameOffset = currentTab.selectedFrame?.byteOffset
                             when {
+                                paramRange != null -> hexListState.scrollToItem((paramRange.first / BYTES_PER_ROW).toInt())
                                 tileRange != null -> hexListState.scrollToItem((tileRange.first / BYTES_PER_ROW).toInt())
                                 field != null -> hexListState.scrollToItem((field.offset / BYTES_PER_ROW).toInt())
                                 frameOffset != null -> hexListState.scrollToItem((frameOffset / BYTES_PER_ROW).toInt())
@@ -465,7 +467,8 @@ private fun runGuiApplication() = application {
                             // selecting a frame in the GOP timeline/filmstrip jump the hex viewer to
                             // that frame's actual bytes, the same way tile/tree-node selection
                             // already does.
-                            val hexHighlightRange = currentTab.tileHighlightRange
+                            val hexHighlightRange = currentTab.parameterSetHighlightRange
+                                ?: currentTab.tileHighlightRange
                                 ?: activeField?.let { it.offset until (it.offset + it.length) }
                                 ?: currentTab.selected?.let { it.offset until (it.offset + it.size) }
                                 ?: currentTab.selectedFrame?.let { frame ->
