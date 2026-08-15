@@ -16,6 +16,16 @@ data class Av1SequenceHeader(
     val maxFrameHeight: Int,
     val use128x128Superblock: Boolean,
     val filmGrainParamsPresent: Boolean,
+    // Fields below are internal parsing state consumed by Av1FrameHeader.kt's parseAv1FrameHeader
+    // to stay bit-aligned with this stream's Sequence Header while parsing a Frame Header -- they
+    // are NOT shown in Detail Properties, which still displays only the 15 fields above.
+    val frameIdNumbersPresentFlag: Boolean,
+    val enableOrderHint: Boolean,
+    val orderHintBitsMinus1: Int,
+    val seqForceScreenContentTools: Int,
+    val seqForceIntegerMv: Int,
+    val enableSuperres: Boolean,
+    val enableRefFrameMvs: Boolean,
 )
 
 private const val CP_BT_709 = 1
@@ -24,7 +34,8 @@ private const val TC_UNSPECIFIED = 2
 private const val TC_SRGB = 13
 private const val MC_IDENTITY = 0
 private const val MC_UNSPECIFIED = 2
-private const val SELECT_SCREEN_CONTENT_TOOLS = 2
+const val SELECT_SCREEN_CONTENT_TOOLS = 2
+const val SELECT_INTEGER_MV = 2
 
 // Parses AV1 spec 5.5.1 sequence_header_obu() from bit 0 of `payload` (the OBU's own payload
 // bytes -- see this plan's Global Constraints on what extractAv1CRawSequenceHeader hands this).
@@ -70,7 +81,8 @@ fun parseAv1SequenceHeader(payload: ByteArray): Av1SequenceHeader? {
         val maxFrameWidth = reader.readBits(frameWidthBitsMinus1 + 1) + 1
         val maxFrameHeight = reader.readBits(frameHeightBitsMinus1 + 1) + 1
 
-        if (reader.readFlag()) { // frame_id_numbers_present_flag
+        val frameIdNumbersPresentFlag = reader.readFlag()
+        if (frameIdNumbersPresentFlag) {
             reader.readBits(4) // delta_frame_id_length_minus_2
             reader.readBits(3) // additional_frame_id_length_minus_1
         }
@@ -84,26 +96,37 @@ fun parseAv1SequenceHeader(payload: ByteArray): Av1SequenceHeader? {
         reader.readFlag() // enable_warped_motion
         reader.readFlag() // enable_dual_filter
         val enableOrderHint = reader.readFlag()
+        var enableRefFrameMvs = false
         if (enableOrderHint) {
             reader.readFlag() // enable_jnt_comp
-            reader.readFlag() // enable_ref_frame_mvs
+            enableRefFrameMvs = reader.readFlag()
         }
         val seqForceScreenContentTools = if (reader.readFlag()) { // seq_choose_screen_content_tools
             SELECT_SCREEN_CONTENT_TOOLS
         } else {
             reader.readBits(1)
         }
-        if (seqForceScreenContentTools > 0) {
-            val seqChooseIntegerMv = reader.readFlag()
-            if (!seqChooseIntegerMv) {
-                reader.readBits(1) // seq_force_integer_mv
+        // AV1 spec 5.5.1: when seq_force_screen_content_tools == 0, seq_force_integer_mv is set to
+        // SELECT_INTEGER_MV directly, without reading a seq_choose_integer_mv flag at all -- there's
+        // nothing to choose between, since screen content tools (and therefore forced integer MV)
+        // are off. The previous version of this function read the seq_choose_integer_mv/
+        // seq_force_integer_mv bits but never captured or defaulted the resolved value.
+        val seqForceIntegerMv = if (seqForceScreenContentTools > 0) {
+            if (reader.readFlag()) { // seq_choose_integer_mv
+                SELECT_INTEGER_MV
+            } else {
+                reader.readBits(1)
             }
+        } else {
+            SELECT_INTEGER_MV
         }
-        if (enableOrderHint) {
-            reader.readBits(3) // order_hint_bits_minus_1
+        val orderHintBitsMinus1 = if (enableOrderHint) {
+            reader.readBits(3)
+        } else {
+            0
         }
 
-        reader.readFlag() // enable_superres
+        val enableSuperres = reader.readFlag()
         reader.readFlag() // enable_cdef
         reader.readFlag() // enable_restoration
 
@@ -183,6 +206,13 @@ fun parseAv1SequenceHeader(payload: ByteArray): Av1SequenceHeader? {
             maxFrameHeight = maxFrameHeight,
             use128x128Superblock = use128x128Superblock,
             filmGrainParamsPresent = filmGrainParamsPresent,
+            frameIdNumbersPresentFlag = frameIdNumbersPresentFlag,
+            enableOrderHint = enableOrderHint,
+            orderHintBitsMinus1 = orderHintBitsMinus1,
+            seqForceScreenContentTools = seqForceScreenContentTools,
+            seqForceIntegerMv = seqForceIntegerMv,
+            enableSuperres = enableSuperres,
+            enableRefFrameMvs = enableRefFrameMvs,
         )
     } catch (e: Exception) {
         null
