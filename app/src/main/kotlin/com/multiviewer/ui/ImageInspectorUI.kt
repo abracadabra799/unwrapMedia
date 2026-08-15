@@ -517,6 +517,24 @@ private fun DetailPropertiesTabContent(tab: TabState) {
                                     vui.videoFullRangeFlag?.let { PropertyRow("Full Range", if (it) "Yes" else "No") }
                                 }
                             }
+                            tab.av1SequenceHeader?.let { seqHeader ->
+                                Spacer(Modifier.height(8.dp))
+                                Text("AV1 Sequence Header", style = AppTypography.labelLarge.copy(color = AppColors.NeonBlue))
+                                PropertyRow(
+                                    "Profile / Level / Tier",
+                                    "${seqHeader.seqProfile} / ${seqHeader.seqLevelIdx0} / ${seqHeader.seqTierIdx0}",
+                                    onClick = tab.av1SequenceHeaderOffset?.let { range -> { tab.parameterSetHighlightRange = range } },
+                                )
+                                PropertyRow("Bit Depth", seqHeader.bitDepth.toString())
+                                PropertyRow("Monochrome", if (seqHeader.monochrome) "Yes" else "No")
+                                PropertyRow("Chroma Subsampling", "${seqHeader.chromaSubsamplingX}:${seqHeader.chromaSubsamplingY}")
+                                PropertyRow("Color Primaries", seqHeader.colorPrimaries.toString())
+                                PropertyRow("Transfer Characteristics", seqHeader.transferCharacteristics.toString())
+                                PropertyRow("Matrix Coefficients", seqHeader.matrixCoefficients.toString())
+                                PropertyRow("Max Frame Size", "${seqHeader.maxFrameWidth} x ${seqHeader.maxFrameHeight}")
+                                PropertyRow("128x128 Superblock", if (seqHeader.use128x128Superblock) "Yes" else "No")
+                                PropertyRow("Film Grain Present", if (seqHeader.filmGrainParamsPresent) "Yes" else "No")
+                            }
                         }
                     }
                     selectedNode != null -> {
