@@ -535,6 +535,21 @@ private fun DetailPropertiesTabContent(tab: TabState) {
                                 PropertyRow("128x128 Superblock", if (seqHeader.use128x128Superblock) "Yes" else "No")
                                 PropertyRow("Film Grain Present", if (seqHeader.filmGrainParamsPresent) "Yes" else "No")
                             }
+                            val av1SelectedFrameByteOffset = selectedFrame.byteOffset
+                            if (av1SelectedFrameByteOffset != null) {
+                                tab.av1FrameHeaders[av1SelectedFrameByteOffset]?.let { frameHeader ->
+                                    Spacer(Modifier.height(8.dp))
+                                    Text("AV1 Frame Header", style = AppTypography.labelLarge.copy(color = AppColors.NeonBlue))
+                                    PropertyRow("Frame Type", frameHeader.frameType.name)
+                                    PropertyRow("Show Frame", if (frameHeader.showFrame) "Yes" else "No")
+                                    PropertyRow("Showable Frame", if (frameHeader.showableFrame) "Yes" else "No")
+                                    PropertyRow("Frame Size", "${frameHeader.frameWidth} x ${frameHeader.frameHeight}")
+                                    PropertyRow("Base Q Index", frameHeader.baseQIdx.toString())
+                                    PropertyRow("Tile Cols / Rows", "${frameHeader.tileCols} / ${frameHeader.tileRows}")
+                                    PropertyRow("Refresh Frame Flags", "0x${frameHeader.refreshFrameFlags.toString(16).uppercase()}")
+                                    PropertyRow("Order Hint", frameHeader.orderHint.toString())
+                                }
+                            }
                         }
                     }
                     selectedNode != null -> {

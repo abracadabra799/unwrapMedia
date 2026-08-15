@@ -79,6 +79,21 @@ fun VideoInspectorUI(
         }
     }
 
+    // Runs the AV1 Frame Header sequential pass once both the parsed Sequence Header and the
+    // user-triggered frame analysis (tab.gopFrames, populated by AppState.analyzeFrames -- see
+    // FrameTypeAnalyzer.kt) are available. Unlike the av1C LaunchedEffect above (keyed on tab.root,
+    // available as soon as the file's box tree is parsed), gopFrames is NOT populated automatically
+    // -- it stays null until the user clicks "Analyze Frames" -- so this effect is keyed on
+    // tab.gopFrames too, and reruns (a no-op until both are non-null) as either becomes available,
+    // in either order.
+    LaunchedEffect(tab.gopFrames, tab.av1SequenceHeader) {
+        val frames = tab.gopFrames ?: return@LaunchedEffect
+        val seqHeader = tab.av1SequenceHeader ?: return@LaunchedEffect
+        withContext(Dispatchers.IO) {
+            tab.av1FrameHeaders = com.multiviewer.parser.analyzeAv1FrameHeaders(tab.file, frames, seqHeader)
+        }
+    }
+
     var topContainerWidthPx by remember { mutableStateOf(0) }
     // Player and GOP sit side-by-side (not stacked) so the player keeps the full center-panel
     // height instead of sharing it vertically with GOP -- videoGopSplit divides that region

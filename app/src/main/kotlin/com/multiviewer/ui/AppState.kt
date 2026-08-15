@@ -202,6 +202,13 @@ class TabState(val file: File) {
     var av1SequenceHeader: com.multiviewer.parser.Av1SequenceHeader? by mutableStateOf(null)
     var av1SequenceHeaderOffset: LongRange? by mutableStateOf(null)
 
+    // AV1 Frame Header, per selected frame (see Av1FrameHeader.kt / Av1FrameHeaderAnalyzer.kt) --
+    // unlike av1SequenceHeader (stream-wide), this is resolved per frame; populated all at once by
+    // a sequential pass over every frame once both the parsed av1SequenceHeader and gopFrames (the
+    // user-triggered frame analysis, see AppState.analyzeFrames) are available, keyed by
+    // FrameInfo.byteOffset to match how selectedFrame is looked up elsewhere in this class.
+    var av1FrameHeaders: Map<Long, com.multiviewer.parser.Av1FrameHeader> by mutableStateOf(emptyMap())
+
     // Byte-range maps for the "click a Parameter Sets id row to jump the hex viewer to its actual
     // NAL bytes" feature -- keyed by each parameter set's own id (the same id already used to look
     // them up in resolveActiveParameterSets/resolveActiveHevcParameterSets above), each value the
