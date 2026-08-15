@@ -29,6 +29,20 @@ fun VideoInspectorUI(
         tab.videoCodecName = withContext(Dispatchers.IO) { probeVideoCodecName(tab.file) }
     }
 
+    // Parses the video track's avcC box once per tab -- independent of tab.videoCodecName's own
+    // probe above (this just checks whether an avcC box exists in the tree at all, the same gate
+    // parseH264Sps/parseH264Pps's own callers rely on implicitly via an empty list otherwise).
+    LaunchedEffect(tab.root) {
+        val root = tab.root ?: return@LaunchedEffect
+        val avcCNode = com.multiviewer.parser.findFirst(root) { it.type == "avcC" } ?: return@LaunchedEffect
+        withContext(Dispatchers.IO) {
+            val raw = com.multiviewer.parser.extractAvcCRawParameterSets(tab.file, avcCNode) ?: return@withContext
+            tab.avcLengthSize = raw.lengthSize
+            tab.avcSpsList = raw.spsList.mapNotNull { com.multiviewer.parser.parseH264Sps(it) }
+            tab.avcPpsList = raw.ppsList.mapNotNull { com.multiviewer.parser.parseH264Pps(it) }
+        }
+    }
+
     var topContainerWidthPx by remember { mutableStateOf(0) }
     // Player and GOP sit side-by-side (not stacked) so the player keeps the full center-panel
     // height instead of sharing it vertically with GOP -- videoGopSplit divides that region

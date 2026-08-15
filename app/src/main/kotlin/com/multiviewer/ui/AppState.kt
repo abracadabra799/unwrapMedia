@@ -176,6 +176,15 @@ class TabState(val file: File) {
     // yet"; probing happens once per opened video tab.
     var videoCodecName: String? by mutableStateOf(null)
 
+    // H.264 SPS/PPS (see H264ParameterSets.kt / H264ParameterSetExtraction.kt) -- parsed once per
+    // video tab from the avcC box, independent of any specific frame selection. Empty lists (not
+    // null) mean "not H.264, no avcC box, or nothing parsed successfully" -- the Detail Properties
+    // panel shows nothing extra either way, so no separate "not yet probed" state is needed here
+    // (unlike videoCodecName, nothing else needs to distinguish those cases).
+    var avcSpsList: List<com.multiviewer.parser.H264Sps> by mutableStateOf(emptyList())
+    var avcPpsList: List<com.multiviewer.parser.H264Pps> by mutableStateOf(emptyList())
+    var avcLengthSize: Int? by mutableStateOf(null)
+
     // Frame thumbnail filmstrip (see FrameThumbnailDecoder.kt) -- keyed by frame index, populated
     // lazily as the filmstrip scrolls. pendingThumbnailIndices tracks in-flight requests so a
     // rapid double-trigger (e.g. two scroll events before the first batch returns) doesn't launch
