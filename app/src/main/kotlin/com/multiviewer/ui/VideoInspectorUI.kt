@@ -66,6 +66,19 @@ fun VideoInspectorUI(
         }
     }
 
+    // Parses the video track's av1C box once per tab -- mirrors the avcC/hvcC LaunchedEffects
+    // above. Unlike those, there's no per-id offset map: AV1 has one stream-wide Sequence Header.
+    LaunchedEffect(tab.root) {
+        val root = tab.root ?: return@LaunchedEffect
+        val av1CNode = com.multiviewer.parser.findFirst(root) { it.type == "av1C" } ?: return@LaunchedEffect
+        withContext(Dispatchers.IO) {
+            val raw = com.multiviewer.parser.extractAv1CRawSequenceHeader(tab.file, av1CNode) ?: return@withContext
+            val seqHeader = com.multiviewer.parser.parseAv1SequenceHeader(raw.bytes) ?: return@withContext
+            tab.av1SequenceHeader = seqHeader
+            tab.av1SequenceHeaderOffset = raw.offset until raw.offset + raw.bytes.size
+        }
+    }
+
     var topContainerWidthPx by remember { mutableStateOf(0) }
     // Player and GOP sit side-by-side (not stacked) so the player keeps the full center-panel
     // height instead of sharing it vertically with GOP -- videoGopSplit divides that region

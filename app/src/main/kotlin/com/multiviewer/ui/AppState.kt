@@ -194,6 +194,14 @@ class TabState(val file: File) {
     var hevcPpsList: List<com.multiviewer.parser.HevcPps> by mutableStateOf(emptyList())
     var hevcLengthSize: Int? by mutableStateOf(null)
 
+    // AV1 Sequence Header (see Av1SequenceHeader.kt / Av1ParameterSetExtraction.kt) -- parsed once
+    // per video tab from the av1C box's configOBUs field, independent of any specific frame
+    // selection. AV1 has one stream-wide Sequence Header, not an id-addressable set like
+    // avcC/hvcC's SPS/PPS/VPS, so this is a single nullable object + one offset range, not a
+    // List/Map keyed by id.
+    var av1SequenceHeader: com.multiviewer.parser.Av1SequenceHeader? by mutableStateOf(null)
+    var av1SequenceHeaderOffset: LongRange? by mutableStateOf(null)
+
     // Byte-range maps for the "click a Parameter Sets id row to jump the hex viewer to its actual
     // NAL bytes" feature -- keyed by each parameter set's own id (the same id already used to look
     // them up in resolveActiveParameterSets/resolveActiveHevcParameterSets above), each value the
