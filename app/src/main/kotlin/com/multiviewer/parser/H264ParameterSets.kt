@@ -56,7 +56,11 @@ data class H264Pps(
 fun parseH264Sps(nalBytes: ByteArray): H264Sps? {
     if (nalBytes.isEmpty()) return null
     return try {
-        val reader = BitReader(nalBytes, startByteOffset = 1)
+        // Must de-emulate before bit-parsing -- see NalEmulationPrevention.kt. Without this, any
+        // field whose bit position falls after a real 00 00 03 sequence in the source bytes
+        // decodes wrong (verified directly: a real SPS's VUI time_scale came out as 16777217
+        // instead of the correct 50 without this step).
+        val reader = BitReader(removeEmulationPreventionBytes(nalBytes), startByteOffset = 1)
         val profileIdc = reader.readBits(8)
         reader.readBits(8) // constraint_set0..5_flag (6 bits) + reserved_zero_2bits (2 bits)
         val levelIdc = reader.readBits(8)
@@ -159,7 +163,8 @@ private fun parseVui(reader: BitReader): H264Vui {
 fun parseH264Pps(nalBytes: ByteArray): H264Pps? {
     if (nalBytes.isEmpty()) return null
     return try {
-        val reader = BitReader(nalBytes, startByteOffset = 1)
+        // See parseH264Sps's identical comment -- de-emulation must happen before bit-parsing.
+        val reader = BitReader(removeEmulationPreventionBytes(nalBytes), startByteOffset = 1)
         val picParameterSetId = reader.readUe()
         val seqParameterSetId = reader.readUe()
         val entropyCodingModeFlag = reader.readFlag()
