@@ -2,11 +2,11 @@ package com.multiviewer.parser
 
 import java.io.File
 
-data class AvcCRawParameterSets(val lengthSize: Int, val spsList: List<ByteArray>, val ppsList: List<ByteArray>)
+data class AvcCRawParameterSets(val lengthSize: Int, val spsList: List<RawNal>, val ppsList: List<RawNal>)
 
 // Mirrors AvcCBoxDecoder's own walk of this exact box structure, but COLLECTS the raw SPS/PPS
-// bytes instead of only counting/validating them -- AvcCBoxDecoder deliberately doesn't retain
-// them (see docs/superpowers/specs/2026-07-17-box-detail-parsing-design.md).
+// bytes (and each one's own file offset) instead of only counting/validating them -- AvcCBoxDecoder
+// deliberately doesn't retain them (see docs/superpowers/specs/2026-07-17-box-detail-parsing-design.md).
 fun extractAvcCRawParameterSets(file: File, avcCNode: BoxNode): AvcCRawParameterSets? {
     return try {
         ByteReader.open(file).use { reader ->
@@ -17,22 +17,22 @@ fun extractAvcCRawParameterSets(file: File, avcCNode: BoxNode): AvcCRawParameter
             val declaredSps = reader.readUInt8(payloadStart + 5) and 0x1F
 
             var pos = payloadStart + 6
-            val spsList = mutableListOf<ByteArray>()
+            val spsList = mutableListOf<RawNal>()
             while (spsList.size < declaredSps && pos + 2 <= payloadEnd) {
                 val spsLength = reader.readUInt16(pos)
                 if (pos + 2 + spsLength > payloadEnd) break
-                spsList.add(reader.readBytes(pos + 2, spsLength))
+                spsList.add(RawNal(reader.readBytes(pos + 2, spsLength), pos + 2))
                 pos += 2 + spsLength
             }
 
-            val ppsList = mutableListOf<ByteArray>()
+            val ppsList = mutableListOf<RawNal>()
             if (pos < payloadEnd) {
                 val declaredPps = reader.readUInt8(pos)
                 pos += 1
                 while (ppsList.size < declaredPps && pos + 2 <= payloadEnd) {
                     val ppsLength = reader.readUInt16(pos)
                     if (pos + 2 + ppsLength > payloadEnd) break
-                    ppsList.add(reader.readBytes(pos + 2, ppsLength))
+                    ppsList.add(RawNal(reader.readBytes(pos + 2, ppsLength), pos + 2))
                     pos += 2 + ppsLength
                 }
             }
