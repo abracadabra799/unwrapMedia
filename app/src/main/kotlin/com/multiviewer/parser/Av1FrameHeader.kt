@@ -17,7 +17,6 @@ data class Av1FrameHeader(
 
 private const val NUM_REF_FRAMES = 8
 private const val REFS_PER_FRAME = 7
-private const val PRIMARY_REF_NONE = 7
 private const val MAX_TILE_WIDTH = 4096
 private const val MAX_TILE_AREA = 4096 * 2304
 private const val MAX_TILE_COLS = 64
@@ -30,11 +29,16 @@ private fun tileLog2(blkSize: Int, target: Int): Int {
     return k
 }
 
+// Result of readFrameSize(): frame_size() (spec 5.9.5) + superres_params() (spec 5.9.6) also need
+// to expose whether superres actually scaled this frame, since that determines (per spec 5.9.6)
+// whether UpscaledWidth == FrameWidth still holds afterward -- see the allow_intrabc gating below.
+private data class FrameSizeResult(val frameWidth: Int, val frameHeight: Int, val useSuperres: Boolean)
+
 // frame_size() (spec 5.9.5) + superres_params() (spec 5.9.6), for the frame_size_override_flag ==
 // false case only -- the true case is bailed out on by parseAv1FrameHeader before this is called,
 // so the frame_width_minus_1/frame_height_minus_1 explicit-override branch (and
 // frame_size_with_refs()'s cross-frame reference-dimension state) never needs implementing here.
-private fun readFrameSize(reader: BitReader, seqHeader: Av1SequenceHeader): Pair<Int, Int> {
+private fun readFrameSize(reader: BitReader, seqHeader: Av1SequenceHeader): FrameSizeResult {
     var frameWidth = seqHeader.maxFrameWidth
     val frameHeight = seqHeader.maxFrameHeight
     val useSuperres = if (seqHeader.enableSuperres) reader.readFlag() else false
@@ -45,7 +49,7 @@ private fun readFrameSize(reader: BitReader, seqHeader: Av1SequenceHeader): Pair
         // superres-downscaled value (SUPERRES_NUM = 8).
         frameWidth = (frameWidth * 8 + superresDenom / 2) / superresDenom
     }
-    return frameWidth to frameHeight
+    return FrameSizeResult(frameWidth, frameHeight, useSuperres)
 }
 
 // render_size() (spec 5.9.7). Render dimensions aren't a curated field -- only the bits are
@@ -222,13 +226,19 @@ fun parseAv1FrameHeader(payload: ByteArray, seqHeader: Av1SequenceHeader): Av1Fr
         val frameWidth: Int
         val frameHeight: Int
         if (frameIsIntra) {
-            val (fw, fh) = readFrameSize(reader, seqHeader)
-            frameWidth = fw
-            frameHeight = fh
+            val frameSize = readFrameSize(reader, seqHeader)
+            frameWidth = frameSize.frameWidth
+            frameHeight = frameSize.frameHeight
             readRenderSize(reader)
-            if (allowScreenContentTools) {
-                reader.readFlag() // allow_intrabc -- valid here since UpscaledWidth == FrameWidth
-                                   // always holds (superres is fully resolved inside readFrameSize).
+            // allow_intrabc (spec 5.9.2) is only read when allow_screen_content_tools &&
+            // UpscaledWidth == FrameWidth. Per superres_params() (spec 5.9.6), UpscaledWidth is set
+            // equal to FrameWidth *before* FrameWidth is potentially downscaled by SuperresDenom, so
+            // UpscaledWidth == FrameWidth holds iff superres did NOT actually scale this frame (i.e.
+            // useSuperres == false -- when useSuperres == true, SuperresDenom is always >=
+            // SUPERRES_DENOM_MIN(9) > SUPERRES_NUM(8), so FrameWidth is always strictly downscaled
+            // below UpscaledWidth).
+            if (allowScreenContentTools && !frameSize.useSuperres) {
+                reader.readFlag() // allow_intrabc
             }
         } else {
             val frameRefsShortSignaling = if (seqHeader.enableOrderHint) reader.readFlag() else false
@@ -244,9 +254,9 @@ fun parseAv1FrameHeader(payload: ByteArray, seqHeader: Av1SequenceHeader): Av1Fr
                 // frameIdNumbersPresentFlag is guaranteed false here (bailed out above), so no
                 // delta_frame_id_minus_1 field follows each ref_frame_idx.
             }
-            val (fw, fh) = readFrameSize(reader, seqHeader)
-            frameWidth = fw
-            frameHeight = fh
+            val frameSize = readFrameSize(reader, seqHeader)
+            frameWidth = frameSize.frameWidth
+            frameHeight = frameSize.frameHeight
             readRenderSize(reader)
             if (!forceIntegerMv) {
                 reader.readFlag() // allow_high_precision_mv
