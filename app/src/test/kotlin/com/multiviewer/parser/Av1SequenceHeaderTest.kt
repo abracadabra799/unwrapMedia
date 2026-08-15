@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class Av1SequenceHeaderTest {
     // Real Sequence Header OBU payload (11 bytes, OBU header/leb128-size prefix already stripped),
@@ -13,7 +14,7 @@ class Av1SequenceHeaderTest {
     // maxFrameWidth/maxFrameHeight were independently confirmed against the source encode's actual
     // 320x240 dimensions (also cross-checked via `ffmpeg -v verbose -i out.mp4 -f null -`, which
     // decodes via libdav1d and independently reported Main profile / 320x240 / yuv420p for the same
-    // file -- see the design spec's Testing section and this plan's own intro).
+    // file -- see the design spec's Testing section and the Phase 1 plan's own intro).
     private val realSeqHeader = byteArrayOf(
         0x02, 0x00, 0x00, 0x05, 0x61, 0xe7.toByte(), 0xfd.toByte(), 0xe0.toByte(), 0x17, 0xc0.toByte(), 0x02,
     )
@@ -37,6 +38,16 @@ class Av1SequenceHeaderTest {
         assertEquals(240, seqHeader.maxFrameHeight)
         assertFalse(seqHeader.use128x128Superblock)
         assertFalse(seqHeader.filmGrainParamsPresent)
+        // Fields added for Frame Header parsing (Phase 2) -- hand-decoded from the same real bytes
+        // as everything else above, cross-checked with an independent Python implementation of the
+        // same sequence_header_obu() syntax.
+        assertFalse(seqHeader.frameIdNumbersPresentFlag)
+        assertTrue(seqHeader.enableOrderHint)
+        assertEquals(6, seqHeader.orderHintBitsMinus1)
+        assertEquals(SELECT_SCREEN_CONTENT_TOOLS, seqHeader.seqForceScreenContentTools)
+        assertEquals(SELECT_INTEGER_MV, seqHeader.seqForceIntegerMv)
+        assertFalse(seqHeader.enableSuperres)
+        assertTrue(seqHeader.enableRefFrameMvs)
     }
 
     @Test
