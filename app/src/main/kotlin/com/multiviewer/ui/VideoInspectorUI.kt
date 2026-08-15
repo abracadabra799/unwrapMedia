@@ -43,6 +43,19 @@ fun VideoInspectorUI(
         }
     }
 
+    // Parses the video track's hvcC box once per tab -- mirrors the avcC LaunchedEffect above.
+    LaunchedEffect(tab.root) {
+        val root = tab.root ?: return@LaunchedEffect
+        val hvcCNode = com.multiviewer.parser.findFirst(root) { it.type == "hvcC" } ?: return@LaunchedEffect
+        withContext(Dispatchers.IO) {
+            val raw = com.multiviewer.parser.extractHvcCRawParameterSets(tab.file, hvcCNode) ?: return@withContext
+            tab.hevcLengthSize = raw.lengthSize
+            tab.hevcVpsList = raw.vpsList.mapNotNull { com.multiviewer.parser.parseHevcVps(it) }
+            tab.hevcSpsList = raw.spsList.mapNotNull { com.multiviewer.parser.parseHevcSps(it) }
+            tab.hevcPpsList = raw.ppsList.mapNotNull { com.multiviewer.parser.parseHevcPps(it) }
+        }
+    }
+
     var topContainerWidthPx by remember { mutableStateOf(0) }
     // Player and GOP sit side-by-side (not stacked) so the player keeps the full center-panel
     // height instead of sharing it vertically with GOP -- videoGopSplit divides that region

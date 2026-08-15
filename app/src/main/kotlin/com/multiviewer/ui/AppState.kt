@@ -185,6 +185,15 @@ class TabState(val file: File) {
     var avcPpsList: List<com.multiviewer.parser.H264Pps> by mutableStateOf(emptyList())
     var avcLengthSize: Int? by mutableStateOf(null)
 
+    // HEVC VPS/SPS/PPS (see HevcParameterSets.kt / HevcParameterSetExtraction.kt) -- parsed once
+    // per video tab from the hvcC box, independent of any specific frame selection. Same
+    // empty-list-means-"not applicable" convention as the avc* fields above; a stream is either
+    // H.264 or HEVC, so at most one of the two field groups is ever populated for a given tab.
+    var hevcVpsList: List<com.multiviewer.parser.HevcVps> by mutableStateOf(emptyList())
+    var hevcSpsList: List<com.multiviewer.parser.HevcSps> by mutableStateOf(emptyList())
+    var hevcPpsList: List<com.multiviewer.parser.HevcPps> by mutableStateOf(emptyList())
+    var hevcLengthSize: Int? by mutableStateOf(null)
+
     // Frame thumbnail filmstrip (see FrameThumbnailDecoder.kt) -- keyed by frame index, populated
     // lazily as the filmstrip scrolls. pendingThumbnailIndices tracks in-flight requests so a
     // rapid double-trigger (e.g. two scroll events before the first batch returns) doesn't launch
