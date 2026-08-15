@@ -8,3 +8,10 @@ fun byteReaderOf(bytes: ByteArray): ByteReader {
     tmp.writeBytes(bytes)
     return ByteReader.open(tmp)
 }
+
+fun fileOf(bytes: ByteArray): File {
+    val tmp = File.createTempFile("multiviewer-test", ".bin")
+    tmp.deleteOnExit()
+    tmp.writeBytes(bytes)
+    return tmp
+}
