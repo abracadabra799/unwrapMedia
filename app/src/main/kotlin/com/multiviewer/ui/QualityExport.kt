@@ -61,3 +61,34 @@ fun writeResultsJson(destination: File, results: Map<String, MetricRunResult>) {
         writer.write("}\n")
     }
 }
+
+// Writes every comparison pair's full results (per-frame series + aggregate statistics for every
+// computed metric) as one JSON document, nested one level deeper than the single-pair writeResultsJson:
+// pairLabel -> metricName -> { statistics, perFrame }. Same hand-written-JSON rationale as
+// writeResultsJson applies here (no JSON library in this codebase, no user-input escaping needed --
+// pair labels come from determineComparisonPairs's own fixed set, e.g. "Raw ↔ Encoded A").
+fun writeMultiPairResultsJson(destination: File, pairResults: Map<String, Map<String, MetricRunResult>>) {
+    destination.bufferedWriter().use { writer ->
+        writer.write("{\n")
+        val pairEntries = pairResults.entries.toList()
+        pairEntries.forEachIndexed { pairIndex, (pairLabel, metricResults) ->
+            writer.write("  \"$pairLabel\": {\n")
+            val metricEntries = metricResults.entries.toList()
+            metricEntries.forEachIndexed { metricIndex, (metricName, result) ->
+                writer.write("    \"$metricName\": {\n")
+                writer.write("      \"statistics\": {")
+                writer.write(
+                    "\"min\": ${result.statistics.min}, \"max\": ${result.statistics.max}, " +
+                        "\"mean\": ${result.statistics.mean}, \"median\": ${result.statistics.median}",
+                )
+                writer.write("},\n")
+                writer.write("      \"perFrame\": [")
+                writer.write(result.perFrame.joinToString(", ") { "{\"frameIndex\": ${it.frameIndex}, \"value\": ${it.value}}" })
+                writer.write("]\n")
+                writer.write(if (metricIndex == metricEntries.lastIndex) "    }\n" else "    },\n")
+            }
+            writer.write(if (pairIndex == pairEntries.lastIndex) "  }\n" else "  },\n")
+        }
+        writer.write("}\n")
+    }
+}

@@ -63,4 +63,29 @@ class QualityExportTest {
         assertTrue(content.contains("\"frameIndex\": 1, \"value\": 46.5"))
         destination.delete()
     }
+
+    @Test
+    fun `writeMultiPairResultsJson nests statistics and per-frame data under each pair then each metric`() {
+        val destination = File.createTempFile("quality-export-multipair-json-test-", ".json")
+        destination.deleteOnExit()
+
+        writeMultiPairResultsJson(
+            destination,
+            linkedMapOf(
+                "Raw ↔ Encoded A" to linkedMapOf("PSNR" to psnrResult, "SSIM" to ssimResult),
+                "Encoded A ↔ Encoded B" to linkedMapOf("PSNR" to psnrResult),
+            ),
+        )
+
+        val content = destination.readText()
+        assertTrue(content.contains("\"Raw ↔ Encoded A\""))
+        assertTrue(content.contains("\"Encoded A ↔ Encoded B\""))
+        assertTrue(content.contains("\"PSNR\""))
+        assertTrue(content.contains("\"SSIM\""))
+        assertTrue(content.contains("\"min\": 45.0"))
+        assertTrue(content.contains("\"mean\": 45.75"))
+        assertTrue(content.contains("\"frameIndex\": 0, \"value\": 45.0"))
+        assertTrue(content.contains("\"frameIndex\": 0, \"value\": 0.98"))
+        destination.delete()
+    }
 }
