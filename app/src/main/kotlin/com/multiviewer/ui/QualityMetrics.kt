@@ -200,6 +200,27 @@ private fun parseSsimLog(statsFile: File): List<MetricFrameSample> {
     }
 }
 
+// Parses ffmpeg's libvmaf filter CSV log format (log_fmt=csv), verified against real ffmpeg 8.1
+// output: a header row naming each column (feature columns vary by libvmaf version, but "Frame" and
+// "vmaf" are always present), followed by one comma-separated row per scored frame. Locates the
+// "Frame" and "vmaf" columns by name rather than a fixed index, since libvmaf's exact set of feature
+// columns isn't a stable contract to hardcode against. Each row (and the header) has a trailing
+// comma from libvmaf's own CSV writer, trimmed before splitting so column counts line up.
+private fun parseVmafLog(statsFile: File): List<MetricFrameSample> {
+    val lines = statsFile.readLines()
+    val header = lines.firstOrNull()?.trimEnd(',')?.split(",") ?: return emptyList()
+    val frameColumn = header.indexOf("Frame")
+    val vmafColumn = header.indexOf("vmaf")
+    if (frameColumn == -1 || vmafColumn == -1) return emptyList()
+    return lines.drop(1).mapNotNull { line ->
+        val fields = line.trimEnd(',').split(",")
+        if (fields.size <= frameColumn || fields.size <= vmafColumn) return@mapNotNull null
+        val frame = fields[frameColumn].toIntOrNull() ?: return@mapNotNull null
+        val value = fields[vmafColumn].toDoubleOrNull() ?: return@mapNotNull null
+        MetricFrameSample(frameIndex = frame, value = value)
+    }
+}
+
 fun runPsnrPass(
     comparison: File,
     reference: File,
@@ -245,6 +266,54 @@ fun runSsimPass(
         )
         if (!success) return null
         val perFrame = parseSsimLog(statsFile)
+        val statistics = computeStatistics(perFrame) ?: return null
+        MetricRunResult(perFrame, statistics)
+    } finally {
+        statsFile.delete()
+    }
+}
+
+// Checks whether the resolved ffmpeg binary was built with libvmaf support, by looking for
+// "libvmaf" in `ffmpeg -filters` output (verified: a --enable-libvmaf build lists a "libvmaf"
+// filter line). Blocking -- callers must invoke this off the UI thread. Performs no caching itself;
+// callers are responsible for caching the result (matches this file's existing separation between
+// pure metric-adjacent functions and UI-layer orchestration/caching).
+fun isVmafAvailable(): Boolean {
+    return try {
+        val process = ProcessBuilder(FfmpegLocator.ffmpegPath(), "-filters")
+            .also { FfmpegLocator.configureEnvironment(it) }
+            .redirectError(ProcessBuilder.Redirect.DISCARD)
+            .start()
+        val output = process.inputStream.bufferedReader().readText()
+        process.waitFor(30, TimeUnit.SECONDS)
+        output.contains("libvmaf")
+    } catch (e: Exception) {
+        false
+    }
+}
+
+fun runVmafPass(
+    comparison: File,
+    reference: File,
+    onProgress: (currentFrame: Int, totalFrames: Int?) -> Unit,
+    isCancelled: () -> Boolean,
+    fastMode: Boolean,
+): MetricRunResult? {
+    val statsFile = try {
+        File.createTempFile("multiviewer_vmaf_", ".csv")
+    } catch (e: Exception) {
+        return null
+    }
+    return try {
+        val threads = Runtime.getRuntime().availableProcessors()
+        val subsampleOption = if (fastMode) ":n_subsample=5" else ""
+        val success = runMetricPass(
+            comparison, reference,
+            filterSpec = "libvmaf=log_path=${escapeForFilterGraph(statsFile.absolutePath)}:log_fmt=csv:n_threads=$threads$subsampleOption",
+            statsFile = statsFile, onProgress = onProgress, isCancelled = isCancelled,
+        )
+        if (!success) return null
+        val perFrame = parseVmafLog(statsFile)
         val statistics = computeStatistics(perFrame) ?: return null
         MetricRunResult(perFrame, statistics)
     } finally {
