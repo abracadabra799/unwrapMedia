@@ -417,7 +417,8 @@ private fun DetailPropertiesTabContent(tab: TabState) {
         } else {
             null
         }
-        val resolvedApvFrameHeader = if (selectedFrame != null) {
+        val isApv = remember(root) { root != null && com.multiviewer.parser.findFirst(root) { it.type == "apvC" } != null }
+        val resolvedApvFrameHeader = if (selectedFrame != null && isApv) {
             val byteOffset = selectedFrame.byteOffset
             produceState<com.multiviewer.parser.ApvFrameHeader?>(null, selectedFrame) {
                 value = if (byteOffset != null) {
@@ -578,7 +579,7 @@ private fun DetailPropertiesTabContent(tab: TabState) {
                                         com.multiviewer.parser.ApvChromaFormat.YUV_422 -> "4:2:2"
                                         com.multiviewer.parser.ApvChromaFormat.YUV_444 -> "4:4:4"
                                         com.multiviewer.parser.ApvChromaFormat.YUV_4444 -> "4:4:4:4"
-                                        com.multiviewer.parser.ApvChromaFormat.RESERVED -> "reserved"
+                                        com.multiviewer.parser.ApvChromaFormat.RESERVED -> "reserved (idc=${frameHeader.chromaFormatIdc})"
                                     },
                                 )
                                 PropertyRow("Bit Depth", frameHeader.bitDepth.toString())
