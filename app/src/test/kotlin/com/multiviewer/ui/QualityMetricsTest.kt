@@ -74,6 +74,62 @@ class QualityMetricsTest {
         a.delete(); b.delete()
     }
 
+    // determineComparisonPairs ---------------------------------------------------------------------
+
+    @Test
+    fun `determineComparisonPairs returns an empty list when only Encoded A is filled`() {
+        val encodedA = File("encoded-a.mp4")
+        assertEquals(emptyList(), determineComparisonPairs(raw = null, encodedA = encodedA, encodedB = null))
+    }
+
+    @Test
+    fun `determineComparisonPairs returns an empty list when nothing is filled`() {
+        assertEquals(emptyList(), determineComparisonPairs(raw = null, encodedA = null, encodedB = null))
+    }
+
+    @Test
+    fun `determineComparisonPairs returns only Raw-A when Raw and Encoded A are filled`() {
+        val raw = File("raw.mp4")
+        val encodedA = File("encoded-a.mp4")
+
+        val pairs = determineComparisonPairs(raw, encodedA, encodedB = null)
+
+        assertEquals(1, pairs.size)
+        assertEquals("raw_a", pairs[0].id)
+        assertEquals("Raw ↔ Encoded A", pairs[0].label)
+        assertEquals(encodedA, pairs[0].comparison)
+        assertEquals(raw, pairs[0].reference)
+    }
+
+    @Test
+    fun `determineComparisonPairs returns only A-B when Encoded A and Encoded B are filled`() {
+        val encodedA = File("encoded-a.mp4")
+        val encodedB = File("encoded-b.mp4")
+
+        val pairs = determineComparisonPairs(raw = null, encodedA, encodedB)
+
+        assertEquals(1, pairs.size)
+        assertEquals("a_b", pairs[0].id)
+        assertEquals("Encoded A ↔ Encoded B", pairs[0].label)
+        assertEquals(encodedB, pairs[0].comparison)
+        assertEquals(encodedA, pairs[0].reference)
+    }
+
+    @Test
+    fun `determineComparisonPairs returns all three pairs in Raw-A, Raw-B, A-B order when all three slots are filled`() {
+        val raw = File("raw.mp4")
+        val encodedA = File("encoded-a.mp4")
+        val encodedB = File("encoded-b.mp4")
+
+        val pairs = determineComparisonPairs(raw, encodedA, encodedB)
+
+        assertEquals(3, pairs.size)
+        assertEquals(listOf("raw_a", "raw_b", "a_b"), pairs.map { it.id })
+        assertEquals(listOf("Raw ↔ Encoded A", "Raw ↔ Encoded B", "Encoded A ↔ Encoded B"), pairs.map { it.label })
+        assertEquals(raw, pairs[1].reference)
+        assertEquals(encodedB, pairs[1].comparison)
+    }
+
     // runPsnrPass ---------------------------------------------------------------------------------
 
     @Test
