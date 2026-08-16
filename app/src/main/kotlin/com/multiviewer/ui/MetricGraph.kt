@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.sp
+import java.util.Locale
 
 private const val GRAPH_Y_TICK_COUNT = 4
 
@@ -54,7 +55,7 @@ fun MetricGraph(perFrame: List<MetricFrameSample>, lineColor: Color, modifier: M
             val value = minValue + valueSpan * (tick.toDouble() / GRAPH_Y_TICK_COUNT)
             val fractionFromTop = 1f - (tick.toFloat() / GRAPH_Y_TICK_COUNT)
             Text(
-                text = "%.2f".format(value),
+                text = String.format(Locale.US, "%.2f", value),
                 color = Color.White.copy(alpha = 0.6f),
                 fontSize = 10.sp,
                 modifier = Modifier.offset(y = maxHeight * fractionFromTop),

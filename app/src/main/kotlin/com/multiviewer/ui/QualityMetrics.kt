@@ -89,9 +89,17 @@ private fun probeFrameCount(file: File): Int? {
     }
 }
 
+// Escapes a path for embedding as a filtergraph option value -- ':' is the lavfi
+// option separator and must be escaped; backslashes are normalized to forward
+// slashes (which ffmpeg accepts as path separators on all platforms) rather than
+// escaped, since escaping '\' itself inside an already-'\'-heavy Windows path is
+// more failure-prone than avoiding backslashes entirely.
+private fun escapeForFilterGraph(path: String): String =
+    path.replace("\\", "/").replace(":", "\\:")
+
 // Runs one ffmpeg metric pass (`-lavfi "<filterSpec>"`), reporting progress via onProgress(currentFrame,
 // totalFrames) as ffmpeg's own `-progress pipe:1` output reports frames processed (verified real
-// output shape: key=value lines including "frame:N", one block per update, "progress=end" on the
+// output shape: key=value lines including "frame=N", one block per update, "progress=end" on the
 // final block), and honoring cancellation via isCancelled -- checked between progress lines, killing
 // the process (destroyForcibly) if set. Blocks the calling thread until the process exits, is
 // cancelled, or times out; callers must invoke this off the UI thread. Returns true only on a clean
@@ -186,7 +194,7 @@ fun runPsnrPass(
     return try {
         val success = runMetricPass(
             comparison, reference,
-            filterSpec = "psnr=stats_file=${statsFile.absolutePath}",
+            filterSpec = "psnr=stats_file=${escapeForFilterGraph(statsFile.absolutePath)}",
             statsFile = statsFile, onProgress = onProgress, isCancelled = isCancelled,
         )
         if (!success) return null
@@ -212,7 +220,7 @@ fun runSsimPass(
     return try {
         val success = runMetricPass(
             comparison, reference,
-            filterSpec = "ssim=stats_file=${statsFile.absolutePath}",
+            filterSpec = "ssim=stats_file=${escapeForFilterGraph(statsFile.absolutePath)}",
             statsFile = statsFile, onProgress = onProgress, isCancelled = isCancelled,
         )
         if (!success) return null
