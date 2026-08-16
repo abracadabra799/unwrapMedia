@@ -11,7 +11,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.unit.dp
 import java.io.File
-import java.util.concurrent.TimeUnit
 
 data class ChannelPeaks(val min: FloatArray, val max: FloatArray)
 data class WaveformPeaks(val channelCount: Int, val bucketCount: Int, val channels: List<ChannelPeaks>)
@@ -79,28 +78,30 @@ fun computeWaveformPeaks(
         var carry = ByteArray(0)
         var frameIndex = 0L
 
-        while (true) {
-            val bytesRead = input.read(readBuffer)
-            if (bytesRead < 0) break
-            val chunk = if (carry.isEmpty()) readBuffer.copyOf(bytesRead) else carry + readBuffer.copyOf(bytesRead)
-            val usableFrames = chunk.size / frameSizeBytes
-            val usableBytes = usableFrames * frameSizeBytes
-            var offset = 0
-            repeat(usableFrames) {
-                val bucket = (frameIndex / framesPerBucket).coerceAtMost((bucketCount - 1).toLong()).toInt()
-                for (c in 0 until channels) {
-                    val sample = (((chunk[offset + 1].toInt() shl 8) or (chunk[offset].toInt() and 0xFF))).toShort().toFloat() / 32768f
-                    if (sample < minPerChannel[c][bucket]) minPerChannel[c][bucket] = sample
-                    if (sample > maxPerChannel[c][bucket]) maxPerChannel[c][bucket] = sample
-                    offset += 2
+        val completedFrameCount = readProcessOutputWithTimeout(process, 30) {
+            while (true) {
+                val bytesRead = input.read(readBuffer)
+                if (bytesRead < 0) break
+                val chunk = if (carry.isEmpty()) readBuffer.copyOf(bytesRead) else carry + readBuffer.copyOf(bytesRead)
+                val usableFrames = chunk.size / frameSizeBytes
+                val usableBytes = usableFrames * frameSizeBytes
+                var offset = 0
+                repeat(usableFrames) {
+                    val bucket = (frameIndex / framesPerBucket).coerceAtMost((bucketCount - 1).toLong()).toInt()
+                    for (c in 0 until channels) {
+                        val sample = (((chunk[offset + 1].toInt() shl 8) or (chunk[offset].toInt() and 0xFF))).toShort().toFloat() / 32768f
+                        if (sample < minPerChannel[c][bucket]) minPerChannel[c][bucket] = sample
+                        if (sample > maxPerChannel[c][bucket]) maxPerChannel[c][bucket] = sample
+                        offset += 2
+                    }
+                    frameIndex++
                 }
-                frameIndex++
+                carry = chunk.copyOfRange(usableBytes, chunk.size)
             }
-            carry = chunk.copyOfRange(usableBytes, chunk.size)
+            frameIndex
         }
-        val finished = process.waitFor(30, TimeUnit.SECONDS)
 
-        if (!finished || frameIndex == 0L) {
+        if (completedFrameCount == null || completedFrameCount == 0L) {
             null
         } else {
             for (c in 0 until channels) {
