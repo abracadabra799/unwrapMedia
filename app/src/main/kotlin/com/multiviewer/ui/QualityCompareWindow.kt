@@ -35,6 +35,12 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 private val qualityCompareExecutor = Executors.newSingleThreadExecutor { runnable -> Thread(runnable).apply { isDaemon = true } }
 
+// Derives a filesystem-safe per-pair CSV filename fragment from a pair's display label, e.g.
+// "Raw ↔ Encoded A" -> "Raw_vs_Encoded_A".
+private fun sanitizeForFilename(label: String): String = label.replace(" ", "_").replace("↔", "vs")
+
+private data class QueueItem(val pair: ComparisonPair, val metricName: String)
+
 @Composable
 fun QualityCompareWindow(onCloseRequest: () -> Unit) {
     val cancelRequested = remember { AtomicBoolean(false) }
@@ -47,104 +53,157 @@ fun QualityCompareWindow(onCloseRequest: () -> Unit) {
         title = "품질 비교",
         state = rememberWindowState(size = DpSize(900.dp, 700.dp)),
     ) {
-        var referenceFile by remember { mutableStateOf<File?>(null) }
-        var comparisonFile by remember { mutableStateOf<File?>(null) }
+        var rawFile by remember { mutableStateOf<File?>(null) }
+        var encodedAFile by remember { mutableStateOf<File?>(null) }
+        var encodedBFile by remember { mutableStateOf<File?>(null) }
         var psnrEnabled by remember { mutableStateOf(true) }
         var ssimEnabled by remember { mutableStateOf(true) }
         var isRunning by remember { mutableStateOf(false) }
         var currentFrame by remember { mutableStateOf(0) }
         var totalFrames by remember { mutableStateOf<Int?>(null) }
-        var results by remember { mutableStateOf<Map<String, MetricRunResult>?>(null) }
+        var currentPassLabel by remember { mutableStateOf<String?>(null) }
+        var pairStatuses by remember { mutableStateOf<Map<String, Boolean?>>(emptyMap()) }
+        var results by remember { mutableStateOf<Map<String, Map<String, MetricRunResult>>?>(null) }
         var statusMessage by remember { mutableStateOf<String?>(null) }
+
+        fun refreshPairStatuses() {
+            val pairs = determineComparisonPairs(rawFile, encodedAFile, encodedBFile)
+            if (pairs.isEmpty()) {
+                pairStatuses = emptyMap()
+                return
+            }
+            pairStatuses = pairs.associate { it.id to null }
+            qualityCompareExecutor.execute {
+                val checked = pairs.associate { it.id to resolutionsMatch(it.comparison, it.reference) }
+                EventQueue.invokeLater { pairStatuses = checked }
+            }
+        }
 
         fun pickFile(title: String, onPicked: (File) -> Unit) {
             val dialog = FileDialog(null as Frame?, title, FileDialog.LOAD)
             dialog.isVisible = true
             val fileName = dialog.file
             val directory = dialog.directory
-            if (fileName != null && directory != null) onPicked(File(directory, fileName))
+            if (fileName != null && directory != null) {
+                onPicked(File(directory, fileName))
+                refreshPairStatuses()
+            }
         }
 
         fun runComparison() {
-            val comparison = comparisonFile ?: return
-            val reference = referenceFile ?: return
-            if (!psnrEnabled && !ssimEnabled) return
+            val queuedPairs = determineComparisonPairs(rawFile, encodedAFile, encodedBFile)
+                .filter { pairStatuses[it.id] == true }
+            if (queuedPairs.isEmpty() || (!psnrEnabled && !ssimEnabled)) return
+
+            val queue = queuedPairs.flatMap { pair ->
+                listOfNotNull(
+                    if (psnrEnabled) QueueItem(pair, "PSNR") else null,
+                    if (ssimEnabled) QueueItem(pair, "SSIM") else null,
+                )
+            }
 
             isRunning = true
             currentFrame = 0
             totalFrames = null
+            currentPassLabel = null
             results = null
             statusMessage = null
             cancelRequested.set(false)
 
             qualityCompareExecutor.execute {
-                if (!resolutionsMatch(comparison, reference)) {
-                    EventQueue.invokeLater {
-                        isRunning = false
-                        statusMessage = "해상도가 일치하지 않습니다"
-                    }
-                    return@execute
-                }
+                val collected = linkedMapOf<String, MutableMap<String, MetricRunResult>>()
+                for (item in queue) {
+                    if (cancelRequested.get()) break
 
-                val collected = mutableMapOf<String, MetricRunResult>()
-                val onProgress: (Int, Int?) -> Unit = { frame, total ->
                     EventQueue.invokeLater {
-                        currentFrame = frame
-                        totalFrames = total
+                        currentPassLabel = "${item.pair.label} — ${item.metricName}"
+                        currentFrame = 0
+                        totalFrames = null
                     }
-                }
-
-                if (psnrEnabled) {
-                    val psnrResult = runPsnrPass(comparison, reference, onProgress, { cancelRequested.get() })
-                    if (psnrResult == null && cancelRequested.get()) {
-                        EventQueue.invokeLater { isRunning = false; statusMessage = "취소됨" }
-                        return@execute
+                    val onProgress: (Int, Int?) -> Unit = { frame, total ->
+                        EventQueue.invokeLater { currentFrame = frame; totalFrames = total }
                     }
-                    if (psnrResult != null) collected["PSNR"] = psnrResult
-                }
-                if (ssimEnabled && !cancelRequested.get()) {
-                    val ssimResult = runSsimPass(comparison, reference, onProgress, { cancelRequested.get() })
-                    if (ssimResult == null && cancelRequested.get()) {
-                        EventQueue.invokeLater { isRunning = false; statusMessage = "취소됨" }
-                        return@execute
+                    val result = if (item.metricName == "PSNR") {
+                        runPsnrPass(item.pair.comparison, item.pair.reference, onProgress, { cancelRequested.get() })
+                    } else {
+                        runSsimPass(item.pair.comparison, item.pair.reference, onProgress, { cancelRequested.get() })
                     }
-                    if (ssimResult != null) collected["SSIM"] = ssimResult
+                    if (result != null) {
+                        collected.getOrPut(item.pair.label) { mutableMapOf() }[item.metricName] = result
+                    }
                 }
 
                 EventQueue.invokeLater {
                     isRunning = false
-                    if (collected.isEmpty()) {
-                        statusMessage = "측정 실패"
-                    } else {
-                        results = collected
+                    currentPassLabel = null
+                    statusMessage = when {
+                        cancelRequested.get() -> "취소됨"
+                        collected.isEmpty() -> "측정 실패"
+                        else -> null
                     }
+                    if (collected.isNotEmpty()) results = collected
                 }
             }
         }
 
-        fun exportResults(asJson: Boolean) {
+        fun exportCsv() {
             val currentResults = results ?: return
-            val dialog = FileDialog(null as Frame?, "결과 저장", FileDialog.SAVE)
-            dialog.file = if (asJson) "quality_compare.json" else "quality_compare.csv"
+            // The picked filename is intentionally discarded -- only its directory is used, since one
+            // CSV file per pair must be written (up to 3), not the single file a SAVE dialog implies.
+            val dialog = FileDialog(null as Frame?, "CSV 저장 폴더 선택", FileDialog.SAVE)
+            dialog.file = "quality_compare.csv"
+            dialog.isVisible = true
+            val directory = dialog.directory ?: return
+            currentResults.forEach { (pairLabel, metricResults) ->
+                val csvFile = File(directory, "quality_compare_${sanitizeForFilename(pairLabel)}.csv")
+                writeResultsCsv(csvFile, metricResults)
+            }
+            statusMessage = "CSV 저장됨: $directory"
+        }
+
+        fun exportJson() {
+            val currentResults = results ?: return
+            val dialog = FileDialog(null as Frame?, "JSON 결과 저장", FileDialog.SAVE)
+            dialog.file = "quality_compare.json"
             dialog.isVisible = true
             val fileName = dialog.file
             val directory = dialog.directory
             if (fileName == null || directory == null) return
-            val destination = File(directory, fileName)
-            if (asJson) writeResultsJson(destination, currentResults) else writeResultsCsv(destination, currentResults)
-            statusMessage = "저장됨: ${destination.name}"
+            writeMultiPairResultsJson(File(directory, fileName), currentResults)
+            statusMessage = "저장됨: $fileName"
         }
 
         Column(modifier = Modifier.fillMaxSize().background(AppColors.Background).padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Reference: ${referenceFile?.name ?: "(없음)"}", modifier = Modifier.weight(1f))
-                Button(onClick = { pickFile("Reference 파일 선택") { referenceFile = it } }) { Text("선택") }
+                Text("Raw: ${rawFile?.name ?: "(없음)"}", modifier = Modifier.weight(1f))
+                Button(enabled = !isRunning, onClick = { pickFile("Raw 파일 선택") { rawFile = it } }) { Text("선택") }
             }
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Comparison: ${comparisonFile?.name ?: "(없음)"}", modifier = Modifier.weight(1f))
-                Button(onClick = { pickFile("Comparison 파일 선택") { comparisonFile = it } }) { Text("선택") }
+                Text("Encoded A: ${encodedAFile?.name ?: "(없음)"}", modifier = Modifier.weight(1f))
+                Button(enabled = !isRunning, onClick = { pickFile("Encoded A 파일 선택") { encodedAFile = it } }) { Text("선택") }
             }
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Encoded B: ${encodedBFile?.name ?: "(없음)"}", modifier = Modifier.weight(1f))
+                Button(enabled = !isRunning, onClick = { pickFile("Encoded B 파일 선택") { encodedBFile = it } }) { Text("선택") }
+            }
+
+            val candidatePairs = determineComparisonPairs(rawFile, encodedAFile, encodedBFile)
+            if (candidatePairs.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Column {
+                    candidatePairs.forEach { pair ->
+                        val statusText = when (pairStatuses[pair.id]) {
+                            null -> "확인 중..."
+                            true -> "일치"
+                            false -> "불일치 (건너뜀)"
+                        }
+                        Text("${pair.label}: $statusText")
+                    }
+                }
+            }
+
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = psnrEnabled, onCheckedChange = { psnrEnabled = it })
@@ -157,7 +216,8 @@ fun QualityCompareWindow(onCloseRequest: () -> Unit) {
             Row {
                 Button(
                     onClick = { runComparison() },
-                    enabled = !isRunning && referenceFile != null && comparisonFile != null && (psnrEnabled || ssimEnabled),
+                    enabled = !isRunning && (psnrEnabled || ssimEnabled) &&
+                        candidatePairs.any { pairStatuses[it.id] == true },
                 ) { Text("비교 시작") }
                 if (isRunning) {
                     Spacer(Modifier.width(8.dp))
@@ -166,6 +226,7 @@ fun QualityCompareWindow(onCloseRequest: () -> Unit) {
             }
             if (isRunning) {
                 Spacer(Modifier.height(8.dp))
+                currentPassLabel?.let { Text(it) }
                 val total = totalFrames
                 if (total != null && total > 0) {
                     LinearProgressIndicator(progress = { (currentFrame.toFloat() / total).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
@@ -181,19 +242,22 @@ fun QualityCompareWindow(onCloseRequest: () -> Unit) {
             results?.let { currentResults ->
                 Spacer(Modifier.height(16.dp))
                 Row {
-                    Button(onClick = { exportResults(asJson = false) }) { Text("CSV로 내보내기") }
+                    Button(onClick = { exportCsv() }) { Text("CSV로 내보내기") }
                     Spacer(Modifier.width(8.dp))
-                    Button(onClick = { exportResults(asJson = true) }) { Text("JSON으로 내보내기") }
+                    Button(onClick = { exportJson() }) { Text("JSON으로 내보내기") }
                 }
                 Spacer(Modifier.height(8.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    currentResults.forEach { (name, result) ->
-                        Text("$name — min: ${String.format(Locale.US, "%.3f", result.statistics.min)}, max: ${String.format(Locale.US, "%.3f", result.statistics.max)}, " +
-                            "mean: ${String.format(Locale.US, "%.3f", result.statistics.mean)}, median: ${String.format(Locale.US, "%.3f", result.statistics.median)}")
-                        Box(modifier = Modifier.fillMaxWidth().height(120.dp)) {
-                            MetricGraph(perFrame = result.perFrame, lineColor = AppColors.NeonBlue, modifier = Modifier.fillMaxSize())
+                    currentResults.forEach { (pairLabel, metricResults) ->
+                        Text(pairLabel, modifier = Modifier.padding(top = 8.dp))
+                        metricResults.forEach { (name, result) ->
+                            Text("$name — min: ${String.format(Locale.US, "%.3f", result.statistics.min)}, max: ${String.format(Locale.US, "%.3f", result.statistics.max)}, " +
+                                "mean: ${String.format(Locale.US, "%.3f", result.statistics.mean)}, median: ${String.format(Locale.US, "%.3f", result.statistics.median)}")
+                            Box(modifier = Modifier.fillMaxWidth().height(120.dp)) {
+                                MetricGraph(perFrame = result.perFrame, lineColor = AppColors.NeonBlue, modifier = Modifier.fillMaxSize())
+                            }
+                            Spacer(Modifier.height(8.dp))
                         }
-                        Spacer(Modifier.height(8.dp))
                     }
                 }
             }
