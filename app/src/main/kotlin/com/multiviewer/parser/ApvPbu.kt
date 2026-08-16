@@ -38,7 +38,14 @@ fun findApvPrimaryFramePbuPayload(accessUnitBytes: ByteArray): ByteArray? {
         val payloadLength = pbuSize - PBU_HEADER_LENGTH
         if (payloadLength < 0) return null
         if (header.pbuType == PBU_TYPE_PRIMARY_FRAME) {
-            val endPos = minOf((payloadStart + payloadLength).toInt(), accessUnitBytes.size)
+            // Clamp the payload to available bytes instead of rejecting truncated input.
+            // The pbu_size field includes both frame_header() (which we parse) and tile/coefficient
+            // data (which we don't). For real production frames, tile data can be hundreds of KB,
+            // even though the header alone is ~30-40 bytes. A truncated tile section is benign
+            // for callers (like parseApvFrameHeader) that only need the header.
+            // Real header corruption is still caught downstream: parseApvFrameHeader uses
+            // BitReader, which throws on read-past-end and is caught, returning null.
+            val endPos = minOf(payloadStart.toLong() + payloadLength, accessUnitBytes.size.toLong()).toInt()
             return if (endPos > payloadStart) {
                 accessUnitBytes.copyOfRange(payloadStart, endPos)
             } else {
@@ -47,7 +54,7 @@ fun findApvPrimaryFramePbuPayload(accessUnitBytes: ByteArray): ByteArray? {
         }
         // Only move to next PBU if we have the full payload available
         if (payloadStart + payloadLength > accessUnitBytes.size) return null
-        pos = payloadStart + payloadLength.toInt()
+        pos = (payloadStart.toLong() + payloadLength).toInt()
     }
     return null
 }
