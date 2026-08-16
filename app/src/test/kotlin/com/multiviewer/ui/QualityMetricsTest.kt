@@ -217,4 +217,64 @@ class QualityMetricsTest {
         assertTrue(result.perFrame.all { it.value == 1.0 })
         file.delete()
     }
+
+    // isVmafAvailable ------------------------------------------------------------------------------
+
+    @Test
+    fun `isVmafAvailable returns true for a real ffmpeg build with libvmaf support`() {
+        assertTrue(isVmafAvailable())
+    }
+
+    // runVmafPass -----------------------------------------------------------------------------------
+
+    @Test
+    fun `runVmafPass reports a score in the valid 0 to 100 range for two different real encodes`() {
+        val reference = generateTestClip("64x48", "vmaf-ref")
+        val comparison = reencode(reference, crf = 30, suffix = "vmaf-cmp")
+
+        val result = runVmafPass(comparison, reference, onProgress = { _, _ -> }, isCancelled = { false }, fastMode = false)
+
+        assertNotNull(result)
+        assertEquals(10, result.perFrame.size)
+        assertTrue(result.statistics.mean in 0.0..100.0)
+        reference.delete(); comparison.delete()
+    }
+
+    @Test
+    fun `runVmafPass in fast mode returns fewer frames at correct non-sequential frame indices`() {
+        val reference = generateTestClip("64x48", "vmaf-fast-ref")
+        val comparison = reencode(reference, crf = 30, suffix = "vmaf-fast-cmp")
+
+        val result = runVmafPass(comparison, reference, onProgress = { _, _ -> }, isCancelled = { false }, fastMode = true)
+
+        assertNotNull(result)
+        assertTrue(result.perFrame.size < 10)
+        assertEquals(0, result.perFrame.first().frameIndex)
+        assertTrue(result.perFrame.all { it.frameIndex % 5 == 0 })
+        reference.delete(); comparison.delete()
+    }
+
+    @Test
+    fun `runVmafPass reports progress with an increasing current-frame count`() {
+        val reference = generateTestClip("64x48", "vmaf-progress-ref")
+        val comparison = reencode(reference, crf = 30, suffix = "vmaf-progress-cmp")
+        val reportedFrames = mutableListOf<Int>()
+
+        runVmafPass(comparison, reference, onProgress = { current, _ -> reportedFrames.add(current) }, isCancelled = { false }, fastMode = false)
+
+        assertTrue(reportedFrames.isNotEmpty())
+        assertEquals(reportedFrames.max(), reportedFrames.last())
+        reference.delete(); comparison.delete()
+    }
+
+    @Test
+    fun `runVmafPass returns null when cancelled immediately`() {
+        val reference = generateTestClip("64x48", "vmaf-cancel-ref")
+        val comparison = reencode(reference, crf = 30, suffix = "vmaf-cancel-cmp")
+
+        val result = runVmafPass(comparison, reference, onProgress = { _, _ -> }, isCancelled = { true }, fastMode = false)
+
+        assertNull(result)
+        reference.delete(); comparison.delete()
+    }
 }
