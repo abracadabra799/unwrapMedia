@@ -417,6 +417,20 @@ private fun DetailPropertiesTabContent(tab: TabState) {
         } else {
             null
         }
+        val resolvedApvFrameHeader = if (selectedFrame != null) {
+            val byteOffset = selectedFrame.byteOffset
+            produceState<com.multiviewer.parser.ApvFrameHeader?>(null, selectedFrame) {
+                value = if (byteOffset != null) {
+                    withContext(Dispatchers.IO) {
+                        com.multiviewer.parser.resolveApvFrameHeader(tab.file, byteOffset, selectedFrame.sizeBytes)
+                    }
+                } else {
+                    null
+                }
+            }.value
+        } else {
+            null
+        }
         LaunchedEffect(tab.selectedFrame) { tab.parameterSetHighlightRange = null }
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
@@ -549,6 +563,31 @@ private fun DetailPropertiesTabContent(tab: TabState) {
                                     PropertyRow("Refresh Frame Flags", "0x${frameHeader.refreshFrameFlags.toString(16).uppercase()}")
                                     PropertyRow("Order Hint", frameHeader.orderHint.toString())
                                 }
+                            }
+                            resolvedApvFrameHeader?.let { frameHeader ->
+                                Spacer(Modifier.height(8.dp))
+                                Text("APV Frame Header", style = AppTypography.labelLarge.copy(color = AppColors.NeonBlue))
+                                PropertyRow("Profile", frameHeader.profileName ?: frameHeader.profileIdc.toString())
+                                PropertyRow("Level", frameHeader.levelIdc.toString())
+                                PropertyRow("Band", frameHeader.bandIdc.toString())
+                                PropertyRow("Frame Size", "${frameHeader.frameWidth} x ${frameHeader.frameHeight}")
+                                PropertyRow(
+                                    "Chroma Format",
+                                    when (frameHeader.chromaFormat) {
+                                        com.multiviewer.parser.ApvChromaFormat.YUV_400 -> "4:0:0"
+                                        com.multiviewer.parser.ApvChromaFormat.YUV_422 -> "4:2:2"
+                                        com.multiviewer.parser.ApvChromaFormat.YUV_444 -> "4:4:4"
+                                        com.multiviewer.parser.ApvChromaFormat.YUV_4444 -> "4:4:4:4"
+                                        com.multiviewer.parser.ApvChromaFormat.RESERVED -> "reserved"
+                                    },
+                                )
+                                PropertyRow("Bit Depth", frameHeader.bitDepth.toString())
+                                PropertyRow("Tile Grid (Width/Height in MBs)", "${frameHeader.tileWidthInMbs} / ${frameHeader.tileHeightInMbs}")
+                                PropertyRow("Tile Count", frameHeader.tileCount.toString())
+                                frameHeader.colorPrimaries?.let { PropertyRow("Color Primaries", it.toString()) }
+                                frameHeader.transferCharacteristics?.let { PropertyRow("Transfer Characteristics", it.toString()) }
+                                frameHeader.matrixCoefficients?.let { PropertyRow("Matrix Coefficients", it.toString()) }
+                                frameHeader.fullRangeFlag?.let { PropertyRow("Full Range", if (it) "Yes" else "No") }
                             }
                         }
                     }
