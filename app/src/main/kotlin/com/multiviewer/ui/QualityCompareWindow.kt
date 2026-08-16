@@ -37,6 +37,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 private val qualityCompareExecutor = Executors.newSingleThreadExecutor { runnable -> Thread(runnable).apply { isDaemon = true } }
 
+// Cached at module level (not per-window-instance) so re-opening the Compare window later in the
+// same app session reuses this result instead of re-checking. null = not yet checked.
+private var vmafAvailableCache: Boolean? = null
+
 // Derives a filesystem-safe per-pair CSV filename fragment from a pair's display label, e.g.
 // "Raw ↔ Encoded A" -> "Raw_vs_Encoded_A".
 private fun sanitizeForFilename(label: String): String = label.replace(" ", "_").replace("↔", "vs")
@@ -60,6 +64,9 @@ fun QualityCompareWindow(onCloseRequest: () -> Unit) {
         var encodedBFile by remember { mutableStateOf<File?>(null) }
         var psnrEnabled by remember { mutableStateOf(true) }
         var ssimEnabled by remember { mutableStateOf(true) }
+        var vmafEnabled by remember { mutableStateOf(true) }
+        var fastModeEnabled by remember { mutableStateOf(false) }
+        var vmafAvailable by remember { mutableStateOf(vmafAvailableCache) }
         var isRunning by remember { mutableStateOf(false) }
         var currentFrame by remember { mutableStateOf(0) }
         var totalFrames by remember { mutableStateOf<Int?>(null) }
@@ -67,6 +74,21 @@ fun QualityCompareWindow(onCloseRequest: () -> Unit) {
         var pairStatuses by remember { mutableStateOf<Map<String, Boolean?>>(emptyMap()) }
         var results by remember { mutableStateOf<Map<String, Map<String, MetricRunResult>>?>(null) }
         var statusMessage by remember { mutableStateOf<String?>(null) }
+
+        // Kicks off the (potentially slow) libvmaf-availability check in the background exactly once
+        // per window open, using remember's one-time-per-composition-entry semantics rather than
+        // introducing LaunchedEffect/coroutines into a file that otherwise sticks to this codebase's
+        // Executor + EventQueue.invokeLater pattern throughout. Skipped entirely if a prior window
+        // open this session already cached the result.
+        remember {
+            if (vmafAvailableCache == null) {
+                qualityCompareExecutor.execute {
+                    val available = isVmafAvailable()
+                    vmafAvailableCache = available
+                    EventQueue.invokeLater { vmafAvailable = available }
+                }
+            }
+        }
 
         fun refreshPairStatuses() {
             val pairs = determineComparisonPairs(rawFile, encodedAFile, encodedBFile)
@@ -95,12 +117,14 @@ fun QualityCompareWindow(onCloseRequest: () -> Unit) {
         fun runComparison() {
             val queuedPairs = determineComparisonPairs(rawFile, encodedAFile, encodedBFile)
                 .filter { pairStatuses[it.id] == true }
-            if (queuedPairs.isEmpty() || (!psnrEnabled && !ssimEnabled)) return
+            val vmafQueueable = vmafEnabled && vmafAvailable == true
+            if (queuedPairs.isEmpty() || (!psnrEnabled && !ssimEnabled && !vmafQueueable)) return
 
             val queue = queuedPairs.flatMap { pair ->
                 listOfNotNull(
                     if (psnrEnabled) QueueItem(pair, "PSNR") else null,
                     if (ssimEnabled) QueueItem(pair, "SSIM") else null,
+                    if (vmafQueueable) QueueItem(pair, "VMAF") else null,
                 )
             }
 
@@ -125,10 +149,10 @@ fun QualityCompareWindow(onCloseRequest: () -> Unit) {
                     val onProgress: (Int, Int?) -> Unit = { frame, total ->
                         EventQueue.invokeLater { currentFrame = frame; totalFrames = total }
                     }
-                    val result = if (item.metricName == "PSNR") {
-                        runPsnrPass(item.pair.comparison, item.pair.reference, onProgress, { cancelRequested.get() })
-                    } else {
-                        runSsimPass(item.pair.comparison, item.pair.reference, onProgress, { cancelRequested.get() })
+                    val result = when (item.metricName) {
+                        "PSNR" -> runPsnrPass(item.pair.comparison, item.pair.reference, onProgress, { cancelRequested.get() })
+                        "SSIM" -> runSsimPass(item.pair.comparison, item.pair.reference, onProgress, { cancelRequested.get() })
+                        else -> runVmafPass(item.pair.comparison, item.pair.reference, onProgress, { cancelRequested.get() }, fastMode = fastModeEnabled)
                     }
                     if (result != null) {
                         collected.getOrPut(item.pair.label) { mutableMapOf() }[item.metricName] = result
@@ -213,12 +237,22 @@ fun QualityCompareWindow(onCloseRequest: () -> Unit) {
                 Spacer(Modifier.width(8.dp))
                 Checkbox(checked = ssimEnabled, onCheckedChange = { ssimEnabled = it })
                 Text("SSIM")
+                Spacer(Modifier.width(8.dp))
+                Checkbox(checked = vmafEnabled, enabled = vmafAvailable == true, onCheckedChange = { vmafEnabled = it })
+                Text("VMAF")
+                if (vmafAvailable == false) {
+                    Spacer(Modifier.width(8.dp))
+                    Text("VMAF 사용 불가 (ffmpeg에 libvmaf 없음)")
+                }
+                Spacer(Modifier.width(8.dp))
+                Checkbox(checked = fastModeEnabled, enabled = vmafAvailable == true && vmafEnabled, onCheckedChange = { fastModeEnabled = it })
+                Text("빠른 모드")
             }
             Spacer(Modifier.height(8.dp))
             Row {
                 Button(
                     onClick = { runComparison() },
-                    enabled = !isRunning && (psnrEnabled || ssimEnabled) &&
+                    enabled = !isRunning && (psnrEnabled || ssimEnabled || (vmafEnabled && vmafAvailable == true)) &&
                         candidatePairs.any { pairStatuses[it.id] == true },
                 ) { Text("비교 시작") }
                 if (isRunning) {
