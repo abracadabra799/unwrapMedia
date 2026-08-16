@@ -8,6 +8,7 @@ private val CODEC_DISPLAY_NAMES = mapOf(
     "avc1" to "AVC",
     "hvc1" to "HEVC",
     "av01" to "AV1",
+    "apv1" to "APV",
     "mp4a" to "AAC",
 )
 
