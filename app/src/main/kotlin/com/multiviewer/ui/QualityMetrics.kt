@@ -178,7 +178,11 @@ fun runPsnrPass(
     onProgress: (currentFrame: Int, totalFrames: Int?) -> Unit,
     isCancelled: () -> Boolean,
 ): MetricRunResult? {
-    val statsFile = File.createTempFile("multiviewer_psnr_", ".log")
+    val statsFile = try {
+        File.createTempFile("multiviewer_psnr_", ".log")
+    } catch (e: Exception) {
+        return null
+    }
     return try {
         val success = runMetricPass(
             comparison, reference,
@@ -200,7 +204,11 @@ fun runSsimPass(
     onProgress: (currentFrame: Int, totalFrames: Int?) -> Unit,
     isCancelled: () -> Boolean,
 ): MetricRunResult? {
-    val statsFile = File.createTempFile("multiviewer_ssim_", ".log")
+    val statsFile = try {
+        File.createTempFile("multiviewer_ssim_", ".log")
+    } catch (e: Exception) {
+        return null
+    }
     return try {
         val success = runMetricPass(
             comparison, reference,
