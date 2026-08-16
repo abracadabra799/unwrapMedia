@@ -21,7 +21,7 @@ data class ApvFrameHeader(
     val profileIdc: Int, val profileName: String?,
     val levelIdc: Int, val bandIdc: Int,
     val frameWidth: Int, val frameHeight: Int,
-    val chromaFormat: ApvChromaFormat, val bitDepth: Int,
+    val chromaFormat: ApvChromaFormat, val chromaFormatIdc: Int, val bitDepth: Int,
     val colorPrimaries: Int?, val transferCharacteristics: Int?, val matrixCoefficients: Int?, val fullRangeFlag: Boolean?,
     val tileWidthInMbs: Int, val tileHeightInMbs: Int, val tileCount: Int,
 )
@@ -75,7 +75,7 @@ fun parseApvFrameHeader(framePayload: ByteArray): ApvFrameHeader? {
             profileIdc = profileIdc, profileName = PROFILE_NAMES[profileIdc],
             levelIdc = levelIdc, bandIdc = bandIdc,
             frameWidth = frameWidth, frameHeight = frameHeight,
-            chromaFormat = chromaFormatFor(chromaFormatIdc), bitDepth = bitDepthMinus8 + 8,
+            chromaFormat = chromaFormatFor(chromaFormatIdc), chromaFormatIdc = chromaFormatIdc, bitDepth = bitDepthMinus8 + 8,
             colorPrimaries = colorPrimaries, transferCharacteristics = transferCharacteristics,
             matrixCoefficients = matrixCoefficients, fullRangeFlag = fullRangeFlag,
             tileWidthInMbs = tileWidthInMbs, tileHeightInMbs = tileHeightInMbs, tileCount = tileCols * tileRows,
