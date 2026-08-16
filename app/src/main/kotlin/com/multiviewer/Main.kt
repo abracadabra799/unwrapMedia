@@ -142,6 +142,7 @@ private fun runGuiApplication() = application {
         var themeMode by remember { mutableStateOf(loadThemeMode()) }
         var showPixelGrid by remember { mutableStateOf(loadShowPixelGrid()) }
         var frameIntervalWindowOpen by remember { mutableStateOf(false) }
+        var qualityCompareWindowOpen by remember { mutableStateOf(false) }
         var motionPhotoFrameIntervalWindowOpen by remember { mutableStateOf(false) }
         // App-level, not per-tab -- matches showPixelGrid's own precedent (switching tabs keeps
         // whichever mode is checked; unlike a per-panel button, this is a "lens" the user turns on
@@ -199,6 +200,9 @@ private fun runGuiApplication() = application {
                     enabled = hasVideoTrack,
                     onClick = { frameIntervalWindowOpen = true },
                 )
+            }
+            Menu("품질 비교") {
+                Item("품질 비교 열기", onClick = { qualityCompareWindowOpen = true })
             }
             Menu("보기") {
                 CheckboxItem(
@@ -356,6 +360,10 @@ private fun runGuiApplication() = application {
                 } else {
                     frameIntervalWindowOpen = false
                 }
+            }
+
+            if (qualityCompareWindowOpen) {
+                QualityCompareWindow(onCloseRequest = { qualityCompareWindowOpen = false })
             }
             if (motionPhotoFrameIntervalWindowOpen) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
