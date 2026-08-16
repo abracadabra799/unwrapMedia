@@ -3,7 +3,6 @@ package com.multiviewer.ui
 import androidx.compose.ui.graphics.ImageBitmap
 import java.awt.EventQueue
 import java.io.File
-import java.util.concurrent.TimeUnit
 
 enum class CodecViewMode { MOTION_VECTORS, QP_HEATMAP }
 
@@ -24,8 +23,7 @@ fun probeVideoCodecName(file: File): String? {
             "-of", "default=noprint_wrappers=1:nokey=1", file.absolutePath,
         ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD)
             .also { FfmpegLocator.configureEnvironment(it) }.start()
-        val name = process.inputStream.bufferedReader().readLine()?.trim()
-        process.waitFor(10, TimeUnit.SECONDS)
+        val name = readProcessOutputWithTimeout(process, 10) { process.inputStream.bufferedReader().readLine()?.trim() }
         name?.takeIf { it.isNotEmpty() }
     } catch (e: Exception) {
         null
