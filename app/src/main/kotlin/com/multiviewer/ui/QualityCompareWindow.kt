@@ -1,7 +1,6 @@
 package com.multiviewer.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.LinearProgressIndicator
@@ -21,7 +21,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
@@ -30,6 +29,7 @@ import java.awt.EventQueue
 import java.awt.FileDialog
 import java.awt.Frame
 import java.io.File
+import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -37,8 +37,13 @@ private val qualityCompareExecutor = Executors.newSingleThreadExecutor { runnabl
 
 @Composable
 fun QualityCompareWindow(onCloseRequest: () -> Unit) {
+    val cancelRequested = remember { AtomicBoolean(false) }
+
     Window(
-        onCloseRequest = onCloseRequest,
+        onCloseRequest = {
+            cancelRequested.set(true)
+            onCloseRequest()
+        },
         title = "품질 비교",
         state = rememberWindowState(size = DpSize(900.dp, 700.dp)),
     ) {
@@ -51,7 +56,6 @@ fun QualityCompareWindow(onCloseRequest: () -> Unit) {
         var totalFrames by remember { mutableStateOf<Int?>(null) }
         var results by remember { mutableStateOf<Map<String, MetricRunResult>?>(null) }
         var statusMessage by remember { mutableStateOf<String?>(null) }
-        val cancelRequested = remember { AtomicBoolean(false) }
 
         fun pickFile(title: String, onPicked: (File) -> Unit) {
             val dialog = FileDialog(null as Frame?, title, FileDialog.LOAD)
@@ -145,7 +149,7 @@ fun QualityCompareWindow(onCloseRequest: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = psnrEnabled, onCheckedChange = { psnrEnabled = it })
                 Text("PSNR")
-                Spacer(Modifier.height(1.dp))
+                Spacer(Modifier.width(8.dp))
                 Checkbox(checked = ssimEnabled, onCheckedChange = { ssimEnabled = it })
                 Text("SSIM")
             }
@@ -156,7 +160,7 @@ fun QualityCompareWindow(onCloseRequest: () -> Unit) {
                     enabled = !isRunning && referenceFile != null && comparisonFile != null && (psnrEnabled || ssimEnabled),
                 ) { Text("비교 시작") }
                 if (isRunning) {
-                    Spacer(Modifier.height(1.dp))
+                    Spacer(Modifier.width(8.dp))
                     Button(onClick = { cancelRequested.set(true) }) { Text("취소") }
                 }
             }
@@ -178,14 +182,14 @@ fun QualityCompareWindow(onCloseRequest: () -> Unit) {
                 Spacer(Modifier.height(16.dp))
                 Row {
                     Button(onClick = { exportResults(asJson = false) }) { Text("CSV로 내보내기") }
-                    Spacer(Modifier.height(1.dp))
+                    Spacer(Modifier.width(8.dp))
                     Button(onClick = { exportResults(asJson = true) }) { Text("JSON으로 내보내기") }
                 }
                 Spacer(Modifier.height(8.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     currentResults.forEach { (name, result) ->
-                        Text("$name — min: ${"%.3f".format(result.statistics.min)}, max: ${"%.3f".format(result.statistics.max)}, " +
-                            "mean: ${"%.3f".format(result.statistics.mean)}, median: ${"%.3f".format(result.statistics.median)}")
+                        Text("$name — min: ${String.format(Locale.US, "%.3f", result.statistics.min)}, max: ${String.format(Locale.US, "%.3f", result.statistics.max)}, " +
+                            "mean: ${String.format(Locale.US, "%.3f", result.statistics.mean)}, median: ${String.format(Locale.US, "%.3f", result.statistics.median)}")
                         Box(modifier = Modifier.fillMaxWidth().height(120.dp)) {
                             MetricGraph(perFrame = result.perFrame, lineColor = AppColors.NeonBlue, modifier = Modifier.fillMaxSize())
                         }
