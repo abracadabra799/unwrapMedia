@@ -33,8 +33,7 @@ private fun probeResolution(file: File): Pair<Int, Int>? {
             "-show_entries", "stream=width,height", "-of", "csv=p=0", file.absolutePath,
         ).also { FfmpegLocator.configureEnvironment(it) }
             .redirectError(ProcessBuilder.Redirect.DISCARD).start()
-        val line = process.inputStream.bufferedReader().readLine()
-        process.waitFor(30, TimeUnit.SECONDS)
+        val line = readProcessOutputWithTimeout(process, 30) { process.inputStream.bufferedReader().readLine() }
         val parts = line?.trim()?.split(",") ?: return null
         if (parts.size != 2) return null
         Pair(parts[0].toInt(), parts[1].toInt())
@@ -83,8 +82,7 @@ private fun probeFrameCount(file: File): Int? {
             "-show_entries", "stream=nb_frames", "-of", "csv=p=0", file.absolutePath,
         ).also { FfmpegLocator.configureEnvironment(it) }
             .redirectError(ProcessBuilder.Redirect.DISCARD).start()
-        val nbFramesLine = nbFramesProcess.inputStream.bufferedReader().readLine()
-        nbFramesProcess.waitFor(30, TimeUnit.SECONDS)
+        val nbFramesLine = readProcessOutputWithTimeout(nbFramesProcess, 30) { nbFramesProcess.inputStream.bufferedReader().readLine() }
         val nbFrames = nbFramesLine?.trim()?.toIntOrNull()
         if (nbFrames != null) return nbFrames
 
@@ -93,8 +91,7 @@ private fun probeFrameCount(file: File): Int? {
             "-show_entries", "stream=duration,r_frame_rate", "-of", "csv=p=0", file.absolutePath,
         ).also { FfmpegLocator.configureEnvironment(it) }
             .redirectError(ProcessBuilder.Redirect.DISCARD).start()
-        val durationLine = durationProcess.inputStream.bufferedReader().readLine()
-        durationProcess.waitFor(30, TimeUnit.SECONDS)
+        val durationLine = readProcessOutputWithTimeout(durationProcess, 30) { durationProcess.inputStream.bufferedReader().readLine() }
         val parts = durationLine?.trim()?.split(",") ?: return null
         if (parts.size != 2) return null
         val duration = parts[0].toDoubleOrNull() ?: return null
