@@ -2,7 +2,6 @@ package com.multiviewer.ui
 
 import com.multiviewer.parser.SummaryField
 import java.io.File
-import java.util.concurrent.TimeUnit
 
 data class StreamCodecDetails(
     val videoFields: List<SummaryField>,
@@ -23,8 +22,8 @@ fun probeStreamDetails(file: File): StreamCodecDetails? {
             "-of", "default=noprint_wrappers=1", file.absolutePath,
         ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD)
             .also { FfmpegLocator.configureEnvironment(it) }.start()
-        val lines = process.inputStream.bufferedReader().readLines()
-        process.waitFor(30, TimeUnit.SECONDS)
+        val lines = readProcessOutputWithTimeout(process, 30) { process.inputStream.bufferedReader().readLines() }
+            ?: return null
 
         val videoFields = mutableListOf<SummaryField>()
         val audioFields = mutableListOf<SummaryField>()

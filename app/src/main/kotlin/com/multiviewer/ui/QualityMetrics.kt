@@ -284,8 +284,8 @@ fun isVmafAvailable(): Boolean {
             .also { FfmpegLocator.configureEnvironment(it) }
             .redirectError(ProcessBuilder.Redirect.DISCARD)
             .start()
-        val output = process.inputStream.bufferedReader().readText()
-        process.waitFor(30, TimeUnit.SECONDS)
+        val output = readProcessOutputWithTimeout(process, 30) { process.inputStream.bufferedReader().readText() }
+            ?: return false
         output.contains("libvmaf")
     } catch (e: Exception) {
         false

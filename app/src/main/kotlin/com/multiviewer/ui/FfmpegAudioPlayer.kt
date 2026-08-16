@@ -64,8 +64,8 @@ fun probeAudioFormat(file: File): AudioFileInfo? {
             "-of", "default=noprint_wrappers=1", file.absolutePath,
         ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD)
             .also { FfmpegLocator.configureEnvironment(it) }.start()
-        val lines = process.inputStream.bufferedReader().readLines()
-        process.waitFor(5, TimeUnit.SECONDS)
+        val lines = readProcessOutputWithTimeout(process, 5) { process.inputStream.bufferedReader().readLines() }
+            ?: return null
 
         val values = mutableMapOf<String, String>()
         for (line in lines) {

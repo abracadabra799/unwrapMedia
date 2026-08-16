@@ -89,11 +89,8 @@ fun probeFrameTimestamps(file: File): List<Double>? {
             "-show_entries", "frame=pts_time", "-of", "default=noprint_wrappers=1", file.absolutePath,
         ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD)
             .also { FfmpegLocator.configureEnvironment(it) }.start()
-        val lines = process.inputStream.bufferedReader().readLines()
-        if (!process.waitFor(10, TimeUnit.SECONDS)) {
-            process.destroyForcibly()
-            return null
-        }
+        val lines = readProcessOutputWithTimeout(process, 10) { process.inputStream.bufferedReader().readLines() }
+            ?: return null
         val timestamps = lines.mapNotNull { line ->
             if (line.startsWith("pts_time=")) line.removePrefix("pts_time=").toDoubleOrNull() else null
         }
@@ -198,8 +195,8 @@ fun probeVideo(file: File): VideoInfo? {
             "-of", "default=noprint_wrappers=1", file.absolutePath,
         ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD)
             .also { FfmpegLocator.configureEnvironment(it) }.start()
-        val lines = process.inputStream.bufferedReader().readLines()
-        process.waitFor(5, TimeUnit.SECONDS)
+        val lines = readProcessOutputWithTimeout(process, 5) { process.inputStream.bufferedReader().readLines() }
+            ?: return null
 
         val values = mutableMapOf<String, String>()
         for (line in lines) {

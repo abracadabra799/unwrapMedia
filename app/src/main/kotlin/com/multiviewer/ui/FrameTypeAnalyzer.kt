@@ -1,7 +1,6 @@
 package com.multiviewer.ui
 
 import java.io.File
-import java.util.concurrent.TimeUnit
 
 // byteOffset is the frame's own packet position in the file (ffprobe's pkt_pos) -- lets the UI
 // jump the hex viewer straight to a selected frame's actual bytes, the same way tile/item
@@ -24,8 +23,8 @@ fun probeFrameTypes(file: File): List<FrameInfo>? {
             "-of", "default=noprint_wrappers=1", file.absolutePath,
         ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD)
             .also { FfmpegLocator.configureEnvironment(it) }.start()
-        val lines = process.inputStream.bufferedReader().readLines()
-        process.waitFor(120, TimeUnit.SECONDS)
+        val lines = readProcessOutputWithTimeout(process, 120) { process.inputStream.bufferedReader().readLines() }
+            ?: return null
 
         val values = mutableMapOf<String, String>()
         val frames = mutableListOf<FrameInfo>()
