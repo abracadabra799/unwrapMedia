@@ -11,14 +11,25 @@ import java.io.File
 // rows.
 fun writeResultsCsv(destination: File, results: Map<String, MetricRunResult>) {
     val metricNames = results.keys.toList()
-    val frameCount = results.values.maxOfOrNull { it.perFrame.size } ?: 0
+
+    // Build a map for each metric: frameIndex -> value
+    val metricMaps = metricNames.associate { name ->
+        name to results.getValue(name).perFrame.associate { it.frameIndex to it.value }
+    }
+
+    // Get sorted union of all frameIndex values across all metrics
+    val allFrameIndices = metricMaps.values
+        .flatMap { it.keys }
+        .toSet()
+        .sorted()
+
     destination.bufferedWriter().use { writer ->
         writer.write("frame_index," + metricNames.joinToString(",") + "\n")
-        for (i in 0 until frameCount) {
+        for (frameIndex in allFrameIndices) {
             val row = metricNames.joinToString(",") { name ->
-                results.getValue(name).perFrame.getOrNull(i)?.value?.toString() ?: ""
+                metricMaps.getValue(name)[frameIndex]?.toString() ?: ""
             }
-            writer.write("$i,$row\n")
+            writer.write("$frameIndex,$row\n")
         }
     }
 }
