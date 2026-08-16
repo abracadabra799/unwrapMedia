@@ -102,6 +102,16 @@ class QualityMetricsTest {
     }
 
     @Test
+    fun `determineComparisonPairs returns an empty list when Raw and Encoded B are filled but Encoded A is null`() {
+        val raw = File("raw.mp4")
+        val encodedB = File("encoded-b.mp4")
+
+        val pairs = determineComparisonPairs(raw, encodedA = null, encodedB)
+
+        assertEquals(emptyList(), pairs)
+    }
+
+    @Test
     fun `determineComparisonPairs returns only A-B when Encoded A and Encoded B are filled`() {
         val encodedA = File("encoded-a.mp4")
         val encodedB = File("encoded-b.mp4")

@@ -63,7 +63,7 @@ fun determineComparisonPairs(raw: File?, encodedA: File?, encodedB: File?): List
     if (raw != null && encodedA != null) {
         pairs.add(ComparisonPair(id = "raw_a", label = "Raw ↔ Encoded A", comparison = encodedA, reference = raw))
     }
-    if (raw != null && encodedB != null) {
+    if (raw != null && encodedA != null && encodedB != null) {
         pairs.add(ComparisonPair(id = "raw_b", label = "Raw ↔ Encoded B", comparison = encodedB, reference = raw))
     }
     if (encodedA != null && encodedB != null) {
