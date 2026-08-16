@@ -52,6 +52,26 @@ fun resolutionsMatch(comparison: File, reference: File): Boolean {
     return a == b
 }
 
+data class ComparisonPair(val id: String, val label: String, val comparison: File, val reference: File)
+
+// Determines which of the 3 possible comparison pairs (Raw-A, Raw-B, A-B) the currently-filled file
+// slots imply, in this fixed order -- pure structural logic, no I/O, no resolution checking (that's
+// resolutionsMatch, checked separately per pair once this list is known). Encoded A alone never
+// produces a pair since there's nothing to compare it against yet.
+fun determineComparisonPairs(raw: File?, encodedA: File?, encodedB: File?): List<ComparisonPair> {
+    val pairs = mutableListOf<ComparisonPair>()
+    if (raw != null && encodedA != null) {
+        pairs.add(ComparisonPair(id = "raw_a", label = "Raw ↔ Encoded A", comparison = encodedA, reference = raw))
+    }
+    if (raw != null && encodedB != null) {
+        pairs.add(ComparisonPair(id = "raw_b", label = "Raw ↔ Encoded B", comparison = encodedB, reference = raw))
+    }
+    if (encodedA != null && encodedB != null) {
+        pairs.add(ComparisonPair(id = "a_b", label = "Encoded A ↔ Encoded B", comparison = encodedB, reference = encodedA))
+    }
+    return pairs
+}
+
 // Total video-stream frame count, used as the progress bar's denominator. Prefers the container's
 // stored frame count (nb_frames, fast); falls back to duration * frame rate when nb_frames is
 // unavailable ("N/A" on some containers/codecs that don't store it). Returns null if neither source
