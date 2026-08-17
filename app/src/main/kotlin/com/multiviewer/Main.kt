@@ -125,8 +125,10 @@ fun main(args: Array<String>) {
 private fun runGuiApplication() = application {
     val appState = remember { AppState() }
     
-    // Log environment info for native library troubleshooting
+    // Log environment info for native library troubleshooting and initialize disk cache
     LaunchedEffect(Unit) {
+        val cacheDir = File(System.getProperty("user.home"), ".unwrapMedia/cache")
+        com.multiviewer.cache.MediaIndexCache.initialize(cacheDir)
         println("Starting unwrapMedia...")
         println("OS: ${System.getProperty("os.name")} (${System.getProperty("os.arch")})")
         println("Java Home: ${System.getProperty("java.home")}")
