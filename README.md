@@ -35,10 +35,12 @@
 
 **Binary Explorer** -- structure tree; right panel opens on an at-a-glance Overview (general/camera/codec info in one view) and switches to Detailed Properties once you select a tree node, where clicking a field jumps the hex view to its exact bytes; hex/raw byte viewer with drag-select. All panels resizable. Dark/light theme toggle (View menu), preference persisted across launches.
 
-**CLI Mode** -- inspect files from a script or CI, no GUI needed:
+**CLI Mode** -- inspect files from a script, CI, or generate AI debugging prompts:
 ```bash
-unwrapMedia dump <file>   # full structure tree as JSON, to stdout
-unwrapMedia check <file>  # warnings only, as JSON ({"warningCount": N, "warnings": [...]})
+unwrapMedia dump <file>                     # full structure tree as JSON, to stdout
+unwrapMedia check <file>                    # warnings only, as JSON ({"warningCount": N, "warnings": [...]})
+unwrapMedia check <file> --prompt           # generate structured AI diagnostic prompt with domain context
+unwrapMedia check <file> -p --clipboard     # generate AI prompt and copy directly to OS clipboard
 ```
 Exit code is `0` on a successful parse (regardless of warning count) and `1` if the file couldn't be parsed at all.
 

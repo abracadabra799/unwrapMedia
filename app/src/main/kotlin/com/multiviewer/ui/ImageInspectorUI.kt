@@ -21,7 +21,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.asSkiaBitmap
+import com.multiviewer.cli.AiDiagnosticPromptBuilder
 import com.multiviewer.parser.BoxNode
 import com.multiviewer.parser.EmbeddedVideo
 import com.multiviewer.parser.extractEmbeddedVideo
@@ -30,6 +32,7 @@ import com.multiviewer.parser.ScanStatistics
 import com.multiviewer.parser.computeScanStatistics
 import com.multiviewer.parser.WarningEntry
 import com.multiviewer.parser.collectWarnings
+import com.multiviewer.util.ClipboardUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -661,10 +664,35 @@ private fun DetailPropertiesTabContent(tab: TabState) {
                     else -> {
                         if (warnings.isNotEmpty()) {
                             item {
-                                Text(
-                                    "⚠ ${warnings.size}개의 구조적 이상 징후",
-                                    style = AppTypography.labelLarge.copy(color = AppColors.NeonRed),
-                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        "⚠ ${warnings.size}개의 구조적 이상 징후",
+                                        style = AppTypography.labelLarge.copy(color = AppColors.NeonRed),
+                                    )
+                                    var copied by remember(warnings) { mutableStateOf(false) }
+                                    Row(
+                                        modifier = Modifier
+                                            .clickable {
+                                                val prompt = AiDiagnosticPromptBuilder.buildPrompt(tab.file, tab.root, warnings)
+                                                if (ClipboardUtil.copyToClipboard(prompt)) {
+                                                    copied = true
+                                                }
+                                            }
+                                            .background(AppColors.NeonGreen.copy(alpha = 0.15f), shape = RoundedCornerShape(4.dp))
+                                            .border(0.5.dp, AppColors.NeonGreen.copy(alpha = 0.5f), shape = RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            if (copied) "✓ AI 프롬프트 복사됨" else "📋 AI 진단 프롬프트 복사",
+                                            style = AppTypography.labelMedium.copy(fontSize = 10.sp, color = AppColors.NeonGreen),
+                                        )
+                                    }
+                                }
                                 Spacer(Modifier.height(8.dp))
                             }
                             items(warnings) { entry ->

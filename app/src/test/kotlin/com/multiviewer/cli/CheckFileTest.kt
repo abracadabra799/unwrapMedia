@@ -79,8 +79,46 @@ class CheckFileTest {
         val result = checkFile(file)
 
         assertTrue(result is CheckResult.Success)
-        val json = (result as CheckResult.Success).json
-        assertTrue(json.contains("\"warningCount\": 0"), "Expected a clean PNG to report 0 warnings, got: $json")
+        val success = result as CheckResult.Success
+        assertTrue(success.json.contains("\"warningCount\": 0"), "Expected a clean PNG to report 0 warnings, got: ${success.json}")
+        assertTrue(success.prompt.contains("정상 파일입니다"), "Expected prompt to report clean file, got: ${success.prompt}")
+        file.delete()
+    }
+
+    @Test
+    fun `buildPrompt formats warnings with severity and domain context`() {
+        val node = BoxNode(type = "trun", offset = 104230L, headerSize = 8, size = 500L)
+        val warnings = listOf(
+            WarningEntry(node, "sample_duration mismatch with stts: expected 1000, got 1001"),
+        )
+        val file = File.createTempFile("prompt-test-", ".mp4")
+        file.deleteOnExit()
+
+        val prompt = AiDiagnosticPromptBuilder.buildPrompt(file, null, warnings)
+
+        assertTrue(prompt.contains("비디오 코덱, ISOBMFF/HEIF 컨테이너 스펙"))
+        assertTrue(prompt.contains("\"box\": \"trun\""))
+        assertTrue(prompt.contains("\"severity\": \"WARNING\""))
+        assertTrue(prompt.contains("sample_duration mismatch with stts"))
+        assertTrue(prompt.contains("FFmpeg 리먹싱 커맨드"))
+        file.delete()
+    }
+
+    @Test
+    fun `runCheckCommand supports prompt and clipboard flags`() {
+        val file = File.createTempFile("cli-test-", ".png")
+        file.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "color=red:size=8x8",
+            "-frames:v", "1", file.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val exitCode = runCheckCommand(listOf(file.absolutePath, "--prompt", "--clipboard"))
+        assertEquals(0, exitCode)
+
+        val helpCode = runCheckCommand(listOf("--help"))
+        assertEquals(0, helpCode)
+
         file.delete()
     }
 }
