@@ -6,7 +6,7 @@ import kotlin.test.assertEquals
 class MetaBoxDecoderTest {
     @Test
     fun `meta box skips 4 bytes of version and flags before recursing into children`() {
-        BoxRegistry.register("meta", ContainerBoxDecoder(childOffsetInPayload = 4))
+        BoxRegistry.register("meta", MetaBoxDecoder)
         val reader = byteReaderOf(
             byteArrayOf(
                 0x00, 0x00, 0x00, 0x14, 0x6D, 0x65, 0x74, 0x61, // "meta", size 20

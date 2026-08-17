@@ -9,7 +9,8 @@
 ## Key Features
 
 **Image Inspector** -- JPEG, PNG, BMP, GIF, WebP, AVIF, HEIC, TIFF, plus camera RAW (CR2, NEF, ARW, DNG) via generic TIFF/IFD parsing.
-- EXIF/TIFF metadata, GPS, Samsung MakerNote
+- EXIF/TIFF metadata, GPS, Samsung & Apple MakerNote (lens, sensor, focus, HDR gain/headroom, Smart Style binary plist)
+- Apple HEIF auxiliary images (HDR gain map, depth/disparity, portrait-effects & semantic mattes)
 - XMP (pretty-printed), color histograms, JPEG DQT heatmap
 - Embedded thumbnail extraction (JPEG- or HEVC-coded thumbnail items alike), HEIC/HEVC preview decode via ffmpeg
 - Motion Photo support (Samsung-style and Google-style: still + embedded video)
@@ -17,6 +18,8 @@
 
 **Video Inspector** -- MP4, MOV, M4V, WebM.
 - Built-in player (play/pause/seek/click-to-seek), GOP frame-type graph (I/P/B)
+- Apple QuickTime metadata (`com.apple.quicktime.*`, Live Photo, Smart Style, camera & lens properties)
+- Apple timed metadata (`mebx` tracks, video orientation, still image timestamps) & Dolby Vision (`dvcC`/`dvvC` configuration)
 - **프레임 간격 분석** menu: per-frame interval scatter plot + data table (frame number, timestamp, interval, interval diff) for spotting irregular frame spacing in the file's own timestamps
 - Per-stream codec details: profile, level, chroma, bit depth, frame rate, bit rate, duration
 - Track extraction: pull a video or audio stream into its own file (stream copy, re-encode fallback)
