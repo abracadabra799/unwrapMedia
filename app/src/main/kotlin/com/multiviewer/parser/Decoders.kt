@@ -42,7 +42,8 @@ fun registerAllDecoders() {
     BoxRegistry.register("keys", QuickTimeKeysBoxDecoder)
     BoxRegistry.register("ilst", QuickTimeIlstBoxDecoder)
     BoxRegistry.register("data", QuickTimeDataBoxDecoder)
-    for (containerType in listOf("moov", "trak", "mdia", "minf", "dinf", "edts", "udta", "stbl", "iprp", "ipco", "mpvd")) {
+    BoxRegistry.register("trak", TrakBoxDecoder)
+    for (containerType in listOf("moov", "mdia", "minf", "dinf", "edts", "udta", "stbl", "iprp", "ipco", "mpvd")) {
         BoxRegistry.register(containerType, ContainerBoxDecoder())
     }
     BoxRegistry.register("sefd", SefdBoxDecoder)
