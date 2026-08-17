@@ -10,6 +10,7 @@ class DecodersRegistrationTest {
         val typesThatMustHaveADecoder = listOf(
             "avc1", "hvc1", "av01", "mp4a", "avcC", "hvcC", "av1C", "elst",
             "dref", "url ", "urn ", "colr", "pasp", "iinf", "infe", "mpvd", "sefd", "iloc",
+            "keys", "ilst", "data",
         )
         for (type in typesThatMustHaveADecoder) {
             assertNotEquals(LeafBoxDecoder, BoxRegistry.decoderFor(type), "type \"$type\" fell back to LeafBoxDecoder")

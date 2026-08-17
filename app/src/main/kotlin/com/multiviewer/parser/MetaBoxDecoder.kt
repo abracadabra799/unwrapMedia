@@ -13,7 +13,8 @@ object MetaBoxDecoder : BoxDecoder {
         val payloadEnd = offset + size
         val childOffsetInPayload = if (isPlainBoxLayout(reader, payloadStart, payloadEnd)) 0 else 4
         val children = parseBoxes(reader, payloadStart + childOffsetInPayload, payloadEnd)
-        val enrichedChildren = enrichItemMetadata(reader, children)
+        val withItemMeta = enrichItemMetadata(reader, children)
+        val enrichedChildren = enrichQuickTimeMetadata(reader, withItemMeta)
         return BoxNode(
             type = type,
             offset = offset,
