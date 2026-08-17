@@ -14,15 +14,18 @@ object MetaBoxDecoder : BoxDecoder {
         val childOffsetInPayload = if (isPlainBoxLayout(reader, payloadStart, payloadEnd)) 0 else 4
         val children = parseBoxes(reader, payloadStart + childOffsetInPayload, payloadEnd)
         val withItemMeta = enrichItemMetadata(reader, children)
-        val enrichedChildren = enrichQuickTimeMetadata(reader, withItemMeta)
-        return BoxNode(
+        val withQuickTime = enrichQuickTimeMetadata(reader, withItemMeta)
+        val metaNodeTemp = BoxNode(
             type = type,
             offset = offset,
             headerSize = headerSize,
             size = size,
-            children = enrichedChildren,
+            children = withQuickTime,
             warnings = warnings,
         )
+        val auxNode = buildAppleAuxiliaryNode(metaNodeTemp)
+        val finalChildren = if (auxNode != null) withQuickTime + auxNode else withQuickTime
+        return metaNodeTemp.copy(children = finalChildren)
     }
 }
 
