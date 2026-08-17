@@ -164,6 +164,12 @@ private fun buildImageSummary(root: BoxNode, file: File): List<SummarySection> {
         sections.add(SummarySection("Samsung Metadata", sefdFields))
     }
 
+    buildAppleDeviceSection(root)?.let { sections.add(it) }
+    buildAppleCameraAndCaptureSection(root)?.let { sections.add(it) }
+    buildAppleComputationalPhotographySection(root)?.let { sections.add(it) }
+    buildAppleDepthAndPortraitSection(root)?.let { sections.add(it) }
+    buildAppleLivePhotoSection(root)?.let { sections.add(it) }
+
     return sections
 }
 
@@ -704,6 +710,9 @@ private fun buildVideoSummary(root: BoxNode, fileSizeBytes: Long): List<SummaryS
     buildVideoDetail(videoTrak)?.let { sections.add(it) }
     buildVideoStructureDetail(videoTrak, movieTimescale(moov))?.let { sections.add(it) }
     buildAudioDetail(audioTrak)?.let { sections.add(it) }
+    buildAppleDeviceSection(root)?.let { sections.add(it) }
+    buildAppleLivePhotoSection(root)?.let { sections.add(it) }
+    buildAppleVideoMetadataSection(root, traks)?.let { sections.add(it) }
 
     return sections
 }
@@ -1095,4 +1104,246 @@ fun mergeStreamCodecDetailsIntoSections(sections: List<SummarySection>, videoFie
 fun mergeStreamCodecDetails(summary: MediaSummary, videoFields: List<SummaryField>, audioFields: List<SummaryField>): MediaSummary {
     if (summary.category == MediaCategory.IMAGE) return summary
     return summary.copy(sections = mergeStreamCodecDetailsIntoSections(summary.sections, videoFields, audioFields))
+}
+
+private fun findAppleMetaField(root: BoxNode, partialKey: String): String? {
+    val appleMeta = findFirst(root) { it.type == "Apple QuickTime Metadata" }
+    return appleMeta?.fields?.find { it.name.contains(partialKey, ignoreCase = true) }?.value
+}
+
+private fun findTimedMetadataField(root: BoxNode, partialKey: String): String? {
+    val timedMeta = findFirst(root) { it.type == "Timed Metadata" }
+    return timedMeta?.fields?.find { it.name.contains(partialKey, ignoreCase = true) }?.value
+        ?: timedMeta?.children?.find { it.type.contains(partialKey, ignoreCase = true) }?.fields?.find { it.name == "Value" }?.value
+}
+
+private fun buildAppleDeviceSection(root: BoxNode): SummarySection? {
+    val ifd0 = findFirst(root) { it.type == "IFD0" }
+    val make = ifd0?.fields?.find { it.name == "Make" }?.value ?: findAppleMetaField(root, "make")
+    val isApple = make?.contains("Apple", ignoreCase = true) == true || findAppleMetaField(root, "make") != null
+
+    if (!isApple) return null
+
+    val fields = mutableListOf<SummaryField>()
+    fields.add(SummaryField("Make", make ?: "Apple"))
+    (ifd0?.fields?.find { it.name == "Model" }?.value ?: findAppleMetaField(root, "model"))?.let {
+        fields.add(SummaryField("Model", it))
+    }
+    (ifd0?.fields?.find { it.name == "Software" }?.value ?: findAppleMetaField(root, "software"))?.let {
+        fields.add(SummaryField("Software", it))
+    }
+    (ifd0?.fields?.find { it.name == "DateTime" }?.value ?: findAppleMetaField(root, "creationdate"))?.let {
+        fields.add(SummaryField("Creation Date", it))
+    }
+
+    return if (fields.isNotEmpty()) SummarySection("Apple Device", fields) else null
+}
+
+private fun buildAppleCameraAndCaptureSection(root: BoxNode): SummarySection? {
+    val ifd0 = findFirst(root) { it.type == "IFD0" }
+    val make = ifd0?.fields?.find { it.name == "Make" }?.value ?: findAppleMetaField(root, "make")
+    val isApple = make?.contains("Apple", ignoreCase = true) == true || findAppleMetaField(root, "camera") != null
+    val makerNote = findFirst(root) { it.type == "MakerNote" }
+    val hasAppleMakerNote = makerNote?.summary?.contains("Apple", ignoreCase = true) == true ||
+        makerNote?.fields?.any { it.name.startsWith("Apple Tag") || it.name in listOf("CameraType", "ImageCaptureType", "FocusPosition", "HDRGain", "HDRHeadroom", "AFConfidence", "AFMeasuredDepth") } == true
+
+    if (!isApple && !hasAppleMakerNote) return null
+
+    val exif = findFirst(root) { it.type == "Exif" }
+    val fields = mutableListOf<SummaryField>()
+
+    (findAppleMetaField(root, "camera.lens_model") ?: exif?.fields?.find { it.name == "LensModel" }?.value)?.let {
+        fields.add(SummaryField("Lens Model", it))
+    }
+    (findAppleMetaField(root, "camera.focal_length") ?: exif?.fields?.find { it.name == "FocalLength" }?.value)?.let {
+        fields.add(SummaryField("Focal Length", it))
+    }
+    (findAppleMetaField(root, "camera.focal_length.35mm_equivalent") ?: exif?.fields?.find { it.name == "FocalLengthIn35mmFilm" }?.value)?.let {
+        fields.add(SummaryField("Focal Length in 35mm Format", it))
+    }
+    (findAppleMetaField(root, "camera.aperture_f_number") ?: exif?.fields?.find { it.name == "FNumber" }?.value)?.let {
+        fields.add(SummaryField("Aperture", it))
+    }
+    makerNote?.fields?.find { it.name == "CameraType" }?.let {
+        fields.add(SummaryField("Camera Type", it.value))
+    }
+    makerNote?.fields?.find { it.name == "ImageCaptureType" }?.let {
+        fields.add(SummaryField("Image Capture Type", it.value))
+    }
+    makerNote?.fields?.find { it.name == "FocusPosition" }?.let {
+        fields.add(SummaryField("Focus Position", it.value))
+    }
+    (findAppleMetaField(root, "camera.exposure_time") ?: exif?.fields?.find { it.name == "ExposureTime" }?.value)?.let {
+        fields.add(SummaryField("Exposure Time", it))
+    }
+    (findAppleMetaField(root, "camera.iso") ?: exif?.fields?.find { it.name == "ISOSpeedRatings" }?.value)?.let {
+        fields.add(SummaryField("ISO", it))
+    }
+    (findAppleMetaField(root, "camera.flash") ?: exif?.fields?.find { it.name == "Flash" }?.value)?.let {
+        fields.add(SummaryField("Flash", it))
+    }
+    (findAppleMetaField(root, "camera.white_balance") ?: exif?.fields?.find { it.name == "WhiteBalance" }?.value)?.let {
+        fields.add(SummaryField("White Balance", it))
+    }
+    (findAppleMetaField(root, "camera.focus_distance") ?: makerNote?.fields?.find { it.name == "FocusDistanceRange" }?.value)?.let {
+        fields.add(SummaryField("Focus Distance", it))
+    }
+    makerNote?.fields?.find { it.name == "AEStable" }?.let {
+        fields.add(SummaryField("AE Stable", it.value))
+    }
+    makerNote?.fields?.find { it.name == "AFStable" }?.let {
+        fields.add(SummaryField("AF Stable", it.value))
+    }
+    makerNote?.fields?.find { it.name == "AccelerationVector" }?.let {
+        fields.add(SummaryField("Acceleration Vector", it.value))
+    }
+
+    return if (fields.isNotEmpty()) SummarySection("Camera & Capture", fields) else null
+}
+
+private fun buildAppleComputationalPhotographySection(root: BoxNode): SummarySection? {
+    val makerNote = findFirst(root) { it.type == "MakerNote" }
+    val hasAppleComp = makerNote?.fields?.any { it.name in listOf("HDRImageType", "HDRGain", "HDRHeadroom", "MeteorHeadroom", "SmartStyle", "SmartStyleTone", "SmartStyleColor", "SmartStyleIntensity", "SmartStyleCast", "SemanticStyle", "PhotographicStyle") } == true ||
+        findAppleMetaField(root, "smartstyle") != null
+
+    if (!hasAppleComp) return null
+
+    val fields = mutableListOf<SummaryField>()
+
+    makerNote?.fields?.find { it.name == "HDRImageType" }?.let {
+        fields.add(SummaryField("HDR Image Type", it.value))
+    }
+    makerNote?.fields?.find { it.name == "HDRGain" }?.let {
+        fields.add(SummaryField("HDR Gain", it.value))
+    }
+    makerNote?.fields?.find { it.name == "HDRHeadroom" }?.let {
+        fields.add(SummaryField("HDR Headroom", it.value))
+    }
+    makerNote?.fields?.find { it.name == "MeteorHeadroom" }?.let {
+        fields.add(SummaryField("Meteor Headroom", it.value))
+    }
+    (makerNote?.fields?.find { it.name == "SmartStyle" }?.value ?: findAppleMetaField(root, "smartstyle.rendering-version"))?.let {
+        fields.add(SummaryField("Smart Style", it))
+    }
+    (makerNote?.fields?.find { it.name == "SmartStyleTone" }?.value ?: findAppleMetaField(root, "smartstyle.tone"))?.let {
+        fields.add(SummaryField("Smart Style Tone", it))
+    }
+    (makerNote?.fields?.find { it.name == "SmartStyleColor" }?.value ?: findAppleMetaField(root, "smartstyle.color"))?.let {
+        fields.add(SummaryField("Smart Style Color", it))
+    }
+    (makerNote?.fields?.find { it.name == "SmartStyleIntensity" }?.value ?: findAppleMetaField(root, "smartstyle.intensity"))?.let {
+        fields.add(SummaryField("Smart Style Intensity", it))
+    }
+    (makerNote?.fields?.find { it.name == "SmartStyleCast" }?.value ?: findAppleMetaField(root, "smartstyle.cast"))?.let {
+        fields.add(SummaryField("Smart Style Cast", it))
+    }
+    findAppleMetaField(root, "smartstyle.bypass")?.let {
+        fields.add(SummaryField("Smart Style Bypass", it))
+    }
+    makerNote?.fields?.find { it.name == "SemanticStyle" }?.let {
+        fields.add(SummaryField("Semantic Style", it.value))
+    }
+    makerNote?.fields?.find { it.name == "PhotographicStyle" }?.let {
+        fields.add(SummaryField("Photographic Style", it.value))
+    }
+
+    return if (fields.isNotEmpty()) SummarySection("Computational Photography", fields) else null
+}
+
+private fun buildAppleDepthAndPortraitSection(root: BoxNode): SummarySection? {
+    val makerNote = findFirst(root) { it.type == "MakerNote" }
+    val auxNode = findFirst(root) { it.type == "Auxiliary Images" }
+    val hasAppleDepth = makerNote?.fields?.any { it.name in listOf("AFMeasuredDepth", "AFConfidence", "AFPerformance") } == true ||
+        (auxNode != null && auxNode.children.any { it.fields.any { f -> f.name == "Role" && f.value in listOf("DEPTH", "DISPARITY", "PORTRAIT_EFFECTS", "SKY", "PERSON", "SKIN", "HAIR", "TEETH", "GLASSES") } })
+
+    if (!hasAppleDepth) return null
+
+    val fields = mutableListOf<SummaryField>()
+
+    makerNote?.fields?.find { it.name == "AFMeasuredDepth" }?.let {
+        fields.add(SummaryField("AF Measured Depth", it.value))
+    }
+    makerNote?.fields?.find { it.name == "AFConfidence" }?.let {
+        fields.add(SummaryField("AF Confidence", it.value))
+    }
+    makerNote?.fields?.find { it.name == "AFPerformance" }?.let {
+        fields.add(SummaryField("AF Performance", it.value))
+    }
+
+    if (auxNode != null && auxNode.children.isNotEmpty()) {
+        val roles = auxNode.children.mapNotNull { it.fields.find { f -> f.name == "Role Description" }?.value ?: it.type }
+        fields.add(SummaryField("Auxiliary Roles", roles.joinToString(", ")))
+    }
+
+    return if (fields.isNotEmpty()) SummarySection("Depth & Portrait", fields) else null
+}
+
+private fun buildAppleLivePhotoSection(root: BoxNode): SummarySection? {
+    val makerNote = findFirst(root) { it.type == "MakerNote" }
+    val hasLivePhoto = makerNote?.fields?.any { it.name in listOf("ContentIdentifier", "LivePhotoVideoIndex") } == true ||
+        findAppleMetaField(root, "content.identifier") != null ||
+        findAppleMetaField(root, "live-photo") != null
+
+    if (!hasLivePhoto) return null
+
+    val fields = mutableListOf<SummaryField>()
+
+    val contentId = makerNote?.fields?.find { it.name == "ContentIdentifier" }?.value
+        ?: findAppleMetaField(root, "content.identifier")
+    contentId?.let { fields.add(SummaryField("Content Identifier", it)) }
+
+    val stillImageTime = findAppleMetaField(root, "live-photo.still-image-time")
+        ?: findTimedMetadataField(root, "still-image-time")
+    stillImageTime?.let { fields.add(SummaryField("Still Image Time", it)) }
+
+    findAppleMetaField(root, "live-photo.vitality-score")?.let {
+        fields.add(SummaryField("Vitality Score", it))
+    }
+    findAppleMetaField(root, "live-photo.vitality-scoring-version")?.let {
+        fields.add(SummaryField("Vitality Scoring Version", it))
+    }
+    makerNote?.fields?.find { it.name == "LivePhotoVideoIndex" }?.let {
+        fields.add(SummaryField("Video Index", it.value))
+    }
+    findAppleMetaField(root, "full-frame-rate-playback-intent")?.let {
+        fields.add(SummaryField("Full Frame Rate Playback Intent", it))
+    }
+
+    return if (fields.isNotEmpty()) SummarySection("Live Photo", fields) else null
+}
+
+private fun buildAppleVideoMetadataSection(root: BoxNode, traks: List<BoxNode>): SummarySection? {
+    val fields = mutableListOf<SummaryField>()
+
+    val dolbyVisionNode = findFirst(root) { it.type == "dvcC" || it.type == "dvvC" }
+    dolbyVisionNode?.let {
+        val summary = it.summary ?: "Dolby Vision Profile ${it.fields.find { f -> f.name == "dv_profile" }?.value}"
+        fields.add(SummaryField("Dolby Vision", summary))
+    }
+
+    val colrNode = findFirst(root) { it.type == "colr" }
+    colrNode?.let {
+        val primaries = it.fields.find { f -> f.name == "colour_primaries" }?.value
+        val transfer = it.fields.find { f -> f.name == "transfer_characteristics" }?.value
+        val matrix = it.fields.find { f -> f.name == "matrix_coefficients" }?.value
+        if (primaries != null || transfer != null || matrix != null) {
+            fields.add(SummaryField("Color Primaries / Transfer / Matrix", "${primaries ?: "?"} / ${transfer ?: "?"} / ${matrix ?: "?"}"))
+        }
+    }
+
+    val timedMetaCount = traks.count { trak ->
+        findFirst(trak) { it.type == "Timed Metadata" } != null ||
+            findFirst(trak) { it.type == "hdlr" }?.fields?.find { it.name == "handler_type" }?.value in listOf("mebx", "mdta")
+    }
+    if (timedMetaCount > 0) {
+        fields.add(SummaryField("Timed Metadata Tracks", timedMetaCount.toString()))
+    }
+
+    val videoOrientation = findAppleMetaField(root, "video-orientation")
+        ?: findTimedMetadataField(root, "video-orientation")
+    videoOrientation?.let {
+        fields.add(SummaryField("Video Orientation", it))
+    }
+
+    return if (fields.isNotEmpty()) SummarySection("Video Metadata", fields) else null
 }
