@@ -3,6 +3,7 @@ package com.multiviewer.parser
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class MediaSummaryBuilderTest {
@@ -2058,5 +2059,109 @@ class MediaSummaryBuilderTest {
         val summary = buildMediaSummary(root, tempFile())
 
         assertEquals(null, summary.sections.find { it.title == "Video Detail" })
+    }
+
+    @Test
+    fun `Apple photo summary projects Apple Device, Camera, Computational Photography, Depth, and Live Photo sections`() {
+        val makerNote = BoxNode(
+            type = "MakerNote", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(
+                BoxField("CameraType", "Back (0)", 0, 2),
+                BoxField("ImageCaptureType", "ProRAW (3)", 0, 2),
+                BoxField("HDRGain", "150/100 (1.50)", 0, 8),
+                BoxField("HDRHeadroom", "200/100 (2.00)", 0, 8),
+                BoxField("ContentIdentifier", "TEST-UUID-1234", 0, 16),
+                BoxField("AFMeasuredDepth", "120", 0, 2),
+                BoxField("AFConfidence", "3", 0, 2),
+            ),
+        )
+        val exif = BoxNode(type = "Exif", offset = 0, headerSize = 0, size = 0, children = listOf(makerNote))
+        val ifd0 = BoxNode(
+            type = "IFD0", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(
+                BoxField("Make", "Apple", 0, 6),
+                BoxField("Model", "iPhone 15 Pro", 0, 14),
+                BoxField("Software", "17.4", 0, 4),
+            ),
+            children = listOf(exif),
+        )
+        val auxGainMap = BoxNode(
+            type = "HDR Gain Map (Item 2)", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("Role", "HDR_GAIN_MAP", 0, 0), BoxField("Resolution", "512x384", 0, 0)),
+        )
+        val auxImages = BoxNode(type = "Auxiliary Images", offset = 0, headerSize = 0, size = 0, children = listOf(auxGainMap))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(ifd0, auxImages))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val appleDevice = summary.sections.find { it.title == "Apple Device" }
+        assertNotNull(appleDevice)
+        assertEquals("Apple", appleDevice.fields.find { it.label == "Make" }?.value)
+        assertEquals("iPhone 15 Pro", appleDevice.fields.find { it.label == "Model" }?.value)
+
+        val compPhoto = summary.sections.find { it.title == "Computational Photography" }
+        assertNotNull(compPhoto)
+        assertTrue(compPhoto.fields.any { it.label == "HDR Gain" })
+
+        val depthSection = summary.sections.find { it.title == "Depth & Portrait" }
+        assertNotNull(depthSection)
+        assertEquals("120", depthSection.fields.find { it.label == "AF Measured Depth" }?.value)
+
+        val livePhoto = summary.sections.find { it.title == "Live Photo" }
+        assertNotNull(livePhoto)
+        assertEquals("TEST-UUID-1234", livePhoto.fields.find { it.label == "Content Identifier" }?.value)
+    }
+
+    @Test
+    fun `Apple video summary projects QuickTime metadata, Dolby Vision, and Timed Metadata`() {
+        val appleMeta = BoxNode(
+            type = "Apple QuickTime Metadata", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(
+                BoxField("Make (com.apple.quicktime.make)", "Apple", 0, 0),
+                BoxField("Model (com.apple.quicktime.model)", "iPhone 15 Pro", 0, 0),
+                BoxField("Content Identifier (com.apple.quicktime.content.identifier)", "TEST-UUID-5678", 0, 0),
+                BoxField("Live Photo Still Image Time (com.apple.quicktime.live-photo.still-image-time)", "1000", 0, 0),
+            ),
+        )
+        val meta = BoxNode(type = "meta", offset = 0, headerSize = 0, size = 0, children = listOf(appleMeta))
+
+        val dvcC = BoxNode(
+            type = "dvcC", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(
+                BoxField("dv_profile", "8", 0, 2),
+                BoxField("dv_level", "4", 0, 2),
+                BoxField("dv_bl_signal_compatibility_id", "4 (HLG)", 0, 1),
+            ),
+        )
+        val hvc1 = BoxNode(type = "hvc1", offset = 0, headerSize = 0, size = 0, children = listOf(dvcC))
+        val stsd = BoxNode(type = "stsd", offset = 0, headerSize = 0, size = 0, children = listOf(hvc1))
+        val stbl = BoxNode(type = "stbl", offset = 0, headerSize = 0, size = 0, children = listOf(stsd))
+        val minf = BoxNode(type = "minf", offset = 0, headerSize = 0, size = 0, children = listOf(stbl))
+        val hdlr = BoxNode(type = "hdlr", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("handler_type", "vide", 0, 4)))
+        val mdia = BoxNode(type = "mdia", offset = 0, headerSize = 0, size = 0, children = listOf(hdlr, minf))
+        val videoTrak = BoxNode(type = "trak", offset = 0, headerSize = 0, size = 0, children = listOf(mdia))
+
+        val mebxHdlr = BoxNode(type = "hdlr", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("handler_type", "mebx", 0, 4)))
+        val mebxMdia = BoxNode(type = "mdia", offset = 0, headerSize = 0, size = 0, children = listOf(mebxHdlr))
+        val timedMeta = BoxNode(type = "Timed Metadata", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("Total Samples", "30", 0, 0)))
+        val mebxTrak = BoxNode(type = "trak", offset = 0, headerSize = 0, size = 0, children = listOf(mebxMdia, timedMeta))
+
+        val moov = BoxNode(type = "moov", offset = 0, headerSize = 0, size = 0, children = listOf(meta, videoTrak, mebxTrak))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(moov))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val appleDevice = summary.sections.find { it.title == "Apple Device" }
+        assertNotNull(appleDevice)
+        assertEquals("Apple", appleDevice.fields.find { it.label == "Make" }?.value)
+
+        val livePhoto = summary.sections.find { it.title == "Live Photo" }
+        assertNotNull(livePhoto)
+        assertEquals("TEST-UUID-5678", livePhoto.fields.find { it.label == "Content Identifier" }?.value)
+
+        val videoMetadata = summary.sections.find { it.title == "Video Metadata" }
+        assertNotNull(videoMetadata)
+        assertTrue(videoMetadata.fields.any { it.label == "Dolby Vision" })
+        assertEquals("1", videoMetadata.fields.find { it.label == "Timed Metadata Tracks" }?.value)
     }
 }
