@@ -92,8 +92,13 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
     ) {
         val frames = tab.gopFrames
         when {
-            tab.isAnalyzingFrames -> {
-                DecodingIndicator("프레임 분석 중...", modifier = Modifier.align(Alignment.Center))
+            tab.isAnalyzingFrames && frames.isNullOrEmpty() -> {
+                val text = if (tab.frameAnalysisLoadedCount > 0) {
+                    "프레임 분석 중... (${tab.frameAnalysisLoadedCount}개 로드됨)"
+                } else {
+                    "프레임 분석 중..."
+                }
+                DecodingIndicator(text, modifier = Modifier.align(Alignment.Center))
             }
             frames == null -> {
                 Column(
@@ -131,12 +136,6 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
                     focusRequester.requestFocus()
                 }
 
-                // Highlights and auto-follows the frame at the current playback position (only
-                // meaningful once the video has actually started playing, hence the >= 0 guard
-                // against the 0.0 default before playback begins). Computed up here too since
-                // stepFrame below falls back to it when no frame has been explicitly selected yet.
-                // Shared with FrameThumbnailFilmstrip (see FrameTypeAnalyzer.kt) so both views
-                // track the same frame during playback.
                 val playbackFrameIndex = remember(frames, tab.playbackElapsedSeconds) {
                     currentFrameIndex(frames, tab.playbackElapsedSeconds)
                 }
@@ -166,10 +165,16 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             FrameTypeLegendEntry('I', "I-frame")
                             FrameTypeLegendEntry('P', "P-frame")
                             FrameTypeLegendEntry('B', "B-frame")
+                            if (tab.isAnalyzingFrames) {
+                                Text(
+                                    "분석 진행 중 (${frames.size}개...)",
+                                    style = AppTypography.labelMedium.copy(fontSize = 11.sp, color = AppColors.NeonBlue),
+                                )
+                            }
                         }
 
                         val selectedIndex = tab.selectedFrame?.index

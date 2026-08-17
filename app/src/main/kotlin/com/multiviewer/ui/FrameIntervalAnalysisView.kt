@@ -140,6 +140,11 @@ fun FrameIntervalAnalysisView(intervals: List<FrameInterval>, fps: Double?, modi
             // The vertical padding reserves room for the topmost/bottommost Y-axis labels' own
             // height so they stay inside the bordered box instead of spilling past its edge.
             BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(vertical = 10.dp)) {
+                val targetWidthPx = constraints.maxWidth.coerceAtLeast(100)
+                val renderedIntervals = remember(intervals, targetWidthPx, selectedFrameIndex) {
+                    downsampleIntervalsForCanvas(intervals, targetWidthPx, selectedFrameIndex)
+                }
+
                 Canvas(
                     modifier = Modifier
                         .fillMaxSize()
@@ -148,20 +153,18 @@ fun FrameIntervalAnalysisView(intervals: List<FrameInterval>, fps: Double?, modi
                                 val widthPx = size.width.toFloat()
                                 val heightPx = size.height.toFloat()
                                 val hitRadiusPx = GRAPH_HIT_RADIUS_DP.dp.toPx()
-                                var nearest: FrameInterval? = null
-                                var nearestDistanceSq = Float.MAX_VALUE
-                                for (interval in intervals) {
-                                    val x = widthPx * (interval.frameIndex - minFrameIndex).toFloat() / frameSpan
-                                    val y = heightPx - heightPx * yFraction(interval.intervalMs)
-                                    val dx = offset.x - x
-                                    val dy = offset.y - y
-                                    val distanceSq = dx * dx + dy * dy
-                                    if (distanceSq < nearestDistanceSq) {
-                                        nearestDistanceSq = distanceSq
-                                        nearest = interval
-                                    }
-                                }
-                                if (nearest != null && nearestDistanceSq <= hitRadiusPx * hitRadiusPx) {
+                                val nearest = findNearestIntervalBinary(
+                                    intervals = intervals,
+                                    tapOffset = offset,
+                                    widthPx = widthPx,
+                                    heightPx = heightPx,
+                                    minFrameIndex = minFrameIndex,
+                                    frameSpan = frameSpan,
+                                    axisMinMs = axisMinMs,
+                                    axisMaxMs = axisMaxMs,
+                                    hitRadiusPx = hitRadiusPx,
+                                )
+                                if (nearest != null) {
                                     selectedFrameIndex = nearest.frameIndex
                                 }
                             }
@@ -198,7 +201,7 @@ fun FrameIntervalAnalysisView(intervals: List<FrameInterval>, fps: Double?, modi
 
                     val pointRadiusPx = GRAPH_POINT_RADIUS_DP.dp.toPx()
                     val highlightRadiusPx = GRAPH_HIGHLIGHT_RADIUS_DP.dp.toPx()
-                    for (interval in intervals) {
+                    for (interval in renderedIntervals) {
                         val x = size.width * (interval.frameIndex - minFrameIndex).toFloat() / frameSpan
                         val y = size.height - size.height * yFraction(interval.intervalMs)
                         val color = when (interval.type) {
@@ -265,14 +268,21 @@ fun FrameIntervalAnalysisView(intervals: List<FrameInterval>, fps: Double?, modi
 
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                itemsIndexed(intervals) { _, interval ->
+                items(
+                    count = intervals.size,
+                    key = { intervals[it].frameIndex },
+                    contentType = { "interval_row" },
+                ) { index ->
+                    val interval = intervals[index]
                     val isSelected = interval.frameIndex == selectedFrameIndex
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .height(24.dp)
                             .background(if (isSelected) selectionRowColor else Color.Transparent)
                             .clickable { selectedFrameIndex = interval.frameIndex }
-                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                            .padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text("${interval.frameIndex}", modifier = Modifier.width(100.dp), style = AppTypography.bodyLarge.copy(fontSize = 11.sp, color = textPrimary))
                         Text("%.3f".format(interval.ptsSeconds), modifier = Modifier.width(120.dp), style = AppTypography.bodyLarge.copy(fontSize = 11.sp, color = textPrimary))
@@ -284,6 +294,91 @@ fun FrameIntervalAnalysisView(intervals: List<FrameInterval>, fps: Double?, modi
             VerticalScrollbar(adapter = rememberScrollbarAdapter(listState), modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight())
         }
     }
+}
+
+// Level of Detail (LOD) Downsampling for massive point counts (e.g. 1-hour 60fps video: 216,000 frames)
+// Reduces canvas draw calls to ~2000 while preserving visual min/max boundaries and selected frame.
+fun downsampleIntervalsForCanvas(
+    intervals: List<FrameInterval>,
+    targetWidthPx: Int,
+    selectedFrameIndex: Int? = null,
+): List<FrameInterval> {
+    if (intervals.size <= targetWidthPx * 2) return intervals
+
+    val bucketSize = intervals.size.toDouble() / targetWidthPx
+    val result = ArrayList<FrameInterval>(targetWidthPx * 2 + 1)
+    val seenIndices = HashSet<Int>(targetWidthPx * 2 + 1)
+
+    for (px in 0 until targetWidthPx) {
+        val startIdx = (px * bucketSize).toInt().coerceIn(intervals.indices)
+        val endIdx = ((px + 1) * bucketSize).toInt().coerceIn(intervals.indices)
+        if (startIdx >= endIdx) {
+            val item = intervals[startIdx]
+            if (seenIndices.add(item.frameIndex)) result.add(item)
+            continue
+        }
+
+        var minItem = intervals[startIdx]
+        var maxItem = intervals[startIdx]
+        for (i in startIdx..endIdx) {
+            val item = intervals[i]
+            if (item.intervalMs < minItem.intervalMs) minItem = item
+            if (item.intervalMs > maxItem.intervalMs) maxItem = item
+        }
+
+        if (seenIndices.add(minItem.frameIndex)) result.add(minItem)
+        if (minItem.frameIndex != maxItem.frameIndex && seenIndices.add(maxItem.frameIndex)) {
+            result.add(maxItem)
+        }
+    }
+
+    if (selectedFrameIndex != null && seenIndices.add(selectedFrameIndex)) {
+        intervals.find { it.frameIndex == selectedFrameIndex }?.let { result.add(it) }
+    }
+
+    return result
+}
+
+// O(log N) Binary Search Hit-Testing for Tap Gestures on Scatter Plot
+fun findNearestIntervalBinary(
+    intervals: List<FrameInterval>,
+    tapOffset: Offset,
+    widthPx: Float,
+    heightPx: Float,
+    minFrameIndex: Int,
+    frameSpan: Int,
+    axisMinMs: Double,
+    axisMaxMs: Double,
+    hitRadiusPx: Float,
+): FrameInterval? {
+    if (intervals.isEmpty() || widthPx <= 0f || heightPx <= 0f || frameSpan <= 0) return null
+
+    val targetFrame = minFrameIndex + ((tapOffset.x / widthPx) * frameSpan).toInt()
+    val pivot = intervals.binarySearchBy(targetFrame) { it.frameIndex }
+    val center = if (pivot >= 0) pivot else (-pivot - 1).coerceIn(intervals.indices)
+
+    val window = 40
+    val start = (center - window).coerceAtLeast(0)
+    val end = (center + window).coerceAtMost(intervals.size - 1)
+
+    var nearest: FrameInterval? = null
+    var minDistanceSq = hitRadiusPx * hitRadiusPx
+    val valueSpan = (axisMaxMs - axisMinMs).takeIf { it > 0.0 } ?: 1.0
+
+    for (i in start..end) {
+        val interval = intervals[i]
+        val x = widthPx * (interval.frameIndex - minFrameIndex).toFloat() / frameSpan
+        val yFraction = ((interval.intervalMs - axisMinMs) / valueSpan).toFloat().coerceIn(0f, 1f)
+        val y = heightPx - heightPx * yFraction
+        val dx = tapOffset.x - x
+        val dy = tapOffset.y - y
+        val distanceSq = dx * dx + dy * dy
+        if (distanceSq < minDistanceSq) {
+            minDistanceSq = distanceSq
+            nearest = interval
+        }
+    }
+    return nearest
 }
 
 // Owns data-fetching: reuses the same tab.gopFrames/AppState.analyzeFrames the GOP panel already

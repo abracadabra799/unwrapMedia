@@ -151,6 +151,8 @@ class TabState(val file: File) {
     // an empty (non-null) list means "asked, ffprobe found nothing".
     var gopFrames: List<FrameInfo>? by mutableStateOf(null)
     var isAnalyzingFrames: Boolean by mutableStateOf(false)
+    var frameAnalysisLoadedCount: Int by mutableStateOf(0)
+    var frameAnalysisProgress: Float? by mutableStateOf(null)
     var selectedFrame: FrameInfo? by mutableStateOf(null)
     // Set once FfmpegVideoPlayer's own background frame-timestamp probe finishes (see its
     // onProbeComplete callback) -- gates the "프레임 분석 시작" button so it can't launch a second,
@@ -657,11 +659,23 @@ class AppState {
     fun analyzeFrames(tab: TabState) {
         if (tab.isAnalyzingFrames || tab.gopFrames != null) return
         tab.isAnalyzingFrames = true
+        tab.frameAnalysisLoadedCount = 0
+        tab.frameAnalysisProgress = null
         runInBackground {
-            val frames = probeFrameTypes(tab.file)
-            EventQueue.invokeLater {
-                tab.gopFrames = frames ?: emptyList()
-                tab.isAnalyzingFrames = false
+            kotlinx.coroutines.runBlocking {
+                probeFrameTypesStreaming(tab.file).collect { progress ->
+                    EventQueue.invokeLater {
+                        tab.gopFrames = progress.frames
+                        tab.frameAnalysisLoadedCount = progress.loadedCount
+                        tab.frameAnalysisProgress = if (progress.estimatedTotal != null && progress.estimatedTotal > 0) {
+                            (progress.loadedCount.toFloat() / progress.estimatedTotal).coerceIn(0f, 1f)
+                        } else null
+                        if (progress.isComplete) {
+                            tab.isAnalyzingFrames = false
+                            tab.frameAnalysisProgress = null
+                        }
+                    }
+                }
             }
         }
     }
@@ -707,13 +721,25 @@ class AppState {
             } catch (e: Exception) {
                 null
             }
-            val frames = temp?.let { probeFrameTypes(it) }
             val videoInfo = temp?.let { probeVideo(it) }
-            temp?.delete()
-            EventQueue.invokeLater {
-                tab.motionPhotoGopFrames = frames ?: emptyList()
-                tab.motionPhotoVideoFps = videoInfo?.fps
-                tab.isAnalyzingMotionPhotoFrames = false
+            if (temp != null) {
+                kotlinx.coroutines.runBlocking {
+                    probeFrameTypesStreaming(temp).collect { progress ->
+                        EventQueue.invokeLater {
+                            tab.motionPhotoGopFrames = progress.frames
+                            tab.motionPhotoVideoFps = videoInfo?.fps
+                            if (progress.isComplete) {
+                                tab.isAnalyzingMotionPhotoFrames = false
+                            }
+                        }
+                    }
+                }
+                temp.delete()
+            } else {
+                EventQueue.invokeLater {
+                    tab.motionPhotoGopFrames = emptyList()
+                    tab.isAnalyzingMotionPhotoFrames = false
+                }
             }
         }
     }
