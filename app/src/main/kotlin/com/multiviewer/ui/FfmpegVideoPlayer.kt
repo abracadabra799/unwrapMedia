@@ -1,19 +1,24 @@
 package com.multiviewer.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
@@ -513,52 +518,16 @@ fun FfmpegVideoPlayer(
         }
 
         val rotationSuffix = if (info.rotation != 0) " · 회전 (${info.rotation}°)" else ""
-        PreviewCaption(
-            "${info.width}x${info.height}$rotationSuffix",
-            modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
-        )
-
+        val elapsedSeconds = (startFromSeconds + playedSeconds).coerceIn(0.0, maxOf(info.duration, 0.001))
         if (info.duration > 0) {
-            val elapsedSeconds = (startFromSeconds + playedSeconds).coerceIn(0.0, info.duration)
             LaunchedEffect(elapsedSeconds) { onElapsedChanged(elapsedSeconds) }
-            PreviewCaption(
-                "${formatMmSsMs(elapsedSeconds)} / ${formatMmSsMs(info.duration)}",
-                modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),
-            )
-            val progress = (elapsedSeconds / info.duration).toFloat().coerceIn(0f, 1f)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(6.dp)
-                    .background(Color.White.copy(alpha = 0.15f))
-                    .pointerInput(info.duration) {
-                        fun seekToFraction(fraction: Float) {
-                            hasEnded = false
-                            isPlaying = false // seek-and-pause, same as a GOP-frame-click seek
-                            startFromSeconds = fraction.coerceIn(0f, 1f) * info.duration
-                            restartTrigger++
-                        }
-                        awaitEachGesture {
-                            val down = awaitFirstDown()
-                            seekToFraction(down.position.x / size.width.toFloat())
-                            drag(down.id) { change ->
-                                change.consume()
-                                seekToFraction(change.position.x / size.width.toFloat())
-                            }
-                        }
-                    },
-            ) {
-                Box(modifier = Modifier.fillMaxHeight().fillMaxWidth(progress).background(AppColors.NeonGreen))
-            }
         }
 
+        // Center clickable area for easy play/pause toggle with subtle indicator
         if (!isPlaying) {
             Box(
                 modifier = Modifier
-                    .size(64.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.5f))
+                    .fillMaxSize()
                     .clickable {
                         if (hasEnded) {
                             hasEnded = false
@@ -569,10 +538,116 @@ fun FfmpegVideoPlayer(
                     },
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Filled.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(48.dp))
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.25f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Filled.PlayArrow, contentDescription = "Play", tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(32.dp))
+                }
             }
         } else {
             Box(modifier = Modifier.fillMaxSize().clickable { isPlaying = false })
         }
+
+        // Bottom Controls Bar (Play/Pause button on left, Info captions, and Progress bar)
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(Color.Black.copy(alpha = 0.5f)),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.25f))
+                        .clickable {
+                            if (isPlaying) {
+                                isPlaying = false
+                            } else {
+                                if (hasEnded) {
+                                    hasEnded = false
+                                    startFromSeconds = 0.0
+                                    restartTrigger++
+                                }
+                                isPlaying = true
+                            }
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (isPlaying) {
+                        VideoPauseIcon(modifier = Modifier.size(12.dp), color = Color.White)
+                    } else {
+                        Icon(
+                            Icons.Filled.PlayArrow,
+                            contentDescription = "Play",
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+
+                Spacer(Modifier.width(6.dp))
+
+                PreviewCaption("${info.width}x${info.height}$rotationSuffix")
+
+                Spacer(Modifier.weight(1f))
+
+                if (info.duration > 0) {
+                    PreviewCaption("${formatMmSsMs(elapsedSeconds)} / ${formatMmSsMs(info.duration)}")
+                }
+            }
+
+            if (info.duration > 0) {
+                val progress = (elapsedSeconds / info.duration).toFloat().coerceIn(0f, 1f)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(5.dp)
+                        .background(Color.White.copy(alpha = 0.2f))
+                        .pointerInput(info.duration) {
+                            fun seekToFraction(fraction: Float) {
+                                hasEnded = false
+                                isPlaying = false
+                                startFromSeconds = fraction.coerceIn(0f, 1f) * info.duration
+                                restartTrigger++
+                            }
+                            awaitEachGesture {
+                                val down = awaitFirstDown()
+                                seekToFraction(down.position.x / size.width.toFloat())
+                                drag(down.id) { change ->
+                                    change.consume()
+                                    seekToFraction(change.position.x / size.width.toFloat())
+                                }
+                            }
+                        },
+                ) {
+                    Box(modifier = Modifier.fillMaxHeight().fillMaxWidth(progress).background(AppColors.NeonGreen))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VideoPauseIcon(modifier: Modifier = Modifier, color: Color = Color.White) {
+    Canvas(modifier = modifier) {
+        val barWidth = size.width * 0.3f
+        val barHeight = size.height * 0.85f
+        val top = (size.height - barHeight) / 2f
+        val gap = size.width * 0.3f
+        val left1 = (size.width - (2 * barWidth + gap)) / 2f
+        val left2 = left1 + barWidth + gap
+        drawRect(color, Offset(left1, top), Size(barWidth, barHeight))
+        drawRect(color, Offset(left2, top), Size(barWidth, barHeight))
     }
 }

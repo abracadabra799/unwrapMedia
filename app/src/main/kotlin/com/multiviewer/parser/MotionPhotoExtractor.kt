@@ -13,7 +13,7 @@ fun findEmbeddedVideo(root: BoxNode, reader: ByteReader? = null): EmbeddedVideo?
     val videoNode = root.children.find { it.type == "mpvd" || it.type == "EmbeddedVideoData" }
         ?: findFirst(root) { it.type == "sefd" }
             ?.children
-            ?.filter { it.children.firstOrNull()?.type == "ftyp" }
+            ?.filter { it.type != "MotionPhoto_AutoPlay" && it.children.firstOrNull()?.type == "ftyp" }
             ?.let { candidates -> candidates.find { it.type == "MotionPhoto_Data" } ?: candidates.firstOrNull() }
     if (videoNode != null) {
         val majorBrand = videoNode.children.find { it.type == "ftyp" }

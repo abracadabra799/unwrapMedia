@@ -377,6 +377,9 @@ private fun runGuiApplication() = application {
                 if (tab.fullSizeFramePreviewOpen) {
                     FrameFullSizePreviewWindow(tab, onCloseRequest = { tab.fullSizeFramePreviewOpen = false })
                 }
+                if (tab.isPrimaryImagePopupOpen) {
+                    PrimaryImagePopupWindow(tab, onCloseRequest = { tab.isPrimaryImagePopupOpen = false })
+                }
             }
             Surface(modifier = Modifier.fillMaxSize(), color = AppColors.Background) {
                 if (appState.tabs.isEmpty()) {

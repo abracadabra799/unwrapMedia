@@ -7,6 +7,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import com.multiviewer.parser.TileGridInfo
 
 // A tile's own bounds in native (unscaled) image pixel coordinates -- row-major index into
@@ -108,7 +109,7 @@ fun resolveTileIndexAt(
 // rotateRect before the fit-scale/letterbox math runs, so it lands on the real displayed pixels.
 @Composable
 fun TileGridOverlay(tileGrid: TileGridInfo, nativeSize: Size, selectedTileIndex: Int, modifier: Modifier = Modifier) {
-    val lineColor = AppColors.NeonPurple
+    val lineColor = Color.White
     Canvas(modifier = modifier.fillMaxSize()) {
         if (nativeSize.width <= 0f || nativeSize.height <= 0f) return@Canvas
         val fitScale = minOf(size.width / nativeSize.width, size.height / nativeSize.height)
