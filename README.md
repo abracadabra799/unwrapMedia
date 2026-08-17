@@ -70,7 +70,7 @@ unwrapMedia check <file> -p --clipboard
 | **Image** | `.jpg`, `.jpeg`, `.png`, `.bmp`, `.gif`, `.webp`, `.avif`, `.heic`, `.tif`, `.tiff`, `.cr2`, `.nef`, `.arw`, `.dng` |
 | **Video** | `.mp4`, `.mov`, `.m4v`, `.webm` |
 | **Audio** | `.m4a`, `.mp3`, `.wav`, `.flac`, `.ogg`, `.opus`, `.aiff`, `.aif`, `.aifc`, `.pcm` |
-| **Raw Pixel** | `.raw`, `.rgb`, `.rgba`, `.yuv` |
+| **Raw Pixel** | `.raw`, `.rgb`, `.rgba`, `.yuv`, `.nv12`, `.nv21` |
 
 ---
 

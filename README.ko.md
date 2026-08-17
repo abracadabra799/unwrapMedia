@@ -70,7 +70,7 @@ unwrapMedia check <file> -p --clipboard
 | **이미지** | `.jpg`, `.jpeg`, `.png`, `.bmp`, `.gif`, `.webp`, `.avif`, `.heic`, `.tif`, `.tiff`, `.cr2`, `.nef`, `.arw`, `.dng` |
 | **비디오** | `.mp4`, `.mov`, `.m4v`, `.webm` |
 | **오디오** | `.m4a`, `.mp3`, `.wav`, `.flac`, `.ogg`, `.opus`, `.aiff`, `.aif`, `.aifc`, `.pcm` |
-| **Raw 픽셀** | `.raw`, `.rgb`, `.rgba`, `.yuv` |
+| **Raw 픽셀** | `.raw`, `.rgb`, `.rgba`, `.yuv`, `.nv12`, `.nv21` |
 
 ---
 
