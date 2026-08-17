@@ -1,20 +1,41 @@
-*.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
+# Gradle & Build
+.gradle/
+build/
+app/build/
 /build
-/captures
-.externalNativeBuild
-.cxx
+out/
+
+# IDE & Editors
+*.iml
+.idea/
+.vscode/
+
+# Local & Environment properties
 local.properties
-.superpowers/
+/local.properties
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Kotlin & Android
 .kotlin/
-.claude/worktrees/
-.artifacts/
+.externalNativeBuild/
+.cxx/
+/captures
+
+# Runtime resources & local cache
 /app/resources/
+.unwrapMedia/
+*.fidx
+
+# Tooling & Agent metadata
+.superpowers/
+.claude/
+.artifacts/
+.gstack/
