@@ -37,13 +37,17 @@
 ## 지원 기능
 
 **이미지 분석기**
-- EXIF/TIFF, GPS, Samsung MakerNote, XMP(정렬 출력), 컬러 히스토그램, JPEG DQT 히트맵
+- EXIF/TIFF, GPS, Samsung & Apple MakerNote(렌즈, 센서, 초점, HDR 게인/헤드룸, Smart Style binary plist 등)
+- Apple HEIF 보조 이미지 관계 분석(HDR 게인맵, 뎁스/디스패리티, 인물 사진 효과 및 세그멘테이션 매트)
+- XMP(정렬 출력), 컬러 히스토그램, JPEG DQT 히트맵
 - 임베디드 썸네일 추출(JPEG/HEVC 모두), HEIC/HEVC 미리보기 디코드(ffmpeg)
 - 모션 포토 지원(삼성/구글 방식: 사진 + 임베디드 영상)
 - 애니메이션 GIF는 프레임 필름스트립으로 재생
 
 **영상 분석기**
 - 내장 플레이어(재생/일시정지/탐색/클릭 탐색), GOP 프레임 타입 그래프(I/P/B)
+- Apple QuickTime 메타데이터(`com.apple.quicktime.*`, Live Photo, Smart Style, 카메라/렌즈 정보)
+- Apple 타임드 메타데이터(`mebx` 트랙, 영상 방향, 스틸 이미지 타임스탬프) 및 Dolby Vision(`dvcC`/`dvvC` 설정) 분석
 - **프레임 간격 분석**: 프레임 번호별 간격 산점도 + 데이터 테이블(프레임 번호/타임스탬프/간격/간격 차이) -- 프레임 드랍/불규칙 간격 확인용
 - 모션 포토는 미리보기 재생 영상이 아닌 임베디드 동영상 자체에 대해 별도로 프레임 간격 분석 가능
 - 스트림별 코덱 정보(프로파일/레벨/크로마/비트 심도/프레임레이트/비트레이트/길이)
