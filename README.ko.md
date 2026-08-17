@@ -17,7 +17,13 @@
 - **모션 포토(Motion Photo)**: 삼성 방식(`MotionPhoto_Data`) 및 구글 방식(스틸 + 임베디드 비디오) 완벽 지원.
 
 ### 🎬 비디오 분석기 (Video Inspector)
-- **지원 포맷**: MP4, MOV, M4V, WebM.
+- **컨테이너 포맷**: MP4, MOV, M4V, WebM, APV, AV1, IVF.
+- **심층 코덱 및 비트스트림 파서**:
+  - **APV (Advanced Professional Video)**: `apvC` 박스, 프레임 헤더(Chroma 4:2:2/4:4:4/4:4:4:4, Bit Depth 10/12/14/16-bit, 타일 그리드, Color Primaries).
+  - **AV1**: `av1C` 박스, 시퀀스 헤더(Profile, Level, Tier, Bit Depth, Color Primaries, Timing), 프레임 헤더 (OBU).
+  - **HEVC (H.265)**: `hvcC` 박스, VPS, SPS, PPS (Profile, Level, Tier, Main 10, 타일 그리드).
+  - **AVC (H.264)**: `avcC` 박스, SPS (Profile, Level, Chroma 4:2:0/4:2:2/4:4:4, Bit Depth, VUI), PPS (CABAC/CAVLC, 8x8 Transform).
+  - **Dolby Vision**: `dvcC`, `dvvC` 설정 레코드.
 - **재생 및 GOP 그래프**: GOP 프레임 타입 그래프(I/P/B)와 완벽히 동기화된 내장 비디오 플레이어.
 - **Apple 메타데이터 & Dolby Vision**: `com.apple.quicktime.*`, Live Photo, 타임드 메타데이터(`mebx`/`mdta`), Dolby Vision (`dvcC`/`dvvC`).
 - **고성능 프레임 간격/타임스탬프 분석**:
@@ -32,7 +38,7 @@
 - **시각화**: 실제 디코딩된 피크 기반 파형(Waveform) 및 스펙트로그램(Spectrogram), 줌/팬 및 미니맵 지원.
 
 ### 🔲 Raw 픽셀 뷰어 (Raw Pixel Viewer)
-- **지원 포맷**: 헤더 없는 `.raw`, `.rgb`, `.rgba`, `.yuv` 덤프.
+- **지원 포맷**: 헤더 없는 `.raw`, `.rgb`, `.rgba`, `.yuv`, `.nv12`, `.nv21` 덤프.
 - **지원 포맷**: YUV420 (NV12/NV21/I420/YV12), RGB565, RGB888, RGBA8888, ARGB8888. 멀티 프레임 원시 영상 재생 지원.
 
 ### 🤖 지능형 AI 진단 프롬프트 어시스턴트
@@ -63,12 +69,13 @@ unwrapMedia check <file> -p --clipboard
 
 ---
 
-## 📦 지원 포맷 요약
+## 📦 지원 포맷 및 코덱 요약
 
-| 분류 | 확장자 |
+| 분류 | 지원 확장자 및 주요 코덱 |
 |---|---|
 | **이미지** | `.jpg`, `.jpeg`, `.png`, `.bmp`, `.gif`, `.webp`, `.avif`, `.heic`, `.tif`, `.tiff`, `.cr2`, `.nef`, `.arw`, `.dng` |
-| **비디오** | `.mp4`, `.mov`, `.m4v`, `.webm` |
+| **비디오 컨테이너** | `.mp4`, `.mov`, `.m4v`, `.webm`, `.apv`, `.av1`, `.ivf` |
+| **비디오 코덱** | **APV**, **AV1**, **HEVC (H.265)**, **AVC (H.264)**, **Dolby Vision**, MPEG-4, VP8/VP9 |
 | **오디오** | `.m4a`, `.mp3`, `.wav`, `.flac`, `.ogg`, `.opus`, `.aiff`, `.aif`, `.aifc`, `.pcm` |
 | **Raw 픽셀** | `.raw`, `.rgb`, `.rgba`, `.yuv`, `.nv12`, `.nv21` |
 

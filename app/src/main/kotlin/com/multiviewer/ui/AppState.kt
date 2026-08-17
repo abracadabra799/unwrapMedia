@@ -24,7 +24,7 @@ val IMAGE_EXTENSIONS = listOf(
     // raw sensor data either.
     "cr2", "nef", "arw", "dng",
 )
-val VIDEO_EXTENSIONS = listOf("mp4", "mov", "m4v", "webm")
+val VIDEO_EXTENSIONS = listOf("mp4", "mov", "m4v", "webm", "apv", "av1", "ivf")
 // M4A is an MP4-family container (same ftyp/moov/trak structure as mp4/mov/m4v above) holding an
 // audio-only track (AAC, ALAC, or AC-3) -- parseFile's magic-byte dispatch already reaches the
 // same generic ISOBMFF box walker for it with no new parser needed, and MediaSummaryBuilder's

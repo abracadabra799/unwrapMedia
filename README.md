@@ -17,7 +17,13 @@
 - **Motion Photos**: Supports both Samsung-style (`MotionPhoto_Data`) and Google-style (still + embedded video).
 
 ### 🎬 Video Inspector
-- **Formats**: MP4, MOV, M4V, WebM.
+- **Container Formats**: MP4, MOV, M4V, WebM, APV, AV1, IVF.
+- **Deep Codec & Bitstream Decoders**:
+  - **APV (Advanced Professional Video)**: `apvC` box, Frame Header (Chroma 4:2:2/4:4:4/4:4:4:4, Bit Depth 10/12/14/16-bit, Tile Grid, Color Primaries).
+  - **AV1**: `av1C` box, Sequence Header (Profile, Level, Tier, Bit Depth, Color Primaries, Timing), Frame Header (OBU).
+  - **HEVC (H.265)**: `hvcC` box, VPS, SPS, PPS (Profile, Level, Tier, Main 10, Tile Grid).
+  - **AVC (H.264)**: `avcC` box, SPS (Profile, Level, Chroma 4:2:0/4:2:2/4:4:4, Bit Depth, VUI), PPS (CABAC/CAVLC, 8x8 Transform).
+  - **Dolby Vision**: `dvcC`, `dvvC` configuration records.
 - **Playback & GOP Graph**: Minimalist built-in player synced with GOP frame-type analysis (I/P/B frames).
 - **Apple Metadata & Dolby Vision**: `com.apple.quicktime.*`, Live Photo, timed metadata (`mebx`/`mdta`), and Dolby Vision (`dvcC`/`dvvC`).
 - **High-Performance Frame Interval Analysis**:
@@ -32,7 +38,7 @@
 - **Visuals**: Real decoded peak waveforms and spectrograms with zoom/pan and minimap.
 
 ### 🔲 Raw Pixel Viewer
-- **Formats**: Headerless `.raw`, `.rgb`, `.rgba`, `.yuv` dumps.
+- **Formats**: Headerless `.raw`, `.rgb`, `.rgba`, `.yuv`, `.nv12`, `.nv21` dumps.
 - **Color Formats**: YUV420 (NV12/NV21/I420/YV12), RGB565, RGB888, RGBA8888, ARGB8888. Multi-frame raw video playback supported.
 
 ### 🤖 AI Diagnostic Prompt Assistant
@@ -63,12 +69,13 @@ unwrapMedia check <file> -p --clipboard
 
 ---
 
-## 📦 Supported Formats
+## 📦 Supported Formats & Codecs
 
-| Category | Extensions |
+| Category | Supported Extensions & Codecs |
 |---|---|
 | **Image** | `.jpg`, `.jpeg`, `.png`, `.bmp`, `.gif`, `.webp`, `.avif`, `.heic`, `.tif`, `.tiff`, `.cr2`, `.nef`, `.arw`, `.dng` |
-| **Video** | `.mp4`, `.mov`, `.m4v`, `.webm` |
+| **Video Containers** | `.mp4`, `.mov`, `.m4v`, `.webm`, `.apv`, `.av1`, `.ivf` |
+| **Video Codecs** | **APV**, **AV1**, **HEVC (H.265)**, **AVC (H.264)**, **Dolby Vision**, MPEG-4, VP8/VP9 |
 | **Audio** | `.m4a`, `.mp3`, `.wav`, `.flac`, `.ogg`, `.opus`, `.aiff`, `.aif`, `.aifc`, `.pcm` |
 | **Raw Pixel** | `.raw`, `.rgb`, `.rgba`, `.yuv`, `.nv12`, `.nv21` |
 
