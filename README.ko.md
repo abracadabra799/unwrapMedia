@@ -68,10 +68,12 @@
 - 우측 패널(선택 전엔 한눈에 보는 Overview, 트리 노드 선택 시 상세 속성으로 전환, 필드 클릭 시 헥스 뷰가 해당 바이트로 이동) + 
 - 드래그 선택 가능한 헥스/raw 바이트 뷰어. 모든 패널 크기 조절 가능, 다크/라이트 테마 전환(설정 유지).
 
-**CLI 모드** -- GUI 없이 스크립트/CI에서 사용:
+**CLI 모드** -- GUI 없이 스크립트/CI에서 검사하거나 AI 디버깅 프롬프트 생성:
 ```bash
-unwrapMedia dump <file>   # 전체 구조 트리를 JSON으로 출력
-unwrapMedia check <file>  # 경고만 JSON으로 출력, 스펙에 부합하는지 check 
+unwrapMedia dump <file>                     # 전체 구조 트리를 JSON으로 출력
+unwrapMedia check <file>                    # 경고만 JSON으로 출력 (스펙 위반 및 이상 징후 검사)
+unwrapMedia check <file> --prompt           # 도메인 지식과 스펙 컨텍스트가 포함된 AI 진단 프롬프트 생성
+unwrapMedia check <file> -p --clipboard     # AI 프롬프트 생성 후 OS 클립보드에 자동 복사
 ```
 정상 파싱 시 종료 코드 `0`(경고 유무 무관), 파싱 자체가 불가능하면 `1`.
 
