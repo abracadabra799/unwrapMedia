@@ -21,6 +21,8 @@ fun registerAllDecoders() {
     BoxRegistry.register("hvcC", HvcCBoxDecoder)
     BoxRegistry.register("av1C", Av1CBoxDecoder)
     BoxRegistry.register("apvC", ApvCBoxDecoder)
+    BoxRegistry.register("dvcC", DolbyVisionConfigDecoder)
+    BoxRegistry.register("dvvC", DolbyVisionConfigDecoder)
     BoxRegistry.register("elst", ElstBoxDecoder)
     BoxRegistry.register("dref", ContainerBoxDecoder(childOffsetInPayload = 8, summarize = true))
     BoxRegistry.register("url ", UrlBoxDecoder)
