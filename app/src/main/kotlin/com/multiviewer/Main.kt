@@ -115,6 +115,7 @@ private fun extractAudioTrackFromCurrentFile(appState: AppState, tab: TabState) 
 }
 
 fun main(args: Array<String>) {
+    com.multiviewer.util.GlobalExceptionHandler.install()
     when (args.firstOrNull()) {
         "dump" -> exitProcess(runDumpCommand(args.drop(1)))
         "check" -> exitProcess(runCheckCommand(args.drop(1)))

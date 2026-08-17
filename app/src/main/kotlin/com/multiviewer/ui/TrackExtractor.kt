@@ -53,11 +53,13 @@ private fun runFfmpegExtract(vararg command: String): Boolean {
             .redirectError(ProcessBuilder.Redirect.DISCARD)
             .also { FfmpegLocator.configureEnvironment(it) }
             .start()
+            .also { com.multiviewer.util.ProcessManager.register(it) }
         val finished = process.waitFor(EXTRACT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         if (!finished) {
-            process.destroyForcibly()
+            com.multiviewer.util.ProcessManager.terminate(process)
             false
         } else {
+            com.multiviewer.util.ProcessManager.unregister(process)
             process.exitValue() == 0
         }
     } catch (e: Exception) {

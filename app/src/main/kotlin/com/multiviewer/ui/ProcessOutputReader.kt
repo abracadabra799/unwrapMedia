@@ -14,20 +14,26 @@ import java.util.concurrent.TimeoutException
 // force-killed and this returns null, restoring the meaning the timeout value at each call site
 // already implied but couldn't deliver.
 fun <T> readProcessOutputWithTimeout(process: Process, timeoutSeconds: Long, read: () -> T): T? {
+    com.multiviewer.util.ProcessManager.register(process)
     val executor = Executors.newSingleThreadExecutor { Thread(it).apply { isDaemon = true } }
     val future = executor.submit(Callable(read))
     return try {
         val result = future.get(timeoutSeconds, TimeUnit.SECONDS)
-        if (!process.waitFor(1, TimeUnit.SECONDS)) process.destroyForcibly()
+        if (!process.waitFor(1, TimeUnit.SECONDS)) {
+            com.multiviewer.util.ProcessManager.terminate(process)
+        } else {
+            com.multiviewer.util.ProcessManager.unregister(process)
+        }
         result
     } catch (e: TimeoutException) {
         future.cancel(true)
-        process.destroyForcibly()
+        com.multiviewer.util.ProcessManager.terminate(process)
         null
     } catch (e: Exception) {
-        process.destroyForcibly()
+        com.multiviewer.util.ProcessManager.terminate(process)
         null
     } finally {
+        com.multiviewer.util.ProcessManager.unregister(process)
         executor.shutdownNow()
     }
 }
