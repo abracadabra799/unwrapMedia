@@ -367,7 +367,9 @@ fun FfmpegVideoPlayer(
         val process = try {
             ProcessBuilder(
                 ffmpegPipeArgs(FfmpegLocator.ffmpegPath(), file.absolutePath, seekArgs),
-            ).also { FfmpegLocator.configureEnvironment(it) }.start()
+            ).also { FfmpegLocator.configureEnvironment(it) }.start().also {
+                com.multiviewer.util.ProcessManager.register(it)
+            }
         } catch (e: Exception) {
             null
         }
@@ -494,7 +496,7 @@ fun FfmpegVideoPlayer(
         onDispose {
             stopped.set(true)
             readerThread?.interrupt()
-            process?.destroyForcibly()
+            com.multiviewer.util.ProcessManager.terminate(process)
         }
     }
 

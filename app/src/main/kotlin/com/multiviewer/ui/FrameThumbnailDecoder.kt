@@ -74,11 +74,13 @@ object FrameThumbnailDecoder {
                 .redirectError(ProcessBuilder.Redirect.DISCARD)
                 .also { FfmpegLocator.configureEnvironment(it) }
                 .start()
+                .also { com.multiviewer.util.ProcessManager.register(it) }
             val finished = process.waitFor(BATCH_TIMEOUT_MS, TimeUnit.MILLISECONDS)
             if (!finished) {
-                process.destroyForcibly()
+                com.multiviewer.util.ProcessManager.terminate(process)
                 return emptyMap()
             }
+            com.multiviewer.util.ProcessManager.unregister(process)
             if (process.exitValue() != 0) return emptyMap()
             tempDir.listFiles { f -> f.name.startsWith(THUMB_FILENAME_PREFIX) }
                 ?.mapNotNull { pngFile ->

@@ -248,7 +248,9 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
                     "-f", "s16le", "-ar", sampleRate.toString(), "-ac", channels.toString(),
                     "-acodec", "pcm_s16le", "-",
                 ),
-            ).also { FfmpegLocator.configureEnvironment(it) }.start()
+            ).also { FfmpegLocator.configureEnvironment(it) }.start().also {
+                com.multiviewer.util.ProcessManager.register(it)
+            }
         } catch (e: Exception) {
             null
         }
@@ -310,7 +312,7 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
         onDispose {
             stopped.set(true)
             readerThread?.interrupt()
-            process?.destroyForcibly()
+            com.multiviewer.util.ProcessManager.terminate(process)
             if (inputFile != file) inputFile.delete()
         }
     }

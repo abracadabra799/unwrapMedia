@@ -70,16 +70,18 @@ object FfmpegImageSnapshotDecoder {
         }
         tempPng.deleteOnExit()
 
+        var process: Process? = null
         return try {
-            val process = ProcessBuilder(inputArgs + listOf(tempPng.absolutePath))
+            process = ProcessBuilder(inputArgs + listOf(tempPng.absolutePath))
                 .redirectOutput(ProcessBuilder.Redirect.DISCARD)
                 .redirectError(ProcessBuilder.Redirect.DISCARD)
                 .also { FfmpegLocator.configureEnvironment(it) }
                 .start()
+                .also { com.multiviewer.util.ProcessManager.register(it) }
 
             val finished = process.waitFor(TIMEOUT_MS, TimeUnit.MILLISECONDS)
             if (!finished) {
-                process.destroyForcibly()
+                com.multiviewer.util.ProcessManager.terminate(process)
                 null
             } else if (process.exitValue() != 0 || tempPng.length() == 0L) {
                 null
@@ -90,6 +92,7 @@ object FfmpegImageSnapshotDecoder {
             // ProcessBuilder.start() throws IOException when `ffmpeg` isn't on PATH.
             null
         } finally {
+            process?.let { com.multiviewer.util.ProcessManager.unregister(it) }
             tempPng.delete()
         }
     }
