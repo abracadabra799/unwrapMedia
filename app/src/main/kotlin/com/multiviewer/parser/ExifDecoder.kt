@@ -377,6 +377,12 @@ private fun interpretedDisplay(group: String, tag: Int, fieldType: Int, count: I
     }
 }
 
+enum class MakerNoteVendor {
+    SAMSUNG,
+    APPLE,
+    UNKNOWN,
+}
+
 fun decodeExif(reader: ByteReader, itemStart: Long, itemEnd: Long): List<BoxNode> {
     if (itemEnd - itemStart < 4) return emptyList()
     val tiffHeaderOffsetField = reader.readUInt32(itemStart)
@@ -395,13 +401,13 @@ fun decodeTiff(reader: ByteReader, tiffStart: Long, itemEnd: Long): List<BoxNode
     // IFD0's Make field. Peeked separately, before the real walk, since Make and the
     // Exif-sub-IFD-embedded MakerNote can appear in either order within IFD0's entries.
     val make = peekMakeValue(reader, tiffStart, ifd0AbsoluteOffset, itemEnd, littleEndian)
-    val makerNoteTagNames = if (make?.contains("SAMSUNG", ignoreCase = true) == true) {
-        TAG_NAMES_MAKERNOTE_SAMSUNG
-    } else {
-        emptyMap()
+    val makerNoteVendor = when {
+        make?.contains("SAMSUNG", ignoreCase = true) == true -> MakerNoteVendor.SAMSUNG
+        make?.contains("Apple", ignoreCase = true) == true -> MakerNoteVendor.APPLE
+        else -> MakerNoteVendor.UNKNOWN
     }
     val visitedOffsets = mutableSetOf<Long>()
-    val ifd0Node = decodeIfd(reader, tiffStart, ifd0AbsoluteOffset, itemEnd, littleEndian, "IFD0", TAG_NAMES_IFD0, makerNoteTagNames, visitedOffsets)
+    val ifd0Node = decodeIfd(reader, tiffStart, ifd0AbsoluteOffset, itemEnd, littleEndian, "IFD0", TAG_NAMES_IFD0, makerNoteVendor, visitedOffsets)
 
     val ifds = mutableListOf(ifd0Node)
     val nextIfdOffsetPos = ifd0Node.offset + ifd0Node.size
@@ -409,7 +415,7 @@ fun decodeTiff(reader: ByteReader, tiffStart: Long, itemEnd: Long): List<BoxNode
         val nextIfdOffset = readUInt32Endian(reader, nextIfdOffsetPos, littleEndian)
         if (nextIfdOffset != 0L) {
             val ifd1AbsoluteOffset = tiffStart + nextIfdOffset
-            ifds.add(decodeIfd(reader, tiffStart, ifd1AbsoluteOffset, itemEnd, littleEndian, "IFD1", TAG_NAMES_IFD0, makerNoteTagNames, visitedOffsets))
+            ifds.add(decodeIfd(reader, tiffStart, ifd1AbsoluteOffset, itemEnd, littleEndian, "IFD1", TAG_NAMES_IFD0, makerNoteVendor, visitedOffsets))
         }
     }
     return ifds
@@ -452,7 +458,7 @@ private fun decodeIfd(
     littleEndian: Boolean,
     label: String,
     tagNames: Map<Int, String>,
-    makerNoteTagNames: Map<Int, String>,
+    makerNoteVendor: MakerNoteVendor,
     visitedOffsets: MutableSet<Long>,
 ): BoxNode {
     if (!visitedOffsets.add(ifdOffset)) {
@@ -485,24 +491,29 @@ private fun decodeIfd(
             TAG_EXIF_IFD_POINTER -> {
                 val subOffset = tiffStart + readUInt32Endian(reader, valueOffsetPos, littleEndian)
                 children.add(
-                    decodeIfd(reader, tiffStart, subOffset, itemEnd, littleEndian, "Exif", TAG_NAMES_EXIF, makerNoteTagNames, visitedOffsets),
+                    decodeIfd(reader, tiffStart, subOffset, itemEnd, littleEndian, "Exif", TAG_NAMES_EXIF, makerNoteVendor, visitedOffsets),
                 )
             }
             TAG_GPS_IFD_POINTER -> {
                 val subOffset = tiffStart + readUInt32Endian(reader, valueOffsetPos, littleEndian)
                 children.add(
-                    decodeIfd(reader, tiffStart, subOffset, itemEnd, littleEndian, "GPS", TAG_NAMES_GPS, makerNoteTagNames, visitedOffsets),
+                    decodeIfd(reader, tiffStart, subOffset, itemEnd, littleEndian, "GPS", TAG_NAMES_GPS, makerNoteVendor, visitedOffsets),
                 )
             }
             TAG_INTEROP_IFD_POINTER -> {
                 val subOffset = tiffStart + readUInt32Endian(reader, valueOffsetPos, littleEndian)
                 children.add(
-                    decodeIfd(reader, tiffStart, subOffset, itemEnd, littleEndian, "Interop", TAG_NAMES_EXIF, makerNoteTagNames, visitedOffsets),
+                    decodeIfd(reader, tiffStart, subOffset, itemEnd, littleEndian, "Interop", TAG_NAMES_EXIF, makerNoteVendor, visitedOffsets),
                 )
             }
             TAG_MAKER_NOTE -> {
                 if (valueAbsolutePos >= 0 && valueAbsolutePos + count <= itemEnd) {
-                    children.add(decodeMakerNote(reader, tiffStart, valueAbsolutePos, count.toInt(), littleEndian, itemEnd, makerNoteTagNames))
+                    val mnNode = when (makerNoteVendor) {
+                        MakerNoteVendor.APPLE -> decodeAppleMakerNote(reader, tiffStart, valueAbsolutePos, count.toInt(), littleEndian, itemEnd)
+                        MakerNoteVendor.SAMSUNG -> decodeMakerNote(reader, tiffStart, valueAbsolutePos, count.toInt(), littleEndian, itemEnd, TAG_NAMES_MAKERNOTE_SAMSUNG)
+                        MakerNoteVendor.UNKNOWN -> decodeMakerNote(reader, tiffStart, valueAbsolutePos, count.toInt(), littleEndian, itemEnd, emptyMap())
+                    }
+                    children.add(mnNode)
                 }
             }
             TAG_SUB_IFDS -> {
@@ -511,7 +522,7 @@ private fun decodeIfd(
                     if (entryPos + 4 > itemEnd) break
                     val subIfdOffset = tiffStart + readUInt32Endian(reader, entryPos, littleEndian)
                     children.add(
-                        decodeIfd(reader, tiffStart, subIfdOffset, itemEnd, littleEndian, "SubIFD$i", TAG_NAMES_IFD0, makerNoteTagNames, visitedOffsets),
+                        decodeIfd(reader, tiffStart, subIfdOffset, itemEnd, littleEndian, "SubIFD$i", TAG_NAMES_IFD0, makerNoteVendor, visitedOffsets),
                     )
                 }
             }
