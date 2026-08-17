@@ -6,9 +6,9 @@
 
 ---
 
-## ⚡ Key Features
+## <font color="#0969da">⚡ Key Features</font>
 
-### 🖼️ Image Inspector
+### <font color="#1f6feb">🖼️ Image Inspector</font>
 - **Formats**: JPEG, PNG, BMP, GIF, WebP, AVIF, HEIC/HEIF, TIFF, and Camera RAW (CR2, NEF, ARW, DNG).
 - **HEVC Grid Tile Overlay & Popup**: Visualizes HEVC/HEIF grid tiles with interactive outline overlays, bidirectional tree sync, and a dedicated zoomable popup viewer.
 - **Apple & Samsung Metadata**: Apple MakerNote (lens, sensor, focus, HDR gain/headroom, Smart Style binary plist), Samsung SEFD.
@@ -16,7 +16,7 @@
 - **Deep Inspection**: XMP, color histograms, JPEG DQT heatmaps, embedded thumbnail extractors, and animated GIF filmstrips.
 - **Motion Photos**: Supports both Samsung-style (`MotionPhoto_Data`) and Google-style (still + embedded video).
 
-### 🎬 Video Inspector
+### <font color="#8250df">🎬 Video Inspector</font>
 - **Container Formats**: MP4, MOV, M4V, WebM, APV, AV1, IVF.
 - **Deep Codec & Bitstream Decoders**:
   - **APV (Advanced Professional Video)**: `apvC` box, Frame Header (Chroma 4:2:2/4:4:4/4:4:4:4, Bit Depth 10/12/14/16-bit, Tile Grid, Color Primaries).
@@ -33,21 +33,21 @@
 - **2-Tier Index Caching**: Instant tab switching and reloading with L1 memory LRU + L2 compact binary disk cache.
 - **Track Extraction**: Lossless stream copy or re-encode fallback.
 
-### 🎵 Audio Inspector
+### <font color="#0969da">🎵 Audio Inspector</font>
 - **Formats**: M4A, MP3, WAV, FLAC, OGG, Opus, AIFF, and headerless raw PCM (`.pcm`).
 - **Visuals**: Real decoded peak waveforms and spectrograms with zoom/pan and minimap.
 
-### 🔲 Raw Pixel Viewer
+### <font color="#57606a">🔲 Raw Pixel Viewer</font>
 - **Formats**: Headerless `.raw`, `.rgb`, `.rgba`, `.yuv`, `.nv12`, `.nv21` dumps.
 - **Color Formats**: YUV420 (NV12/NV21/I420/YV12), RGB565, RGB888, RGBA8888, ARGB8888. Multi-frame raw video playback supported.
 
-### 🤖 AI Diagnostic Prompt Assistant
+### <font color="#bf3989">🤖 AI Diagnostic Assistant</font>
 - **One-Click Diagnostic Prompt**: Automatically generates structured, domain-rich prompts containing file info, exact structural defects (JSON), and ISO/IEC spec references.
 - **OS Clipboard Integration**: Instant copy for immediate analysis with ChatGPT, Claude, or Gemini.
 
 ---
 
-## 💻 CLI Mode
+## <font color="#0969da">💻 CLI Mode</font>
 
 Inspect files from terminal scripts, CI/CD pipelines, or generate AI debugging prompts:
 
@@ -69,7 +69,7 @@ unwrapMedia check <file> -p --clipboard
 
 ---
 
-## 📦 Supported Formats & Codecs
+## <font color="#0969da">📦 Supported Formats & Codecs</font>
 
 | Category | Supported Extensions & Codecs |
 |---|---|
@@ -81,15 +81,15 @@ unwrapMedia check <file> -p --clipboard
 
 ---
 
-## 🚀 Installation & Running
+## <font color="#0969da">🚀 Installation & Running</font>
 
-### Pre-built Binaries
+### <font color="#1a7f37">Pre-built Binaries</font>
 Download the latest binary from GitHub Actions [Artifacts](https://github.com/abracadabra799/unwrapMedia/actions):
 - **macOS**: `.dmg` (requires `ffmpeg` on PATH: `brew install ffmpeg`)
 - **Windows**: `.exe` (bundled with ffmpeg/ffprobe)
 - **Linux**: `.deb` (bundled with ffmpeg/ffprobe)
 
-### Build from Source
+### <font color="#57606a">Build from Source</font>
 Requirements: JDK 21+ and Gradle.
 
 ```bash
@@ -105,7 +105,7 @@ Requirements: JDK 21+ and Gradle.
 
 ---
 
-## 🛡️ Reliability & Process Safety
+## <font color="#1a7f37">🛡️ Reliability & Process Safety</font>
 
 - **Zero Zombie Processes**: Global `ProcessManager` and JVM shutdown hooks ensure all background `ffmpeg`/`ffprobe` processes are terminated immediately upon exit or cancellation.
 - **Safe Resource Management**: Strict `.use { ... }` auto-close patterns prevent file locking and memory leaks.
@@ -113,6 +113,6 @@ Requirements: JDK 21+ and Gradle.
 
 ---
 
-## License
+## <font color="#57606a">📄 License</font>
 
 MIT -- see [LICENSE](LICENSE).
