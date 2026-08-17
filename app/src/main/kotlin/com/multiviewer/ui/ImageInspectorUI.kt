@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollbarAdapter
@@ -183,10 +184,35 @@ fun ImageInspectorUI(
                             Text("Primary Image Decoding Failed", color = AppColors.NeonRed, fontSize = 13.sp)
                         }
 
-                        Text("PRIMARY IMAGE VIEW",
-                            modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
-                            style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = AppColors.NeonGreen)
-                        )
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .fillMaxWidth()
+                                .padding(4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "PRIMARY IMAGE VIEW",
+                                style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = AppColors.NeonGreen),
+                            )
+                            if (forensic.bitmap != null) {
+                                Row(
+                                    modifier = Modifier
+                                        .clickable { tab.isPrimaryImagePopupOpen = true }
+                                        .background(Color.Black.copy(alpha = 0.6f), shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    OpenInNewIcon(modifier = Modifier.size(11.dp), color = AppColors.NeonGreen)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        "팝업으로 보기",
+                                        style = AppTypography.labelMedium.copy(fontSize = 10.sp, color = AppColors.NeonGreen),
+                                    )
+                                }
+                            }
+                        }
 
                         forensic.bitmap?.let {
                             val orientationSuffix = forensic.orientation?.let { o -> " · $o" } ?: ""
@@ -704,5 +730,25 @@ private fun SosScanStatistics(tab: TabState, selectedNode: BoxNode) {
             "Brightest Pixel",
             "RGB=[${current.brightestR}, ${current.brightestG}, ${current.brightestB}] @ (${current.brightestX}, ${current.brightestY})",
         )
+    }
+}
+
+@Composable
+private fun OpenInNewIcon(modifier: Modifier = Modifier, color: Color = Color.White) {
+    Canvas(modifier = modifier) {
+        val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5f)
+        val w = size.width
+        val h = size.height
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w * 0.45f, h * 0.15f)
+            lineTo(w * 0.15f, h * 0.15f)
+            lineTo(w * 0.15f, h * 0.85f)
+            lineTo(w * 0.85f, h * 0.85f)
+            lineTo(w * 0.85f, h * 0.55f)
+        }
+        drawPath(path, color, style = stroke)
+        drawLine(color, androidx.compose.ui.geometry.Offset(w * 0.45f, h * 0.55f), androidx.compose.ui.geometry.Offset(w * 0.85f, h * 0.15f), strokeWidth = 1.5f)
+        drawLine(color, androidx.compose.ui.geometry.Offset(w * 0.55f, h * 0.15f), androidx.compose.ui.geometry.Offset(w * 0.85f, h * 0.15f), strokeWidth = 1.5f)
+        drawLine(color, androidx.compose.ui.geometry.Offset(w * 0.85f, h * 0.15f), androidx.compose.ui.geometry.Offset(w * 0.85f, h * 0.45f), strokeWidth = 1.5f)
     }
 }

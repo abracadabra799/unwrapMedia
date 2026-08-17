@@ -128,6 +128,7 @@ class TabState(val file: File) {
     // node isn't a tile item (including "nothing selected").
     var tileHighlightRange: LongRange? by mutableStateOf(null)
     var selectedTileIndex: Int? by mutableStateOf(null)
+    var isPrimaryImagePopupOpen: Boolean by mutableStateOf(false)
     // Decoded GIF animation frames (see GifFrameDecoder.kt) -- null until the background decode
     // in openFile finishes (or forever, for non-GIF files, which never trigger it). A non-null
     // value with frames.size <= 1 means "decoded successfully but not actually animated" -- see

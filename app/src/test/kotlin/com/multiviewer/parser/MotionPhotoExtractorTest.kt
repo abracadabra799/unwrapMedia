@@ -83,6 +83,22 @@ class MotionPhotoExtractorTest {
     }
 
     @Test
+    fun `ignores MotionPhoto_AutoPlay preview when MotionPhoto_Data is absent`() {
+        val autoPlayFtyp = BoxNode(
+            type = "ftyp", offset = 200, headerSize = 8, size = 16,
+            fields = listOf(BoxField("major_brand", "mp42", 200, 4)),
+        )
+        val autoPlayField = BoxNode(
+            type = "MotionPhoto_AutoPlay", offset = 196, headerSize = 4, size = 20,
+            children = listOf(autoPlayFtyp),
+        )
+        val sefd = BoxNode(type = "sefd", offset = 50, headerSize = 0, size = 200, children = listOf(autoPlayField))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 250, children = listOf(sefd))
+
+        assertEquals(null, findEmbeddedVideo(root))
+    }
+
+    @Test
     fun `extractEmbeddedVideo copies exactly the requested byte range to the destination file`() {
         val sourceBytes = ByteArray(50) { it.toByte() }
         val source = File.createTempFile("motion-photo-extract-source", ".bin")
