@@ -144,6 +144,7 @@ private fun runGuiApplication() = application {
     Window(onCloseRequest = ::exitApplication, title = "unwrapMedia", state = windowState) {
         var themeMode by remember { mutableStateOf(loadThemeMode()) }
         var showPixelGrid by remember { mutableStateOf(loadShowPixelGrid()) }
+        var language by remember { mutableStateOf(loadLanguage()) }
         var frameIntervalWindowOpen by remember { mutableStateOf(false) }
         var qualityCompareWindowOpen by remember { mutableStateOf(false) }
         var motionPhotoFrameIntervalWindowOpen by remember { mutableStateOf(false) }
@@ -155,34 +156,34 @@ private fun runGuiApplication() = application {
         // rather than a per-video setting). null = neither mode active.
         var codecViewMode by remember { mutableStateOf<CodecViewMode?>(null) }
         MenuBar {
-            Menu("File") {
-                Item("Open", shortcut = KeyShortcut(Key.O, meta = true), onClick = { showOpenFileDialog(appState) })
-                Item("Close", enabled = appState.tabs.isNotEmpty(), shortcut = KeyShortcut(Key.W, meta = true), onClick = { appState.closeTab(appState.selectedTabIndex) })
+            Menu(I18n.menuFile(language)) {
+                Item(I18n.menuOpen(language), shortcut = KeyShortcut(Key.O, meta = true), onClick = { showOpenFileDialog(appState) })
+                Item(I18n.menuClose(language), enabled = appState.tabs.isNotEmpty(), shortcut = KeyShortcut(Key.W, meta = true), onClick = { appState.closeTab(appState.selectedTabIndex) })
             }
-            Menu("Analyze") {
+            Menu(I18n.menuAnalyze(language)) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val hasActiveFile = currentTab != null && !currentTab.isLoading && currentTab.root != null
                 Item(
-                    "Dump Structure...",
+                    I18n.menuDumpStructure(language),
                     enabled = hasActiveFile,
                     shortcut = KeyShortcut(Key.D, meta = true, shift = true),
                     onClick = { dumpStructureWindowOpen = true },
                 )
                 Item(
-                    "Check Structure...",
+                    I18n.menuCheckStructure(language),
                     enabled = hasActiveFile,
                     shortcut = KeyShortcut(Key.C, meta = true, shift = true),
                     onClick = { checkStructureWindowOpen = true },
                 )
                 Separator()
                 Item(
-                    "Generate AI Prompt...",
+                    I18n.menuGenerateAiPrompt(language),
                     enabled = hasActiveFile,
                     shortcut = KeyShortcut(Key.P, meta = true, shift = true),
                     onClick = { aiPromptWindowOpen = true },
                 )
                 Item(
-                    "Generate AI Prompt & Copy",
+                    I18n.menuGenerateAiPromptAndCopy(language),
                     enabled = hasActiveFile,
                     shortcut = KeyShortcut(Key.P, meta = true, alt = true),
                     onClick = {
@@ -192,34 +193,34 @@ private fun runGuiApplication() = application {
                                 val warnings = com.multiviewer.parser.collectWarnings(root)
                                 val prompt = com.multiviewer.cli.AiDiagnosticPromptBuilder.buildPrompt(tab.file, root, warnings)
                                 if (com.multiviewer.util.ClipboardUtil.copyToClipboard(prompt)) {
-                                    appState.statusMessage = "AI analysis prompt copied to clipboard."
+                                    appState.statusMessage = I18n.toastPromptCopied(language)
                                 } else {
-                                    appState.statusMessage = "Failed to copy to clipboard."
+                                    appState.statusMessage = I18n.toastClipboardFailed(language)
                                 }
                             }
                         }
                     },
                 )
             }
-            Menu("모션포토") {
+            Menu(I18n.menuMotionPhoto(language)) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 Item(
-                    "모션포토 동영상 추출",
+                    I18n.menuExtractMotionVideo(language),
                     enabled = currentTab?.embeddedVideo != null,
                     onClick = { currentTab?.let { extractMotionPhotoVideo(appState, it) } },
                 )
                 Item(
-                    "모션포토 미리보기 재생용 비디오 추출",
+                    I18n.menuExtractPreviewVideo(language),
                     enabled = currentTab?.motionPhotoPreview != null,
                     onClick = { currentTab?.let { extractMotionPhotoPreviewVideo(appState, it) } },
                 )
                 Item(
-                    "모션포토 동영상 프레임 드랍 분석",
+                    I18n.menuMotionFrameDropAnalysis(language),
                     enabled = currentTab?.embeddedVideo != null,
                     onClick = { motionPhotoFrameIntervalWindowOpen = true },
                 )
             }
-            Menu("비트스트림 추출") {
+            Menu(I18n.menuBitstream(language)) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val isVideo = currentTab?.type == MediaType.VIDEO
                 // "Video"/"Audio" summary sections are only built (buildVideoSummary,
@@ -229,32 +230,32 @@ private fun runGuiApplication() = application {
                 val hasVideoTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Video" } == true
                 val hasAudioTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Audio" } == true
                 Item(
-                    "비디오 추출 (.mp4 or .mov etc)",
+                    I18n.menuExtractVideoTrack(language),
                     enabled = hasVideoTrack,
                     onClick = { currentTab?.let { extractVideoTrackFromCurrentFile(appState, it) } },
                 )
                 Item(
-                    "오디오 추출 (.m4a)",
+                    I18n.menuExtractAudioTrack(language),
                     enabled = hasAudioTrack,
                     onClick = { currentTab?.let { extractAudioTrackFromCurrentFile(appState, it) } },
                 )
             }
-            Menu("프레임 간격 분석") {
+            Menu(I18n.menuFrameInterval(language)) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val isVideo = currentTab?.type == MediaType.VIDEO
                 val hasVideoTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Video" } == true
                 Item(
-                    "프레임 간격 분석 보기",
+                    I18n.menuViewFrameIntervals(language),
                     enabled = hasVideoTrack,
                     onClick = { frameIntervalWindowOpen = true },
                 )
             }
-            Menu("품질 비교") {
-                Item("품질 비교 열기", onClick = { qualityCompareWindowOpen = true })
+            Menu(I18n.menuQualityCompare(language)) {
+                Item(I18n.menuOpenQualityCompare(language), onClick = { qualityCompareWindowOpen = true })
             }
-            Menu("보기") {
+            Menu(I18n.menuView(language)) {
                 CheckboxItem(
-                    "다크 테마",
+                    I18n.menuDarkTheme(language),
                     checked = themeMode == ThemeMode.DARK,
                     onCheckedChange = {
                         themeMode = ThemeMode.DARK
@@ -262,7 +263,7 @@ private fun runGuiApplication() = application {
                     },
                 )
                 CheckboxItem(
-                    "라이트 테마",
+                    I18n.menuLightTheme(language),
                     checked = themeMode == ThemeMode.LIGHT,
                     onCheckedChange = {
                         themeMode = ThemeMode.LIGHT
@@ -270,7 +271,7 @@ private fun runGuiApplication() = application {
                     },
                 )
                 CheckboxItem(
-                    "픽셀 그리드",
+                    I18n.menuPixelGrid(language),
                     checked = showPixelGrid,
                     onCheckedChange = {
                         showPixelGrid = it
@@ -279,18 +280,35 @@ private fun runGuiApplication() = application {
                 )
                 val codecViewCurrentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 CheckboxItem(
-                    "모션 벡터 보기",
+                    I18n.menuMotionVectors(language),
                     checked = codecViewMode == CodecViewMode.MOTION_VECTORS,
                     enabled = codecViewCurrentTab?.type == MediaType.VIDEO &&
                         codecViewSupportedFor(CodecViewMode.MOTION_VECTORS, codecViewCurrentTab.videoCodecName),
                     onCheckedChange = { codecViewMode = if (it) CodecViewMode.MOTION_VECTORS else null },
                 )
                 CheckboxItem(
-                    "QP 히트맵 보기",
+                    I18n.menuQpHeatmap(language),
                     checked = codecViewMode == CodecViewMode.QP_HEATMAP,
                     enabled = codecViewCurrentTab?.type == MediaType.VIDEO &&
                         codecViewSupportedFor(CodecViewMode.QP_HEATMAP, codecViewCurrentTab.videoCodecName),
                     onCheckedChange = { codecViewMode = if (it) CodecViewMode.QP_HEATMAP else null },
+                )
+                Separator()
+                CheckboxItem(
+                    I18n.menuKorean(language),
+                    checked = language == AppLanguage.KO,
+                    onCheckedChange = {
+                        language = AppLanguage.KO
+                        saveLanguage(language)
+                    },
+                )
+                CheckboxItem(
+                    I18n.menuEnglish(language),
+                    checked = language == AppLanguage.EN,
+                    onCheckedChange = {
+                        language = AppLanguage.EN
+                        saveLanguage(language)
+                    },
                 )
             }
         }
