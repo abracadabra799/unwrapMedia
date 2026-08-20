@@ -10,6 +10,7 @@
 
 ### <font color="#1f6feb">🖼️ Image Inspector</font>
 - **Formats**: JPEG, PNG, BMP, GIF, WebP, AVIF, HEIC/HEIF, TIFF, and Camera RAW (CR2, NEF, ARW, DNG).
+- **Forensic Orientation & Metadata**: EXIF/HEIF orientation-aware rendering and forensic resolution captioning (e.g. `288x512 (Raw 512x288 · 90° Rotated (6))`).
 - **HEVC Grid Tile Overlay & Popup**: Visualizes HEVC/HEIF grid tiles with interactive outline overlays, bidirectional tree sync, and a dedicated zoomable popup viewer.
 - **Apple & Samsung Metadata**: Apple MakerNote (lens, sensor, focus, HDR gain/headroom, Smart Style binary plist), Samsung SEFD.
 - **Apple HEIF Auxiliary Images**: HDR gain map, depth/disparity, portrait effects, and semantic segmentation mattes.
@@ -24,10 +25,12 @@
   - **HEVC (H.265)**: `hvcC` box, VPS, SPS, PPS (Profile, Level, Tier, Main 10, Tile Grid).
   - **AVC (H.264)**: `avcC` box, SPS (Profile, Level, Chroma 4:2:0/4:2:2/4:4:4, Bit Depth, VUI), PPS (CABAC/CAVLC, 8x8 Transform).
   - **Dolby Vision**: `dvcC`, `dvvC` configuration records.
-- **Playback & GOP Graph**: Minimalist built-in player synced with GOP frame-type analysis (I/P/B frames).
-- **Apple Metadata & Dolby Vision**: `com.apple.quicktime.*`, Live Photo, timed metadata (`mebx`/`mdta`), and Dolby Vision (`dvcC`/`dvvC`).
+- **Visual Debugging Overlays**:
+  - **Motion Vectors Overlay**: Visualizes P/B-frame macroblock motion estimation vectors directly over video playback.
+  - **QP Heatmap Overlay**: Color-coded macroblock quantization parameter heatmap for compression quality analysis.
+- **Video Quality Compare**: Multi-metric objective quality comparison (VMAF, PSNR, SSIM) with frame-by-frame diffs.
 - **High-Performance Frame Interval Analysis**:
-  - Scatter plot and data table detecting timestamp irregularities.
+  - Scatter plot and data table detecting timestamp irregularities and frame drops.
   - **LOD (Level of Detail) Downsampling**: Renders 200,000+ frames at a smooth 120 FPS.
   - **Asynchronous Chunk Streaming (`Flow`)**: Instant UI response without blocking.
 - **2-Tier Index Caching**: Instant tab switching and reloading with L1 memory LRU + L2 compact binary disk cache.
@@ -41,9 +44,13 @@
 - **Formats**: Headerless `.raw`, `.rgb`, `.rgba`, `.yuv`, `.nv12`, `.nv21` dumps.
 - **Color Formats**: YUV420 (NV12/NV21/I420/YV12), RGB565, RGB888, RGBA8888, ARGB8888. Multi-frame raw video playback supported.
 
-### <font color="#bf3989">🤖 AI Diagnostic Assistant</font>
-- **One-Click Diagnostic Prompt**: Automatically generates structured, domain-rich prompts containing file info, exact structural defects (JSON), and ISO/IEC spec references.
-- **OS Clipboard Integration**: Instant copy for immediate analysis with ChatGPT, Claude, or Gemini.
+### <font color="#bf3989">🤖 GUI Analysis Suite & AI Diagnostics</font>
+- **Integrated `Analyze` Menu**:
+  - **Dump Structure...**: Interactive JSON tree viewer with search, byte counts, and one-click copy.
+  - **Check Structure...**: Visual container defect analyzer categorized by severity (`CRITICAL`, `WARNING`, `INFO`), byte offsets, and raw JSON toggle.
+  - **Generate AI Prompt...**: Generates domain-rich prompts with standard ISO/IEC spec mappings tailored to container and codec types (MP4, HEIC, JPEG, RAW).
+  - **Generate AI Prompt & Copy**: Instantly builds the AI prompt and copies it to the OS clipboard with floating toast notification.
+- **Multi-Language Support (I18n)**: Real-time UI language switching (**Korean** default, **English**) with persistent settings.
 
 ---
 
@@ -109,6 +116,7 @@ Requirements: JDK 21+ and Gradle.
 
 - **Zero Zombie Processes**: Global `ProcessManager` and JVM shutdown hooks ensure all background `ffmpeg`/`ffprobe` processes are terminated immediately upon exit or cancellation.
 - **Safe Resource Management**: Strict `.use { ... }` auto-close patterns prevent file locking and memory leaks.
+- **Cross-Platform Clipboard**: Native JVM clipboard integration without external process dependencies.
 - **Global Error Handling**: Uncaught exceptions are intercepted gracefully without silent freezes.
 
 ---

@@ -10,6 +10,7 @@
 
 ### <font color="#1f6feb">🖼️ 이미지 분석기 (Image Inspector)</font>
 - **지원 포맷**: JPEG, PNG, BMP, GIF, WebP, AVIF, HEIC/HEIF, TIFF, 카메라 RAW (CR2, NEF, ARW, DNG).
+- **포렌식 회전 보정 및 상세 해상도 표기**: EXIF/HEIF 회전각(Orientation 1~8) 자동 렌더링 및 원본/표시 해상도 상세 표기 (예: `288x512 (Raw 512x288 · 90° 회전 (6))`).
 - **HEVC 그리드 타일 오버레이 & 팝업**: HEVC/HEIF 타일 경계선 오버레이 표시, 구조 트리와 실시간 양방향 싱크, 줌/팬이 가능한 독립 팝업 뷰어 제공.
 - **Apple & Samsung 메타데이터**: Apple MakerNote (렌즈, 센서, 초점, HDR 게인/헤드룸, Smart Style binary plist), Samsung SEFD.
 - **Apple HEIF 보조 이미지**: HDR 게인맵(Gain Map), 심도/디스패리티(Depth), 인물 효과 및 세그멘테이션 매트.
@@ -24,10 +25,12 @@
   - **HEVC (H.265)**: `hvcC` 박스, VPS, SPS, PPS (Profile, Level, Tier, Main 10, 타일 그리드).
   - **AVC (H.264)**: `avcC` 박스, SPS (Profile, Level, Chroma 4:2:0/4:2:2/4:4:4, Bit Depth, VUI), PPS (CABAC/CAVLC, 8x8 Transform).
   - **Dolby Vision**: `dvcC`, `dvvC` 설정 레코드.
-- **재생 및 GOP 그래프**: GOP 프레임 타입 그래프(I/P/B)와 완벽히 동기화된 내장 비디오 플레이어.
-- **Apple 메타데이터 & Dolby Vision**: `com.apple.quicktime.*`, Live Photo, 타임드 메타데이터(`mebx`/`mdta`), Dolby Vision (`dvcC`/`dvvC`).
+- **시각적 비디오 디버깅 오버레이**:
+  - **모션 벡터 오버레이 (Motion Vectors)**: P/B 프레임 매크로블록 모션 추정 벡터를 재생 영상 위에 직접 오버레이 렌더링.
+  - **QP 히트맵 오버레이 (QP Heatmap)**: 압축 품질 및 비트 할당을 분석할 수 있는 매크로블록 QP 컬러 히트맵 제공.
+- **비디오 화질 품질 비교 (Quality Compare)**: VMAF, PSNR, SSIM 지표 기반 프레임별 정밀 품질 비교 및 차이 분석.
 - **고성능 프레임 간격/타임스탬프 분석**:
-  - 타임스탬프 비정상 간격을 감지하는 산점도 및 데이터 테이블.
+  - 타임스탬프 비정상 간격 및 프레임 드랍을 감지하는 산점도 및 데이터 테이블.
   - **LOD (Level of Detail) 다운샘플링**: 20만 개 이상의 프레임도 120 FPS로 부드럽게 렌더링.
   - **비동기 청크 스트리밍 (`Flow`)**: 긴 영상 분석 시에도 UI 블로킹 없는 즉각적 반응.
 - **2-Tier 인덱스 캐시**: L1 메모리 LRU + L2 컴팩트 바이너리 디스크 캐시를 통한 0ms Instant 탭 전환.
@@ -41,9 +44,13 @@
 - **지원 포맷**: 헤더 없는 `.raw`, `.rgb`, `.rgba`, `.yuv`, `.nv12`, `.nv21` 덤프.
 - **지원 포맷**: YUV420 (NV12/NV21/I420/YV12), RGB565, RGB888, RGBA8888, ARGB8888. 멀티 프레임 원시 영상 재생 지원.
 
-### <font color="#bf3989">🤖 지능형 AI 진단 프롬프트 어시스턴트</font>
-- **원클릭 AI 디버깅 프롬프트**: 파일 정보, 바이너리 파서가 감지한 구조적 결함(JSON), ISO/IEC 스펙 컨텍스트를 포함한 전문 프롬프트 자동 생성.
-- **OS 클립보드 원클릭 복사**: ChatGPT, Claude, Gemini 등에 바로 붙여넣어 원인 분석 및 FFmpeg 복구 방안을 즉시 확인.
+### <font color="#bf3989">🤖 GUI 분석 도구 및 지능형 AI 진단</font>
+- **단일 `분석(Analyze)` 메뉴 통합**:
+  - **구조 덤프... (Dump Structure)**: 포맷별 전체 박스/마커 트리를 검색 및 줄 수/용량 표시가 포함된 JSON 뷰어로 제공.
+  - **구조 결함 검사... (Check Structure)**: 비정상 박스, 오프셋 결함, 필드 값 불일치를 심각도(`CRITICAL`, `WARNING`, `INFO`)별로 직관적 표시.
+  - **AI 진단 프롬프트 생성... (Generate AI Prompt)**: 포맷별(MP4, HEIC, JPEG, RAW) ISO/IEC 스펙 및 타깃 런타임이 포함된 전문 디버깅 프롬프트 자동 생성.
+  - **AI 프롬프트 생성 및 클립보드 복사**: 클릭 즉시 프롬프트를 생성하여 시스템 클립보드에 복사하고 플로팅 토스트 안내 제공.
+- **다국어(I18n) 지원**: `보기(View)` 메뉴를 통한 실시간 한글(기본값) / 영문 전환 및 영구 설정 저장.
 
 ---
 
@@ -109,6 +116,7 @@ GitHub Actions의 [Artifacts](https://github.com/abracadabra799/unwrapMedia/acti
 
 - **좀비 프로세스 완벽 차단**: 전역 `ProcessManager`와 JVM Shutdown Hook을 통해 앱 종료 및 취소 시 모든 백그라운드 ffmpeg/ffprobe 프로세스를 강제 회수합니다.
 - **안전한 자원 해제**: 철저한 `.use { ... }` 패턴으로 파일 락(File Lock) 및 메모리 누수를 방지합니다.
+- **크로스 플랫폼 클립보드**: 외부 CLI 의존 없이 네이티브 JVM 클립보드 엔진 사용.
 - **글로벌 예외 처리**: 예상치 못한 런타임 오류 시에도 앱이 조용히 멈추지 않고 안전하게 복구 및 클린업을 수행합니다.
 
 ---
