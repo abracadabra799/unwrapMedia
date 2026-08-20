@@ -161,4 +161,123 @@ class ImageAnalyzerTest {
             "Expected the brute-force scan over a 3MB file to complete well under 3s, took ${elapsedMs}ms",
         )
     }
+
+    @Test
+    fun `extracts orientation from IFD0 with translated Exif string`() {
+        val file = File.createTempFile("orientation-test", ".jpg")
+        file.deleteOnExit()
+        val ifd0 = BoxNode(
+            type = "IFD0", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("Orientation", "Rotate 90 CW", 0, 0)),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = file.length(), children = listOf(ifd0))
+
+        val forensic = ImageAnalyzer.analyze(file, root)
+
+        assertEquals("90° 회전 (6)", forensic.orientation)
+        assertEquals("90° 회전 (6)", forensic.thumbnailOrientation)
+    }
+
+    @Test
+    fun `extracts orientation from IFD0 with numeric code string`() {
+        val file = File.createTempFile("orientation-test", ".jpg")
+        file.deleteOnExit()
+        val ifd0 = BoxNode(
+            type = "IFD0", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("Orientation", "1", 0, 0)),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = file.length(), children = listOf(ifd0))
+
+        val forensic = ImageAnalyzer.analyze(file, root)
+
+        assertEquals("정상 (1)", forensic.orientation)
+    }
+
+    @Test
+    fun `extracts separate thumbnail orientation when IFD1 specifies one`() {
+        val file = File.createTempFile("orientation-test", ".jpg")
+        file.deleteOnExit()
+        val ifd0 = BoxNode(
+            type = "IFD0", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("Orientation", "Rotate 90 CW", 0, 0)),
+        )
+        val ifd1 = BoxNode(
+            type = "IFD1", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("Orientation", "Horizontal (normal)", 0, 0)),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = file.length(), children = listOf(ifd0, ifd1))
+
+        val forensic = ImageAnalyzer.analyze(file, root)
+
+        assertEquals("90° 회전 (6)", forensic.orientation)
+        assertEquals("정상 (1)", forensic.thumbnailOrientation)
+    }
+
+    @Test
+    fun `extracts rotation from HEIF irot property when no Exif orientation exists`() {
+        val file = File.createTempFile("heic-irot-test", ".heic")
+        file.deleteOnExit()
+
+        val irot = BoxNode(
+            type = "irot", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("angle", "1", 0, 0)),
+        )
+        val ipco = BoxNode(type = "ipco", offset = 0, headerSize = 0, size = 0, children = listOf(irot))
+        val item1 = BoxNode(
+            type = "item_1", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("property_index", "1", 0, 0)),
+        )
+        val ipma = BoxNode(type = "ipma", offset = 0, headerSize = 0, size = 0, children = listOf(item1))
+        val pitm = BoxNode(type = "pitm", offset = 0, headerSize = 0, size = 0, fields = listOf(BoxField("primary_item_ID", "1", 0, 0)))
+        val meta = BoxNode(type = "meta", offset = 0, headerSize = 0, size = 0, children = listOf(pitm, ipco, ipma))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = file.length(), children = listOf(meta))
+
+        val forensic = ImageAnalyzer.analyze(file, root)
+
+        assertEquals("90° 회전", forensic.orientation)
+    }
+
+    @Test
+    fun `orientSkiaImage rotates 90 CW and swaps width and height`() {
+        val width = 100
+        val height = 50
+        val img = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
+        val file = File.createTempFile("orient-skia-test", ".png")
+        file.deleteOnExit()
+        ImageIO.write(img, "png", file)
+        val skiaImg = org.jetbrains.skia.Image.makeFromEncoded(file.readBytes())
+
+        assertEquals(100, skiaImg.width)
+        assertEquals(50, skiaImg.height)
+
+        val rotated90 = ImageAnalyzer.orientSkiaImage(skiaImg, 6) // 90 CW
+        assertEquals(50, rotated90.width)
+        assertEquals(100, rotated90.height)
+
+        val rotated180 = ImageAnalyzer.orientSkiaImage(skiaImg, 3) // 180
+        assertEquals(100, rotated180.width)
+        assertEquals(50, rotated180.height)
+
+        val rotated270 = ImageAnalyzer.orientSkiaImage(skiaImg, 8) // 270 CW
+        assertEquals(50, rotated270.width)
+        assertEquals(100, rotated270.height)
+    }
+
+    @Test
+    fun `formatResolutionWithOrientation formats rotated and normal dimensions with Raw tags correctly`() {
+        // Normal (code 1)
+        assertEquals("512x288 · 정상 (1)", com.multiviewer.ui.formatResolutionWithOrientation(512, 288, "정상 (1)", 1))
+
+        // Rotated 90 CW (code 6) -> Display is 288x512, Raw was 512x288
+        assertEquals("288x512 (Raw 512x288 · 90° 회전 (6))", com.multiviewer.ui.formatResolutionWithOrientation(288, 512, "90° 회전 (6)", 6))
+
+        // Rotated 180 (code 3) -> Display is 512x288, Raw was 512x288
+        assertEquals("512x288 (Raw 512x288 · 180° 회전 (3))", com.multiviewer.ui.formatResolutionWithOrientation(512, 288, "180° 회전 (3)", 3))
+
+        // Rotated 270 CW (code 8) -> Display is 288x512, Raw was 512x288
+        assertEquals("288x512 (Raw 512x288 · 270° 회전 (8))", com.multiviewer.ui.formatResolutionWithOrientation(288, 512, "270° 회전 (8)", 8))
+
+        // No orientation metadata
+        assertEquals("1920x1080", com.multiviewer.ui.formatResolutionWithOrientation(1920, 1080, null, null))
+    }
 }

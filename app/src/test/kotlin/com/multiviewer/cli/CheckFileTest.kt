@@ -121,4 +121,31 @@ class CheckFileTest {
 
         file.delete()
     }
+
+    @Test
+    fun `buildPrompt adapts domain context for JPEG and HEIC files`() {
+        val jpegFile = File("sample.jpg")
+        val jpegPrompt = AiDiagnosticPromptBuilder.buildPrompt(jpegFile, null, emptyList())
+        assertTrue(jpegPrompt.contains("JPEG"))
+        assertTrue(jpegPrompt.contains("정상 파일입니다"))
+
+        val heicFile = File("sample.heic")
+        val heicPrompt = AiDiagnosticPromptBuilder.buildPrompt(heicFile, null, emptyList())
+        assertTrue(heicPrompt.contains("HEIF/HEIC"))
+        assertTrue(heicPrompt.contains("정상 파일입니다"))
+    }
+
+    @Test
+    fun `determineSeverity categorizes critical, warning, and info correctly`() {
+        assertEquals("CRITICAL", AiDiagnosticPromptBuilder.determineSeverity("mdat", "corrupt box length exceeds file size"))
+        assertEquals("CRITICAL", AiDiagnosticPromptBuilder.determineSeverity("stbl", "missing required stsd box"))
+        assertEquals("WARNING", AiDiagnosticPromptBuilder.determineSeverity("trun", "sample_duration mismatch with stts"))
+        assertEquals("INFO", AiDiagnosticPromptBuilder.determineSeverity("udta", "custom vendor metadata encountered"))
+    }
+
+    @Test
+    fun `ClipboardUtil copies text safely without crashing`() {
+        val success = com.multiviewer.util.ClipboardUtil.copyToClipboard("unwrapMedia test clipboard string")
+        assertTrue(success)
+    }
 }

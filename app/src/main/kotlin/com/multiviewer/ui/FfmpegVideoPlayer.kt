@@ -525,34 +525,23 @@ fun FfmpegVideoPlayer(
             LaunchedEffect(elapsedSeconds) { onElapsedChanged(elapsedSeconds) }
         }
 
-        // Center clickable area for easy play/pause toggle with subtle indicator
-        if (!isPlaying) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clickable {
+        // Clickable video area for play/pause toggle without obscuring the frame
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable {
+                    if (!isPlaying) {
                         if (hasEnded) {
                             hasEnded = false
                             startFromSeconds = 0.0
                             restartTrigger++
                         }
                         isPlaying = true
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.25f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Filled.PlayArrow, contentDescription = "Play", tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(32.dp))
-                }
-            }
-        } else {
-            Box(modifier = Modifier.fillMaxSize().clickable { isPlaying = false })
-        }
+                    } else {
+                        isPlaying = false
+                    }
+                },
+        )
 
         // Bottom Controls Bar (Play/Pause button on left, Info captions, and Progress bar)
         Column(

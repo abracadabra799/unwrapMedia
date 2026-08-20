@@ -64,7 +64,14 @@ fun extractHevcItemAnnexB(file: File, root: BoxNode, itemId: Long): ByteArray? {
     }
 }
 
-// Same item/property-association lookup as MediaSummaryBuilder's findPrimaryItemProperty, but for
+internal fun findPrimaryItemProperty(root: BoxNode, propertyType: String): BoxNode? {
+    val meta = findFirst(root) { it.type == "meta" } ?: return null
+    val pitm = findFirst(meta) { it.type == "pitm" } ?: return null
+    val primaryItemId = pitm.fields.find { it.name == "primary_item_ID" }?.value?.toLongOrNull() ?: return null
+    return findItemProperty(meta, primaryItemId, propertyType)
+}
+
+// Same item/property-association lookup as findPrimaryItemProperty above, but for
 // an arbitrary item ID rather than only the file's primary item.
 internal fun findItemProperty(meta: BoxNode, itemId: Long, propertyType: String): BoxNode? {
     val ipma = findFirst(meta) { it.type == "ipma" } ?: return null

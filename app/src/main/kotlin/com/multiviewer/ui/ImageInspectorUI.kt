@@ -1,3 +1,6 @@
+
+
+
 package com.multiviewer.ui
 
 import androidx.compose.foundation.VerticalScrollbar
@@ -143,9 +146,11 @@ fun ImageInspectorUI(
                         )
 
                         forensic.embeddedThumbnail?.let {
-                            val orientationSuffix = forensic.orientation?.let { o -> " · $o" } ?: ""
+                            val thumbOrientation = forensic.thumbnailOrientation ?: forensic.orientation
+                            val thumbCode = forensic.thumbnailOrientationCode ?: forensic.orientationCode
+                            val caption = formatResolutionWithOrientation(it.width, it.height, thumbOrientation, thumbCode)
                             PreviewCaption(
-                                "${it.width}x${it.height}$orientationSuffix",
+                                caption,
                                 modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
                             )
                         }
@@ -218,9 +223,9 @@ fun ImageInspectorUI(
                         }
 
                         forensic.bitmap?.let {
-                            val orientationSuffix = forensic.orientation?.let { o -> " · $o" } ?: ""
+                            val caption = formatResolutionWithOrientation(it.width, it.height, forensic.orientation, forensic.orientationCode)
                             PreviewCaption(
-                                "${it.width}x${it.height}$orientationSuffix",
+                                caption,
                                 modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
                             )
                         }

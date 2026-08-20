@@ -48,6 +48,24 @@ fun PreviewCaption(text: String, modifier: Modifier = Modifier) {
     )
 }
 
+fun formatResolutionWithOrientation(
+    width: Int,
+    height: Int,
+    orientation: String?,
+    orientationCode: Int?,
+): String {
+    if (orientation == null) return "${width}x${height}"
+    val code = orientationCode ?: 1
+    return if (code in 2..8) {
+        val swap = code in listOf(5, 6, 7, 8)
+        val rawW = if (swap) height else width
+        val rawH = if (swap) width else height
+        "${width}x${height} (Raw ${rawW}x${rawH} · $orientation)"
+    } else {
+        "${width}x${height} · $orientation"
+    }
+}
+
 // Shared "async work is happening right now" indicator -- a small indeterminate spinner (genuine
 // motion, not just static text) plus a label saying what's in progress. Used for every background
 // decode/analysis state in the app (thumbnail loading, primary image decode, video stream decode,

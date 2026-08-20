@@ -102,6 +102,9 @@ data class ImageForensicData(
     val dqtQuality: Int = 0,
     val software: String? = null,
     val orientation: String? = null,
+    val orientationCode: Int? = null,
+    val thumbnailOrientation: String? = null,
+    val thumbnailOrientationCode: Int? = null,
     val isModified: Boolean = false,
     val hasThumbnailReference: Boolean = false,
     val isDecodingFallback: Boolean = false,
@@ -588,7 +591,8 @@ class AppState {
                             FfmpegImageSnapshotDecoder.decodeEmbeddedHevcThumbnailAsync(file, root) { thumbBitmap ->
                                 if (thumbBitmap != null) {
                                     val current = tab.imageForensic ?: finalImageForensic
-                                    tab.imageForensic = current.copy(embeddedThumbnail = thumbBitmap)
+                                    val orientedThumb = ImageAnalyzer.orientImageBitmap(thumbBitmap, current.thumbnailOrientationCode)
+                                    tab.imageForensic = current.copy(embeddedThumbnail = orientedThumb)
                                 }
                             }
                         }
