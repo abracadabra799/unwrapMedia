@@ -93,22 +93,6 @@ fun findFirst(node: BoxNode, predicate: (BoxNode) -> Boolean): BoxNode? {
     return null
 }
 
-private fun findPrimaryItemProperty(root: BoxNode, propertyType: String): BoxNode? {
-    val meta = root.children.find { it.type == "meta" } ?: return null
-    val pitm = meta.children.find { it.type == "pitm" } ?: return null
-    val primaryItemId = pitm.fields.find { it.name == "primary_item_ID" }?.value ?: return null
-    val ipma = findFirst(meta) { it.type == "ipma" } ?: return null
-    val itemEntry = ipma.children.find { it.type == "item_$primaryItemId" } ?: return null
-    val propertyIndices = itemEntry.fields
-        .filter { it.name == "property_index" }
-        .mapNotNull { it.value.toIntOrNull() }
-    val ipco = findFirst(meta) { it.type == "ipco" } ?: return null
-    for (index in propertyIndices) {
-        val property = ipco.children.getOrNull(index - 1) ?: continue
-        if (property.type == propertyType) return property
-    }
-    return null
-}
 
 private fun formatFileSize(bytes: Long): String = when {
     bytes >= 1_000_000_000 -> "%.1f GB".format(bytes / 1_000_000_000.0)

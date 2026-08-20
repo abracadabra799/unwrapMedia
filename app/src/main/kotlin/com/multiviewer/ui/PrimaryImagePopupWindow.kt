@@ -47,14 +47,14 @@ fun PrimaryImagePopupWindow(tab: TabState, onCloseRequest: () -> Unit) {
                     },
                 )
 
-                val orientationSuffix = forensic.orientation?.let { o -> " · $o" } ?: ""
+                val caption = formatResolutionWithOrientation(bitmap.width, bitmap.height, forensic?.orientation, forensic?.orientationCode)
                 val tileInfoSuffix = if (tab.tileGrid != null) {
                     val selected = tab.selectedTileIndex?.let { " · Selected Tile: #${it + 1}/${tab.tileGrid?.tileItemIds?.size}" } ?: " · Tiles: ${tab.tileGrid?.tileItemIds?.size}"
                     selected
                 } else ""
 
                 PreviewCaption(
-                    "${bitmap.width}x${bitmap.height}$orientationSuffix$tileInfoSuffix",
+                    "$caption$tileInfoSuffix",
                     modifier = Modifier.align(Alignment.BottomStart).padding(8.dp),
                 )
             } else if (forensic?.isDecodingFallback == true) {

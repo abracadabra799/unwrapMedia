@@ -147,6 +147,9 @@ private fun runGuiApplication() = application {
         var frameIntervalWindowOpen by remember { mutableStateOf(false) }
         var qualityCompareWindowOpen by remember { mutableStateOf(false) }
         var motionPhotoFrameIntervalWindowOpen by remember { mutableStateOf(false) }
+        var dumpStructureWindowOpen by remember { mutableStateOf(false) }
+        var checkStructureWindowOpen by remember { mutableStateOf(false) }
+        var aiPromptWindowOpen by remember { mutableStateOf(false) }
         // App-level, not per-tab -- matches showPixelGrid's own precedent (switching tabs keeps
         // whichever mode is checked; unlike a per-panel button, this is a "lens" the user turns on
         // rather than a per-video setting). null = neither mode active.
@@ -155,6 +158,48 @@ private fun runGuiApplication() = application {
             Menu("File") {
                 Item("Open", shortcut = KeyShortcut(Key.O, meta = true), onClick = { showOpenFileDialog(appState) })
                 Item("Close", enabled = appState.tabs.isNotEmpty(), shortcut = KeyShortcut(Key.W, meta = true), onClick = { appState.closeTab(appState.selectedTabIndex) })
+            }
+            Menu("Analyze") {
+                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                val hasActiveFile = currentTab != null && !currentTab.isLoading && currentTab.root != null
+                Item(
+                    "Dump Structure...",
+                    enabled = hasActiveFile,
+                    shortcut = KeyShortcut(Key.D, meta = true, shift = true),
+                    onClick = { dumpStructureWindowOpen = true },
+                )
+                Item(
+                    "Check Structure...",
+                    enabled = hasActiveFile,
+                    shortcut = KeyShortcut(Key.C, meta = true, shift = true),
+                    onClick = { checkStructureWindowOpen = true },
+                )
+                Separator()
+                Item(
+                    "Generate AI Prompt...",
+                    enabled = hasActiveFile,
+                    shortcut = KeyShortcut(Key.P, meta = true, shift = true),
+                    onClick = { aiPromptWindowOpen = true },
+                )
+                Item(
+                    "Generate AI Prompt & Copy",
+                    enabled = hasActiveFile,
+                    shortcut = KeyShortcut(Key.P, meta = true, alt = true),
+                    onClick = {
+                        currentTab?.let { tab ->
+                            val root = tab.root
+                            if (root != null) {
+                                val warnings = com.multiviewer.parser.collectWarnings(root)
+                                val prompt = com.multiviewer.cli.AiDiagnosticPromptBuilder.buildPrompt(tab.file, root, warnings)
+                                if (com.multiviewer.util.ClipboardUtil.copyToClipboard(prompt)) {
+                                    appState.statusMessage = "AI analysis prompt copied to clipboard."
+                                } else {
+                                    appState.statusMessage = "Failed to copy to clipboard."
+                                }
+                            }
+                        }
+                    },
+                )
             }
             Menu("모션포토") {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
@@ -376,6 +421,30 @@ private fun runGuiApplication() = application {
                     motionPhotoFrameIntervalWindowOpen = false
                 }
             }
+            if (dumpStructureWindowOpen) {
+                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                if (currentTab != null) {
+                    StructureDumpWindow(tab = currentTab, themeMode = themeMode, onCloseRequest = { dumpStructureWindowOpen = false })
+                } else {
+                    dumpStructureWindowOpen = false
+                }
+            }
+            if (checkStructureWindowOpen) {
+                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                if (currentTab != null) {
+                    StructureCheckWindow(tab = currentTab, themeMode = themeMode, onCloseRequest = { checkStructureWindowOpen = false })
+                } else {
+                    checkStructureWindowOpen = false
+                }
+            }
+            if (aiPromptWindowOpen) {
+                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                if (currentTab != null) {
+                    AiPromptPreviewWindow(tab = currentTab, themeMode = themeMode, onCloseRequest = { aiPromptWindowOpen = false })
+                } else {
+                    aiPromptWindowOpen = false
+                }
+            }
             appState.tabs.forEach { tab ->
                 if (tab.fullSizeFramePreviewOpen) {
                     FrameFullSizePreviewWindow(tab, onCloseRequest = { tab.fullSizeFramePreviewOpen = false })
@@ -537,6 +606,41 @@ private fun runGuiApplication() = application {
                                 else -> {
                                     // Fallback to original structure view if needed
                                     Text("Unsupported Format", modifier = Modifier.padding(16.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+                appState.statusMessage?.let { msg ->
+                    LaunchedEffect(msg) {
+                        kotlinx.coroutines.delay(3000)
+                        if (appState.statusMessage == msg) {
+                            appState.statusMessage = null
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(bottom = 24.dp),
+                        contentAlignment = Alignment.BottomCenter,
+                    ) {
+                        Surface(
+                            color = AppColors.Surface,
+                            shape = RoundedCornerShape(8.dp),
+                            shadowElevation = 8.dp,
+                            modifier = Modifier.border(1.dp, AppColors.NeonBlue, RoundedCornerShape(8.dp)),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    msg,
+                                    style = AppTypography.bodyMedium.copy(color = AppColors.TextPrimary, fontSize = 13.sp),
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                IconButton(onClick = { appState.statusMessage = null }, modifier = Modifier.size(18.dp)) {
+                                    Text("✕", color = AppColors.TextSecondary, fontSize = 10.sp)
                                 }
                             }
                         }

@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.toComposeImageBitmap
 import com.multiviewer.ui.HistogramData
 import com.multiviewer.ui.ImageForensicData
 import org.jetbrains.skia.Image
+import org.jetbrains.skia.Surface
 import java.io.File
 
 private data class ThumbnailExtractionResult(val image: Image?, val hasThumbnailReference: Boolean)
@@ -21,12 +22,12 @@ object ImageAnalyzer {
         traceNodes(root, 0)
 
         val thumbnailResult = tryExtractEmbeddedJpeg(file, root)
-        val thumbBitmap = thumbnailResult.image?.toComposeImageBitmap()
 
         var quality = 0
         var isModified = false
         var software: String? = null
         var orientationCode: Int? = null
+        var thumbOrientationCode: Int? = null
 
         fun traverse(node: BoxNode) {
             if (node.type == "QuantizationTable") {
@@ -35,7 +36,16 @@ object ImageAnalyzer {
             }
             if (node.type == "IFD0" || node.type == "Exif") {
                 software = node.fields.find { it.name == "Software" }?.value ?: software
-                orientationCode = node.fields.find { it.name == "Orientation" }?.value?.toIntOrNull() ?: orientationCode
+                val orientVal = node.fields.find { it.name == "Orientation" }?.value
+                if (orientVal != null) {
+                    orientationCode = parseOrientationCode(orientVal) ?: orientationCode
+                }
+            }
+            if (node.type == "IFD1") {
+                val orientVal = node.fields.find { it.name == "Orientation" }?.value
+                if (orientVal != null) {
+                    thumbOrientationCode = parseOrientationCode(orientVal) ?: thumbOrientationCode
+                }
             }
             node.children.forEach { traverse(it) }
         }
@@ -44,6 +54,18 @@ object ImageAnalyzer {
         if (software?.contains("Photoshop", ignoreCase = true) == true ||
             software?.contains("Adobe", ignoreCase = true) == true) isModified = true
 
+        val heifOrientation = extractHeifOrientation(root)
+        val heifCode = heifOrientationToCode(root)
+        val primaryCode = orientationCode ?: heifCode
+        val thumbCode = thumbOrientationCode ?: primaryCode
+
+        val thumbBitmap = thumbnailResult.image?.let { img ->
+            orientSkiaImage(img, thumbCode).toComposeImageBitmap()
+        }
+
+        val primaryOrientation = orientationCode?.let { "${orientationLabel(it)} ($it)" } ?: heifOrientation
+        val thumbnailOrientation = thumbOrientationCode?.let { "${orientationLabel(it)} ($it)" } ?: primaryOrientation
+
         return ImageForensicData(
             bitmap = null,
             embeddedThumbnail = thumbBitmap,
@@ -51,9 +73,129 @@ object ImageAnalyzer {
             dqtQuality = quality,
             software = software,
             isModified = isModified,
-            orientation = orientationCode?.let { "${orientationLabel(it)} ($it)" },
+            orientation = primaryOrientation,
+            orientationCode = primaryCode,
+            thumbnailOrientation = thumbnailOrientation,
+            thumbnailOrientationCode = thumbCode,
             hasThumbnailReference = thumbnailResult.hasThumbnailReference,
         )
+    }
+
+    fun orientSkiaImage(image: Image, orientationCode: Int?): Image {
+        if (orientationCode == null || orientationCode <= 1 || orientationCode > 8) return image
+
+        val swapDims = orientationCode in listOf(5, 6, 7, 8)
+        val targetW = if (swapDims) image.height else image.width
+        val targetH = if (swapDims) image.width else image.height
+
+        val surface = Surface.makeRasterN32Premul(targetW, targetH)
+        val canvas = surface.canvas
+
+        when (orientationCode) {
+            2 -> { // Mirror horizontal
+                canvas.translate(targetW.toFloat(), 0f)
+                canvas.scale(-1f, 1f)
+            }
+            3 -> { // Rotate 180
+                canvas.translate(targetW.toFloat(), targetH.toFloat())
+                canvas.rotate(180f)
+            }
+            4 -> { // Mirror vertical
+                canvas.translate(0f, targetH.toFloat())
+                canvas.scale(1f, -1f)
+            }
+            5 -> { // Mirror horizontal and rotate 270 CW
+                canvas.scale(1f, -1f)
+                canvas.rotate(270f)
+            }
+            6 -> { // Rotate 90 CW
+                canvas.translate(targetW.toFloat(), 0f)
+                canvas.rotate(90f)
+            }
+            7 -> { // Mirror horizontal and rotate 90 CW
+                canvas.translate(targetW.toFloat(), targetH.toFloat())
+                canvas.rotate(90f)
+                canvas.scale(-1f, 1f)
+            }
+            8 -> { // Rotate 270 CW
+                canvas.translate(0f, targetH.toFloat())
+                canvas.rotate(270f)
+            }
+        }
+
+        canvas.drawImage(image, 0f, 0f)
+        return surface.makeImageSnapshot()
+    }
+
+    fun orientImageBitmap(bitmap: ImageBitmap, orientationCode: Int?): ImageBitmap {
+        if (orientationCode == null || orientationCode <= 1 || orientationCode > 8) return bitmap
+        val skiaImage = Image.makeFromBitmap(bitmap.asSkiaBitmap())
+        val oriented = orientSkiaImage(skiaImage, orientationCode)
+        return oriented.toComposeImageBitmap()
+    }
+
+    private fun heifOrientationToCode(root: BoxNode): Int? {
+        val irot = findPrimaryItemProperty(root, "irot") ?: findFirst(root) { it.type == "irot" }
+        val imir = findPrimaryItemProperty(root, "imir") ?: findFirst(root) { it.type == "imir" }
+        val angle = irot?.fields?.find { it.name == "angle" }?.value?.toIntOrNull()
+        val axis = imir?.fields?.find { it.name == "axis" }?.value?.toIntOrNull()
+        if (angle == null && axis == null) return null
+
+        return when {
+            axis == 0 && angle == 1 -> 7
+            axis == 0 && angle == 3 -> 5
+            axis == 0 -> 2
+            axis == 1 -> 4
+            angle == 1 -> 6
+            angle == 2 -> 3
+            angle == 3 -> 8
+            angle == 0 -> 1
+            else -> null
+        }
+    }
+
+    private fun extractHeifOrientation(root: BoxNode): String? {
+        val irot = findPrimaryItemProperty(root, "irot") ?: findFirst(root) { it.type == "irot" }
+        val imir = findPrimaryItemProperty(root, "imir") ?: findFirst(root) { it.type == "imir" }
+        val angle = irot?.fields?.find { it.name == "angle" }?.value?.toIntOrNull()
+        val axis = imir?.fields?.find { it.name == "axis" }?.value?.toIntOrNull()
+        if (angle == null && axis == null) return null
+
+        val rotStr = when (angle) {
+            1 -> "90° 회전"
+            2 -> "180° 회전"
+            3 -> "270° 회전"
+            0 -> "0°"
+            else -> if (angle != null) "${angle * 90}° 회전" else null
+        }
+        val mirStr = when (axis) {
+            0 -> "좌우 반전"
+            1 -> "상하 반전"
+            else -> null
+        }
+        return when {
+            mirStr != null && rotStr != null -> "$mirStr + $rotStr"
+            rotStr != null -> rotStr
+            mirStr != null -> mirStr
+            else -> null
+        }
+    }
+
+    internal fun parseOrientationCode(value: String): Int? {
+        val trimmed = value.trim()
+        trimmed.toIntOrNull()?.let { return if (it in 1..8) it else null }
+        val lower = trimmed.lowercase()
+        return when {
+            lower.contains("horizontal (normal)") || lower == "top-left" || lower == "normal" -> 1
+            lower.contains("mirror horizontal and rotate 270") || lower == "left-top" -> 5
+            lower.contains("mirror horizontal and rotate 90") || lower == "right-bottom" -> 7
+            lower.contains("mirror horizontal") || lower == "top-right" -> 2
+            lower.contains("mirror vertical") || lower == "bottom-left" -> 4
+            lower.contains("rotate 180") || lower == "bottom-right" -> 3
+            lower.contains("rotate 90") || lower.contains("90 cw") || lower == "right-top" -> 6
+            lower.contains("rotate 270") || lower.contains("270 cw") || lower == "left-bottom" -> 8
+            else -> null
+        }
     }
 
     // The expensive part split out of analyze() above: a full-resolution Skia raster decode plus
