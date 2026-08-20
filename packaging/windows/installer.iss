@@ -1,7 +1,7 @@
 [Setup]
 AppId={{2D73CA07-DCD4-4B4E-B6A3-B9DA2BC41A9D}
 AppName=unwrapMedia
-AppVersion=1.2.0
+AppVersion=1.3.0
 DefaultDirName={userpf}\unwrapMedia
 DefaultGroupName=unwrapMedia
 PrivilegesRequired=lowest
