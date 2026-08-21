@@ -93,9 +93,11 @@ private fun createMotionPhotoFromCurrentTab(appState: AppState, tab: TabState, l
     if (videoName == null || videoDir == null) return
     val videoFile = File(videoDir, videoName)
 
+    val isHeic = tab.file.extension.lowercase(java.util.Locale.US) in setOf("heic", "heif")
+    val defaultExt = if (isHeic) "heic" else "jpg"
     val saveTitle = if (language == AppLanguage.KO) "모션포토 저장" else "Save Motion Photo"
     val saveDialog = FileDialog(null as Frame?, saveTitle, FileDialog.SAVE)
-    saveDialog.file = "${tab.file.nameWithoutExtension}_motion.jpg"
+    saveDialog.file = "${tab.file.nameWithoutExtension}_motion.$defaultExt"
     saveDialog.isVisible = true
     val saveName = saveDialog.file
     val saveDir = saveDialog.directory
@@ -105,7 +107,7 @@ private fun createMotionPhotoFromCurrentTab(appState: AppState, tab: TabState, l
     appState.statusMessage = I18n.toastCreatingMotionPhoto(language)
     runInBackground {
         try {
-            MotionPhotoBuilder.createGoogleMotionPhoto(tab.file, videoFile, outputFile)
+            MotionPhotoBuilder.createMotionPhoto(tab.file, videoFile, outputFile)
             EventQueue.invokeLater {
                 appState.statusMessage = I18n.toastMotionPhotoCreated(language, outputFile.name)
                 appState.openFile(outputFile)

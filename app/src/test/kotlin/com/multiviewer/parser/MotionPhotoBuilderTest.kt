@@ -162,4 +162,55 @@ class MotionPhotoBuilderTest {
         intermediateFile.delete()
         finalOutputFile.delete()
     }
+
+    @Test
+    fun `createSamsungHeicMotionPhoto merges real HEIC image and video into standard Samsung HEIC Motion Photo`() {
+        val imageFile = File.createTempFile("motion-heic-src-", ".heic")
+        imageFile.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "color=green:size=64x64",
+            "-frames:v", "1", imageFile.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val videoFile = File.createTempFile("motion-heic-vid-", ".mp4")
+        videoFile.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=1:size=64x48:rate=10",
+            videoFile.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val outputFile = File.createTempFile("motion-heic-out-", ".heic")
+        outputFile.deleteOnExit()
+
+        MotionPhotoBuilder.createMotionPhoto(imageFile, videoFile, outputFile)
+
+        assertTrue(outputFile.exists())
+
+        // 1. Verify file ends with Samsung SEFT tail magic
+        val fileBytes = outputFile.readBytes()
+        val tailMagic = String(fileBytes.copyOfRange(fileBytes.size - 4, fileBytes.size), Charsets.US_ASCII)
+        assertEquals("SEFT", tailMagic, "Expected HEIC file to end with SEFT trailer magic")
+
+        // 2. Parse with unwrapMedia's own parser to verify top-level mpvd and sefd boxes
+        val root = parseFile(outputFile)
+        val mpvdNode = root.children.find { it.type == "mpvd" }
+        assertNotNull(mpvdNode, "Expected unwrapMedia parser to detect top-level mpvd box in HEIC")
+
+        val sefdNode = root.children.find { it.type == "sefd" }
+        assertNotNull(sefdNode, "Expected unwrapMedia parser to detect top-level sefd box in HEIC")
+
+        val motionDataNode = sefdNode.children.find { it.type == "MotionPhoto_Data" }
+        assertNotNull(motionDataNode, "Expected SEFD to contain MotionPhoto_Data node")
+
+        ByteReader.open(outputFile).use { reader ->
+            val embeddedVideo = findEmbeddedVideo(root, reader)
+            assertNotNull(embeddedVideo, "Expected unwrapMedia parser to extract embedded video from mpvd")
+            assertEquals("mp4", embeddedVideo.extension)
+            assertEquals(videoFile.length(), embeddedVideo.end - embeddedVideo.start)
+        }
+
+        imageFile.delete()
+        videoFile.delete()
+        outputFile.delete()
+    }
 }
