@@ -20,6 +20,7 @@ object MotionPhotoBuilder {
 
     // Samsung SEF (Samsung Extension Format) constants
     private const val SEF_MARKER_MOTION_PHOTO_DATA = 0x0A30
+    private const val SEF_MARKER_MOTION_PHOTO_VERSION = 0x0A31
     private const val SEF_VERSION = 0x00000106
 
     data class PreservedSefBlock(
@@ -91,10 +92,52 @@ object MotionPhotoBuilder {
     }
 
     /**
-     * Extracts existing SEF data blocks from the original image (e.g. Image_UTC_Data, MCC_Data,
-     * Color_Display_P3, Photo_HDR_Info, Camera_Capture_Mode_Info, Camera_Scene_Info, etc.),
-     * preserving all original metadata blocks while filtering out old MotionPhoto_Data / MotionPhoto_AutoPlay.
-     * Returns a pair of (Base JPEG bytes before SEF, List of Preserved SEF Blocks).
+     * Extracts existing SEF data blocks from raw SEF bytes (e.g. from JPEG trailer or HEIC sefd box),
+     * preserving all original metadata blocks while filtering out old MotionPhoto_Data / MotionPhoto_AutoPlay / MotionPhoto_Version.
+     */
+    fun extractSefBlocksFromPayload(sefPayload: ByteArray): List<PreservedSefBlock> {
+        if (sefPayload.size < 12) return emptyList()
+        val tailMagic = String(sefPayload.copyOfRange(sefPayload.size - 4, sefPayload.size), Charsets.US_ASCII)
+        if (tailMagic != "SEFT") return emptyList()
+
+        val sefBuf = ByteBuffer.wrap(sefPayload).order(ByteOrder.LITTLE_ENDIAN)
+        val sefSize = sefBuf.getInt(sefPayload.size - 8).toLong() and 0xFFFFFFFFL
+        val sefhPos = (sefPayload.size - 8 - sefSize).toInt()
+
+        if (sefhPos < 0 || sefhPos + 12 > sefPayload.size) return emptyList()
+        val sefhMagic = String(sefPayload.copyOfRange(sefhPos, sefhPos + 4), Charsets.US_ASCII)
+        if (sefhMagic != "SEFH") return emptyList()
+
+        val count = sefBuf.getInt(sefhPos + 8)
+        val preserved = mutableListOf<PreservedSefBlock>()
+        var entryPos = sefhPos + 12
+
+        for (i in 0 until count) {
+            if (entryPos + 12 > sefPayload.size) break
+            val typeCode = sefBuf.getShort(entryPos).toInt() and 0xFFFF
+            val marker = sefBuf.getShort(entryPos + 2).toInt() and 0xFFFF
+            val offset = sefBuf.getInt(entryPos + 4).toLong() and 0xFFFFFFFFL
+            val length = sefBuf.getInt(entryPos + 8).toLong() and 0xFFFFFFFFL
+            val blockStart = (sefhPos - offset).toInt()
+            val blockEnd = (blockStart + length).toInt()
+
+            if (blockStart in 0..sefPayload.size && blockEnd in blockStart..sefPayload.size && length >= 8) {
+                val nameLen = sefBuf.getInt(blockStart + 4)
+                if (nameLen in 1..256 && blockStart + 8 + nameLen <= blockEnd) {
+                    val name = String(sefPayload.copyOfRange(blockStart + 8, blockStart + 8 + nameLen), Charsets.UTF_8).trimEnd(Char(0))
+                    if (name != "MotionPhoto_Data" && name != "MotionPhoto_AutoPlay" && name != "MotionPhoto_Version") {
+                        val blockBytes = sefPayload.copyOfRange(blockStart, blockEnd)
+                        preserved.add(PreservedSefBlock(name, marker, typeCode, blockBytes))
+                    }
+                }
+            }
+            entryPos += 12
+        }
+        return preserved
+    }
+
+    /**
+     * Extracts existing SEF data blocks and base JPEG bytes from a JPEG file.
      */
     fun extractExistingSefBlocks(imageBytes: ByteArray): Pair<ByteArray, List<PreservedSefBlock>> {
         if (imageBytes.size < 12) return Pair(imageBytes, emptyList())
@@ -118,37 +161,68 @@ object MotionPhotoBuilder {
         }
 
         val count = sefBuf.getInt(sefhPos + 8)
-        val preserved = mutableListOf<PreservedSefBlock>()
         var minBlockStart = sefhPos
         var entryPos = sefhPos + 12
 
         for (i in 0 until count) {
             if (entryPos + 12 > imageBytes.size) break
-            val typeCode = sefBuf.getShort(entryPos).toInt() and 0xFFFF
-            val marker = sefBuf.getShort(entryPos + 2).toInt() and 0xFFFF
             val offset = sefBuf.getInt(entryPos + 4).toLong() and 0xFFFFFFFFL
-            val length = sefBuf.getInt(entryPos + 8).toLong() and 0xFFFFFFFFL
             val blockStart = (sefhPos - offset).toInt()
-            val blockEnd = (blockStart + length).toInt()
-
-            if (blockStart in 0..imageBytes.size && blockEnd in blockStart..imageBytes.size && length >= 8) {
-                val nameLen = sefBuf.getInt(blockStart + 4)
-                if (nameLen in 1..256 && blockStart + 8 + nameLen <= blockEnd) {
-                    val name = String(imageBytes.copyOfRange(blockStart + 8, blockStart + 8 + nameLen), Charsets.UTF_8).trimEnd(Char(0))
-                    minBlockStart = minOf(minBlockStart, blockStart)
-
-                    // Preserve all SEF data blocks except old video streams
-                    if (name != "MotionPhoto_Data" && name != "MotionPhoto_AutoPlay") {
-                        val blockBytes = imageBytes.copyOfRange(blockStart, blockEnd)
-                        preserved.add(PreservedSefBlock(name, marker, typeCode, blockBytes))
-                    }
-                }
+            if (blockStart in 0..imageBytes.size) {
+                minBlockStart = minOf(minBlockStart, blockStart)
             }
             entryPos += 12
         }
 
+        val preserved = extractSefBlocksFromPayload(imageBytes)
         val baseJpeg = imageBytes.copyOfRange(0, minBlockStart)
         return Pair(baseJpeg, preserved)
+    }
+
+    /**
+     * Extracts base ISOBMFF boxes and preserved SEF blocks from a HEIC file.
+     * Strips any existing `mpvd` and `sefd` boxes.
+     */
+    fun extractExistingHeicBoxesAndSef(heicBytes: ByteArray): Pair<ByteArray, List<PreservedSefBlock>> {
+        val baseOut = ByteArrayOutputStream()
+        val preservedSef = mutableListOf<PreservedSefBlock>()
+        var pos = 0
+
+        while (pos < heicBytes.size - 8) {
+            val size = ((heicBytes[pos].toLong() and 0xFF) shl 24) or
+                ((heicBytes[pos + 1].toLong() and 0xFF) shl 16) or
+                ((heicBytes[pos + 2].toLong() and 0xFF) shl 8) or
+                (heicBytes[pos + 3].toLong() and 0xFF)
+            val fourCC = String(heicBytes.copyOfRange(pos + 4, pos + 8), Charsets.US_ASCII)
+
+            val boxLen = when (size) {
+                0L -> (heicBytes.size - pos).toLong()
+                1L -> {
+                    if (pos + 16 > heicBytes.size) break
+                    val bb = ByteBuffer.wrap(heicBytes, pos + 8, 8)
+                    bb.long
+                }
+                else -> size
+            }
+
+            if (pos + boxLen > heicBytes.size || boxLen < 8) {
+                baseOut.write(heicBytes, pos, heicBytes.size - pos)
+                break
+            }
+
+            val boxEnd = (pos + boxLen).toInt()
+
+            if (fourCC == "sefd") {
+                val sefPayload = heicBytes.copyOfRange(pos + 8, boxEnd)
+                preservedSef.addAll(extractSefBlocksFromPayload(sefPayload))
+            } else if (fourCC != "mpvd") {
+                baseOut.write(heicBytes, pos, boxLen.toInt())
+            }
+
+            pos = boxEnd
+        }
+
+        return Pair(baseOut.toByteArray(), preservedSef)
     }
 
     /**
@@ -182,10 +256,7 @@ object MotionPhotoBuilder {
     }
 
     /**
-     * Injects the Motion Photo APP1 XMP segment into JPEG bytes at standard position:
-     * - If Exif APP1 is present immediately after SOI (0xFFD8), XMP is placed right after Exif APP1.
-     * - If no Exif APP1, XMP is placed right after SOI.
-     * - Any existing XMP APP1 segments are cleanly stripped out.
+     * Injects the Motion Photo APP1 XMP segment into JPEG bytes at standard position.
      */
     fun injectMotionPhotoXmpIntoJpeg(jpegBytes: ByteArray, totalSefSize: Long): ByteArray {
         require(jpegBytes.size >= 4 && (jpegBytes[0].toInt() and 0xFF) == 0xFF && (jpegBytes[1].toInt() and 0xFF) == 0xD8) {
@@ -213,13 +284,9 @@ object MotionPhotoBuilder {
         }
 
         val out = ByteArrayOutputStream(jpegBytes.size + app1Segment.size)
-        // Write headers before insertion point (SOI + Exif if present)
         out.write(jpegBytes, 0, insertPos)
-
-        // Write new Motion Photo APP1 XMP segment
         out.write(app1Segment)
 
-        // Parse remaining segments, stripping any existing XMP APP1 segments
         var pos = insertPos
         while (pos < jpegBytes.size) {
             if (pos + 1 >= jpegBytes.size) {
@@ -237,20 +304,17 @@ object MotionPhotoBuilder {
                     val hasXmpPrefix = (pos + totalSegSize >= payloadStart + XMP_IDENTIFIER.size) &&
                         jpegBytes.copyOfRange(payloadStart, payloadStart + XMP_IDENTIFIER.size).contentEquals(XMP_IDENTIFIER)
                     if (hasXmpPrefix) {
-                        // Skip existing XMP segment
                         pos += totalSegSize
                         continue
                     }
                 }
             }
 
-            // If start of scan (SOS, 0xFFDA), copy the rest of the stream up to EOI
             if (b0 == 0xFF && b1 == 0xDA) {
                 out.write(jpegBytes, pos, jpegBytes.size - pos)
                 break
             }
 
-            // Normal marker with no payload
             if (b0 == 0xFF && (b1 == 0xD9 || (b1 in 0xD0..0xD7) || b1 == 0x01)) {
                 out.write(b0)
                 out.write(b1)
@@ -258,7 +322,6 @@ object MotionPhotoBuilder {
                 continue
             }
 
-            // Segment with length
             if (b0 == 0xFF && pos + 4 <= jpegBytes.size) {
                 val segLen = ((jpegBytes[pos + 2].toInt() and 0xFF) shl 8) or (jpegBytes[pos + 3].toInt() and 0xFF)
                 val totalSegSize = 2 + segLen
@@ -269,7 +332,6 @@ object MotionPhotoBuilder {
                 }
             }
 
-            // Fallback
             out.write(jpegBytes[pos].toInt() and 0xFF)
             pos++
         }
@@ -278,11 +340,128 @@ object MotionPhotoBuilder {
     }
 
     /**
-     * Merges an image file and a video file into a standard Google/Samsung Motion Photo JPEG file.
-     * Preserves:
-     * 1. All original EXIF, XMP, ICC, GainMap metadata from the image.
-     * 2. All original Samsung SEF metadata fields (Image_UTC_Data, MCC_Data, Color_Display_P3, Photo_HDR_Info, Camera_Capture_Mode_Info, etc.).
-     * 3. Wraps the video inside a standard MotionPhoto_Data block and indexes it in the SEFH directory and SEFT tail.
+     * Synthesizes a Samsung Galaxy HEIC Motion Photo file (.heic).
+     * Structure:
+     * 1. Base HEIC boxes (ftyp, mdat, meta, free)
+     * 2. mpvd top-level box containing raw MP4 video stream
+     * 3. sefd top-level box containing preserved SEF data blocks, MotionPhoto_Version,
+     *    and MotionPhoto_Data (12-byte payload pointing to mpvd offset & length), SEFH, and SEFT.
+     */
+    fun createSamsungHeicMotionPhoto(imageFile: File, videoFile: File, outputFile: File) {
+        require(imageFile.exists()) { "Image file not found: ${imageFile.absolutePath}" }
+        require(videoFile.exists()) { "Video file not found: ${videoFile.absolutePath}" }
+        require(videoFile.length() > 0) { "Video file is empty: ${videoFile.absolutePath}" }
+
+        val rawHeicBytes = imageFile.readBytes()
+        val (baseHeicBytes, preservedSefBlocks) = extractExistingHeicBoxesAndSef(rawHeicBytes)
+
+        // 1. mpvd box calculation
+        val mpvdOffset = baseHeicBytes.size.toLong()
+        val mpvdSize = 8L + videoFile.length()
+        val videoStartOffset = mpvdOffset + 8L
+        val videoLength = videoFile.length()
+
+        // 2. Build SEF Blocks for HEIC
+        val allSefBlocks = preservedSefBlocks.toMutableList()
+
+        // Block: MotionPhoto_Version ("mpv3")
+        val vNameBytes = "MotionPhoto_Version".toByteArray(Charsets.UTF_8)
+        val vPayloadBytes = "mpv3".toByteArray(Charsets.UTF_8)
+        val vHeaderBuf = ByteBuffer.allocate(8 + vNameBytes.size).order(ByteOrder.LITTLE_ENDIAN)
+        vHeaderBuf.putShort(0x0000.toShort())
+        vHeaderBuf.putShort(SEF_MARKER_MOTION_PHOTO_VERSION.toShort())
+        vHeaderBuf.putInt(vNameBytes.size)
+        vHeaderBuf.put(vNameBytes)
+        val vBlockBytes = vHeaderBuf.array() + vPayloadBytes
+        allSefBlocks.add(PreservedSefBlock("MotionPhoto_Version", SEF_MARKER_MOTION_PHOTO_VERSION, 0x0000, vBlockBytes))
+
+        // Block: MotionPhoto_Data (12-byte pointer payload: "mpv2" + videoStartOffset + videoLength)
+        val dNameBytes = "MotionPhoto_Data".toByteArray(Charsets.UTF_8)
+        val dPayloadBuf = ByteBuffer.allocate(12).order(ByteOrder.BIG_ENDIAN)
+        dPayloadBuf.put("mpv2".toByteArray(Charsets.US_ASCII))
+        dPayloadBuf.putInt(videoStartOffset.toInt())
+        dPayloadBuf.putInt(videoLength.toInt())
+
+        val dHeaderBuf = ByteBuffer.allocate(8 + dNameBytes.size).order(ByteOrder.LITTLE_ENDIAN)
+        dHeaderBuf.putShort(0x0000.toShort())
+        dHeaderBuf.putShort(SEF_MARKER_MOTION_PHOTO_DATA.toShort())
+        dHeaderBuf.putInt(dNameBytes.size)
+        dHeaderBuf.put(dNameBytes)
+        val dBlockBytes = dHeaderBuf.array() + dPayloadBuf.array()
+        allSefBlocks.add(PreservedSefBlock("MotionPhoto_Data", SEF_MARKER_MOTION_PHOTO_DATA, 0x0000, dBlockBytes))
+
+        // 3. Build SEFH Directory Table
+        val totalBlockBytesSize = allSefBlocks.sumOf { it.bytes.size.toLong() }
+        val sefDirSize = 12 + allSefBlocks.size * 12
+        val seftTailSize = 8
+        val sefPayloadSize = totalBlockBytesSize + sefDirSize + seftTailSize
+
+        val sefDirBuf = ByteBuffer.allocate(sefDirSize).order(ByteOrder.LITTLE_ENDIAN)
+        sefDirBuf.put("SEFH".toByteArray(Charsets.US_ASCII))
+        sefDirBuf.putInt(SEF_VERSION)
+        sefDirBuf.putInt(allSefBlocks.size)
+
+        var accumOffset = totalBlockBytesSize
+        for (block in allSefBlocks) {
+            val blkLen = block.bytes.size.toLong()
+            sefDirBuf.putShort(block.typeCode.toShort())
+            sefDirBuf.putShort(block.marker.toShort())
+            sefDirBuf.putInt(accumOffset.toInt())
+            sefDirBuf.putInt(blkLen.toInt())
+            accumOffset -= blkLen
+        }
+
+        // 4. Build SEFT Tail (8 bytes)
+        val seftBuf = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN)
+        seftBuf.putInt(sefDirSize)
+        seftBuf.put("SEFT".toByteArray(Charsets.US_ASCII))
+
+        // 5. mpvd Header (8 bytes)
+        val mpvdHeaderBuf = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN)
+        mpvdHeaderBuf.putInt(mpvdSize.toInt())
+        mpvdHeaderBuf.put("mpvd".toByteArray(Charsets.US_ASCII))
+
+        // 6. sefd Box Header (8 bytes)
+        val sefdBoxSize = 8L + sefPayloadSize
+        val sefdHeaderBuf = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN)
+        sefdHeaderBuf.putInt(sefdBoxSize.toInt())
+        sefdHeaderBuf.put("sefd".toByteArray(Charsets.US_ASCII))
+
+        // 7. Write complete Motion Photo HEIC file
+        FileOutputStream(outputFile).use { out ->
+            // 1. Base HEIC boxes
+            out.write(baseHeicBytes)
+
+            // 2. mpvd Box Header
+            out.write(mpvdHeaderBuf.array())
+
+            // 3. Raw MP4 Video Payload
+            FileInputStream(videoFile).use { videoIn ->
+                val buffer = ByteArray(64 * 1024)
+                var bytesRead: Int
+                while (videoIn.read(buffer).also { bytesRead = it } != -1) {
+                    out.write(buffer, 0, bytesRead)
+                }
+            }
+
+            // 4. sefd Box Header
+            out.write(sefdHeaderBuf.array())
+
+            // 5. All SEF data blocks
+            for (block in allSefBlocks) {
+                out.write(block.bytes)
+            }
+
+            // 6. SEFH Directory Table
+            out.write(sefDirBuf.array())
+
+            // 7. SEFT Tail
+            out.write(seftBuf.array())
+        }
+    }
+
+    /**
+     * Synthesizes a Samsung/Google Motion Photo JPEG file (.jpg).
      */
     fun createGoogleMotionPhoto(imageFile: File, videoFile: File, outputFile: File) {
         require(imageFile.exists()) { "Image file not found: ${imageFile.absolutePath}" }
@@ -356,18 +535,11 @@ object MotionPhotoBuilder {
 
         // 7. Write complete synthesized Motion Photo file
         FileOutputStream(outputFile).use { out ->
-            // 1. Primary JPEG with Exif and XMP APP1
             out.write(motionPhotoJpegBytes)
-
-            // 2. All preserved SEF data blocks from the original image
             for (block in preservedSefBlocks) {
                 out.write(block.bytes)
             }
-
-            // 3. New MotionPhoto_Data Block Header (24 bytes)
             out.write(motionBlockHeaderBytes)
-
-            // 4. MP4 Video Stream Payload
             FileInputStream(videoFile).use { videoIn ->
                 val buffer = ByteArray(64 * 1024)
                 var bytesRead: Int
@@ -375,12 +547,21 @@ object MotionPhotoBuilder {
                     out.write(buffer, 0, bytesRead)
                 }
             }
-
-            // 5. SEFH Header & Directory Table
             out.write(sefDirBytes)
-
-            // 6. SEFT Tail at EOF
             out.write(seftBytes)
+        }
+    }
+
+    /**
+     * Automatically synthesizes Motion Photo according to image format (HEIC or JPEG).
+     */
+    fun createMotionPhoto(imageFile: File, videoFile: File, outputFile: File) {
+        val ext = imageFile.extension.lowercase(Locale.US)
+        val outExt = outputFile.extension.lowercase(Locale.US)
+        if (ext in setOf("heic", "heif") || outExt in setOf("heic", "heif")) {
+            createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile)
+        } else {
+            createGoogleMotionPhoto(imageFile, videoFile, outputFile)
         }
     }
 }
