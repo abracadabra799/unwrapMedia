@@ -525,12 +525,32 @@ private fun tryDecodeSefdTrailer(reader: ByteReader, start: Long, end: Long): Bo
 // tree, the same as the Samsung sefd case already does.
 private fun tryDecodeTrailingVideo(reader: ByteReader, start: Long, end: Long): BoxNode? {
     val remaining = end - start
-    if (remaining < 8 || reader.readFourCC(start + 4) != "ftyp") return null
+    if (remaining < 8) return null
+    var ftypPos = start
+    if (reader.readFourCC(ftypPos + 4) != "ftyp") {
+        val searchLimit = minOf(end - 8, start + 1024L)
+        var found = false
+        var p = start
+        while (p <= searchLimit) {
+            try {
+                if (reader.readFourCC(p + 4) == "ftyp") {
+                    ftypPos = p
+                    found = true
+                    break
+                }
+            } catch (e: Exception) {
+                break
+            }
+            p++
+        }
+        if (!found) return null
+    }
     return try {
+        val videoSize = end - ftypPos
         BoxNode(
-            type = "EmbeddedVideoData", offset = start, headerSize = 0, size = remaining,
-            children = parseBoxes(reader, start, end),
-            summary = "$remaining bytes, embedded video (no marker)",
+            type = "EmbeddedVideoData", offset = ftypPos, headerSize = 0, size = videoSize,
+            children = parseBoxes(reader, ftypPos, end),
+            summary = "$videoSize bytes, embedded video (no marker)",
         )
     } catch (e: Exception) {
         null
