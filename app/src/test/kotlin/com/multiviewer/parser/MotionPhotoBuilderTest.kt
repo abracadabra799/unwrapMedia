@@ -108,4 +108,58 @@ class MotionPhotoBuilderTest {
         videoFile.delete()
         outputFile.delete()
     }
+
+    @Test
+    fun `createGoogleMotionPhoto preserves existing non-motion SEF data blocks from source image`() {
+        val imageFile = File.createTempFile("motion-orig-sefd-", ".jpg")
+        imageFile.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "color=red:size=64x64",
+            "-frames:v", "1", imageFile.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val videoFile1 = File.createTempFile("motion-video-1-", ".mp4")
+        videoFile1.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=1:size=64x48:rate=10",
+            videoFile1.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        // 1. Create initial motion photo
+        val intermediateFile = File.createTempFile("motion-interm-", ".jpg")
+        intermediateFile.deleteOnExit()
+        MotionPhotoBuilder.createGoogleMotionPhoto(imageFile, videoFile1, intermediateFile)
+
+        // 2. Now synthesize a second motion photo using the first one as source, with a new video!
+        val videoFile2 = File.createTempFile("motion-video-2-", ".mp4")
+        videoFile2.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=2:size=64x48:rate=10",
+            videoFile2.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val finalOutputFile = File.createTempFile("motion-final-", ".jpg")
+        finalOutputFile.deleteOnExit()
+
+        MotionPhotoBuilder.createGoogleMotionPhoto(intermediateFile, videoFile2, finalOutputFile)
+
+        val root = parseFile(finalOutputFile)
+        val sefdNode = findFirst(root) { it.type == "sefd" }
+        assertNotNull(sefdNode)
+
+        val motionDataNode = sefdNode.children.find { it.type == "MotionPhoto_Data" }
+        assertNotNull(motionDataNode)
+
+        ByteReader.open(finalOutputFile).use { reader ->
+            val embeddedVideo = findEmbeddedVideo(root, reader)
+            assertNotNull(embeddedVideo)
+            assertEquals(videoFile2.length(), embeddedVideo.end - embeddedVideo.start)
+        }
+
+        imageFile.delete()
+        videoFile1.delete()
+        videoFile2.delete()
+        intermediateFile.delete()
+        finalOutputFile.delete()
+    }
 }
