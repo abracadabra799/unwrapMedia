@@ -615,4 +615,43 @@ class AppStateTest {
         assertTrue((tab.motionPhotoVideoFps ?: 0.0) > 0.0, "Expected a positive fps from the embedded video, got ${tab.motionPhotoVideoFps}")
         photoFile.delete()
     }
+
+    @Test
+    fun `openFiles opens multiple files into distinct tabs and selects the first new tab`() {
+        val appState = AppState()
+        val file1 = tempFile("appstate-multifile-1")
+        val file2 = tempFile("appstate-multifile-2")
+        val file3 = tempFile("appstate-multifile-3")
+
+        appState.openFiles(listOf(file1, file2, file3))
+
+        assertEquals(3, appState.tabs.size)
+        assertEquals(file1.absolutePath, appState.tabs[0].file.absolutePath)
+        assertEquals(file2.absolutePath, appState.tabs[1].file.absolutePath)
+        assertEquals(file3.absolutePath, appState.tabs[2].file.absolutePath)
+        assertEquals(0, appState.selectedTabIndex)
+
+        val file4 = tempFile("appstate-multifile-4")
+        appState.openFiles(listOf(file4))
+        assertEquals(4, appState.tabs.size)
+        assertEquals(3, appState.selectedTabIndex)
+    }
+
+    @Test
+    fun `openFiles handles duplicates and respects MAX_OPEN_FILES`() {
+        val appState = AppState()
+        val file1 = tempFile("appstate-multi-a")
+        val file2 = tempFile("appstate-multi-b")
+
+        // Duplicates within the list
+        appState.openFiles(listOf(file1, file2, file1, file2))
+        assertEquals(2, appState.tabs.size)
+
+        // Exceeding MAX_OPEN_FILES
+        val files = List(25) { tempFile("appstate-multi-overflow-$it") }
+        appState.openFiles(files)
+        assertEquals(20, appState.tabs.size)
+        assertEquals("You can only have 20 files open at a time.", appState.statusMessage)
+    }
 }
+
