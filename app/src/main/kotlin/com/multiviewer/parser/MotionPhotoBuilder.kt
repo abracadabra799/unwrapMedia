@@ -31,7 +31,7 @@ object MotionPhotoBuilder {
     )
 
     /**
-     * Builds Google Motion Photo & Samsung compatible XMP metadata XML string.
+     * Builds Google Motion Photo & Samsung compatible XMP metadata XML string for JPEG.
      */
     fun buildGoogleMotionPhotoXmp(videoOffsetFromEof: Long): String {
         return """
@@ -61,6 +61,58 @@ object MotionPhotoBuilder {
                           Item:Mime="video/mp4"
                           Item:Semantic="MotionPhoto"
                           Item:Length="$videoOffsetFromEof"
+                          Item:Padding="0"/>
+                      </rdf:li>
+                    </rdf:Seq>
+                  </Container:Directory>
+                </rdf:Description>
+              </rdf:RDF>
+            </x:xmpmeta>
+        """.trimIndent()
+    }
+
+    /**
+     * Builds Google Motion Photo & Samsung compatible XMP metadata XML string for HEIC.
+     */
+    fun buildGoogleMotionPhotoHeicXmp(totalTrailingLength: Long, hasGainMap: Boolean): String {
+        val gainMapItem = if (hasGainMap) {
+            """
+          <rdf:li rdf:parseType="Resource">
+            <Container:Item
+              Item:Semantic="GainMap"
+              Item:Mime="image/heic"
+              Item:Length="0"/>
+          </rdf:li>
+            """.trimIndent() + "\n"
+        } else {
+            ""
+        }
+
+        return """
+            <x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core Test.SNAPSHOT">
+              <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+                <rdf:Description rdf:about=""
+                    xmlns:hdrgm="http://ns.adobe.com/hdr-gain-map/1.0/"
+                    xmlns:Container="http://ns.google.com/photos/1.0/container/"
+                    xmlns:Item="http://ns.google.com/photos/1.0/container/item/"
+                    xmlns:GCamera="http://ns.google.com/photos/1.0/camera/"
+                  hdrgm:Version="1.0"
+                  GCamera:MotionPhoto="1"
+                  GCamera:MotionPhotoVersion="1"
+                  GCamera:MotionPhotoPresentationTimestampUs="0">
+                  <Container:Directory>
+                    <rdf:Seq>
+                      <rdf:li rdf:parseType="Resource">
+                        <Container:Item
+                          Item:Semantic="Primary"
+                          Item:Mime="image/heic"
+                          Item:Padding="0"/>
+                      </rdf:li>
+            $gainMapItem          <rdf:li rdf:parseType="Resource">
+                        <Container:Item
+                          Item:Mime="video/mp4"
+                          Item:Semantic="MotionPhoto"
+                          Item:Length="$totalTrailingLength"
                           Item:Padding="0"/>
                       </rdf:li>
                     </rdf:Seq>
@@ -226,6 +278,75 @@ object MotionPhotoBuilder {
     }
 
     /**
+     * Updates the Motion Photo XMP metadata item in HEIC (referenced by iloc in the meta box) in place.
+     */
+    fun updateHeicXmpItem(baseHeicBytes: ByteArray, totalTrailingLength: Long): ByteArray {
+        val xmpOpenTag = "<x:xmpmeta".toByteArray(Charsets.UTF_8)
+        val xmpCloseTag = "</x:xmpmeta>".toByteArray(Charsets.UTF_8)
+
+        // Find <x:xmpmeta
+        var xmpStart = -1
+        for (i in 0..baseHeicBytes.size - xmpOpenTag.size) {
+            var match = true
+            for (j in xmpOpenTag.indices) {
+                if (baseHeicBytes[i + j] != xmpOpenTag[j]) {
+                    match = false
+                    break
+                }
+            }
+            if (match) {
+                xmpStart = i
+                break
+            }
+        }
+
+        if (xmpStart == -1) return baseHeicBytes
+
+        // Find closing </x:xmpmeta>
+        var xmpEnd = -1
+        for (i in xmpStart..baseHeicBytes.size - xmpCloseTag.size) {
+            var match = true
+            for (j in xmpCloseTag.indices) {
+                if (baseHeicBytes[i + j] != xmpCloseTag[j]) {
+                    match = false
+                    break
+                }
+            }
+            if (match) {
+                xmpEnd = i + xmpCloseTag.size
+                break
+            }
+        }
+
+        if (xmpEnd == -1) return baseHeicBytes
+
+        // Scan trailing whitespace/null padding within the allocated extent
+        var extentEnd = xmpEnd
+        while (extentEnd < baseHeicBytes.size && (baseHeicBytes[extentEnd] == 0x20.toByte() || baseHeicBytes[extentEnd] == 0.toByte())) {
+            extentEnd++
+        }
+        val allocatedLen = extentEnd - xmpStart
+
+        val oldXmpStr = String(baseHeicBytes.copyOfRange(xmpStart, xmpEnd), Charsets.UTF_8)
+        val hasGainMap = oldXmpStr.contains("GainMap")
+
+        val newXmpText = buildGoogleMotionPhotoHeicXmp(totalTrailingLength, hasGainMap)
+        val newXmpBytes = newXmpText.toByteArray(Charsets.UTF_8)
+
+        if (newXmpBytes.size <= allocatedLen) {
+            val result = baseHeicBytes.copyOf()
+            System.arraycopy(newXmpBytes, 0, result, xmpStart, newXmpBytes.size)
+            // Fill remainder of extent with spaces
+            for (k in (xmpStart + newXmpBytes.size) until extentEnd) {
+                result[k] = 0x20.toByte()
+            }
+            return result
+        }
+
+        return baseHeicBytes
+    }
+
+    /**
      * Converts a non-JPEG image file to standard JPEG byte array at high quality (95%).
      */
     fun convertImageToJpegBytes(imageFile: File): ByteArray {
@@ -342,7 +463,7 @@ object MotionPhotoBuilder {
     /**
      * Synthesizes a Samsung Galaxy HEIC Motion Photo file (.heic).
      * Structure:
-     * 1. Base HEIC boxes (ftyp, mdat, meta, free)
+     * 1. Base HEIC boxes with Motion Photo XMP item updated in iloc/meta (ftyp, mdat, meta, free)
      * 2. mpvd top-level box containing raw MP4 video stream
      * 3. sefd top-level box containing preserved SEF data blocks, MotionPhoto_Version,
      *    and MotionPhoto_Data (12-byte payload pointing to mpvd offset & length), SEFH, and SEFT.
@@ -427,15 +548,14 @@ object MotionPhotoBuilder {
         sefdHeaderBuf.putInt(sefdBoxSize.toInt())
         sefdHeaderBuf.put("sefd".toByteArray(Charsets.US_ASCII))
 
-        // 7. Write complete Motion Photo HEIC file
+        // 7. Update XMP item in iloc with total trailing length (mpvd + sefd)
+        val totalTrailingLength = mpvdSize + sefdBoxSize
+        val updatedBaseHeicBytes = updateHeicXmpItem(baseHeicBytes, totalTrailingLength)
+
+        // 8. Write complete Motion Photo HEIC file
         FileOutputStream(outputFile).use { out ->
-            // 1. Base HEIC boxes
-            out.write(baseHeicBytes)
-
-            // 2. mpvd Box Header
+            out.write(updatedBaseHeicBytes)
             out.write(mpvdHeaderBuf.array())
-
-            // 3. Raw MP4 Video Payload
             FileInputStream(videoFile).use { videoIn ->
                 val buffer = ByteArray(64 * 1024)
                 var bytesRead: Int
@@ -443,19 +563,11 @@ object MotionPhotoBuilder {
                     out.write(buffer, 0, bytesRead)
                 }
             }
-
-            // 4. sefd Box Header
             out.write(sefdHeaderBuf.array())
-
-            // 5. All SEF data blocks
             for (block in allSefBlocks) {
                 out.write(block.bytes)
             }
-
-            // 6. SEFH Directory Table
             out.write(sefDirBuf.array())
-
-            // 7. SEFT Tail
             out.write(seftBuf.array())
         }
     }
@@ -509,7 +621,6 @@ object MotionPhotoBuilder {
         sefDirBuf.putInt(SEF_VERSION)
         sefDirBuf.putInt(totalEntryCount)
 
-        // Compute backward offsets from SEFH pos for each block
         var accumOffset = totalBlockBytesSize
         for (block in preservedSefBlocks) {
             val blkLen = block.bytes.size.toLong()
