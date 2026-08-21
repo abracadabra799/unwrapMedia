@@ -440,6 +440,24 @@ class AppState {
         }
     }
 
+    fun openFiles(files: List<File>) {
+        if (files.isEmpty()) return
+        val distinctFiles = files.distinctBy { it.absolutePath }
+        var firstNewTabIndex: Int? = null
+        for (file in distinctFiles) {
+            if (tabs.size >= MAX_OPEN_FILES) {
+                statusMessage = "You can only have $MAX_OPEN_FILES files open at a time."
+                break
+            }
+            val preSize = tabs.size
+            openFile(file)
+            if (firstNewTabIndex == null && tabs.size > preSize) {
+                firstNewTabIndex = tabs.size - 1
+            }
+        }
+        firstNewTabIndex?.let { selectedTabIndex = it }
+    }
+
     fun openFile(file: File) {
         val existingIndex = tabs.indexOfFirst { it.file.absolutePath == file.absolutePath }
         if (existingIndex >= 0) {

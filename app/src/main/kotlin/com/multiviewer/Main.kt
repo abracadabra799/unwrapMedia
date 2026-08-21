@@ -42,12 +42,18 @@ import java.io.File
 private const val BYTES_PER_ROW = 16
 
 private fun showOpenFileDialog(appState: AppState) {
-    val dialog = FileDialog(null as Frame?, "Open file", FileDialog.LOAD)
+    val dialog = FileDialog(null as Frame?, "Open file(s)", FileDialog.LOAD)
+    dialog.isMultipleMode = true
     dialog.isVisible = true
-    val fileName = dialog.file
-    val directory = dialog.directory
-    if (fileName != null && directory != null) {
-        appState.openFile(File(directory, fileName))
+    val selectedFiles = dialog.files
+    if (!selectedFiles.isNullOrEmpty()) {
+        appState.openFiles(selectedFiles.toList())
+    } else {
+        val fileName = dialog.file
+        val directory = dialog.directory
+        if (fileName != null && directory != null) {
+            appState.openFile(File(directory, fileName))
+        }
     }
 }
 
@@ -337,7 +343,9 @@ private fun runGuiApplication() = application {
                     try {
                         @Suppress("UNCHECKED_CAST")
                         val files = event.transferable.getTransferData(DataFlavor.javaFileListFlavor) as List<File>
-                        files.firstOrNull()?.let { appState.openFile(it) }
+                        if (files.isNotEmpty()) {
+                            appState.openFiles(files)
+                        }
                         event.dropComplete(true)
                     } catch (e: Exception) {
                         event.dropComplete(false)
@@ -477,7 +485,7 @@ private fun runGuiApplication() = application {
                         modifier = Modifier.fillMaxSize().clickable { showOpenFileDialog(appState) },
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text("📂 Drag & Drop or Click to Open", fontSize = 24.sp, color = AppColors.TextPrimary)
+                        Text(I18n.placeholderEmptyState(language), fontSize = 22.sp, color = AppColors.TextPrimary)
                     }
                 } else {
                     Column {
