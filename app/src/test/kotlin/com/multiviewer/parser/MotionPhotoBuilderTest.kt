@@ -13,8 +13,9 @@ class MotionPhotoBuilderTest {
         val xmp = MotionPhotoBuilder.buildGoogleMotionPhotoXmp(1234567L)
         assertTrue(xmp.contains("GCamera:MotionPhoto=\"1\""))
         assertTrue(xmp.contains("GCamera:MicroVideoOffset=\"1234567\""))
-        assertTrue(xmp.contains("<Item:Length>1234567</Item:Length>"))
-        assertTrue(xmp.contains("<Item:Semantic>MotionPhoto</Item:Semantic>"))
+        assertTrue(xmp.contains("<Container:Item"))
+        assertTrue(xmp.contains("Item:Semantic=\"MotionPhoto\""))
+        assertTrue(xmp.contains("Item:Length=\"1234567\""))
     }
 
     @Test
@@ -33,10 +34,15 @@ class MotionPhotoBuilderTest {
     }
 
     @Test
-    fun `injectMotionPhotoXmpIntoJpeg places XMP APP1 segment right after SOI`() {
-        // Minimal valid JPEG: SOI (FF D8) + DQT (FF DB 00 04 00 00) + EOI (FF D9)
+    fun `injectMotionPhotoXmpIntoJpeg preserves Exif and places XMP after Exif`() {
+        // JPEG with Exif: SOI (FF D8) + APP1 Exif (FF E1 00 08 45 78 69 66 00 00) + DQT + EOI
+        val exifApp1 = byteArrayOf(
+            0xFF.toByte(), 0xE1.toByte(), 0x00.toByte(), 0x08.toByte(),
+            'E'.code.toByte(), 'x'.code.toByte(), 'i'.code.toByte(), 'f'.code.toByte(), 0x00.toByte(), 0x00.toByte(),
+        )
         val sampleJpeg = byteArrayOf(
             0xFF.toByte(), 0xD8.toByte(),
+        ) + exifApp1 + byteArrayOf(
             0xFF.toByte(), 0xDB.toByte(), 0x00.toByte(), 0x04.toByte(), 0x00.toByte(), 0x00.toByte(),
             0xFF.toByte(), 0xD9.toByte(),
         )
@@ -44,12 +50,18 @@ class MotionPhotoBuilderTest {
         val injected = MotionPhotoBuilder.injectMotionPhotoXmpIntoJpeg(sampleJpeg, 99999L)
         assertEquals(0xFF.toByte(), injected[0])
         assertEquals(0xD8.toByte(), injected[1])
+        // Exif preserved as first APP1
         assertEquals(0xFF.toByte(), injected[2])
-        assertEquals(0xE1.toByte(), injected[3]) // APP1 immediately after SOI
+        assertEquals(0xE1.toByte(), injected[3])
+        assertEquals('E'.code.toByte(), injected[6])
+        // XMP follows Exif
+        val xmpPos = 2 + exifApp1.size
+        assertEquals(0xFF.toByte(), injected[xmpPos])
+        assertEquals(0xE1.toByte(), injected[xmpPos + 1])
     }
 
     @Test
-    fun `createGoogleMotionPhoto merges real image and video into a parsable Motion Photo file`() {
+    fun `createGoogleMotionPhoto merges real image and video into standard Samsung SEF and Google Motion Photo`() {
         val imageFile = File.createTempFile("motion-build-image-", ".jpg")
         imageFile.deleteOnExit()
         ProcessBuilder(
@@ -70,16 +82,26 @@ class MotionPhotoBuilderTest {
         MotionPhotoBuilder.createGoogleMotionPhoto(imageFile, videoFile, outputFile)
 
         assertTrue(outputFile.exists())
-        assertTrue(outputFile.length() > imageFile.length() + videoFile.length() - 100)
 
-        // Parse with unwrapMedia's own parser to verify complete round-trip compatibility!
+        // 1. Verify file ends with Samsung SEFT tail magic
+        val fileBytes = outputFile.readBytes()
+        val tailMagic = String(fileBytes.copyOfRange(fileBytes.size - 4, fileBytes.size), Charsets.US_ASCII)
+        assertEquals("SEFT", tailMagic, "Expected file to end with SEFT trailer magic")
+
+        // 2. Parse with unwrapMedia's own parser to verify both SEFD and EmbeddedVideo extraction
         val root = parseFile(outputFile)
+        val sefdNode = findFirst(root) { it.type == "sefd" }
+        assertNotNull(sefdNode, "Expected unwrapMedia parser to detect Samsung SEFD trailer")
+
+        val motionDataNode = sefdNode.children.find { it.type == "MotionPhoto_Data" }
+        assertNotNull(motionDataNode, "Expected SEFD to contain MotionPhoto_Data node")
+        assertTrue(motionDataNode.children.any { it.type == "ftyp" }, "Expected nested ftyp box inside MotionPhoto_Data")
+
         ByteReader.open(outputFile).use { reader ->
             val embeddedVideo = findEmbeddedVideo(root, reader)
-            assertNotNull(embeddedVideo, "Expected unwrapMedia parser to detect Google Motion Photo embedded video")
+            assertNotNull(embeddedVideo, "Expected unwrapMedia parser to extract embedded video")
             assertEquals("mp4", embeddedVideo.extension)
-            assertEquals(outputFile.length(), embeddedVideo.end)
-            assertEquals(outputFile.length() - videoFile.length(), embeddedVideo.start)
+            assertEquals(videoFile.length(), embeddedVideo.end - embeddedVideo.start)
         }
 
         imageFile.delete()
