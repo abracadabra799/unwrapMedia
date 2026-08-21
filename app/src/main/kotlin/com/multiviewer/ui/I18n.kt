@@ -36,6 +36,7 @@ object I18n {
 
     // Menu: Motion Photo
     fun menuMotionPhoto(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토" else "Motion Photo"
+    fun menuCreateMotionPhoto(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 생성..." else "Create Motion Photo..."
     fun menuExtractMotionVideo(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 동영상 추출" else "Extract Motion Photo Video"
     fun menuExtractPreviewVideo(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 미리보기 재생용 비디오 추출" else "Extract Preview Video"
     fun menuMotionFrameDropAnalysis(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 동영상 프레임 드랍 분석" else "Motion Video Frame Drop Analysis"
@@ -68,6 +69,9 @@ object I18n {
     fun toastClipboardFailed(lang: AppLanguage) = if (lang == AppLanguage.KO) "클립보드 접근에 실패했습니다." else "Failed to access clipboard."
     fun toastExtractingVideo(lang: AppLanguage) = if (lang == AppLanguage.KO) "비디오 트랙 추출 중..." else "Extracting video track..."
     fun toastExtractingAudio(lang: AppLanguage) = if (lang == AppLanguage.KO) "오디오 트랙 추출 중..." else "Extracting audio track..."
+    fun toastCreatingMotionPhoto(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 생성 중..." else "Creating Motion Photo..."
+    fun toastMotionPhotoCreated(lang: AppLanguage, filename: String) = if (lang == AppLanguage.KO) "모션포토 생성 완료: $filename" else "Motion Photo created: $filename"
+    fun toastMotionPhotoFailed(lang: AppLanguage, msg: String) = if (lang == AppLanguage.KO) "모션포토 생성 실패: $msg" else "Failed to create Motion Photo: $msg"
     fun toastSaved(lang: AppLanguage, filename: String) = if (lang == AppLanguage.KO) "저장됨: $filename" else "Saved: $filename"
     fun toastExtractionFailed(lang: AppLanguage) = if (lang == AppLanguage.KO) "트랙 추출 실패" else "Track extraction failed"
 

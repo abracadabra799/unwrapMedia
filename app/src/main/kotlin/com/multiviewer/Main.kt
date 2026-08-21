@@ -27,6 +27,7 @@ import com.multiviewer.cli.runCheckCommand
 import com.multiviewer.cli.runDumpCommand
 import kotlin.system.exitProcess
 import com.multiviewer.parser.EmbeddedVideo
+import com.multiviewer.parser.MotionPhotoBuilder
 import com.multiviewer.parser.extractEmbeddedVideo
 import com.multiviewer.ui.*
 import java.awt.EventQueue
@@ -81,6 +82,40 @@ private fun extractMotionPhotoVideo(appState: AppState, tab: TabState) {
 private fun extractMotionPhotoPreviewVideo(appState: AppState, tab: TabState) {
     val video = tab.motionPhotoPreview ?: return
     extractVideoToFile(appState, tab, video, "preview")
+}
+
+private fun createMotionPhotoFromCurrentTab(appState: AppState, tab: TabState, language: AppLanguage) {
+    val selectVideoTitle = if (language == AppLanguage.KO) "모션포토로 합성할 동영상 선택" else "Select video file to attach"
+    val videoDialog = FileDialog(null as Frame?, selectVideoTitle, FileDialog.LOAD)
+    videoDialog.isVisible = true
+    val videoName = videoDialog.file
+    val videoDir = videoDialog.directory
+    if (videoName == null || videoDir == null) return
+    val videoFile = File(videoDir, videoName)
+
+    val saveTitle = if (language == AppLanguage.KO) "모션포토 저장" else "Save Motion Photo"
+    val saveDialog = FileDialog(null as Frame?, saveTitle, FileDialog.SAVE)
+    saveDialog.file = "${tab.file.nameWithoutExtension}_motion.jpg"
+    saveDialog.isVisible = true
+    val saveName = saveDialog.file
+    val saveDir = saveDialog.directory
+    if (saveName == null || saveDir == null) return
+    val outputFile = File(saveDir, saveName)
+
+    appState.statusMessage = I18n.toastCreatingMotionPhoto(language)
+    runInBackground {
+        try {
+            MotionPhotoBuilder.createGoogleMotionPhoto(tab.file, videoFile, outputFile)
+            EventQueue.invokeLater {
+                appState.statusMessage = I18n.toastMotionPhotoCreated(language, outputFile.name)
+                appState.openFile(outputFile)
+            }
+        } catch (e: Exception) {
+            EventQueue.invokeLater {
+                appState.statusMessage = I18n.toastMotionPhotoFailed(language, e.message ?: e.toString())
+            }
+        }
+    }
 }
 
 // Video/audio track extraction (see TrackExtractor.kt) shells out to ffmpeg -- unlike
@@ -210,6 +245,13 @@ private fun runGuiApplication() = application {
             }
             Menu(I18n.menuMotionPhoto(language)) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                val isImage = currentTab != null && !currentTab.isLoading && currentTab.type == MediaType.IMAGE
+                Item(
+                    I18n.menuCreateMotionPhoto(language),
+                    enabled = isImage,
+                    onClick = { currentTab?.let { createMotionPhotoFromCurrentTab(appState, it, language) } },
+                )
+                Separator()
                 Item(
                     I18n.menuExtractMotionVideo(language),
                     enabled = currentTab?.embeddedVideo != null,
