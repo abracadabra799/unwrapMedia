@@ -278,18 +278,106 @@ object MotionPhotoBuilder {
     }
 
     /**
-     * Updates the Motion Photo XMP metadata item in HEIC (referenced by iloc in the meta box) in place.
+     * Finds the exact byte offset and allocated extent length of the XMP item (Item 50) in HEIC.
+     * Parses meta -> iloc box first, and falls back to scanning if needed.
      */
-    fun updateHeicXmpItem(baseHeicBytes: ByteArray, totalTrailingLength: Long): ByteArray {
+    fun findXmpExtentInHeic(heicBytes: ByteArray): Pair<Int, Int>? {
+        try {
+            var pos = 0
+            while (pos < heicBytes.size - 8) {
+                val size = ((heicBytes[pos].toLong() and 0xFF) shl 24) or
+                    ((heicBytes[pos + 1].toLong() and 0xFF) shl 16) or
+                    ((heicBytes[pos + 2].toLong() and 0xFF) shl 8) or
+                    (heicBytes[pos + 3].toLong() and 0xFF)
+                val fourCC = String(heicBytes.copyOfRange(pos + 4, pos + 8), Charsets.US_ASCII)
+                val boxLen = if (size == 1L) ByteBuffer.wrap(heicBytes, pos + 8, 8).long else if (size == 0L) (heicBytes.size - pos).toLong() else size
+                if (pos + boxLen > heicBytes.size || boxLen < 8) break
+
+                if (fourCC == "meta") {
+                    val metaPayloadStart = pos + 12
+                    val metaEnd = (pos + boxLen).toInt()
+                    var mp = metaPayloadStart
+                    while (mp < metaEnd - 8) {
+                        val childSz = ((heicBytes[mp].toInt() and 0xFF) shl 24) or
+                            ((heicBytes[mp + 1].toInt() and 0xFF) shl 16) or
+                            ((heicBytes[mp + 2].toInt() and 0xFF) shl 8) or
+                            (heicBytes[mp + 3].toInt() and 0xFF)
+                        val childFourCC = String(heicBytes.copyOfRange(mp + 4, mp + 8), Charsets.US_ASCII)
+                        if (childSz < 8 || mp + childSz > metaEnd) break
+
+                        if (childFourCC == "iloc") {
+                            val ilocVersion = heicBytes[mp + 8].toInt() and 0xFF
+                            val offLenSz = heicBytes[mp + 12].toInt() and 0xFF
+                            val baseIdxSz = heicBytes[mp + 13].toInt() and 0xFF
+                            val offSz = offLenSz shr 4
+                            val lenSz = offLenSz and 0x0F
+                            val baseOffSz = baseIdxSz shr 4
+
+                            var lp = mp + (if (ilocVersion < 2) 16 else 18)
+                            val itemCount = if (ilocVersion < 2) {
+                                ((heicBytes[mp + 14].toInt() and 0xFF) shl 8) or (heicBytes[mp + 15].toInt() and 0xFF)
+                            } else {
+                                ((heicBytes[mp + 14].toInt() and 0xFF) shl 24) or
+                                    ((heicBytes[mp + 15].toInt() and 0xFF) shl 16) or
+                                    ((heicBytes[mp + 16].toInt() and 0xFF) shl 8) or
+                                    (heicBytes[mp + 17].toInt() and 0xFF)
+                            }
+
+                            for (i in 0 until itemCount) {
+                                if (lp >= mp + childSz) break
+                                lp += if (ilocVersion < 2) 2 else 4 // item_ID
+                                if (ilocVersion in 1..2) lp += 2 // construction_method
+                                lp += 2 // data_reference_index
+
+                                var baseOffset = 0L
+                                for (b in 0 until baseOffSz) {
+                                    baseOffset = (baseOffset shl 8) or (heicBytes[lp].toLong() and 0xFF)
+                                    lp++
+                                }
+
+                                val extentCount = ((heicBytes[lp].toInt() and 0xFF) shl 8) or (heicBytes[lp + 1].toInt() and 0xFF)
+                                lp += 2
+
+                                for (e in 0 until extentCount) {
+                                    var extentOffset = 0L
+                                    for (b in 0 until offSz) {
+                                        extentOffset = (extentOffset shl 8) or (heicBytes[lp].toLong() and 0xFF)
+                                        lp++
+                                    }
+                                    var extentLength = 0L
+                                    for (b in 0 until lenSz) {
+                                        extentLength = (extentLength shl 8) or (heicBytes[lp].toLong() and 0xFF)
+                                        lp++
+                                    }
+
+                                    val absOffset = (baseOffset + extentOffset).toInt()
+                                    val extLen = extentLength.toInt()
+                                    if (absOffset in 0..heicBytes.size && absOffset + extLen <= heicBytes.size && extLen > 20) {
+                                        val sample = String(heicBytes.copyOfRange(absOffset, minOf(absOffset + 100, absOffset + extLen)), Charsets.UTF_8)
+                                        if (sample.contains("<x:xmpmeta") && (sample.contains("Container") || sample.contains("rdf:Description"))) {
+                                            return Pair(absOffset, extLen)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        mp += childSz
+                    }
+                }
+                pos += boxLen.toInt()
+            }
+        } catch (e: Exception) {
+            // Fallback to pattern scanning
+        }
+
+        // Fallback: pattern scanning
         val xmpOpenTag = "<x:xmpmeta".toByteArray(Charsets.UTF_8)
         val xmpCloseTag = "</x:xmpmeta>".toByteArray(Charsets.UTF_8)
-
-        // Find <x:xmpmeta
         var xmpStart = -1
-        for (i in 0..baseHeicBytes.size - xmpOpenTag.size) {
+        for (i in 0..heicBytes.size - xmpOpenTag.size) {
             var match = true
             for (j in xmpOpenTag.indices) {
-                if (baseHeicBytes[i + j] != xmpOpenTag[j]) {
+                if (heicBytes[i + j] != xmpOpenTag[j]) {
                     match = false
                     break
                 }
@@ -299,15 +387,13 @@ object MotionPhotoBuilder {
                 break
             }
         }
+        if (xmpStart == -1) return null
 
-        if (xmpStart == -1) return baseHeicBytes
-
-        // Find closing </x:xmpmeta>
         var xmpEnd = -1
-        for (i in xmpStart..baseHeicBytes.size - xmpCloseTag.size) {
+        for (i in xmpStart..heicBytes.size - xmpCloseTag.size) {
             var match = true
             for (j in xmpCloseTag.indices) {
-                if (baseHeicBytes[i + j] != xmpCloseTag[j]) {
+                if (heicBytes[i + j] != xmpCloseTag[j]) {
                     match = false
                     break
                 }
@@ -317,17 +403,24 @@ object MotionPhotoBuilder {
                 break
             }
         }
+        if (xmpEnd == -1) return null
 
-        if (xmpEnd == -1) return baseHeicBytes
-
-        // Scan trailing whitespace/null padding within the allocated extent
         var extentEnd = xmpEnd
-        while (extentEnd < baseHeicBytes.size && (baseHeicBytes[extentEnd] == 0x20.toByte() || baseHeicBytes[extentEnd] == 0.toByte())) {
+        val paddingBytes = setOf(0x20.toByte(), 0x00.toByte(), 0x0A.toByte(), 0x0D.toByte())
+        while (extentEnd < heicBytes.size && heicBytes[extentEnd] in paddingBytes) {
             extentEnd++
         }
-        val allocatedLen = extentEnd - xmpStart
+        return Pair(xmpStart, extentEnd - xmpStart)
+    }
 
-        val oldXmpStr = String(baseHeicBytes.copyOfRange(xmpStart, xmpEnd), Charsets.UTF_8)
+    /**
+     * Updates the Motion Photo XMP metadata item in HEIC (referenced by iloc in the meta box) in place.
+     */
+    fun updateHeicXmpItem(baseHeicBytes: ByteArray, totalTrailingLength: Long): ByteArray {
+        val extent = findXmpExtentInHeic(baseHeicBytes) ?: return baseHeicBytes
+        val (xmpStart, allocatedLen) = extent
+
+        val oldXmpStr = String(baseHeicBytes.copyOfRange(xmpStart, minOf(xmpStart + allocatedLen, baseHeicBytes.size)), Charsets.UTF_8)
         val hasGainMap = oldXmpStr.contains("GainMap")
 
         val newXmpText = buildGoogleMotionPhotoHeicXmp(totalTrailingLength, hasGainMap)
@@ -336,8 +429,8 @@ object MotionPhotoBuilder {
         if (newXmpBytes.size <= allocatedLen) {
             val result = baseHeicBytes.copyOf()
             System.arraycopy(newXmpBytes, 0, result, xmpStart, newXmpBytes.size)
-            // Fill remainder of extent with spaces
-            for (k in (xmpStart + newXmpBytes.size) until extentEnd) {
+            // Fill remainder of extent with space characters (0x20)
+            for (k in (xmpStart + newXmpBytes.size) until (xmpStart + allocatedLen)) {
                 result[k] = 0x20.toByte()
             }
             return result
