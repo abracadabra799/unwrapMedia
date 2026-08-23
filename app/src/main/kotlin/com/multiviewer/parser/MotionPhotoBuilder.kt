@@ -34,8 +34,13 @@ object MotionPhotoBuilder {
      * Builds Google Motion Photo & Samsung compatible XMP metadata XML string for JPEG.
      * @param videoOffsetFromEof Distance in bytes from the end of the file to the first byte (ftyp) of the video.
      * @param primaryPadding Padding in bytes between the end of primary JPEG image and the first byte of video.
+     * @param presentationTimestampUs Shutter sync timestamp in microseconds (default: 1500000us = 1.5s).
      */
-    fun buildGoogleMotionPhotoXmp(videoOffsetFromEof: Long, primaryPadding: Long = 0L): String {
+    fun buildGoogleMotionPhotoXmp(
+        videoOffsetFromEof: Long,
+        primaryPadding: Long = 0L,
+        presentationTimestampUs: Long = 1500000L,
+    ): String {
         return """
             <x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 5.1.0-jc003">
               <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
@@ -45,11 +50,11 @@ object MotionPhotoBuilder {
                     xmlns:GCamera="http://ns.google.com/photos/1.0/camera/"
                   GCamera:MotionPhoto="1"
                   GCamera:MotionPhotoVersion="1"
-                  GCamera:MotionPhotoPresentationTimestampUs="0"
+                  GCamera:MotionPhotoPresentationTimestampUs="$presentationTimestampUs"
                   GCamera:MicroVideo="1"
                   GCamera:MicroVideoVersion="1"
                   GCamera:MicroVideoOffset="$videoOffsetFromEof"
-                  GCamera:MicroVideoPresentationTimestampUs="0">
+                  GCamera:MicroVideoPresentationTimestampUs="$presentationTimestampUs">
                   <Container:Directory>
                     <rdf:Seq>
                       <rdf:li rdf:parseType="Resource">
@@ -77,8 +82,13 @@ object MotionPhotoBuilder {
      * Builds Google Motion Photo & Samsung compatible XMP metadata XML string for HEIC.
      * @param videoOffsetFromEof Distance in bytes from the end of the file to the first byte (ftyp) of the video inside mpvd.
      * @param hasGainMap Whether the original HEIC has HDR gain map metadata.
+     * @param presentationTimestampUs Shutter sync timestamp in microseconds (default: 1500000us = 1.5s).
      */
-    fun buildGoogleMotionPhotoHeicXmp(videoOffsetFromEof: Long, hasGainMap: Boolean): String {
+    fun buildGoogleMotionPhotoHeicXmp(
+        videoOffsetFromEof: Long,
+        hasGainMap: Boolean,
+        presentationTimestampUs: Long = 1500000L,
+    ): String {
         val gainMapItem = if (hasGainMap) {
             """          <rdf:li rdf:parseType="Resource">
             <Container:Item
@@ -102,7 +112,11 @@ object MotionPhotoBuilder {
         sb.append("      hdrgm:Version=\"1.0\"\n")
         sb.append("      GCamera:MotionPhoto=\"1\"\n")
         sb.append("      GCamera:MotionPhotoVersion=\"1\"\n")
-        sb.append("      GCamera:MotionPhotoPresentationTimestampUs=\"0\">\n")
+        sb.append("      GCamera:MotionPhotoPresentationTimestampUs=\"$presentationTimestampUs\"\n")
+        sb.append("      GCamera:MicroVideo=\"1\"\n")
+        sb.append("      GCamera:MicroVideoVersion=\"1\"\n")
+        sb.append("      GCamera:MicroVideoOffset=\"$videoOffsetFromEof\"\n")
+        sb.append("      GCamera:MicroVideoPresentationTimestampUs=\"$presentationTimestampUs\">\n")
         sb.append("      <Container:Directory>\n")
         sb.append("        <rdf:Seq>\n")
         sb.append("          <rdf:li rdf:parseType=\"Resource\">\n")
