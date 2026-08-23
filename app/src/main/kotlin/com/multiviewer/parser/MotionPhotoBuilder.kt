@@ -26,7 +26,7 @@ object MotionPhotoBuilder {
     // Samsung SEF (Samsung Extension Format) constants
     private const val SEF_MARKER_MOTION_PHOTO_DATA = 0x0A30
     private const val SEF_MARKER_MOTION_PHOTO_VERSION = 0x0A31
-    private const val SEF_VERSION = 0x00000106
+    private const val SEF_VERSION = 0x0000006B // Samsung SEF v1.07
 
     data class PreservedSefBlock(
         val name: String,
