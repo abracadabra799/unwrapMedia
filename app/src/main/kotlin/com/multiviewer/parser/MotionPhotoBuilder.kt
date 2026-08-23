@@ -102,6 +102,22 @@ object MotionPhotoBuilder {
     }
 
     /**
+     * Resolves and bounds the motion photo presentation timestamp in microseconds (us).
+     *
+     * Rules:
+     * - If input is null or <= 0 (e.g. 0us): Defaults to half the video track duration (duration / 2).
+     * - If input > video track duration: Clamped to the full video track duration.
+     * - Otherwise: Uses the provided timestamp value directly.
+     */
+    fun resolvePresentationTimestampUs(inputTimestampUs: Long?, videoDurationUs: Long): Long {
+        return when {
+            inputTimestampUs == null || inputTimestampUs <= 0L -> (videoDurationUs / 2L).coerceAtLeast(0L)
+            inputTimestampUs > videoDurationUs -> videoDurationUs
+            else -> inputTimestampUs
+        }
+    }
+
+    /**
      * Builds Motion Photo XMP metadata XML string for JPEG.
      * @param version Format version: v2.0 MotionPhoto (default) or v1.0 MicroVideo.
      * @param videoOffsetFromEof Distance in bytes from the end of the file to the first byte (ftyp) of the video.
@@ -689,6 +705,7 @@ object MotionPhotoBuilder {
         videoFile: File,
         outputFile: File,
         version: MotionPhotoFormatVersion = MotionPhotoFormatVersion.V2_MOTION_PHOTO,
+        presentationTimestampUs: Long? = null,
     ) {
         require(imageFile.exists() && imageFile.length() > 0) { "Image file not found or is empty: ${imageFile.absolutePath}" }
         require(videoFile.exists() && videoFile.length() > 0) { "Video file not found or is empty: ${videoFile.absolutePath}" }
@@ -773,8 +790,9 @@ object MotionPhotoBuilder {
 
         // 7. Update XMP item in iloc with video offset from EOF: videoLength + sefdBoxSize and duration
         val videoOffsetFromEof = videoLength + sefdBoxSize
-        val presentationTimestampUs = extractVideoDurationUs(videoFile)
-        val updatedBaseHeicBytes = updateHeicXmpItem(baseHeicBytes, videoOffsetFromEof, presentationTimestampUs, version)
+        val videoDurationUs = extractVideoDurationUs(videoFile)
+        val syncTimestampUs = resolvePresentationTimestampUs(presentationTimestampUs, videoDurationUs)
+        val updatedBaseHeicBytes = updateHeicXmpItem(baseHeicBytes, videoOffsetFromEof, syncTimestampUs, version)
 
         // 8. Write complete Motion Photo HEIC file
         FileOutputStream(outputFile).use { out ->
@@ -804,6 +822,7 @@ object MotionPhotoBuilder {
         videoFile: File,
         outputFile: File,
         version: MotionPhotoFormatVersion = MotionPhotoFormatVersion.V2_MOTION_PHOTO,
+        presentationTimestampUs: Long? = null,
     ) {
         require(imageFile.exists()) { "Image file not found: ${imageFile.absolutePath}" }
         require(videoFile.exists()) { "Video file not found: ${videoFile.absolutePath}" }
@@ -848,14 +867,15 @@ object MotionPhotoBuilder {
         val primaryPadding = preservedBlocksSize + motionBlockHeaderBytes.size
 
         // Extract video duration for presentation timestamp
-        val presentationTimestampUs = extractVideoDurationUs(videoFile)
+        val videoDurationUs = extractVideoDurationUs(videoFile)
+        val syncTimestampUs = resolvePresentationTimestampUs(presentationTimestampUs, videoDurationUs)
 
         // 4. Inject Google Motion Photo XMP into base JPEG
         val motionPhotoJpegBytes = injectMotionPhotoXmpIntoJpeg(
             baseJpegBytes,
             offsetFromEofToVideo,
             primaryPadding,
-            presentationTimestampUs,
+            syncTimestampUs,
             version,
         )
 
