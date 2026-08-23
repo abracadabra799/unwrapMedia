@@ -75,54 +75,58 @@ object MotionPhotoBuilder {
 
     /**
      * Builds Google Motion Photo & Samsung compatible XMP metadata XML string for HEIC.
+     * @param videoOffsetFromEof Distance in bytes from the end of the file to the first byte (ftyp) of the video inside mpvd.
+     * @param hasGainMap Whether the original HEIC has HDR gain map metadata.
      */
-    fun buildGoogleMotionPhotoHeicXmp(totalTrailingLength: Long, hasGainMap: Boolean): String {
+    fun buildGoogleMotionPhotoHeicXmp(videoOffsetFromEof: Long, hasGainMap: Boolean): String {
         val gainMapItem = if (hasGainMap) {
-            """
-          <rdf:li rdf:parseType="Resource">
+            """          <rdf:li rdf:parseType="Resource">
             <Container:Item
               Item:Semantic="GainMap"
               Item:Mime="image/heic"
               Item:Length="0"/>
           </rdf:li>
-            """.trimIndent() + "\n"
+"""
         } else {
             ""
         }
 
-        return """
-            <x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core Test.SNAPSHOT">
-              <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-                <rdf:Description rdf:about=""
-                    xmlns:hdrgm="http://ns.adobe.com/hdr-gain-map/1.0/"
-                    xmlns:Container="http://ns.google.com/photos/1.0/container/"
-                    xmlns:Item="http://ns.google.com/photos/1.0/container/item/"
-                    xmlns:GCamera="http://ns.google.com/photos/1.0/camera/"
-                  hdrgm:Version="1.0"
-                  GCamera:MotionPhoto="1"
-                  GCamera:MotionPhotoVersion="1"
-                  GCamera:MotionPhotoPresentationTimestampUs="0">
-                  <Container:Directory>
-                    <rdf:Seq>
-                      <rdf:li rdf:parseType="Resource">
-                        <Container:Item
-                          Item:Semantic="Primary"
-                          Item:Mime="image/heic"
-                          Item:Padding="0"/>
-                      </rdf:li>
-            $gainMapItem          <rdf:li rdf:parseType="Resource">
-                        <Container:Item
-                          Item:Mime="video/mp4"
-                          Item:Semantic="MotionPhoto"
-                          Item:Length="$totalTrailingLength"
-                          Item:Padding="0"/>
-                      </rdf:li>
-                    </rdf:Seq>
-                  </Container:Directory>
-                </rdf:Description>
-              </rdf:RDF>
-            </x:xmpmeta>
-        """.trimIndent()
+        val sb = StringBuilder()
+        sb.append("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Adobe XMP Core Test.SNAPSHOT\">\n")
+        sb.append("  <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n")
+        sb.append("    <rdf:Description rdf:about=\"\"\n")
+        sb.append("        xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\"\n")
+        sb.append("        xmlns:Container=\"http://ns.google.com/photos/1.0/container/\"\n")
+        sb.append("        xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\"\n")
+        sb.append("        xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\"\n")
+        sb.append("      hdrgm:Version=\"1.0\"\n")
+        sb.append("      GCamera:MotionPhoto=\"1\"\n")
+        sb.append("      GCamera:MotionPhotoVersion=\"1\"\n")
+        sb.append("      GCamera:MotionPhotoPresentationTimestampUs=\"0\">\n")
+        sb.append("      <Container:Directory>\n")
+        sb.append("        <rdf:Seq>\n")
+        sb.append("          <rdf:li rdf:parseType=\"Resource\">\n")
+        sb.append("            <Container:Item\n")
+        sb.append("              Item:Semantic=\"Primary\"\n")
+        sb.append("              Item:Mime=\"image/heic\"\n")
+        sb.append("              Item:Padding=\"8\"/>\n")
+        sb.append("          </rdf:li>\n")
+        if (hasGainMap) {
+            sb.append(gainMapItem)
+        }
+        sb.append("          <rdf:li rdf:parseType=\"Resource\">\n")
+        sb.append("            <Container:Item\n")
+        sb.append("              Item:Mime=\"video/mp4\"\n")
+        sb.append("              Item:Semantic=\"MotionPhoto\"\n")
+        sb.append("              Item:Length=\"$videoOffsetFromEof\"\n")
+        sb.append("              Item:Padding=\"0\"/>\n")
+        sb.append("          </rdf:li>\n")
+        sb.append("        </rdf:Seq>\n")
+        sb.append("      </Container:Directory>\n")
+        sb.append("    </rdf:Description>\n")
+        sb.append("  </rdf:RDF>\n")
+        sb.append("</x:xmpmeta>")
+        return sb.toString()
     }
 
     /**
@@ -418,14 +422,14 @@ object MotionPhotoBuilder {
     /**
      * Updates the Motion Photo XMP metadata item in HEIC (referenced by iloc in the meta box) in place.
      */
-    fun updateHeicXmpItem(baseHeicBytes: ByteArray, totalTrailingLength: Long): ByteArray {
+    fun updateHeicXmpItem(baseHeicBytes: ByteArray, videoOffsetFromEof: Long): ByteArray {
         val extent = findXmpExtentInHeic(baseHeicBytes) ?: return baseHeicBytes
         val (xmpStart, allocatedLen) = extent
 
         val oldXmpStr = String(baseHeicBytes.copyOfRange(xmpStart, minOf(xmpStart + allocatedLen, baseHeicBytes.size)), Charsets.UTF_8)
         val hasGainMap = oldXmpStr.contains("GainMap")
 
-        val newXmpText = buildGoogleMotionPhotoHeicXmp(totalTrailingLength, hasGainMap)
+        val newXmpText = buildGoogleMotionPhotoHeicXmp(videoOffsetFromEof, hasGainMap)
         val newXmpBytes = newXmpText.toByteArray(Charsets.UTF_8)
 
         if (newXmpBytes.size <= allocatedLen) {
@@ -638,9 +642,9 @@ object MotionPhotoBuilder {
         sefdHeaderBuf.putInt(sefdBoxSize.toInt())
         sefdHeaderBuf.put("sefd".toByteArray(Charsets.US_ASCII))
 
-        // 7. Update XMP item in iloc with total trailing length (mpvd + sefd)
-        val totalTrailingLength = mpvdSize + sefdBoxSize
-        val updatedBaseHeicBytes = updateHeicXmpItem(baseHeicBytes, totalTrailingLength)
+        // 7. Update XMP item in iloc with video offset from EOF: videoLength + sefdBoxSize
+        val videoOffsetFromEof = videoLength + sefdBoxSize
+        val updatedBaseHeicBytes = updateHeicXmpItem(baseHeicBytes, videoOffsetFromEof)
 
         // 8. Write complete Motion Photo HEIC file
         FileOutputStream(outputFile).use { out ->
