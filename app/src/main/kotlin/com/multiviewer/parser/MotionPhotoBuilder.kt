@@ -32,8 +32,10 @@ object MotionPhotoBuilder {
 
     /**
      * Builds Google Motion Photo & Samsung compatible XMP metadata XML string for JPEG.
+     * @param videoOffsetFromEof Distance in bytes from the end of the file to the first byte (ftyp) of the video.
+     * @param primaryPadding Padding in bytes between the end of primary JPEG image and the first byte of video.
      */
-    fun buildGoogleMotionPhotoXmp(videoOffsetFromEof: Long): String {
+    fun buildGoogleMotionPhotoXmp(videoOffsetFromEof: Long, primaryPadding: Long = 0L): String {
         return """
             <x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 5.1.0-jc003">
               <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
@@ -54,7 +56,7 @@ object MotionPhotoBuilder {
                         <Container:Item
                           Item:Semantic="Primary"
                           Item:Mime="image/jpeg"
-                          Item:Padding="0"/>
+                          Item:Padding="$primaryPadding"/>
                       </rdf:li>
                       <rdf:li rdf:parseType="Resource">
                         <Container:Item
@@ -472,12 +474,12 @@ object MotionPhotoBuilder {
     /**
      * Injects the Motion Photo APP1 XMP segment into JPEG bytes at standard position.
      */
-    fun injectMotionPhotoXmpIntoJpeg(jpegBytes: ByteArray, totalSefSize: Long): ByteArray {
+    fun injectMotionPhotoXmpIntoJpeg(jpegBytes: ByteArray, videoOffsetFromEof: Long, primaryPadding: Long = 0L): ByteArray {
         require(jpegBytes.size >= 4 && (jpegBytes[0].toInt() and 0xFF) == 0xFF && (jpegBytes[1].toInt() and 0xFF) == 0xD8) {
             "Invalid JPEG bytes: missing SOI marker (0xFFD8)"
         }
 
-        val xmpText = buildGoogleMotionPhotoXmp(totalSefSize)
+        val xmpText = buildGoogleMotionPhotoXmp(videoOffsetFromEof, primaryPadding)
         val app1Segment = buildApp1XmpSegment(xmpText)
 
         // Check if there is an Exif APP1 immediately after SOI
@@ -555,11 +557,6 @@ object MotionPhotoBuilder {
 
     /**
      * Synthesizes a Samsung Galaxy HEIC Motion Photo file (.heic).
-     * Structure:
-     * 1. Base HEIC boxes with Motion Photo XMP item updated in iloc/meta (ftyp, mdat, meta, free)
-     * 2. mpvd top-level box containing raw MP4 video stream
-     * 3. sefd top-level box containing preserved SEF data blocks, MotionPhoto_Version,
-     *    and MotionPhoto_Data (12-byte payload pointing to mpvd offset & length), SEFH, and SEFT.
      */
     fun createSamsungHeicMotionPhoto(imageFile: File, videoFile: File, outputFile: File) {
         require(imageFile.exists()) { "Image file not found: ${imageFile.absolutePath}" }
@@ -703,10 +700,16 @@ object MotionPhotoBuilder {
         val sefDirSize = 12 + totalEntryCount * 12
         val seftTailSize = 8
 
-        val totalSefSize = totalBlockBytesSize + sefDirSize + seftTailSize
+        // In Google Photos specification:
+        // offsetFromEofToVideo is the exact distance from the END of the file to the FIRST byte of the video (ftyp box)!
+        val offsetFromEofToVideo = videoFile.length() + sefDirSize + seftTailSize
+
+        // primaryPadding is the number of bytes between the end of primary JPEG image and the first byte of video
+        val preservedBlocksSize = preservedSefBlocks.sumOf { it.bytes.size.toLong() }
+        val primaryPadding = preservedBlocksSize + motionBlockHeaderBytes.size
 
         // 4. Inject Google Motion Photo XMP into base JPEG
-        val motionPhotoJpegBytes = injectMotionPhotoXmpIntoJpeg(baseJpegBytes, totalSefSize)
+        val motionPhotoJpegBytes = injectMotionPhotoXmpIntoJpeg(baseJpegBytes, offsetFromEofToVideo, primaryPadding)
 
         // 5. Build SEFH Directory Table
         val sefDirBuf = ByteBuffer.allocate(sefDirSize).order(ByteOrder.LITTLE_ENDIAN)
