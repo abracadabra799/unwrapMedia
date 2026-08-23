@@ -9,13 +9,40 @@ import kotlin.test.assertTrue
 class MotionPhotoBuilderTest {
 
     @Test
-    fun `buildGoogleMotionPhotoXmp creates well-formed XMP metadata with correct video length`() {
-        val xmp = MotionPhotoBuilder.buildGoogleMotionPhotoXmp(1234567L)
+    fun `buildGoogleMotionPhotoXmp creates well-formed XMP metadata with correct video length for v2`() {
+        val xmp = MotionPhotoBuilder.buildGoogleMotionPhotoXmp(1234567L, 100L, 2000000L, MotionPhotoFormatVersion.V2_MOTION_PHOTO)
         assertTrue(xmp.contains("GCamera:MotionPhoto=\"1\""))
-        assertTrue(xmp.contains("GCamera:MicroVideoOffset=\"1234567\""))
+        assertTrue(xmp.contains("GCamera:MotionPhotoPresentationTimestampUs=\"2000000\""))
+        assertTrue(!xmp.contains("GCamera:MicroVideo=\"1\""))
         assertTrue(xmp.contains("<Container:Item"))
         assertTrue(xmp.contains("Item:Semantic=\"MotionPhoto\""))
         assertTrue(xmp.contains("Item:Length=\"1234567\""))
+    }
+
+    @Test
+    fun `buildGoogleMotionPhotoXmp creates well-formed XMP metadata for v1 MicroVideo`() {
+        val xmp = MotionPhotoBuilder.buildGoogleMotionPhotoXmp(1234567L, 0L, 2000000L, MotionPhotoFormatVersion.V1_MICRO_VIDEO)
+        assertTrue(xmp.contains("GCamera:MicroVideo=\"1\""))
+        assertTrue(xmp.contains("GCamera:MicroVideoOffset=\"1234567\""))
+        assertTrue(xmp.contains("GCamera:MicroVideoPresentationTimestampUs=\"2000000\""))
+        assertTrue(!xmp.contains("GCamera:MotionPhoto=\"1\""))
+        assertTrue(!xmp.contains("<Container:Directory>"))
+    }
+
+    @Test
+    fun `buildGoogleMotionPhotoHeicXmp creates well-formed XMP for v2 and v1`() {
+        val xmpV2 = MotionPhotoBuilder.buildGoogleMotionPhotoHeicXmp(3000000L, hasGainMap = true, presentationTimestampUs = 1500000L, version = MotionPhotoFormatVersion.V2_MOTION_PHOTO)
+        assertTrue(xmpV2.startsWith("<x:xmpmeta"))
+        assertTrue(xmpV2.contains("GCamera:MotionPhoto=\"1\""))
+        assertTrue(xmpV2.contains("Item:Padding=\"8\""))
+        assertTrue(xmpV2.contains("Item:Semantic=\"GainMap\""))
+        assertTrue(!xmpV2.contains("GCamera:MicroVideo=\"1\""))
+
+        val xmpV1 = MotionPhotoBuilder.buildGoogleMotionPhotoHeicXmp(3000000L, hasGainMap = false, presentationTimestampUs = 1500000L, version = MotionPhotoFormatVersion.V1_MICRO_VIDEO)
+        assertTrue(xmpV1.startsWith("<x:xmpmeta"))
+        assertTrue(xmpV1.contains("GCamera:MicroVideo=\"1\""))
+        assertTrue(xmpV1.contains("GCamera:MicroVideoOffset=\"3000000\""))
+        assertTrue(!xmpV1.contains("GCamera:MotionPhoto=\"1\""))
     }
 
     @Test

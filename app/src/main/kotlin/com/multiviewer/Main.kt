@@ -84,7 +84,12 @@ private fun extractMotionPhotoPreviewVideo(appState: AppState, tab: TabState) {
     extractVideoToFile(appState, tab, video, "preview")
 }
 
-private fun createMotionPhotoFromCurrentTab(appState: AppState, tab: TabState, language: AppLanguage) {
+private fun createMotionPhotoFromCurrentTab(
+    appState: AppState,
+    tab: TabState,
+    language: AppLanguage,
+    version: com.multiviewer.parser.MotionPhotoFormatVersion = com.multiviewer.parser.MotionPhotoFormatVersion.V2_MOTION_PHOTO,
+) {
     val selectVideoTitle = if (language == AppLanguage.KO) "모션포토로 합성할 동영상 선택" else "Select video file to attach"
     val videoDialog = FileDialog(null as Frame?, selectVideoTitle, FileDialog.LOAD)
     videoDialog.isVisible = true
@@ -95,9 +100,10 @@ private fun createMotionPhotoFromCurrentTab(appState: AppState, tab: TabState, l
 
     val isHeic = tab.file.extension.lowercase(java.util.Locale.US) in setOf("heic", "heif")
     val defaultExt = if (isHeic) "heic" else "jpg"
+    val suffix = if (version == com.multiviewer.parser.MotionPhotoFormatVersion.V1_MICRO_VIDEO) "_microvideo" else "_motion"
     val saveTitle = if (language == AppLanguage.KO) "모션포토 저장" else "Save Motion Photo"
     val saveDialog = FileDialog(null as Frame?, saveTitle, FileDialog.SAVE)
-    saveDialog.file = "${tab.file.nameWithoutExtension}_motion.$defaultExt"
+    saveDialog.file = "${tab.file.nameWithoutExtension}$suffix.$defaultExt"
     saveDialog.isVisible = true
     val saveName = saveDialog.file
     val saveDir = saveDialog.directory
@@ -107,7 +113,7 @@ private fun createMotionPhotoFromCurrentTab(appState: AppState, tab: TabState, l
     appState.statusMessage = I18n.toastCreatingMotionPhoto(language)
     runInBackground {
         try {
-            MotionPhotoBuilder.createMotionPhoto(tab.file, videoFile, outputFile)
+            com.multiviewer.parser.MotionPhotoBuilder.createMotionPhoto(tab.file, videoFile, outputFile, version)
             EventQueue.invokeLater {
                 appState.statusMessage = I18n.toastMotionPhotoCreated(language, outputFile.name)
                 appState.openFile(outputFile)
@@ -249,9 +255,14 @@ private fun runGuiApplication() = application {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val isImage = currentTab != null && !currentTab.isLoading && currentTab.type == MediaType.IMAGE
                 Item(
-                    I18n.menuCreateMotionPhoto(language),
+                    I18n.menuCreateMotionPhotoV2(language),
                     enabled = isImage,
-                    onClick = { currentTab?.let { createMotionPhotoFromCurrentTab(appState, it, language) } },
+                    onClick = { currentTab?.let { createMotionPhotoFromCurrentTab(appState, it, language, com.multiviewer.parser.MotionPhotoFormatVersion.V2_MOTION_PHOTO) } },
+                )
+                Item(
+                    I18n.menuCreateMotionPhotoV1(language),
+                    enabled = isImage,
+                    onClick = { currentTab?.let { createMotionPhotoFromCurrentTab(appState, it, language, com.multiviewer.parser.MotionPhotoFormatVersion.V1_MICRO_VIDEO) } },
                 )
                 Separator()
                 Item(

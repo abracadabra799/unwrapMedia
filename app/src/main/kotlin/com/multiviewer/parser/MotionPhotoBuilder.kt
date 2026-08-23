@@ -13,6 +13,11 @@ import javax.imageio.ImageIO
 import javax.imageio.ImageWriteParam
 import javax.imageio.ImageWriter
 
+enum class MotionPhotoFormatVersion {
+    V1_MICRO_VIDEO,
+    V2_MOTION_PHOTO,
+}
+
 object MotionPhotoBuilder {
 
     private val XMP_IDENTIFIER = "http://ns.adobe.com/xap/1.0/".toByteArray(Charsets.US_ASCII)
@@ -31,64 +36,160 @@ object MotionPhotoBuilder {
     )
 
     /**
-     * Builds Google Motion Photo & Samsung compatible XMP metadata XML string for JPEG.
+     * Extracts video track duration in microseconds (us) from an MP4/MOV file.
+     * Uses mvhd box timescale and duration. Defaults to 1,500,000us (1.5s) if unable to parse.
+     */
+    fun extractVideoDurationUs(videoFile: File): Long {
+        try {
+            FileInputStream(videoFile).use { fis ->
+                val bufferSize = minOf(videoFile.length(), 2L * 1024L * 1024L).toInt()
+                val buffer = ByteArray(bufferSize)
+                var readTotal = 0
+                while (readTotal < buffer.size) {
+                    val count = fis.read(buffer, readTotal, buffer.size - readTotal)
+                    if (count == -1) break
+                    readTotal += count
+                }
+                val mvhdTag = "mvhd".toByteArray(Charsets.US_ASCII)
+                var mvhdIdx = -1
+                for (i in 0..readTotal - mvhdTag.size) {
+                    var match = true
+                    for (j in mvhdTag.indices) {
+                        if (buffer[i + j] != mvhdTag[j]) {
+                            match = false
+                            break
+                        }
+                    }
+                    if (match) {
+                        mvhdIdx = i
+                        break
+                    }
+                }
+                if (mvhdIdx != -1 && mvhdIdx + 28 <= readTotal) {
+                    val p = mvhdIdx + 4
+                    val version = buffer[p].toInt() and 0xFF
+                    if (version == 0 && p + 20 <= readTotal) {
+                        val timescale = ((buffer[p + 12].toLong() and 0xFF) shl 24) or
+                            ((buffer[p + 13].toLong() and 0xFF) shl 16) or
+                            ((buffer[p + 14].toLong() and 0xFF) shl 8) or
+                            (buffer[p + 15].toLong() and 0xFF)
+                        val duration = ((buffer[p + 16].toLong() and 0xFF) shl 24) or
+                            ((buffer[p + 17].toLong() and 0xFF) shl 16) or
+                            ((buffer[p + 18].toLong() and 0xFF) shl 8) or
+                            (buffer[p + 19].toLong() and 0xFF)
+                        if (timescale > 0) {
+                            return (duration * 1_000_000L) / timescale
+                        }
+                    } else if (version == 1 && p + 28 <= readTotal) {
+                        val timescale = ((buffer[p + 20].toLong() and 0xFF) shl 24) or
+                            ((buffer[p + 21].toLong() and 0xFF) shl 16) or
+                            ((buffer[p + 22].toLong() and 0xFF) shl 8) or
+                            (buffer[p + 23].toLong() and 0xFF)
+                        var duration = 0L
+                        for (i in 0 until 8) {
+                            duration = (duration shl 8) or (buffer[p + 24 + i].toLong() and 0xFF)
+                        }
+                        if (timescale > 0) {
+                            return (duration * 1_000_000L) / timescale
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Fallback
+        }
+        return 1_500_000L
+    }
+
+    /**
+     * Builds Motion Photo XMP metadata XML string for JPEG.
+     * @param version Format version: v2.0 MotionPhoto (default) or v1.0 MicroVideo.
      * @param videoOffsetFromEof Distance in bytes from the end of the file to the first byte (ftyp) of the video.
      * @param primaryPadding Padding in bytes between the end of primary JPEG image and the first byte of video.
-     * @param presentationTimestampUs Shutter sync timestamp in microseconds (default: 1500000us = 1.5s).
+     * @param presentationTimestampUs Shutter sync timestamp in microseconds (defaults to video track duration).
      */
     fun buildGoogleMotionPhotoXmp(
         videoOffsetFromEof: Long,
         primaryPadding: Long = 0L,
         presentationTimestampUs: Long = 1500000L,
+        version: MotionPhotoFormatVersion = MotionPhotoFormatVersion.V2_MOTION_PHOTO,
     ): String {
-        return """
-            <x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 5.1.0-jc003">
-              <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-                <rdf:Description rdf:about=""
-                    xmlns:Container="http://ns.google.com/photos/1.0/container/"
-                    xmlns:Item="http://ns.google.com/photos/1.0/container/item/"
-                    xmlns:GCamera="http://ns.google.com/photos/1.0/camera/"
-                  GCamera:MotionPhoto="1"
-                  GCamera:MotionPhotoVersion="1"
-                  GCamera:MotionPhotoPresentationTimestampUs="$presentationTimestampUs"
-                  GCamera:MicroVideo="1"
-                  GCamera:MicroVideoVersion="1"
-                  GCamera:MicroVideoOffset="$videoOffsetFromEof"
-                  GCamera:MicroVideoPresentationTimestampUs="$presentationTimestampUs">
-                  <Container:Directory>
-                    <rdf:Seq>
-                      <rdf:li rdf:parseType="Resource">
-                        <Container:Item
-                          Item:Semantic="Primary"
-                          Item:Mime="image/jpeg"
-                          Item:Padding="$primaryPadding"/>
-                      </rdf:li>
-                      <rdf:li rdf:parseType="Resource">
-                        <Container:Item
-                          Item:Mime="video/mp4"
-                          Item:Semantic="MotionPhoto"
-                          Item:Length="$videoOffsetFromEof"
-                          Item:Padding="0"/>
-                      </rdf:li>
-                    </rdf:Seq>
-                  </Container:Directory>
-                </rdf:Description>
-              </rdf:RDF>
-            </x:xmpmeta>
-        """.trimIndent()
+        return if (version == MotionPhotoFormatVersion.V1_MICRO_VIDEO) {
+            """
+                <x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 5.1.0-jc003">
+                  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+                    <rdf:Description rdf:about=""
+                        xmlns:GCamera="http://ns.google.com/photos/1.0/camera/"
+                      GCamera:MicroVideo="1"
+                      GCamera:MicroVideoVersion="1"
+                      GCamera:MicroVideoOffset="$videoOffsetFromEof"
+                      GCamera:MicroVideoPresentationTimestampUs="$presentationTimestampUs"/>
+                  </rdf:RDF>
+                </x:xmpmeta>
+            """.trimIndent()
+        } else {
+            """
+                <x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 5.1.0-jc003">
+                  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+                    <rdf:Description rdf:about=""
+                        xmlns:Container="http://ns.google.com/photos/1.0/container/"
+                        xmlns:Item="http://ns.google.com/photos/1.0/container/item/"
+                        xmlns:GCamera="http://ns.google.com/photos/1.0/camera/"
+                      GCamera:MotionPhoto="1"
+                      GCamera:MotionPhotoVersion="1"
+                      GCamera:MotionPhotoPresentationTimestampUs="$presentationTimestampUs">
+                      <Container:Directory>
+                        <rdf:Seq>
+                          <rdf:li rdf:parseType="Resource">
+                            <Container:Item
+                              Item:Semantic="Primary"
+                              Item:Mime="image/jpeg"
+                              Item:Padding="$primaryPadding"/>
+                          </rdf:li>
+                          <rdf:li rdf:parseType="Resource">
+                            <Container:Item
+                              Item:Mime="video/mp4"
+                              Item:Semantic="MotionPhoto"
+                              Item:Length="$videoOffsetFromEof"
+                              Item:Padding="0"/>
+                          </rdf:li>
+                        </rdf:Seq>
+                      </Container:Directory>
+                    </rdf:Description>
+                  </rdf:RDF>
+                </x:xmpmeta>
+            """.trimIndent()
+        }
     }
 
     /**
-     * Builds Google Motion Photo & Samsung compatible XMP metadata XML string for HEIC.
+     * Builds Motion Photo XMP metadata XML string for HEIC.
+     * @param version Format version: v2.0 MotionPhoto (default) or v1.0 MicroVideo.
      * @param videoOffsetFromEof Distance in bytes from the end of the file to the first byte (ftyp) of the video inside mpvd.
      * @param hasGainMap Whether the original HEIC has HDR gain map metadata.
-     * @param presentationTimestampUs Shutter sync timestamp in microseconds (default: 1500000us = 1.5s).
+     * @param presentationTimestampUs Shutter sync timestamp in microseconds (defaults to video track duration).
      */
     fun buildGoogleMotionPhotoHeicXmp(
         videoOffsetFromEof: Long,
         hasGainMap: Boolean,
         presentationTimestampUs: Long = 1500000L,
+        version: MotionPhotoFormatVersion = MotionPhotoFormatVersion.V2_MOTION_PHOTO,
     ): String {
+        if (version == MotionPhotoFormatVersion.V1_MICRO_VIDEO) {
+            val sb = StringBuilder()
+            sb.append("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Adobe XMP Core Test.SNAPSHOT\">\n")
+            sb.append("  <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n")
+            sb.append("    <rdf:Description rdf:about=\"\"\n")
+            sb.append("        xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\"\n")
+            sb.append("      GCamera:MicroVideo=\"1\"\n")
+            sb.append("      GCamera:MicroVideoVersion=\"1\"\n")
+            sb.append("      GCamera:MicroVideoOffset=\"$videoOffsetFromEof\"\n")
+            sb.append("      GCamera:MicroVideoPresentationTimestampUs=\"$presentationTimestampUs\"/>\n")
+            sb.append("  </rdf:RDF>\n")
+            sb.append("</x:xmpmeta>")
+            return sb.toString()
+        }
+
         val gainMapItem = if (hasGainMap) {
             """          <rdf:li rdf:parseType="Resource">
             <Container:Item
@@ -112,11 +213,7 @@ object MotionPhotoBuilder {
         sb.append("      hdrgm:Version=\"1.0\"\n")
         sb.append("      GCamera:MotionPhoto=\"1\"\n")
         sb.append("      GCamera:MotionPhotoVersion=\"1\"\n")
-        sb.append("      GCamera:MotionPhotoPresentationTimestampUs=\"$presentationTimestampUs\"\n")
-        sb.append("      GCamera:MicroVideo=\"1\"\n")
-        sb.append("      GCamera:MicroVideoVersion=\"1\"\n")
-        sb.append("      GCamera:MicroVideoOffset=\"$videoOffsetFromEof\"\n")
-        sb.append("      GCamera:MicroVideoPresentationTimestampUs=\"$presentationTimestampUs\">\n")
+        sb.append("      GCamera:MotionPhotoPresentationTimestampUs=\"$presentationTimestampUs\">\n")
         sb.append("      <Container:Directory>\n")
         sb.append("        <rdf:Seq>\n")
         sb.append("          <rdf:li rdf:parseType=\"Resource\">\n")
@@ -436,14 +533,19 @@ object MotionPhotoBuilder {
     /**
      * Updates the Motion Photo XMP metadata item in HEIC (referenced by iloc in the meta box) in place.
      */
-    fun updateHeicXmpItem(baseHeicBytes: ByteArray, videoOffsetFromEof: Long): ByteArray {
+    fun updateHeicXmpItem(
+        baseHeicBytes: ByteArray,
+        videoOffsetFromEof: Long,
+        presentationTimestampUs: Long = 1500000L,
+        version: MotionPhotoFormatVersion = MotionPhotoFormatVersion.V2_MOTION_PHOTO,
+    ): ByteArray {
         val extent = findXmpExtentInHeic(baseHeicBytes) ?: return baseHeicBytes
         val (xmpStart, allocatedLen) = extent
 
         val oldXmpStr = String(baseHeicBytes.copyOfRange(xmpStart, minOf(xmpStart + allocatedLen, baseHeicBytes.size)), Charsets.UTF_8)
         val hasGainMap = oldXmpStr.contains("GainMap")
 
-        val newXmpText = buildGoogleMotionPhotoHeicXmp(videoOffsetFromEof, hasGainMap)
+        val newXmpText = buildGoogleMotionPhotoHeicXmp(videoOffsetFromEof, hasGainMap, presentationTimestampUs, version)
         val newXmpBytes = newXmpText.toByteArray(Charsets.UTF_8)
 
         if (newXmpBytes.size <= allocatedLen) {
@@ -492,12 +594,18 @@ object MotionPhotoBuilder {
     /**
      * Injects the Motion Photo APP1 XMP segment into JPEG bytes at standard position.
      */
-    fun injectMotionPhotoXmpIntoJpeg(jpegBytes: ByteArray, videoOffsetFromEof: Long, primaryPadding: Long = 0L): ByteArray {
+    fun injectMotionPhotoXmpIntoJpeg(
+        jpegBytes: ByteArray,
+        videoOffsetFromEof: Long,
+        primaryPadding: Long = 0L,
+        presentationTimestampUs: Long = 1500000L,
+        version: MotionPhotoFormatVersion = MotionPhotoFormatVersion.V2_MOTION_PHOTO,
+    ): ByteArray {
         require(jpegBytes.size >= 4 && (jpegBytes[0].toInt() and 0xFF) == 0xFF && (jpegBytes[1].toInt() and 0xFF) == 0xD8) {
             "Invalid JPEG bytes: missing SOI marker (0xFFD8)"
         }
 
-        val xmpText = buildGoogleMotionPhotoXmp(videoOffsetFromEof, primaryPadding)
+        val xmpText = buildGoogleMotionPhotoXmp(videoOffsetFromEof, primaryPadding, presentationTimestampUs, version)
         val app1Segment = buildApp1XmpSegment(xmpText)
 
         // Check if there is an Exif APP1 immediately after SOI
@@ -576,7 +684,12 @@ object MotionPhotoBuilder {
     /**
      * Synthesizes a Samsung Galaxy HEIC Motion Photo file (.heic).
      */
-    fun createSamsungHeicMotionPhoto(imageFile: File, videoFile: File, outputFile: File) {
+    fun createSamsungHeicMotionPhoto(
+        imageFile: File,
+        videoFile: File,
+        outputFile: File,
+        version: MotionPhotoFormatVersion = MotionPhotoFormatVersion.V2_MOTION_PHOTO,
+    ) {
         require(imageFile.exists()) { "Image file not found: ${imageFile.absolutePath}" }
         require(videoFile.exists()) { "Video file not found: ${videoFile.absolutePath}" }
         require(videoFile.length() > 0) { "Video file is empty: ${videoFile.absolutePath}" }
@@ -656,9 +769,10 @@ object MotionPhotoBuilder {
         sefdHeaderBuf.putInt(sefdBoxSize.toInt())
         sefdHeaderBuf.put("sefd".toByteArray(Charsets.US_ASCII))
 
-        // 7. Update XMP item in iloc with video offset from EOF: videoLength + sefdBoxSize
+        // 7. Update XMP item in iloc with video offset from EOF: videoLength + sefdBoxSize and duration
         val videoOffsetFromEof = videoLength + sefdBoxSize
-        val updatedBaseHeicBytes = updateHeicXmpItem(baseHeicBytes, videoOffsetFromEof)
+        val presentationTimestampUs = extractVideoDurationUs(videoFile)
+        val updatedBaseHeicBytes = updateHeicXmpItem(baseHeicBytes, videoOffsetFromEof, presentationTimestampUs, version)
 
         // 8. Write complete Motion Photo HEIC file
         FileOutputStream(outputFile).use { out ->
@@ -683,7 +797,12 @@ object MotionPhotoBuilder {
     /**
      * Synthesizes a Samsung/Google Motion Photo JPEG file (.jpg).
      */
-    fun createGoogleMotionPhoto(imageFile: File, videoFile: File, outputFile: File) {
+    fun createGoogleMotionPhoto(
+        imageFile: File,
+        videoFile: File,
+        outputFile: File,
+        version: MotionPhotoFormatVersion = MotionPhotoFormatVersion.V2_MOTION_PHOTO,
+    ) {
         require(imageFile.exists()) { "Image file not found: ${imageFile.absolutePath}" }
         require(videoFile.exists()) { "Video file not found: ${videoFile.absolutePath}" }
         require(videoFile.length() > 0) { "Video file is empty: ${videoFile.absolutePath}" }
@@ -726,8 +845,17 @@ object MotionPhotoBuilder {
         val preservedBlocksSize = preservedSefBlocks.sumOf { it.bytes.size.toLong() }
         val primaryPadding = preservedBlocksSize + motionBlockHeaderBytes.size
 
+        // Extract video duration for presentation timestamp
+        val presentationTimestampUs = extractVideoDurationUs(videoFile)
+
         // 4. Inject Google Motion Photo XMP into base JPEG
-        val motionPhotoJpegBytes = injectMotionPhotoXmpIntoJpeg(baseJpegBytes, offsetFromEofToVideo, primaryPadding)
+        val motionPhotoJpegBytes = injectMotionPhotoXmpIntoJpeg(
+            baseJpegBytes,
+            offsetFromEofToVideo,
+            primaryPadding,
+            presentationTimestampUs,
+            version,
+        )
 
         // 5. Build SEFH Directory Table
         val sefDirBuf = ByteBuffer.allocate(sefDirSize).order(ByteOrder.LITTLE_ENDIAN)
@@ -778,15 +906,20 @@ object MotionPhotoBuilder {
     }
 
     /**
-     * Automatically synthesizes Motion Photo according to image format (HEIC or JPEG).
+     * Automatically synthesizes Motion Photo according to image format (HEIC or JPEG) and version.
      */
-    fun createMotionPhoto(imageFile: File, videoFile: File, outputFile: File) {
+    fun createMotionPhoto(
+        imageFile: File,
+        videoFile: File,
+        outputFile: File,
+        version: MotionPhotoFormatVersion = MotionPhotoFormatVersion.V2_MOTION_PHOTO,
+    ) {
         val ext = imageFile.extension.lowercase(Locale.US)
         val outExt = outputFile.extension.lowercase(Locale.US)
         if (ext in setOf("heic", "heif") || outExt in setOf("heic", "heif")) {
-            createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile)
+            createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile, version)
         } else {
-            createGoogleMotionPhoto(imageFile, videoFile, outputFile)
+            createGoogleMotionPhoto(imageFile, videoFile, outputFile, version)
         }
     }
 }

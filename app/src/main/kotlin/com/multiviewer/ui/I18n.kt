@@ -36,7 +36,9 @@ object I18n {
 
     // Menu: Motion Photo
     fun menuMotionPhoto(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토" else "Motion Photo"
-    fun menuCreateMotionPhoto(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 생성..." else "Create Motion Photo..."
+    fun menuCreateMotionPhotoV2(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 v2.0 생성 (권장)..." else "Create Motion Photo v2.0 (Recommended)..."
+    fun menuCreateMotionPhotoV1(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 v1.0 생성 (MicroVideo)..." else "Create Motion Photo v1.0 (MicroVideo)..."
+    fun menuCreateMotionPhoto(lang: AppLanguage) = menuCreateMotionPhotoV2(lang)
     fun menuExtractMotionVideo(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 동영상 추출" else "Extract Motion Photo Video"
     fun menuExtractPreviewVideo(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 미리보기 재생용 비디오 추출" else "Extract Preview Video"
     fun menuMotionFrameDropAnalysis(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 동영상 프레임 드랍 분석" else "Motion Video Frame Drop Analysis"
