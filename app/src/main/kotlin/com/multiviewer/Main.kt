@@ -39,6 +39,7 @@ import java.awt.dnd.DropTarget
 import java.awt.dnd.DropTargetAdapter
 import java.awt.dnd.DropTargetDropEvent
 import java.io.File
+import javax.swing.JOptionPane
 
 private const val BYTES_PER_ROW = 16
 
@@ -84,12 +85,56 @@ private fun extractMotionPhotoPreviewVideo(appState: AppState, tab: TabState) {
     extractVideoToFile(appState, tab, video, "preview")
 }
 
+private fun validateTabForMotionPhoto(
+    tab: TabState,
+    language: AppLanguage,
+    version: com.multiviewer.parser.MotionPhotoFormatVersion,
+): String? {
+    if (tab.isLoading) {
+        return I18n.errMotionPhotoImageLoading(language)
+    }
+    if (tab.error != null || tab.root == null || !tab.file.exists() || tab.file.length() <= 0L) {
+        return I18n.errMotionPhotoInvalidImage(language)
+    }
+    if (tab.type != MediaType.IMAGE) {
+        return I18n.errMotionPhotoUnsupportedImage(language)
+    }
+    if (tab.embeddedVideo != null || tab.motionPhotoPreview != null) {
+        return I18n.errMotionPhotoAlreadyExists(language)
+    }
+    if (tab.gifAnimation != null) {
+        return I18n.errMotionPhotoAnimatedGif(language)
+    }
+    val ext = tab.file.extension.lowercase(java.util.Locale.US)
+    val isHeic = ext in setOf("heic", "heif")
+    if (version == com.multiviewer.parser.MotionPhotoFormatVersion.V1_MICRO_VIDEO && isHeic) {
+        return I18n.errMotionPhotoV1HeicNotSupported(language)
+    }
+    val supportedExts = setOf("jpg", "jpeg", "heic", "heif", "avif")
+    if (ext !in supportedExts) {
+        return I18n.errMotionPhotoUnsupportedImage(language)
+    }
+    return null
+}
+
 private fun createMotionPhotoFromCurrentTab(
     appState: AppState,
     tab: TabState,
     language: AppLanguage,
     version: com.multiviewer.parser.MotionPhotoFormatVersion = com.multiviewer.parser.MotionPhotoFormatVersion.V2_MOTION_PHOTO,
 ) {
+    val validationError = validateTabForMotionPhoto(tab, language, version)
+    if (validationError != null) {
+        appState.statusMessage = I18n.toastMotionPhotoFailed(language, validationError)
+        JOptionPane.showMessageDialog(
+            null,
+            validationError,
+            I18n.dialogTitleMotionPhotoCannotCreate(language),
+            JOptionPane.WARNING_MESSAGE,
+        )
+        return
+    }
+
     val selectVideoTitle = if (language == AppLanguage.KO) "모션포토로 합성할 동영상 선택" else "Select video file to attach"
     val videoDialog = FileDialog(null as Frame?, selectVideoTitle, FileDialog.LOAD)
     videoDialog.isVisible = true
@@ -97,6 +142,18 @@ private fun createMotionPhotoFromCurrentTab(
     val videoDir = videoDialog.directory
     if (videoName == null || videoDir == null) return
     val videoFile = File(videoDir, videoName)
+
+    if (!videoFile.exists() || videoFile.length() <= 0L) {
+        val err = I18n.errMotionPhotoInvalidVideo(language)
+        appState.statusMessage = I18n.toastMotionPhotoFailed(language, err)
+        JOptionPane.showMessageDialog(
+            null,
+            err,
+            I18n.dialogTitleMotionPhotoCannotCreate(language),
+            JOptionPane.WARNING_MESSAGE,
+        )
+        return
+    }
 
     val isHeic = tab.file.extension.lowercase(java.util.Locale.US) in setOf("heic", "heif")
     val defaultExt = if (isHeic) "heic" else "jpg"
@@ -119,8 +176,15 @@ private fun createMotionPhotoFromCurrentTab(
                 appState.openFile(outputFile)
             }
         } catch (e: Exception) {
+            val errDetail = e.message ?: e.toString()
             EventQueue.invokeLater {
-                appState.statusMessage = I18n.toastMotionPhotoFailed(language, e.message ?: e.toString())
+                appState.statusMessage = I18n.toastMotionPhotoFailed(language, errDetail)
+                JOptionPane.showMessageDialog(
+                    null,
+                    errDetail,
+                    I18n.dialogTitleMotionPhotoCannotCreate(language),
+                    JOptionPane.ERROR_MESSAGE,
+                )
             }
         }
     }
@@ -196,6 +260,7 @@ private fun runGuiApplication() = application {
         var language by remember { mutableStateOf(loadLanguage()) }
         var frameIntervalWindowOpen by remember { mutableStateOf(false) }
         var qualityCompareWindowOpen by remember { mutableStateOf(false) }
+        var imageCompareWindowOpen by remember { mutableStateOf(false) }
         var motionPhotoFrameIntervalWindowOpen by remember { mutableStateOf(false) }
         var dumpStructureWindowOpen by remember { mutableStateOf(false) }
         var checkStructureWindowOpen by remember { mutableStateOf(false) }
@@ -254,6 +319,7 @@ private fun runGuiApplication() = application {
             Menu(I18n.menuMotionPhoto(language)) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val isImage = currentTab != null && !currentTab.isLoading && currentTab.type == MediaType.IMAGE
+                val isHeic = currentTab?.file?.extension?.lowercase(java.util.Locale.US) in setOf("heic", "heif")
                 Item(
                     I18n.menuCreateMotionPhotoV2(language),
                     enabled = isImage,
@@ -261,7 +327,7 @@ private fun runGuiApplication() = application {
                 )
                 Item(
                     I18n.menuCreateMotionPhotoV1(language),
-                    enabled = isImage,
+                    enabled = isImage && !isHeic,
                     onClick = { currentTab?.let { createMotionPhotoFromCurrentTab(appState, it, language, com.multiviewer.parser.MotionPhotoFormatVersion.V1_MICRO_VIDEO) } },
                 )
                 Separator()
@@ -311,8 +377,16 @@ private fun runGuiApplication() = application {
                     onClick = { frameIntervalWindowOpen = true },
                 )
             }
-            Menu(I18n.menuQualityCompare(language)) {
-                Item(I18n.menuOpenQualityCompare(language), onClick = { qualityCompareWindowOpen = true })
+            Menu(I18n.menuCompareAndAnalysis(language)) {
+                Item(
+                    I18n.menuCompareFiles(language),
+                    shortcut = KeyShortcut(Key.D, meta = true),
+                    onClick = { imageCompareWindowOpen = true },
+                )
+                Item(
+                    I18n.menuQualityBenchmark(language),
+                    onClick = { qualityCompareWindowOpen = true },
+                )
             }
             Menu(I18n.menuView(language)) {
                 CheckboxItem(
@@ -491,6 +565,9 @@ private fun runGuiApplication() = application {
                 }
             }
 
+            if (imageCompareWindowOpen) {
+                ImageCompareWindow(appState = appState, language = language, onCloseRequest = { imageCompareWindowOpen = false })
+            }
             if (qualityCompareWindowOpen) {
                 QualityCompareWindow(onCloseRequest = { qualityCompareWindowOpen = false })
             }

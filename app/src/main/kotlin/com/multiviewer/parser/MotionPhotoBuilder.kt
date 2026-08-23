@@ -690,9 +690,11 @@ object MotionPhotoBuilder {
         outputFile: File,
         version: MotionPhotoFormatVersion = MotionPhotoFormatVersion.V2_MOTION_PHOTO,
     ) {
-        require(imageFile.exists()) { "Image file not found: ${imageFile.absolutePath}" }
-        require(videoFile.exists()) { "Video file not found: ${videoFile.absolutePath}" }
-        require(videoFile.length() > 0) { "Video file is empty: ${videoFile.absolutePath}" }
+        require(imageFile.exists() && imageFile.length() > 0) { "Image file not found or is empty: ${imageFile.absolutePath}" }
+        require(videoFile.exists() && videoFile.length() > 0) { "Video file not found or is empty: ${videoFile.absolutePath}" }
+        require(version != MotionPhotoFormatVersion.V1_MICRO_VIDEO) {
+            "MicroVideo (v1.0) format is not supported for HEIC/HEIF images. Please use Motion Photo v2.0."
+        }
 
         val rawHeicBytes = imageFile.readBytes()
         val (baseHeicBytes, preservedSefBlocks) = extractExistingHeicBoxesAndSef(rawHeicBytes)

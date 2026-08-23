@@ -194,10 +194,20 @@ class MotionPhotoBuilderTest {
     fun `createSamsungHeicMotionPhoto merges real HEIC image and video into standard Samsung HEIC Motion Photo`() {
         val imageFile = File.createTempFile("motion-heic-src-", ".heic")
         imageFile.deleteOnExit()
-        ProcessBuilder(
-            "ffmpeg", "-y", "-f", "lavfi", "-i", "color=green:size=64x64",
-            "-frames:v", "1", imageFile.absolutePath,
-        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+        val ftyp = byteArrayOf(
+            0x00, 0x00, 0x00, 0x18,
+            0x66, 0x74, 0x79, 0x70, // ftyp
+            0x6d, 0x69, 0x66, 0x31, // mif1
+            0x00, 0x00, 0x00, 0x00,
+            0x6d, 0x69, 0x66, 0x31,
+            0x68, 0x65, 0x69, 0x63, // heic
+        )
+        val mdat = byteArrayOf(
+            0x00, 0x00, 0x00, 0x10,
+            0x6d, 0x64, 0x61, 0x74, // mdat
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        )
+        imageFile.writeBytes(ftyp + mdat)
 
         val videoFile = File.createTempFile("motion-heic-vid-", ".mp4")
         videoFile.deleteOnExit()
@@ -239,5 +249,48 @@ class MotionPhotoBuilderTest {
         imageFile.delete()
         videoFile.delete()
         outputFile.delete()
+    }
+
+    @Test
+    fun `createSamsungHeicMotionPhoto with V1_MICRO_VIDEO throws IllegalArgumentException`() {
+        val dummyImage = File.createTempFile("dummy-img-", ".heic")
+        dummyImage.writeBytes(byteArrayOf(1, 2, 3))
+        dummyImage.deleteOnExit()
+
+        val dummyVideo = File.createTempFile("dummy-vid-", ".mp4")
+        dummyVideo.writeBytes(byteArrayOf(1, 2, 3))
+        dummyVideo.deleteOnExit()
+
+        val dummyOut = File.createTempFile("dummy-out-", ".heic")
+        dummyOut.deleteOnExit()
+
+        org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
+            MotionPhotoBuilder.createSamsungHeicMotionPhoto(dummyImage, dummyVideo, dummyOut, MotionPhotoFormatVersion.V1_MICRO_VIDEO)
+        }
+
+        dummyImage.delete()
+        dummyVideo.delete()
+        dummyOut.delete()
+    }
+
+    @Test
+    fun `createGoogleMotionPhoto with empty file throws IllegalArgumentException`() {
+        val emptyImg = File.createTempFile("empty-img-", ".jpg")
+        emptyImg.deleteOnExit()
+
+        val dummyVideo = File.createTempFile("dummy-vid-", ".mp4")
+        dummyVideo.writeBytes(byteArrayOf(1, 2, 3))
+        dummyVideo.deleteOnExit()
+
+        val dummyOut = File.createTempFile("dummy-out-", ".jpg")
+        dummyOut.deleteOnExit()
+
+        org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
+            MotionPhotoBuilder.createGoogleMotionPhoto(emptyImg, dummyVideo, dummyOut)
+        }
+
+        emptyImg.delete()
+        dummyVideo.delete()
+        dummyOut.delete()
     }
 }

@@ -52,9 +52,18 @@ object I18n {
     fun menuFrameInterval(lang: AppLanguage) = if (lang == AppLanguage.KO) "프레임 간격 분석" else "Frame Intervals"
     fun menuViewFrameIntervals(lang: AppLanguage) = if (lang == AppLanguage.KO) "프레임 간격 분석 보기" else "View Frame Interval Analysis"
 
-    // Menu: Quality Compare
-    fun menuQualityCompare(lang: AppLanguage) = if (lang == AppLanguage.KO) "품질 비교" else "Quality Compare"
-    fun menuOpenQualityCompare(lang: AppLanguage) = if (lang == AppLanguage.KO) "품질 비교 열기" else "Open Quality Compare"
+    // Menu: Compare & Analysis
+    fun menuCompareAndAnalysis(lang: AppLanguage) = if (lang == AppLanguage.KO) "비교 및 분석" else "Compare & Analysis"
+    fun menuCompareFiles(lang: AppLanguage) = if (lang == AppLanguage.KO) "두 파일 상세 비교 (구조 · 메타 · 프레임 · Hex Diff)..." else "Compare Two Files (Structure, Meta, Frame, Hex Diff)..."
+    fun menuQualityBenchmark(lang: AppLanguage) = if (lang == AppLanguage.KO) "동영상 인코딩 화질 측정 (PSNR · SSIM · VMAF 벤치마크)..." else "Video Quality Benchmark (PSNR, SSIM, VMAF Metrics)..."
+
+    // Backward compatibility aliases
+    fun menuMediaCompare(lang: AppLanguage) = menuCompareAndAnalysis(lang)
+    fun menuOpenMediaCompare(lang: AppLanguage) = menuCompareFiles(lang)
+    fun menuImageCompare(lang: AppLanguage) = menuCompareAndAnalysis(lang)
+    fun menuOpenImageCompare(lang: AppLanguage) = menuCompareFiles(lang)
+    fun menuQualityCompare(lang: AppLanguage) = menuCompareAndAnalysis(lang)
+    fun menuOpenQualityCompare(lang: AppLanguage) = menuQualityBenchmark(lang)
 
     // Menu: View
     fun menuView(lang: AppLanguage) = if (lang == AppLanguage.KO) "보기" else "View"
@@ -76,6 +85,16 @@ object I18n {
     fun toastMotionPhotoFailed(lang: AppLanguage, msg: String) = if (lang == AppLanguage.KO) "모션포토 생성 실패: $msg" else "Failed to create Motion Photo: $msg"
     fun toastSaved(lang: AppLanguage, filename: String) = if (lang == AppLanguage.KO) "저장됨: $filename" else "Saved: $filename"
     fun toastExtractionFailed(lang: AppLanguage) = if (lang == AppLanguage.KO) "트랙 추출 실패" else "Track extraction failed"
+
+    // Motion Photo Validation Errors
+    fun dialogTitleMotionPhotoCannotCreate(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 생성 불가" else "Cannot Create Motion Photo"
+    fun errMotionPhotoAlreadyExists(lang: AppLanguage) = if (lang == AppLanguage.KO) "이미 모션포토 동영상이 포함되어 있는 파일입니다.\n모션포토를 새로 생성하려면 일반 정지 이미지를 열어주세요." else "The selected file is already a Motion Photo.\nPlease select a static image to create a new Motion Photo."
+    fun errMotionPhotoInvalidImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "이미지 파일이 유효하지 않거나 손상되었습니다." else "The image file is invalid or corrupted."
+    fun errMotionPhotoUnsupportedImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 생성이 지원되지 않는 이미지 형식입니다.\n(JPEG, HEIC/HEIF 형식만 지원됩니다)" else "Unsupported image format for Motion Photo.\n(Only JPEG and HEIC/HEIF formats are supported)"
+    fun errMotionPhotoAnimatedGif(lang: AppLanguage) = if (lang == AppLanguage.KO) "애니메이션 GIF 파일은 모션포토로 변환할 수 없습니다." else "Animated GIF files cannot be converted to Motion Photo."
+    fun errMotionPhotoV1HeicNotSupported(lang: AppLanguage) = if (lang == AppLanguage.KO) "MicroVideo (v1.0) 포맷은 HEIC 형식을 지원하지 않습니다.\n모션포토 v2.0 생성을 사용해 주세요." else "MicroVideo (v1.0) format does not support HEIC/HEIF.\nPlease use Motion Photo v2.0."
+    fun errMotionPhotoInvalidVideo(lang: AppLanguage) = if (lang == AppLanguage.KO) "선택한 동영상 파일이 비어있거나 유효하지 않습니다." else "The selected video file is empty or invalid."
+    fun errMotionPhotoImageLoading(lang: AppLanguage) = if (lang == AppLanguage.KO) "이미지 파일을 불러오는 중입니다. 완료 후 다시 시도해 주세요." else "Image is still loading. Please try again once loading completes."
 
     // Empty state
     fun placeholderEmptyState(lang: AppLanguage) = if (lang == AppLanguage.KO) "📂 파일들을 끌어다 놓거나 클릭하여 열기 (다중 파일 지원)" else "📂 Drag & Drop or Click to Open (Multiple Files Supported)"
