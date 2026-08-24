@@ -42,7 +42,7 @@ import androidx.compose.ui.unit.dp
 // cell left ~35dp of black space on EACH side, reading as "sparse" frames with big gaps. Matching
 // the cell's own aspect ratio to the video's actual aspect eliminates that letterboxing entirely.
 private const val FALLBACK_ASPECT_RATIO = 16f / 9f
-private const val FILMSTRIP_PREFETCH_MARGIN = 15
+private const val FILMSTRIP_PREFETCH_MARGIN = 20
 
 // Real decoded frame thumbnails below GopAnalysisView's bar chart -- see
 // docs/superpowers/specs/2026-08-14-frame-thumbnail-filmstrip-design.md. Unlike GifFilmstripPlayer

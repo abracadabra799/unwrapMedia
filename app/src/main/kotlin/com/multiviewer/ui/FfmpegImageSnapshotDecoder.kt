@@ -60,19 +60,19 @@ object FfmpegImageSnapshotDecoder {
         }.apply { isDaemon = true }.start()
     }
 
-    // Shared "ffmpeg <inputArgs> -> one PNG frame -> Skia decode" pipeline. Runs synchronously on
-    // the caller's own thread (both call sites above already run off a dedicated background Thread).
-    internal fun decodeSingleFrameToBitmap(inputArgs: List<String>): ImageBitmap? {
-        val tempPng = try {
-            File.createTempFile("ffmpeg-snapshot-", ".png")
+    // Shared "ffmpeg <inputArgs> -> one JPEG/PNG frame -> Skia decode" pipeline. Runs synchronously on
+    // the caller's own thread.
+    internal fun decodeSingleFrameToBitmap(inputArgs: List<String>, tempExtension: String = ".jpg"): ImageBitmap? {
+        val tempFile = try {
+            File.createTempFile("ffmpeg-snapshot-", tempExtension)
         } catch (e: Exception) {
             return null
         }
-        tempPng.deleteOnExit()
+        tempFile.deleteOnExit()
 
         var process: Process? = null
         return try {
-            process = ProcessBuilder(inputArgs + listOf(tempPng.absolutePath))
+            process = ProcessBuilder(inputArgs + listOf(tempFile.absolutePath))
                 .redirectOutput(ProcessBuilder.Redirect.DISCARD)
                 .redirectError(ProcessBuilder.Redirect.DISCARD)
                 .also { FfmpegLocator.configureEnvironment(it) }
@@ -83,17 +83,17 @@ object FfmpegImageSnapshotDecoder {
             if (!finished) {
                 com.multiviewer.util.ProcessManager.terminate(process)
                 null
-            } else if (process.exitValue() != 0 || tempPng.length() == 0L) {
+            } else if (process.exitValue() != 0 || tempFile.length() == 0L) {
                 null
             } else {
-                Image.makeFromEncoded(tempPng.readBytes()).toComposeImageBitmap()
+                Image.makeFromEncoded(tempFile.readBytes()).toComposeImageBitmap()
             }
         } catch (e: Exception) {
             // ProcessBuilder.start() throws IOException when `ffmpeg` isn't on PATH.
             null
         } finally {
             process?.let { com.multiviewer.util.ProcessManager.unregister(it) }
-            tempPng.delete()
+            tempFile.delete()
         }
     }
 }
