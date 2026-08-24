@@ -653,5 +653,21 @@ class AppStateTest {
         assertEquals(20, appState.tabs.size)
         assertEquals("You can only have 20 files open at a time.", appState.statusMessage)
     }
+
+    @Test
+    fun `openFile and updateLastOpenedDirectory track the directory of opened files`() {
+        val appState = AppState()
+        assertEquals(null, appState.lastOpenedDirectory)
+
+        val file = tempFile("dir-track-test")
+        appState.openFile(file)
+
+        assertEquals(file.parentFile, appState.lastOpenedDirectory)
+
+        val subDir = File(file.parentFile, "test-subdir").apply { mkdir(); deleteOnExit() }
+        val nestedFile = File(subDir, "nested.jpg").apply { writeBytes(byteArrayOf(1, 2, 3)); deleteOnExit() }
+        appState.updateLastOpenedDirectory(nestedFile)
+        assertEquals(subDir, appState.lastOpenedDirectory)
+    }
 }
 

@@ -121,4 +121,42 @@ class StructureDiffTest {
         assertEquals("ftyp", diff[0].path)
         assertEquals(DiffStatus.MODIFIED, diff[0].status)
     }
+
+    @Test
+    fun `readBoxHexDiffRow extracts box bytes and detects differences`() {
+        val fileA = java.io.File.createTempFile("diff-test-a-", ".bin").apply {
+            deleteOnExit()
+            writeBytes(byteArrayOf(0x00, 0x01, 0x02, 0x03, 0x04, 0x05))
+        }
+        val fileB = java.io.File.createTempFile("diff-test-b-", ".bin").apply {
+            deleteOnExit()
+            writeBytes(byteArrayOf(0x00, 0x01, 0x02, 0xFF.toByte(), 0x04, 0x05, 0x06))
+        }
+
+        val rafA = java.io.RandomAccessFile(fileA, "r")
+        val rafB = java.io.RandomAccessFile(fileB, "r")
+
+        try {
+            // Compare matching first 3 bytes (offset 0, size 3)
+            val (matchA, matchB, isMatchDiff) = readBoxHexDiffRow(rafA, rafB, offsetA = 0, sizeA = 3, offsetB = 0, sizeB = 3, relOffset = 0)
+            assertEquals(3, matchA.size)
+            assertEquals(3, matchB.size)
+            assertEquals(false, isMatchDiff)
+
+            // Compare differing slice (offset 0, size 6 vs size 6)
+            val (diffA, diffB, isRealDiff) = readBoxHexDiffRow(rafA, rafB, offsetA = 0, sizeA = 6, offsetB = 0, sizeB = 6, relOffset = 0)
+            assertEquals(6, diffA.size)
+            assertEquals(6, diffB.size)
+            assertEquals(true, isRealDiff)
+
+            // Compare box only in B (offsetA = null, sizeA = 0)
+            val (emptyA, bOnly, isAddedDiff) = readBoxHexDiffRow(rafA, rafB, offsetA = null, sizeA = 0, offsetB = 0, sizeB = 7, relOffset = 0)
+            assertEquals(0, emptyA.size)
+            assertEquals(7, bOnly.size)
+            assertEquals(true, isAddedDiff)
+        } finally {
+            rafA.close()
+            rafB.close()
+        }
+    }
 }

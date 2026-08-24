@@ -45,14 +45,25 @@ private const val BYTES_PER_ROW = 16
 
 private fun showOpenFileDialog(appState: AppState) {
     val dialog = FileDialog(null as Frame?, "Open file(s)", FileDialog.LOAD)
+    appState.lastOpenedDirectory?.let { dir ->
+        if (dir.exists() && dir.isDirectory) {
+            dialog.directory = dir.absolutePath
+        }
+    }
     dialog.isMultipleMode = true
     dialog.isVisible = true
     val selectedFiles = dialog.files
+    val directory = dialog.directory
+    if (directory != null) {
+        val dir = File(directory)
+        if (dir.exists() && dir.isDirectory) {
+            appState.lastOpenedDirectory = dir
+        }
+    }
     if (!selectedFiles.isNullOrEmpty()) {
         appState.openFiles(selectedFiles.toList())
     } else {
         val fileName = dialog.file
-        val directory = dialog.directory
         if (fileName != null && directory != null) {
             appState.openFile(File(directory, fileName))
         }
@@ -61,12 +72,18 @@ private fun showOpenFileDialog(appState: AppState) {
 
 private fun extractVideoToFile(appState: AppState, tab: TabState, video: EmbeddedVideo, fileNameSuffix: String) {
     val dialog = FileDialog(null as Frame?, "Save extracted video", FileDialog.SAVE)
+    appState.lastOpenedDirectory?.let { dir ->
+        if (dir.exists() && dir.isDirectory) {
+            dialog.directory = dir.absolutePath
+        }
+    }
     dialog.file = "${tab.file.nameWithoutExtension}_$fileNameSuffix.${video.extension}"
     dialog.isVisible = true
     val fileName = dialog.file
     val directory = dialog.directory
     if (fileName == null || directory == null) return
     val destination = File(directory, fileName)
+    appState.updateLastOpenedDirectory(destination)
     appState.statusMessage = try {
         extractEmbeddedVideo(tab.file, video, destination)
         "Saved to ${destination.name}"
@@ -137,11 +154,17 @@ private fun createMotionPhotoFromCurrentTab(
 
     val selectVideoTitle = if (language == AppLanguage.KO) "모션포토로 합성할 동영상 선택" else "Select video file to attach"
     val videoDialog = FileDialog(null as Frame?, selectVideoTitle, FileDialog.LOAD)
+    appState.lastOpenedDirectory?.let { dir ->
+        if (dir.exists() && dir.isDirectory) {
+            videoDialog.directory = dir.absolutePath
+        }
+    }
     videoDialog.isVisible = true
     val videoName = videoDialog.file
     val videoDir = videoDialog.directory
     if (videoName == null || videoDir == null) return
     val videoFile = File(videoDir, videoName)
+    appState.updateLastOpenedDirectory(videoFile)
 
     if (!videoFile.exists() || videoFile.length() <= 0L) {
         val err = I18n.errMotionPhotoInvalidVideo(language)
@@ -160,12 +183,18 @@ private fun createMotionPhotoFromCurrentTab(
     val suffix = if (version == com.multiviewer.parser.MotionPhotoFormatVersion.V1_MICRO_VIDEO) "_microvideo" else "_motion"
     val saveTitle = if (language == AppLanguage.KO) "모션포토 저장" else "Save Motion Photo"
     val saveDialog = FileDialog(null as Frame?, saveTitle, FileDialog.SAVE)
+    appState.lastOpenedDirectory?.let { dir ->
+        if (dir.exists() && dir.isDirectory) {
+            saveDialog.directory = dir.absolutePath
+        }
+    }
     saveDialog.file = "${tab.file.nameWithoutExtension}$suffix.$defaultExt"
     saveDialog.isVisible = true
     val saveName = saveDialog.file
     val saveDir = saveDialog.directory
     if (saveName == null || saveDir == null) return
     val outputFile = File(saveDir, saveName)
+    appState.updateLastOpenedDirectory(outputFile)
 
     appState.statusMessage = I18n.toastCreatingMotionPhoto(language)
     runInBackground {
@@ -569,7 +598,7 @@ private fun runGuiApplication() = application {
                 ImageCompareWindow(appState = appState, language = language, onCloseRequest = { imageCompareWindowOpen = false })
             }
             if (qualityCompareWindowOpen) {
-                QualityCompareWindow(onCloseRequest = { qualityCompareWindowOpen = false })
+                QualityCompareWindow(appState = appState, onCloseRequest = { qualityCompareWindowOpen = false })
             }
             if (motionPhotoFrameIntervalWindowOpen) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)

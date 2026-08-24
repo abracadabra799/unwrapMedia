@@ -292,6 +292,18 @@ class AppState {
     var selectedTabIndex by mutableStateOf(0)
     var statusMessage: String? by mutableStateOf(null)
 
+    // Tracks the directory of the last opened/selected file so subsequent file picker dialogs
+    // automatically open at the same location rather than resetting to the system default.
+    var lastOpenedDirectory: File? by mutableStateOf(null)
+
+    fun updateLastOpenedDirectory(file: File?) {
+        if (file == null) return
+        val dir = if (file.isDirectory) file else file.parentFile
+        if (dir != null && dir.exists() && dir.isDirectory) {
+            lastOpenedDirectory = dir
+        }
+    }
+
     // Set when openFile() refuses a file outright (unsupported extension, or a declared
     // resolution above HARD_LIMIT_PIXELS) -- shown as a blocking popup in Main.kt so a bad file
     // can't silently leave the app in a half-open state.
@@ -336,6 +348,7 @@ class AppState {
     fun confirmRawAudioFile(params: RawAudioParams) {
         val file = pendingRawAudioFile ?: return
         pendingRawAudioFile = null
+        updateLastOpenedDirectory(file)
         val existingIndex = tabs.indexOfFirst { it.file.absolutePath == file.absolutePath }
         if (existingIndex >= 0) {
             selectedTabIndex = existingIndex
@@ -377,6 +390,7 @@ class AppState {
     fun confirmRawPixelFile(width: Int, height: Int, format: RawPixelFormat, byteOrder: RawPixelByteOrder, fps: Double) {
         val file = pendingRawPixelFile ?: return
         pendingRawPixelFile = null
+        updateLastOpenedDirectory(file)
         val existingIndex = tabs.indexOfFirst { it.file.absolutePath == file.absolutePath }
         if (existingIndex >= 0) {
             selectedTabIndex = existingIndex
@@ -459,6 +473,7 @@ class AppState {
     }
 
     fun openFile(file: File) {
+        updateLastOpenedDirectory(file)
         val existingIndex = tabs.indexOfFirst { it.file.absolutePath == file.absolutePath }
         if (existingIndex >= 0) {
             selectedTabIndex = existingIndex

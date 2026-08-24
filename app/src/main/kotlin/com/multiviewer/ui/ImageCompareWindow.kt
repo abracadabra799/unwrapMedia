@@ -239,6 +239,7 @@ fun ImageCompareWindow(
             Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
                 // 1. Media Selection Bar (Tabs dropdown + File Pickers)
                 MediaSelectionBar(
+                    appState = appState,
                     language = language,
                     openTabs = appState.tabs.map { it.file },
                     fileA = fileA,
@@ -301,6 +302,7 @@ fun ImageCompareWindow(
 
 @Composable
 private fun MediaSelectionBar(
+    appState: AppState,
     language: AppLanguage,
     openTabs: List<File>,
     fileA: File?,
@@ -313,11 +315,18 @@ private fun MediaSelectionBar(
 ) {
     fun openFileDialog(title: String, onPicked: (File) -> Unit) {
         val dialog = FileDialog(null as Frame?, title, FileDialog.LOAD)
+        appState.lastOpenedDirectory?.let { dir ->
+            if (dir.exists() && dir.isDirectory) {
+                dialog.directory = dir.absolutePath
+            }
+        }
         dialog.isVisible = true
         val name = dialog.file
         val dir = dialog.directory
         if (name != null && dir != null) {
-            onPicked(File(dir, name))
+            val file = File(dir, name)
+            appState.updateLastOpenedDirectory(file)
+            onPicked(file)
         }
     }
 
@@ -476,6 +485,9 @@ private fun StructureDiffView(language: AppLanguage, infoA: CompareMediaInfo?, i
         computeStructureDiff(infoA.root, infoB.root)
     }
 
+    var selectedRow by remember { mutableStateOf<StructureDiffRow?>(null) }
+    var isDetailExpanded by remember { mutableStateOf(true) }
+
     Column(modifier = Modifier.fillMaxSize()) {
         val addedCount = rows.count { it.status == DiffStatus.ADDED_IN_B }
         val removedCount = rows.count { it.status == DiffStatus.REMOVED_IN_B }
@@ -489,9 +501,9 @@ private fun StructureDiffView(language: AppLanguage, infoA: CompareMediaInfo?, i
             Row(modifier = Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     if (language == AppLanguage.KO)
-                        "📊 박스 비교 요약: 변경 ${modifiedCount}개 | 추가 ${addedCount}개 | 제거 ${removedCount}개"
+                        "📊 박스 비교 요약: 변경 ${modifiedCount}개 | 추가 ${addedCount}개 | 제거 ${removedCount}개 (💡 행을 클릭하면 상세 Hex/ASCII 데이터를 비교할 수 있습니다)"
                     else
-                        "📊 Box Diff Summary: Modified $modifiedCount | Added $addedCount | Removed $removedCount",
+                        "📊 Box Diff Summary: Modified $modifiedCount | Added $addedCount | Removed $removedCount (💡 Click a row to inspect detailed Hex/ASCII diff)",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                 )
@@ -515,12 +527,15 @@ private fun StructureDiffView(language: AppLanguage, infoA: CompareMediaInfo?, i
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                 items(rows) { row ->
-                    val bgColor = when (row.status) {
+                    val isSelected = selectedRow == row
+                    val defaultBgColor = when (row.status) {
                         DiffStatus.ADDED_IN_B -> Color(0xFF1B5E20).copy(alpha = 0.15f)
                         DiffStatus.REMOVED_IN_B -> Color(0xFFB71C1C).copy(alpha = 0.15f)
                         DiffStatus.MODIFIED -> Color(0xFFE65100).copy(alpha = 0.15f)
                         DiffStatus.MATCH -> Color.Transparent
                     }
+                    val bgColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else defaultBgColor
+
                     val statusText = when (row.status) {
                         DiffStatus.ADDED_IN_B -> "➕ B에 추가됨"
                         DiffStatus.REMOVED_IN_B -> "➖ A에만 존재"
@@ -535,10 +550,25 @@ private fun StructureDiffView(language: AppLanguage, infoA: CompareMediaInfo?, i
                     }
 
                     Row(
-                        modifier = Modifier.fillMaxWidth().background(bgColor).padding(horizontal = 8.dp, vertical = 5.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(bgColor)
+                            .then(
+                                if (isSelected) Modifier.border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp))
+                                else Modifier
+                            )
+                            .clickable {
+                                if (selectedRow == row) {
+                                    isDetailExpanded = !isDetailExpanded
+                                } else {
+                                    selectedRow = row
+                                    isDetailExpanded = true
+                                }
+                            }
+                            .padding(horizontal = 8.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(row.name, modifier = Modifier.weight(1.2f), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium)
+                        Text(row.name, modifier = Modifier.weight(1.2f), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium)
                         Text(
                             if (row.sizeA != null) "0x${row.offsetA?.toString(16) ?: "0"} (${formatSize(row.sizeA)}) ${row.summaryA ?: ""}" else "-",
                             modifier = Modifier.weight(1.4f),
@@ -558,7 +588,227 @@ private fun StructureDiffView(language: AppLanguage, infoA: CompareMediaInfo?, i
             }
             VerticalScrollbar(adapter = rememberScrollbarAdapter(listState), modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight())
         }
+
+        // Collapsible Detail Hex & ASCII Diff Panel
+        selectedRow?.let { row ->
+            BoxHexDetailDiffPanel(
+                language = language,
+                fileA = infoA.file,
+                fileB = infoB.file,
+                row = row,
+                isExpanded = isDetailExpanded,
+                onToggleExpand = { isDetailExpanded = !isDetailExpanded },
+                onClose = { selectedRow = null },
+            )
+        }
     }
+}
+
+@Composable
+private fun BoxHexDetailDiffPanel(
+    language: AppLanguage,
+    fileA: File?,
+    fileB: File?,
+    row: StructureDiffRow,
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val rafA = remember(fileA) { if (fileA != null && fileA.exists()) RandomAccessFile(fileA, "r") else null }
+    val rafB = remember(fileB) { if (fileB != null && fileB.exists()) RandomAccessFile(fileB, "r") else null }
+    DisposableEffect(rafA, rafB) {
+        onDispose {
+            rafA?.close()
+            rafB?.close()
+        }
+    }
+
+    val offsetA = row.offsetA
+    val sizeA = row.sizeA ?: 0L
+    val offsetB = row.offsetB
+    val sizeB = row.sizeB ?: 0L
+    val maxSize = maxOf(sizeA, sizeB)
+    val rowCount = if (maxSize > 0) ((maxSize + 15) / 16).toInt() else 0
+
+    val listState = rememberLazyListState()
+
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // Header Bar
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.fillMaxWidth().clickable { onToggleExpand() },
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        if (isExpanded) "▼" else "▶",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(end = 6.dp),
+                    )
+                    Text(
+                        "🔍 [${row.name.trim()}] 상세 Hex / String 데이터 비교",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        "A: 0x${row.offsetA?.toString(16) ?: "0"} (${formatSize(sizeA)})  vs  B: 0x${row.offsetB?.toString(16) ?: "0"} (${formatSize(sizeB)})",
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    val statusText = when (row.status) {
+                        DiffStatus.ADDED_IN_B -> "➕ B에 추가됨"
+                        DiffStatus.REMOVED_IN_B -> "➖ A에만 존재"
+                        DiffStatus.MODIFIED -> "⚡ 내용/크기 차이"
+                        DiffStatus.MATCH -> "✓ 일치"
+                    }
+                    val statusColor = when (row.status) {
+                        DiffStatus.ADDED_IN_B -> Color(0xFF2E7D32)
+                        DiffStatus.REMOVED_IN_B -> Color(0xFFC62828)
+                        DiffStatus.MODIFIED -> Color(0xFFEF6C00)
+                        DiffStatus.MATCH -> Color.Gray
+                    }
+                    Text(statusText, fontSize = 11.sp, color = statusColor, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    IconButton(onClick = onClose, modifier = Modifier.size(24.dp)) {
+                        Text("✕", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+
+            if (isExpanded) {
+                if (rowCount == 0) {
+                    Box(modifier = Modifier.fillMaxWidth().height(60.dp), contentAlignment = Alignment.Center) {
+                        Text("데이터가 비어있습니다 (0 bytes)", fontSize = 11.sp, color = Color.Gray)
+                    }
+                } else {
+                    // Sub-Header
+                    Row(
+                        modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)).padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Rel Offset", modifier = Modifier.width(75.dp), fontSize = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Media A (Hex)", modifier = Modifier.weight(1f), fontSize = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                            Text("Media A (ASCII)", modifier = Modifier.width(130.dp), fontSize = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Media B (Hex)", modifier = Modifier.weight(1f), fontSize = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                            Text("Media B (ASCII)", modifier = Modifier.width(130.dp), fontSize = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    HorizontalDivider()
+
+                    Box(modifier = Modifier.fillMaxWidth().height(230.dp)) {
+                        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                            items(rowCount) { rowIndex ->
+                                val relOffset = rowIndex.toLong() * 16L
+                                val (bytesA, bytesB, isDiff) = readBoxHexDiffRow(rafA, rafB, offsetA, sizeA, offsetB, sizeB, relOffset)
+
+                                val bgColor = if (isDiff) Color(0xFFEF6C00).copy(alpha = 0.15f) else Color.Transparent
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().background(bgColor).padding(horizontal = 8.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        "+%04X".format(relOffset),
+                                        modifier = Modifier.width(75.dp),
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                    Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            if (bytesA.isNotEmpty()) formatHexBytes(bytesA) else "-",
+                                            modifier = Modifier.weight(1f),
+                                            fontSize = 11.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = if (isDiff && bytesA.isNotEmpty()) Color(0xFFFFB74D) else Color.Unspecified,
+                                        )
+                                        Text(
+                                            if (bytesA.isNotEmpty()) formatAsciiBytes(bytesA) else "-",
+                                            modifier = Modifier.width(130.dp),
+                                            fontSize = 11.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = if (isDiff && bytesA.isNotEmpty()) Color(0xFFFFB74D) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            if (bytesB.isNotEmpty()) formatHexBytes(bytesB) else "-",
+                                            modifier = Modifier.weight(1f),
+                                            fontSize = 11.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = if (isDiff && bytesB.isNotEmpty()) Color(0xFFFF8A65) else Color.Unspecified,
+                                        )
+                                        Text(
+                                            if (bytesB.isNotEmpty()) formatAsciiBytes(bytesB) else "-",
+                                            modifier = Modifier.width(130.dp),
+                                            fontSize = 11.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = if (isDiff && bytesB.isNotEmpty()) Color(0xFFFF8A65) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        VerticalScrollbar(adapter = rememberScrollbarAdapter(listState), modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight())
+                    }
+                }
+            }
+        }
+    }
+}
+
+internal fun readBoxHexDiffRow(
+    rafA: RandomAccessFile?,
+    rafB: RandomAccessFile?,
+    offsetA: Long?,
+    sizeA: Long,
+    offsetB: Long?,
+    sizeB: Long,
+    relOffset: Long,
+): Triple<ByteArray, ByteArray, Boolean> {
+    val bA = if (offsetA != null && relOffset < sizeA && rafA != null) {
+        val count = minOf(16L, sizeA - relOffset).toInt()
+        val buf = ByteArray(count)
+        synchronized(rafA) {
+            rafA.seek(offsetA + relOffset)
+            val read = rafA.read(buf, 0, count).coerceAtLeast(0)
+            if (read == count) buf else buf.copyOf(read)
+        }
+    } else {
+        byteArrayOf()
+    }
+
+    val bB = if (offsetB != null && relOffset < sizeB && rafB != null) {
+        val count = minOf(16L, sizeB - relOffset).toInt()
+        val buf = ByteArray(count)
+        synchronized(rafB) {
+            rafB.seek(offsetB + relOffset)
+            val read = rafB.read(buf, 0, count).coerceAtLeast(0)
+            if (read == count) buf else buf.copyOf(read)
+        }
+    } else {
+        byteArrayOf()
+    }
+
+    val isDiff = !bA.contentEquals(bB)
+    return Triple(bA, bB, isDiff)
 }
 
 internal data class FlatBoxItem(

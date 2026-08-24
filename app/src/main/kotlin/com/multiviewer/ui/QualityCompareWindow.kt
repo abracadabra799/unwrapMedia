@@ -48,7 +48,7 @@ private fun sanitizeForFilename(label: String): String = label.replace(" ", "_")
 private data class QueueItem(val pair: ComparisonPair, val metricName: String)
 
 @Composable
-fun QualityCompareWindow(onCloseRequest: () -> Unit) {
+fun QualityCompareWindow(appState: AppState? = null, onCloseRequest: () -> Unit) {
     val cancelRequested = remember { AtomicBoolean(false) }
 
     Window(
@@ -105,11 +105,18 @@ fun QualityCompareWindow(onCloseRequest: () -> Unit) {
 
         fun pickFile(title: String, onPicked: (File) -> Unit) {
             val dialog = FileDialog(null as Frame?, title, FileDialog.LOAD)
+            appState?.lastOpenedDirectory?.let { dir ->
+                if (dir.exists() && dir.isDirectory) {
+                    dialog.directory = dir.absolutePath
+                }
+            }
             dialog.isVisible = true
             val fileName = dialog.file
             val directory = dialog.directory
             if (fileName != null && directory != null) {
-                onPicked(File(directory, fileName))
+                val file = File(directory, fileName)
+                appState?.updateLastOpenedDirectory(file)
+                onPicked(file)
                 refreshPairStatuses()
             }
         }
@@ -177,9 +184,16 @@ fun QualityCompareWindow(onCloseRequest: () -> Unit) {
             // The picked filename is intentionally discarded -- only its directory is used, since one
             // CSV file per pair must be written (up to 3), not the single file a SAVE dialog implies.
             val dialog = FileDialog(null as Frame?, "CSV 저장 폴더 선택", FileDialog.SAVE)
+            appState?.lastOpenedDirectory?.let { dir ->
+                if (dir.exists() && dir.isDirectory) {
+                    dialog.directory = dir.absolutePath
+                }
+            }
             dialog.file = "quality_compare.csv"
             dialog.isVisible = true
             val directory = dialog.directory ?: return
+            val dir = File(directory)
+            appState?.updateLastOpenedDirectory(dir)
             currentResults.forEach { (pairLabel, metricResults) ->
                 val csvFile = File(directory, "quality_compare_${sanitizeForFilename(pairLabel)}.csv")
                 writeResultsCsv(csvFile, metricResults)
@@ -190,12 +204,19 @@ fun QualityCompareWindow(onCloseRequest: () -> Unit) {
         fun exportJson() {
             val currentResults = results ?: return
             val dialog = FileDialog(null as Frame?, "JSON 결과 저장", FileDialog.SAVE)
+            appState?.lastOpenedDirectory?.let { dir ->
+                if (dir.exists() && dir.isDirectory) {
+                    dialog.directory = dir.absolutePath
+                }
+            }
             dialog.file = "quality_compare.json"
             dialog.isVisible = true
             val fileName = dialog.file
             val directory = dialog.directory
             if (fileName == null || directory == null) return
-            writeMultiPairResultsJson(File(directory, fileName), currentResults)
+            val dest = File(directory, fileName)
+            appState?.updateLastOpenedDirectory(dest)
+            writeMultiPairResultsJson(dest, currentResults)
             statusMessage = "저장됨: $fileName"
         }
 
