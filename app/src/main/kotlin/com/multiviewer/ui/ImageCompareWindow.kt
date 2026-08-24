@@ -561,79 +561,125 @@ private fun StructureDiffView(language: AppLanguage, infoA: CompareMediaInfo?, i
     }
 }
 
-private fun computeStructureDiff(rootA: BoxNode?, rootB: BoxNode?): List<StructureDiffRow> {
+internal data class FlatBoxItem(
+    val path: String,
+    val name: String,
+    val node: BoxNode,
+)
+
+internal fun flattenBoxes(root: BoxNode?): List<FlatBoxItem> {
+    if (root == null) return emptyList()
+    val list = mutableListOf<FlatBoxItem>()
+    fun traverse(node: BoxNode, currentPath: String, depth: Int) {
+        if (node.type != "root") {
+            val indent = "  ".repeat(depth)
+            val displayName = "$indent${node.type}"
+            val newPath = if (currentPath.isEmpty()) node.type else "$currentPath / ${node.type}"
+            list.add(FlatBoxItem(path = newPath, name = displayName, node = node))
+            node.children.forEach { traverse(it, newPath, depth + 1) }
+        } else {
+            node.children.forEach { traverse(it, "", 0) }
+        }
+    }
+    traverse(root, "", 0)
+    return list
+}
+
+internal fun computeStructureDiff(rootA: BoxNode?, rootB: BoxNode?): List<StructureDiffRow> {
     val listA = flattenBoxes(rootA)
     val listB = flattenBoxes(rootB)
 
-    val rows = mutableListOf<StructureDiffRow>()
-    val matchedB = mutableSetOf<Int>()
+    val n = listA.size
+    val m = listB.size
 
-    listA.forEach { boxA ->
-        val matchIndex = listB.indexOfFirst { it.type == boxA.type && it !in matchedB.map { idx -> listB[idx] } }
-        if (matchIndex >= 0) {
-            matchedB.add(matchIndex)
-            val boxB = listB[matchIndex]
-            val isDiff = boxA.size != boxB.size || boxA.summary != boxB.summary || boxA.offset != boxB.offset
-            rows.add(
-                StructureDiffRow(
-                    path = boxA.type,
-                    name = boxA.type,
-                    sizeA = boxA.size,
-                    sizeB = boxB.size,
-                    offsetA = boxA.offset,
-                    offsetB = boxB.offset,
-                    status = if (isDiff) DiffStatus.MODIFIED else DiffStatus.MATCH,
-                    summaryA = boxA.summary,
-                    summaryB = boxB.summary,
-                )
-            )
-        } else {
-            rows.add(
-                StructureDiffRow(
-                    path = boxA.type,
-                    name = boxA.type,
-                    sizeA = boxA.size,
-                    sizeB = null,
-                    offsetA = boxA.offset,
-                    offsetB = null,
-                    status = DiffStatus.REMOVED_IN_B,
-                    summaryA = boxA.summary,
-                    summaryB = null,
-                )
-            )
+    // dp[i][j] stores the max alignment score between listA[0 until i] and listB[0 until j]
+    val dp = Array(n + 1) { IntArray(m + 1) }
+
+    for (i in 1..n) {
+        for (j in 1..m) {
+            val a = listA[i - 1]
+            val b = listB[j - 1]
+            if (a.path == b.path) {
+                val score = if (a.node.size == b.node.size && a.node.summary == b.node.summary) 4 else 3
+                dp[i][j] = dp[i - 1][j - 1] + score
+            } else if (a.node.type == b.node.type) {
+                val score = if (a.node.size == b.node.size && a.node.summary == b.node.summary) 2 else 1
+                dp[i][j] = dp[i - 1][j - 1] + score
+            } else {
+                dp[i][j] = maxOf(dp[i - 1][j], dp[i][j - 1])
+            }
         }
     }
 
-    listB.forEachIndexed { idx, boxB ->
-        if (idx !in matchedB) {
-            rows.add(
+    // Backtrack to assemble aligned sequence
+    var i = n
+    var j = m
+    val aligned = mutableListOf<StructureDiffRow>()
+
+    while (i > 0 || j > 0) {
+        val a = if (i > 0) listA[i - 1] else null
+        val b = if (j > 0) listB[j - 1] else null
+
+        val isMatchByPath = a != null && b != null && a.path == b.path
+        val isMatchByType = a != null && b != null && a.node.type == b.node.type
+
+        val matchScore = when {
+            isMatchByPath -> if (a!!.node.size == b!!.node.size && a.node.summary == b.node.summary) 4 else 3
+            isMatchByType -> if (a!!.node.size == b!!.node.size && a.node.summary == b.node.summary) 2 else 1
+            else -> -1
+        }
+
+        if (a != null && b != null && matchScore > 0 && dp[i][j] == dp[i - 1][j - 1] + matchScore) {
+            val isDiff = a.node.size != b.node.size || a.node.summary != b.node.summary
+            aligned.add(
                 StructureDiffRow(
-                    path = boxB.type,
-                    name = boxB.type,
+                    path = a.path,
+                    name = a.name,
+                    sizeA = a.node.size,
+                    sizeB = b.node.size,
+                    offsetA = a.node.offset,
+                    offsetB = b.node.offset,
+                    status = if (isDiff) DiffStatus.MODIFIED else DiffStatus.MATCH,
+                    summaryA = a.node.summary,
+                    summaryB = b.node.summary,
+                ),
+            )
+            i--
+            j--
+        } else if (j > 0 && (i == 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+            aligned.add(
+                StructureDiffRow(
+                    path = b!!.path,
+                    name = b.name,
                     sizeA = null,
-                    sizeB = boxB.size,
+                    sizeB = b.node.size,
                     offsetA = null,
-                    offsetB = boxB.offset,
+                    offsetB = b.node.offset,
                     status = DiffStatus.ADDED_IN_B,
                     summaryA = null,
-                    summaryB = boxB.summary,
-                )
+                    summaryB = b.node.summary,
+                ),
             )
+            j--
+        } else if (i > 0) {
+            aligned.add(
+                StructureDiffRow(
+                    path = a!!.path,
+                    name = a.name,
+                    sizeA = a.node.size,
+                    sizeB = null,
+                    offsetA = a.node.offset,
+                    offsetB = null,
+                    status = DiffStatus.REMOVED_IN_B,
+                    summaryA = a.node.summary,
+                    summaryB = null,
+                ),
+            )
+            i--
         }
     }
 
-    return rows
-}
-
-private fun flattenBoxes(root: BoxNode?): List<BoxNode> {
-    if (root == null) return emptyList()
-    val list = mutableListOf<BoxNode>()
-    fun traverse(node: BoxNode) {
-        if (node.type != "root") list.add(node)
-        node.children.forEach { traverse(it) }
-    }
-    traverse(root)
-    return list
+    return aligned.reversed()
 }
 
 // -------------------------------------------------------------------------------------------------
