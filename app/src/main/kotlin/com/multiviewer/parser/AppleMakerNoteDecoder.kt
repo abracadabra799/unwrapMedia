@@ -19,31 +19,54 @@ val TAG_NAMES_MAKERNOTE_APPLE = mapOf(
     0x000A to "CameraType",
     0x000B to "BurstUUID",
     0x000C to "FocusPosition",
+    0x000D to "HDRHeadroom",
     0x000E to "HDRImageType",
     0x000F to "BurstLength",
     0x0010 to "FrontCamera",
     0x0011 to "ContentIdentifier",
     0x0013 to "AccelerationVector",
     0x0014 to "ImageCaptureType",
+    0x0015 to "LivePhotoCoverageTime",
+    0x0016 to "ImageUniqueID",
     0x0017 to "ImageCaptureRequestID",
+    0x0018 to "RawColorBalance",
     0x0019 to "LivePhotoVideoIndex",
     0x001A to "FocusDistanceRange",
+    0x001B to "DepthMetadata",
+    0x001C to "QualityHint",
+    0x001D to "LuminanceNoiseAmplitude",
     0x001E to "PhotosAppCharacteristics",
     0x001F to "PhotosAppCharacteristicsVersion",
     0x0020 to "SignalToNoiseRatio",
     0x0021 to "HDRGain",
+    0x0022 to "PhotosAppCharacteristicsUUID",
     0x0023 to "PhotoIdentifier",
     0x0025 to "SpatialOverCaptureGroupIdentifier",
+    0x0026 to "ImageGroupIdentifier",
     0x0027 to "SceneFlags",
+    0x0028 to "SignalToNoiseRatioType",
+    0x0029 to "FocusPosition2",
+    0x002A to "FocusDistance",
     0x002B to "SemanticStyle",
+    0x002C to "SemanticStyleVersion",
     0x002D to "HDRHeadroom",
+    0x002E to "SpatialOverCaptureIdentifier",
     0x002F to "PhotosAppCharacteristics2",
+    0x0030 to "PhotosAppCharacteristics2Version",
+    0x0033 to "FrontFacingCamera",
     0x0038 to "SmartStyle",
     0x003A to "PhotographicStyle",
+    0x003B to "PhotographicStyleVersion",
+    0x003C to "DepthData",
     0x003D to "FocusMethod",
+    0x003E to "FocusWindow",
     0x0040 to "FlashCompensation",
     0x0041 to "OriginatingSignature",
+    0x0042 to "MeteorGain",
     0x0043 to "MeteorHeadroom",
+    0x0044 to "AFSessionIdentifier",
+    0x0047 to "StillImageBufferTime",
+    0x0048 to "TimeSinceFocusStart",
     0x004C to "SmartStyleCast",
     0x004D to "SmartStyleIntensity",
     0x004E to "SmartStyleTone",
@@ -59,7 +82,7 @@ fun decodeAppleMakerNote(
     itemEnd: Long,
 ): BoxNode {
     val endPos = absolutePos + byteLength
-    if (byteLength < 2) {
+    if (byteLength < 4) {
         return BoxNode(
             type = "MakerNote",
             offset = absolutePos,
@@ -69,13 +92,49 @@ fun decodeAppleMakerNote(
         )
     }
 
-    val entryCount = readUInt16Endian(reader, absolutePos, littleEndian)
+    // 1. Check if the entire MakerNote is a Binary Plist (bplist00)
+    val first8 = if (byteLength >= 8) reader.readBytes(absolutePos, 8) else byteArrayOf()
+    if (first8.size >= 8 && String(first8, StandardCharsets.US_ASCII).startsWith("bplist")) {
+        val plistNode = decodeBinaryPlist(reader, absolutePos, byteLength.toLong())
+        return plistNode.copy(type = "MakerNote (BinaryPlist)")
+    }
+
+    // 2. Detect Apple MakerNote Header
+    // Standard Apple iPhone header: "Apple iOS\0" (10 bytes) + 4 bytes header info = 14 bytes
+    var ifdStart = absolutePos
+    var headerSize = 0
+    val first16 = if (byteLength >= 16) reader.readBytes(absolutePos, 16) else reader.readBytes(absolutePos, byteLength)
+    val headerStr = if (first16.size >= 9) String(first16, 0, 9, StandardCharsets.US_ASCII) else ""
+
+    if (headerStr.startsWith("Apple iOS")) {
+        headerSize = if (first16.size >= 14) 14 else 10
+        ifdStart = absolutePos + headerSize
+    }
+
+    if (ifdStart + 2 > endPos) {
+        return BoxNode(
+            type = "MakerNote",
+            offset = absolutePos,
+            headerSize = headerSize,
+            size = byteLength.toLong(),
+            warnings = listOf("Apple MakerNote header ($headerSize bytes) exceeds payload size ($byteLength bytes)"),
+        )
+    }
+
+    val entryCount = readUInt16Endian(reader, ifdStart, littleEndian)
     val fields = mutableListOf<BoxField>()
     val children = mutableListOf<BoxNode>()
     val warnings = mutableListOf<String>()
 
-    var pos = absolutePos + 2
-    for (i in 0 until entryCount) {
+    val effectiveCount = if (entryCount > 200) {
+        val swapped = readUInt16Endian(reader, ifdStart, !littleEndian)
+        if (swapped in 1..200) swapped else entryCount
+    } else {
+        entryCount
+    }
+
+    var pos = ifdStart + 2
+    for (i in 0 until effectiveCount) {
         if (pos + 12 > endPos) {
             warnings.add("MakerNote IFD truncated at entry $i")
             break
@@ -90,7 +149,27 @@ fun decodeAppleMakerNote(
         val valueAbsolutePos = if (totalSize <= 4) {
             valueOffsetPos
         } else {
-            tiffStart + readUInt32Endian(reader, valueOffsetPos, littleEndian)
+            val rawOffset = readUInt32Endian(reader, valueOffsetPos, littleEndian)
+            // Resolve offset:
+            // 1) If MakerNote has "Apple iOS" header (real iPhone photos), offsets are relative to MakerNote start (absolutePos)
+            // 2) If MakerNote is standard TIFF IFD (headerSize == 0), offsets are relative to TIFF start (tiffStart)
+            when {
+                headerSize > 0 && absolutePos + rawOffset + totalSize <= endPos && absolutePos + rawOffset >= absolutePos -> {
+                    absolutePos + rawOffset
+                }
+                headerSize > 0 && ifdStart + rawOffset + totalSize <= endPos && ifdStart + rawOffset >= ifdStart -> {
+                    ifdStart + rawOffset
+                }
+                tiffStart + rawOffset + totalSize <= itemEnd && tiffStart + rawOffset >= tiffStart -> {
+                    tiffStart + rawOffset
+                }
+                absolutePos + rawOffset + totalSize <= endPos && absolutePos + rawOffset >= absolutePos -> {
+                    absolutePos + rawOffset
+                }
+                else -> {
+                    if (tiffStart + rawOffset <= itemEnd) tiffStart + rawOffset else absolutePos + rawOffset
+                }
+            }
         }
 
         val name = TAG_NAMES_MAKERNOTE_APPLE[tag] ?: "Apple Tag 0x${tag.toString(16).padStart(4, '0')}"
@@ -125,12 +204,12 @@ fun decodeAppleMakerNote(
     return BoxNode(
         type = "MakerNote",
         offset = absolutePos,
-        headerSize = 2,
+        headerSize = headerSize,
         size = byteLength.toLong(),
         fields = fields,
         children = children,
         warnings = warnings,
-        summary = "Apple MakerNote ($entryCount entries)",
+        summary = "Apple MakerNote ($effectiveCount entries)",
     )
 }
 

@@ -508,10 +508,14 @@ private fun decodeIfd(
             }
             TAG_MAKER_NOTE -> {
                 if (valueAbsolutePos >= 0 && valueAbsolutePos + count <= itemEnd) {
-                    val mnNode = when (makerNoteVendor) {
-                        MakerNoteVendor.APPLE -> decodeAppleMakerNote(reader, tiffStart, valueAbsolutePos, count.toInt(), littleEndian, itemEnd)
-                        MakerNoteVendor.SAMSUNG -> decodeMakerNote(reader, tiffStart, valueAbsolutePos, count.toInt(), littleEndian, itemEnd, TAG_NAMES_MAKERNOTE_SAMSUNG)
-                        MakerNoteVendor.UNKNOWN -> decodeMakerNote(reader, tiffStart, valueAbsolutePos, count.toInt(), littleEndian, itemEnd, emptyMap())
+                    val first10 = if (count >= 10) reader.readBytes(valueAbsolutePos, 10.coerceAtMost(count.toInt())) else byteArrayOf()
+                    val firstStr = String(first10, java.nio.charset.StandardCharsets.US_ASCII)
+                    val isApple = makerNoteVendor == MakerNoteVendor.APPLE || firstStr.startsWith("Apple iOS") || firstStr.startsWith("bplist")
+
+                    val mnNode = when {
+                        isApple -> decodeAppleMakerNote(reader, tiffStart, valueAbsolutePos, count.toInt(), littleEndian, itemEnd)
+                        makerNoteVendor == MakerNoteVendor.SAMSUNG -> decodeMakerNote(reader, tiffStart, valueAbsolutePos, count.toInt(), littleEndian, itemEnd, TAG_NAMES_MAKERNOTE_SAMSUNG)
+                        else -> decodeMakerNote(reader, tiffStart, valueAbsolutePos, count.toInt(), littleEndian, itemEnd, emptyMap())
                     }
                     children.add(mnNode)
                 }

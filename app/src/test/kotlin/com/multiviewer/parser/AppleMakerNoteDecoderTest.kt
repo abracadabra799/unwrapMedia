@@ -59,6 +59,58 @@ class AppleMakerNoteDecoderTest {
     }
 
     @Test
+    fun `decodes standard Apple iPhone MakerNote with 14-byte Apple iOS header and internal offsets`() {
+        // Real iPhone MakerNotes start with "Apple iOS\0\0\1\0\0" (14 bytes)
+        // followed by IFD entries with offsets relative to MakerNote start.
+        val header = "Apple iOS\u0000\u0000\u0001\u0000\u0000".toByteArray(StandardCharsets.US_ASCII)
+        assertEquals(14, header.size)
+
+        val out = ByteArrayOutputStream()
+        val dos = DataOutputStream(out)
+        dos.write(header)
+
+        // 3 IFD entries:
+        // Tag 0x0002 (AEStable): SHORT = 1
+        // Tag 0x000A (CameraType): SHORT = 2 (Back Telephoto)
+        // Tag 0x0021 (HDRGain): RATIONAL = 200/100, offset = 14 + 2 + 3*12 + 4 = 56
+        dos.writeShort(swap16(3)) // 3 entries
+        writeTiffEntry(dos, 0x0002, 3, 1, 1) // AEStable = 1
+        writeTiffEntry(dos, 0x000A, 3, 1, 2) // CameraType = 2 (Back Telephoto)
+        writeTiffEntry(dos, 0x0021, 5, 1, 56) // HDRGain at internal offset 56
+        dos.writeInt(0) // NextIFD = 0
+
+        // Data area at offset 56: 200 / 100
+        dos.writeInt(swap32(200))
+        dos.writeInt(swap32(100))
+
+        val makerNoteBytes = out.toByteArray()
+        val reader = byteReaderOf(makerNoteBytes)
+
+        val node = decodeAppleMakerNote(
+            reader = reader,
+            tiffStart = 0,
+            absolutePos = 0,
+            byteLength = makerNoteBytes.size,
+            littleEndian = true,
+            itemEnd = makerNoteBytes.size.toLong(),
+        )
+
+        assertEquals("MakerNote", node.type)
+        assertEquals(14, node.headerSize)
+
+        val aeStable = node.fields.find { it.name == "AEStable" }
+        assertTrue(aeStable?.value?.contains("Yes") == true)
+
+        val cameraType = node.fields.find { it.name == "CameraType" }
+        assertTrue(cameraType?.value?.contains("Back Telephoto") == true)
+
+        val hdrGain = node.fields.find { it.name == "HDRGain" }
+        assertTrue(hdrGain?.value?.contains("200/100") == true || hdrGain?.value?.contains("2.00") == true)
+
+        reader.close()
+    }
+
+    @Test
     fun `handles malformed Apple MakerNote without crashing`() {
         // Short MakerNote payload (1 byte)
         val body = byteArrayOf(
