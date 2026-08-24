@@ -256,61 +256,41 @@ object ImageAnalyzer {
 
         val image = ByteReader.open(file).use { reader ->
             // --- Strategy 1: ISOBMFF Metadata (HEIC/AVIF/MP4) ---
-            if (iloc != null) {
-                // Map item IDs to types
-                val itemTypes = mutableMapOf<Long, String>()
-                iinf?.children?.forEach { infe ->
-                    if (infe.type == "infe") {
-                        val id = infe.fields.find { it.name == "item_ID" }?.value?.toLongOrNull()
-                        val type = infe.fields.find { it.name == "item_type" }?.value
-                        if (id != null && type != null) itemTypes[id] = type
-                    }
-                }
-
+            // Only extract items that are explicitly referenced via 'thmb' in iref.
+            // Never fall back to auxiliary items like GainMap (auxl) or depth maps.
+            if (iloc != null && thumbIds.isNotEmpty()) {
                 val idat = findFirst(root) { it.type == "idat" }
                 val idatBase = if (idat != null) idat.offset + idat.headerSize else 0L
 
-                // Try identified thumbnails first
                 for (id in thumbIds) {
                     val img = extractItemById(reader, iloc, id, idatBase)
                     if (img != null) return@use img
                 }
-
-                // Try any JPEG items found in iinf
-                for ((id, type) in itemTypes) {
-                    if (id in thumbIds) continue
-                    if (type.lowercase() == "jpeg" || type.lowercase() == "jpg") {
-                        val img = extractItemById(reader, iloc, id, idatBase)
-                        if (img != null) return@use img
-                    }
-                }
             }
 
-            // --- Strategy 2: EXIF Scanning (Standard JPEG/TIFF) ---
-            val exifNode = findFirst(root) { it.type == "Exif" || it.type == "APP1" }
+            // --- Strategy 2: EXIF IFD1 Thumbnail Scanning (Standard JPEG/TIFF) ---
+            // 2a. Check for explicit ThumbnailImage box resolved from IFD1 (0x0201/0x0202)
+            val thumbNode = findFirst(root) { it.type == "ThumbnailImage" }
+            if (thumbNode != null && thumbNode.size in 64..2_000_000) {
+                try {
+                    val possibleImg = Image.makeFromEncoded(reader.readBytes(thumbNode.offset, thumbNode.size.toInt()))
+                    if (possibleImg.width > 10) return@use possibleImg
+                } catch (e: Exception) {}
+            }
+
+            // 2b. Search strictly within the Exif APP1 segment bounds (never beyond Exif)
+            val exifNode = findFirst(root) { it.type == "Exif" }
             if (exifNode != null) {
-                // Search for JPEG magic bytes in the EXIF/APP1 payload
                 val limit = exifNode.offset + exifNode.size
                 for (scanPos in findJpegMagicOffsets(reader, exifNode.offset, limit)) {
                     try {
                         val possibleImg = Image.makeFromEncoded(reader.readBytes(scanPos, (limit - scanPos).toInt().coerceAtMost(1_000_000)))
-                        if (possibleImg != null && possibleImg.width > 10) return@use possibleImg
+                        if (possibleImg.width > 10) return@use possibleImg
                     } catch (e: Exception) {}
                 }
             }
 
-            // --- Strategy 3: Brute Force Magic Byte Scan (Last Ditch) ---
-            val scanLimit = minOf(reader.length, 4_000_000L)
-            for (pos in findJpegMagicOffsets(reader, 0L, scanLimit)) {
-                // Offset 0 is always the primary/outer image's own SOI, never a nested thumbnail --
-                // matching it here previously caused files with no real embedded thumbnail to show
-                // a truncated (1MB-capped) copy of the primary image as a fake "thumbnail".
-                if (pos == 0L) continue
-                try {
-                    val possibleImg = Image.makeFromEncoded(reader.readBytes(pos, (reader.length - pos).toInt().coerceAtMost(1_000_000)))
-                    if (possibleImg != null && possibleImg.width > 10) return@use possibleImg
-                } catch (e: Exception) {}
-            }
+            // No legitimate Exif or embedded thumbnail found -- do NOT fallback to GainMap, MPF secondary images, or auxl.
             null
         }
 
@@ -344,7 +324,7 @@ object ImageAnalyzer {
                 val magic = reader.readBytes(absOffset, 2)
                 if (magic[0] == 0xFF.toByte() && magic[1] == 0xD8.toByte()) {
                     val img = Image.makeFromEncoded(reader.readBytes(absOffset, length.toInt()))
-                    if (img != null) return img
+                    return img
                 }
             } catch (e: Exception) {}
         }

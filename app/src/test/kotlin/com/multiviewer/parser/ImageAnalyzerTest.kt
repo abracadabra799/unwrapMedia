@@ -132,34 +132,26 @@ class ImageAnalyzerTest {
     }
 
     @Test
-    fun `brute-force magic-byte scan over a large file is correct and completes well under a few seconds`() {
-        // Regression guard: Strategy 3's scan used to call reader.readUInt8() twice per byte
-        // position (a seek+read syscall pair each) -- up to ~8 million calls on its 4MB cap, which
-        // took over 3 seconds on a real HEIC file in manual testing. It now reads the region once
-        // and scans it in memory, so a multi-MB scan should finish in well under a second.
-        val size = 3_000_000
-        val bytes = ByteArray(size) { 0x00 }
-        // Scatter a few JPEG magic-byte pairs through the buffer so the scan has real matches to
-        // find and attempt to decode (and reject, since none is followed by valid JPEG data),
-        // rather than a best case of finding nothing at all.
-        for (offset in listOf(500_000, 1_500_000, 2_500_000)) {
-            bytes[offset] = 0xFF.toByte()
-            bytes[offset + 1] = 0xD8.toByte()
-        }
-        val file = File.createTempFile("image-analyzer-bruteforce-scan-test", ".heic")
-        file.deleteOnExit()
-        file.writeBytes(bytes)
-        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = file.length())
+    fun `does not fallback to decoding GainMap or auxiliary JPEG items when no thumbnail reference exists`() {
+        // Create a dummy image file containing a real valid secondary JPEG (e.g. GainMap) at offset 500
+        val secondaryJpeg = File.createTempFile("gainmap-secondary", ".jpg")
+        secondaryJpeg.deleteOnExit()
+        val dummyGainMap = BufferedImage(32, 32, BufferedImage.TYPE_BYTE_GRAY)
+        ImageIO.write(dummyGainMap, "jpg", secondaryJpeg)
+        val gainMapBytes = secondaryJpeg.readBytes()
 
-        val start = System.nanoTime()
-        val forensic = ImageAnalyzer.analyze(file, root)
-        val elapsedMs = (System.nanoTime() - start) / 1_000_000.0
+        val mainFile = File.createTempFile("image-without-thumb-with-gainmap", ".jpg")
+        mainFile.deleteOnExit()
+        val dummyPrefix = ByteArray(500)
+        mainFile.writeBytes(dummyPrefix + gainMapBytes)
 
+        // Root has no IFD1 thumbnail and no thmb iref
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = mainFile.length())
+        val forensic = ImageAnalyzer.analyze(mainFile, root)
+
+        // Must NOT fallback to the GainMap JPEG payload
         assertEquals(null, forensic.embeddedThumbnail)
-        assertTrue(
-            elapsedMs < 3000,
-            "Expected the brute-force scan over a 3MB file to complete well under 3s, took ${elapsedMs}ms",
-        )
+        assertEquals(false, forensic.hasThumbnailReference)
     }
 
     @Test
