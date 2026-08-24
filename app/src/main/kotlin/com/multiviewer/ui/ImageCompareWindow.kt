@@ -1066,7 +1066,18 @@ private fun HexDiffView(language: AppLanguage, fileA: File?, fileB: File?) {
         return
     }
 
-    val maxLen = maxOf(fileA.length(), fileB.length())
+    val rafA = remember(fileA) { if (fileA.exists()) RandomAccessFile(fileA, "r") else null }
+    val rafB = remember(fileB) { if (fileB.exists()) RandomAccessFile(fileB, "r") else null }
+    DisposableEffect(rafA, rafB) {
+        onDispose {
+            rafA?.close()
+            rafB?.close()
+        }
+    }
+
+    val fileALen = fileA.length()
+    val fileBLen = fileB.length()
+    val maxLen = maxOf(fileALen, fileBLen)
     val rowCount = ((maxLen + 15) / 16).toInt()
 
     val listState = rememberLazyListState()
@@ -1077,7 +1088,7 @@ private fun HexDiffView(language: AppLanguage, fileA: File?, fileB: File?) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "File A: ${formatSize(fileA.length())}  |  File B: ${formatSize(fileB.length())} (Delta: ${formatSize(Math.abs(fileB.length() - fileA.length()))})",
+                "File A: ${formatSize(fileALen)}  |  File B: ${formatSize(fileBLen)} (Delta: ${formatSize(Math.abs(fileBLen - fileALen))})",
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1089,9 +1100,16 @@ private fun HexDiffView(language: AppLanguage, fileA: File?, fileB: File?) {
             modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Offset", modifier = Modifier.width(80.dp), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
-            Text("Media A (Hex)", modifier = Modifier.weight(1f), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
-            Text("Media B (Hex)", modifier = Modifier.weight(1f), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+            Text("Offset", modifier = Modifier.width(75.dp), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+            Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                Text("Media A (Hex)", modifier = Modifier.weight(1f), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                Text("Media A (ASCII)", modifier = Modifier.width(130.dp), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                Text("Media B (Hex)", modifier = Modifier.weight(1f), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                Text("Media B (ASCII)", modifier = Modifier.width(130.dp), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+            }
         }
 
         HorizontalDivider()
@@ -1100,7 +1118,7 @@ private fun HexDiffView(language: AppLanguage, fileA: File?, fileB: File?) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                 items(rowCount) { rowIndex ->
                     val offset = rowIndex.toLong() * 16L
-                    val (bytesA, bytesB, isDiff) = readHexDiffRow(fileA, fileB, offset)
+                    val (bytesA, bytesB, isDiff) = readHexDiffRow(rafA, rafB, offset, fileALen, fileBLen)
 
                     val bgColor = if (isDiff) Color(0xFFEF6C00).copy(alpha = 0.15f) else Color.Transparent
                     Row(
@@ -1109,23 +1127,44 @@ private fun HexDiffView(language: AppLanguage, fileA: File?, fileB: File?) {
                     ) {
                         Text(
                             "%08X".format(offset),
-                            modifier = Modifier.width(80.dp),
+                            modifier = Modifier.width(75.dp),
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             color = MaterialTheme.colorScheme.primary,
                         )
-                        Text(
-                            formatHexBytes(bytesA),
-                            modifier = Modifier.weight(1f),
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                        )
-                        Text(
-                            formatHexBytes(bytesB),
-                            modifier = Modifier.weight(1f),
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                        )
+                        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                formatHexBytes(bytesA),
+                                modifier = Modifier.weight(1f),
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = if (isDiff && bytesA.isNotEmpty()) Color(0xFFFFB74D) else Color.Unspecified,
+                            )
+                            Text(
+                                formatAsciiBytes(bytesA),
+                                modifier = Modifier.width(130.dp),
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = if (isDiff && bytesA.isNotEmpty()) Color(0xFFFFB74D) else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                formatHexBytes(bytesB),
+                                modifier = Modifier.weight(1f),
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = if (isDiff && bytesB.isNotEmpty()) Color(0xFFFF8A65) else Color.Unspecified,
+                            )
+                            Text(
+                                formatAsciiBytes(bytesB),
+                                modifier = Modifier.width(130.dp),
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = if (isDiff && bytesB.isNotEmpty()) Color(0xFFFF8A65) else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
@@ -1134,27 +1173,33 @@ private fun HexDiffView(language: AppLanguage, fileA: File?, fileB: File?) {
     }
 }
 
-private fun readHexDiffRow(fileA: File, fileB: File, offset: Long): Triple<ByteArray, ByteArray, Boolean> {
+private fun readHexDiffRow(
+    rafA: RandomAccessFile?,
+    rafB: RandomAccessFile?,
+    offset: Long,
+    fileALength: Long,
+    fileBLength: Long,
+): Triple<ByteArray, ByteArray, Boolean> {
     val bA = ByteArray(16)
     val bB = ByteArray(16)
-    var lenA = 0
-    var lenB = 0
+    var readA = 0
+    var readB = 0
 
-    if (offset < fileA.length()) {
-        RandomAccessFile(fileA, "r").use { raf ->
-            raf.seek(offset)
-            lenA = raf.read(bA).coerceAtLeast(0)
+    if (rafA != null && offset < fileALength) {
+        synchronized(rafA) {
+            rafA.seek(offset)
+            readA = rafA.read(bA).coerceAtLeast(0)
         }
     }
-    if (offset < fileB.length()) {
-        RandomAccessFile(fileB, "r").use { raf ->
-            raf.seek(offset)
-            lenB = raf.read(bB).coerceAtLeast(0)
+    if (rafB != null && offset < fileBLength) {
+        synchronized(rafB) {
+            rafB.seek(offset)
+            readB = rafB.read(bB).coerceAtLeast(0)
         }
     }
 
-    val actualA = bA.copyOf(lenA)
-    val actualB = bB.copyOf(lenB)
+    val actualA = bA.copyOf(readA)
+    val actualB = bB.copyOf(readB)
     val isDiff = !actualA.contentEquals(actualB)
     return Triple(actualA, actualB, isDiff)
 }
@@ -1169,6 +1214,16 @@ private fun formatHexBytes(bytes: ByteArray): String {
             sb.append("   ")
         }
         if (i == 7) sb.append(" ")
+    }
+    return sb.toString()
+}
+
+private fun formatAsciiBytes(bytes: ByteArray): String {
+    if (bytes.isEmpty()) return ""
+    val sb = StringBuilder()
+    for (i in 0 until bytes.size) {
+        val b = bytes[i].toInt() and 0xFF
+        sb.append(if (b in 0x20..0x7E) b.toChar() else '.')
     }
     return sb.toString()
 }
