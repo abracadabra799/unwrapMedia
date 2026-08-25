@@ -31,6 +31,10 @@ compose.desktop {
             packageVersion = "1.5.1"
             appResourcesRootDir.set(project.layout.projectDirectory.dir("resources"))
 
+            macOS {
+                iconFile.set(project.layout.projectDirectory.file("icons/app.icns"))
+            }
+
             windows {
                 // No jpackage-produced installer for Windows anymore (see targetFormats above) --
                 // an Inno Setup script wraps the createDistributable app-image instead and owns
@@ -40,6 +44,7 @@ compose.desktop {
             }
 
             linux {
+                iconFile.set(project.layout.projectDirectory.file("icons/app_source.png"))
                 shortcut = true
             }
         }
