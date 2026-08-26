@@ -4,6 +4,10 @@
 
 **unwrapMedia** is a fast, lightweight media structure inspector and forensic debugging tool built with Kotlin and Compose Multiplatform for Desktop. It parses the internal binary containers of image, video, and audio files into an interactive structure tree and hex viewer synchronized by exact byte offsets.
 
+<p align="center">
+  <img src="docs/screenshots/unwrapMedia-promo-image.jpg" width="880" alt="unwrapMedia Image Inspector & Gain Map Preview" />
+</p>
+
 ---
 
 ## ⚡ Core Workflow & Key Features
@@ -20,19 +24,37 @@
 * **HDR Gain Map**: Dedicated viewer for ISO 21496-1, Ultra HDR, Apple MPF, and Adobe HDRGM with headroom curves, raw XMP XML inspector, and gain map image extraction.
 * **Motion Photos**: Instant detection and playback for Samsung and Google Motion Photos.
 
+---
+
 ### 🎬 Video & Bitstream Forensics
+
+<p align="center">
+  <img src="docs/screenshots/unwrapMedia-promo-video.jpg" width="880" alt="unwrapMedia Video Bitstream Inspector & Motion Vectors" />
+</p>
+
 * **Modern Codecs**: In-depth header and parameter parsing for **APV**, **AV1**, **HEVC (H.265)**, **AVC (H.264)**, and **Dolby Vision**.
 * **Visual Overlays**: Macroblock **Motion Vectors** and **QP Heatmap** rendered directly over video playback.
 * **Frame Drop Analysis**: Scatter plot detecting timestamp jitter across 200,000+ frames with 120 FPS LOD rendering.
 
+---
+
 ### 🎵 Audio & Raw PCM
+
+<p align="center">
+  <img src="docs/screenshots/unwrapMedia-promo-audio.jpg" width="880" alt="unwrapMedia Audio Waveform & Spectrogram" />
+</p>
+
 * **Waveform & Spectrogram**: High-precision interactive peak waveforms and FFT spectrograms with zoom/pan.
 * **Formats**: WAV, MP3, AAC/M4A, FLAC, OGG, Opus, AIFF, and headerless raw **PCM** (`.pcm`, `.raw`).
+
+---
 
 ### 🔲 Raw Pixel & Comparison
 * **Raw Pixel Viewer**: Instant preview for headerless YUV420 (NV12/NV21/I420) and RGB dumps with multi-frame playback.
 * **Side-by-Side Compare**: Structure, metadata, and byte-level diffs between two files.
 * **Video Quality Benchmark**: Frame-by-frame VMAF, PSNR, and SSIM metrics calculation.
+
+---
 
 ### 🤖 Diagnostics & AI Prompts
 * **Structure Check**: Immediate container defect linting categorized by severity (`CRITICAL`, `WARNING`, `INFO`).

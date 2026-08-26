@@ -4,6 +4,10 @@
 
 **unwrapMedia**는 Kotlin과 Compose Multiplatform for Desktop 기반의 초경량·고성능 미디어 파일 구조 분석 및 포렌식 디버깅 도구입니다. 이미지, 비디오, 오디오 파일의 내부 바이너리 컨테이너를 오프셋 단위로 파싱하여 상호 연동되는 구조 트리와 Hex 뷰어, 시각적 디버깅 도구를 제공합니다.
 
+<p align="center">
+  <img src="docs/screenshots/unwrapMedia-promo-image.jpg" width="880" alt="unwrapMedia 이미지 분석기 & 게인맵 미리보기" />
+</p>
+
 ---
 
 ## ⚡ 전체 워크플로우 및 주요 핵심 기능
@@ -20,19 +24,37 @@
 * **HDR 게인맵**: ISO 21496-1, Ultra HDR, Apple MPF, Adobe HDRGM 지원 (부스트 헤드룸 카드, 원본 XMP XML 뷰어, 게인맵 이미지 분리 팝업 및 저장).
 * **모션 포토(Motion Photo)**: 삼성 및 구글 방식 모션포토 자동 감지 및 재생/추출.
 
+---
+
 ### 🎬 비디오 & 비트스트림 포렌식
+
+<p align="center">
+  <img src="docs/screenshots/unwrapMedia-promo-video.jpg" width="880" alt="unwrapMedia 비디오 비트스트림 분석기 & 모션 벡터" />
+</p>
+
 * **차세대 코덱**: **APV**, **AV1**, **HEVC (H.265)**, **AVC (H.264)**, **Dolby Vision** 헤더 및 파라미터 셋 상세 파싱.
 * **시각적 비디오 오버레이**: 매크로블록 **모션 벡터(Motion Vectors)** 및 **QP 히트맵(QP Heatmap)** 실시간 재생 렌더링.
 * **프레임 간격/드랍 분석**: 20만 개 이상의 프레임도 120 FPS LOD 렌더링으로 부드럽게 타임스탬프 산점도 분석.
 
+---
+
 ### 🎵 오디오 & Raw PCM
+
+<p align="center">
+  <img src="docs/screenshots/unwrapMedia-promo-audio.jpg" width="880" alt="unwrapMedia 오디오 파형 & 스펙트로그램" />
+</p>
+
 * **파형 & 스펙트로그램**: 피크 기반 파형(Waveform) 및 FFT 스펙트로그램(Spectrogram) 줌/팬 인터랙티브 시각화.
 * **지원 포맷**: WAV, MP3, AAC/M4A, FLAC, OGG, Opus, AIFF 및 헤더 없는 원시 **PCM** (`.pcm`, `.raw`).
+
+---
 
 ### 🔲 Raw 픽셀 & 비교/품질 벤치마크
 * **Raw 픽셀 뷰어**: 헤더 없는 YUV420 (NV12/NV21/I420) 및 RGB 덤프 실시간 렌더링 및 멀티프레임 재생.
 * **두 파일 상세 비교**: 구조, 메타데이터, Hex 레벨 바이트 단위 차이점 비교.
 * **화질 측정 벤치마크**: 프레임별 VMAF, PSNR, SSIM 정밀 품질 비교.
+
+---
 
 ### 🤖 구조 검사 & AI 진단 프롬프트
 * **구조 결함 검사 (Check)**: 심각도(`CRITICAL`, `WARNING`, `INFO`)별 컨테이너 결함 자동 린팅.
