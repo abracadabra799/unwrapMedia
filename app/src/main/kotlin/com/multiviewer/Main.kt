@@ -287,11 +287,11 @@ fun main(args: Array<String>) {
     when (args.firstOrNull()) {
         "dump" -> exitProcess(runDumpCommand(args.drop(1)))
         "check" -> exitProcess(runCheckCommand(args.drop(1)))
-        else -> runGuiApplication()
+        else -> runGuiApplication(args)
     }
 }
 
-private fun runGuiApplication() = application {
+private fun runGuiApplication(args: Array<String> = emptyArray()) = application {
     val appState = remember { AppState() }
     
     // Log environment info for native library troubleshooting and initialize disk cache
@@ -301,6 +301,11 @@ private fun runGuiApplication() = application {
         println("Starting unwrapMedia...")
         println("OS: ${System.getProperty("os.name")} (${System.getProperty("os.arch")})")
         println("Java Home: ${System.getProperty("java.home")}")
+
+        val filesToOpen = args.map { File(it) }.filter { it.exists() && it.isFile }
+        if (filesToOpen.isNotEmpty()) {
+            appState.openFiles(filesToOpen)
+        }
     }
 
     val windowState = rememberWindowState(
