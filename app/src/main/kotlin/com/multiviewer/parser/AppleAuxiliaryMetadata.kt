@@ -19,7 +19,7 @@ enum class AppleAuxiliaryRole(val displayName: String) {
 fun classifyAppleAuxiliaryRole(auxType: String): AppleAuxiliaryRole {
     val lower = auxType.lowercase()
     return when {
-        lower.contains("hdrgainmap") || lower.contains("hdr-gain-map") -> AppleAuxiliaryRole.HDR_GAIN_MAP
+        lower.contains("hdrgainmap") || lower.contains("hdr-gain-map") || lower.contains("21496") -> AppleAuxiliaryRole.HDR_GAIN_MAP
         lower.contains("disparity") -> AppleAuxiliaryRole.DISPARITY
         lower.contains("depth") -> AppleAuxiliaryRole.DEPTH
         lower.contains("portraiteffects") || lower.contains("portrait-effects") -> AppleAuxiliaryRole.PORTRAIT_EFFECTS

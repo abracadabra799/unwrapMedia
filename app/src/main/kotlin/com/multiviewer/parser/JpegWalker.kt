@@ -136,6 +136,7 @@ private fun decodeSegment(reader: ByteReader, marker: Int, offset: Long, declare
     return when {
         marker in SOF_MARKERS -> decodeSof(reader, name, offset, declaredSize, totalSize)
         marker == 0xE1 -> decodeApp1(reader, name, offset, declaredSize, totalSize)
+        marker == 0xE2 -> decodeApp2(reader, name, offset, declaredSize, totalSize)
         marker == 0xDB -> decodeDqt(reader, name, offset, declaredSize, totalSize)
         marker == 0xC4 -> decodeDht(reader, name, offset, declaredSize, totalSize)
         marker == 0xDA -> decodeSos(reader, name, offset, declaredSize, totalSize)
@@ -215,6 +216,59 @@ private fun decodeApp1(reader: ByteReader, name: String, offset: Long, declaredS
             type = name, offset = offset, headerSize = 4, size = totalSize,
             fields = listOf(BoxField("xmp", text, textStart, textLength)),
             summary = "XMP (${text.length} chars)",
+        )
+    }
+
+    return BoxNode(type = name, offset = offset, headerSize = 4, size = totalSize)
+}
+
+private val MPF_PREFIX = byteArrayOf(0x4D, 0x50, 0x46, 0x00) // "MPF\0"
+private val ICC_PREFIX = "ICC_PROFILE\u0000".toByteArray(Charsets.US_ASCII)
+
+private fun decodeApp2(reader: ByteReader, name: String, offset: Long, declaredSize: Long, totalSize: Long): BoxNode {
+    val payloadStart = offset + 4
+    val payloadEnd = offset + declaredSize
+
+    if (payloadEnd - payloadStart >= MPF_PREFIX.size &&
+        reader.readBytes(payloadStart, MPF_PREFIX.size).contentEquals(MPF_PREFIX)
+    ) {
+        val entries = GainmapParser.parseMpfEntries(reader, offset, declaredSize)
+        val fields = mutableListOf<BoxField>()
+        fields.add(BoxField("identifier", "MPF (Multi-Picture Format)", payloadStart, 4))
+        fields.add(BoxField("image_count", entries.size.toString(), payloadStart, 4))
+        for ((idx, entry) in entries.withIndex()) {
+            val label = if (entry.isPrimary) "Primary Image #1" else "Secondary Image #${idx + 1}"
+            fields.add(BoxField("image_${idx + 1}_label", label, 0, 0))
+            fields.add(BoxField("image_${idx + 1}_type", "0x${entry.typeFlags.toString(16).uppercase()}", 0, 0))
+            fields.add(BoxField("image_${idx + 1}_size", "${entry.size} bytes", 0, 0))
+            fields.add(BoxField("image_${idx + 1}_offset", "${entry.offset}", 0, 0))
+        }
+        return BoxNode(
+            type = name, offset = offset, headerSize = 4, size = totalSize,
+            fields = fields,
+            summary = "MPF (${entries.size} image(s))",
+        )
+    }
+
+    if (payloadEnd - payloadStart >= ICC_PREFIX.size &&
+        reader.readBytes(payloadStart, ICC_PREFIX.size).contentEquals(ICC_PREFIX)
+    ) {
+        return BoxNode(
+            type = name, offset = offset, headerSize = 4, size = totalSize,
+            fields = listOf(BoxField("identifier", "ICC_PROFILE", payloadStart, ICC_PREFIX.size.toLong())),
+            summary = "ICC Profile (${declaredSize} bytes)",
+        )
+    }
+
+    val isoPrefix1 = "urn:iso:std:iso:ts:21496:-1\u0000".toByteArray(Charsets.US_ASCII)
+    val isoPrefix2 = "urn:iso:std:iso:ts:21496:1\u0000".toByteArray(Charsets.US_ASCII)
+    if ((payloadEnd - payloadStart >= isoPrefix1.size && reader.readBytes(payloadStart, isoPrefix1.size).contentEquals(isoPrefix1)) ||
+        (payloadEnd - payloadStart >= isoPrefix2.size && reader.readBytes(payloadStart, isoPrefix2.size).contentEquals(isoPrefix2))
+    ) {
+        return BoxNode(
+            type = name, offset = offset, headerSize = 4, size = totalSize,
+            fields = listOf(BoxField("identifier", "ISO 21496-1 Gain Map Metadata", payloadStart, 28)),
+            summary = "ISO 21496-1 Gain Map Metadata (${declaredSize} bytes)",
         )
     }
 

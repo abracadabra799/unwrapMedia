@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -22,6 +23,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -358,6 +360,17 @@ private fun OverviewTabContent(appState: AppState, tab: TabState) {
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             item { SummaryBox(title, summary.sections) }
+            val gainmap = tab.gainmapInfo
+            if (gainmap != null && gainmap.hasGainmap) {
+                item {
+                    Spacer(Modifier.height(16.dp))
+                    GainmapOverviewSummaryBox(
+                        gainmap = gainmap,
+                        onOpenXmp = { tab.isGainmapXmpPopupOpen = true },
+                        onOpenImage = { tab.isGainmapImagePopupOpen = true },
+                    )
+                }
+            }
             if (videoSections != null) {
                 item {
                     Spacer(Modifier.height(16.dp))
@@ -785,3 +798,84 @@ private fun OpenInNewIcon(modifier: Modifier = Modifier, color: Color = Color.Wh
         drawLine(color, androidx.compose.ui.geometry.Offset(w * 0.85f, h * 0.15f), androidx.compose.ui.geometry.Offset(w * 0.85f, h * 0.45f), strokeWidth = 1.5f)
     }
 }
+
+@Composable
+fun GainmapOverviewSummaryBox(
+    gainmap: com.multiviewer.parser.GainmapInfo,
+    onOpenXmp: () -> Unit,
+    onOpenImage: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(8.dp)
+            .border(1.dp, AppColors.NeonOrange.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+            .background(Color(0xFF191D24), RoundedCornerShape(8.dp))
+            .padding(12.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "🔆 HDR 게인맵 분석 요약",
+                    style = AppTypography.headlineSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = AppColors.NeonOrange,
+                    ),
+                )
+                Spacer(Modifier.width(8.dp))
+                Box(
+                    modifier = Modifier
+                        .background(AppColors.NeonOrange.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                ) {
+                    Text(
+                        gainmap.formatType.displayName,
+                        style = AppTypography.labelSmall.copy(fontSize = 10.sp, color = AppColors.NeonOrange),
+                    )
+                }
+            }
+
+            Row {
+                Button(
+                    onClick = onOpenXmp,
+                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.NeonOrange),
+                    modifier = Modifier.border(1.dp, AppColors.NeonOrange.copy(alpha = 0.5f), RoundedCornerShape(4.dp)),
+                    shape = RoundedCornerShape(4.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                ) {
+                    Text("XMP 보기", fontSize = 11.sp)
+                }
+                Spacer(Modifier.width(6.dp))
+                Button(
+                    onClick = onOpenImage,
+                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.NeonGreen),
+                    modifier = Modifier.border(1.dp, AppColors.NeonGreen.copy(alpha = 0.5f), RoundedCornerShape(4.dp)),
+                    shape = RoundedCornerShape(4.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                ) {
+                    Text("이미지 팝업", fontSize = 11.sp)
+                }
+            }
+        }
+
+        val params = gainmap.parameters
+        val maxBoost = params?.linearMaxBoost
+        val stops = params?.stops ?: params?.gainMapMax
+        val boostStr = if (maxBoost != null) "%.2fx (+%.2f EV stops)".format(maxBoost, stops ?: 0.0) else "Not specified"
+        val resStr = if (gainmap.imageWidth != null && gainmap.imageHeight != null) "${gainmap.imageWidth} x ${gainmap.imageHeight}" else "Unknown"
+
+        PropertyRow("HDR Headroom Boost", boostStr)
+        PropertyRow("Gain Map Resolution", resStr)
+        PropertyRow("Image Format", gainmap.imageFormat ?: "JPEG")
+        if (params?.gamma != null) {
+            PropertyRow("Gamma", "%.4f (%s)".format(params.gamma, if (params.gamma == 1.0) "Linear" else "Non-linear"))
+        }
+        PropertyRow("Base Rendition", if (params?.baseRenditionIsHdr == true) "HDR" else "SDR (Standard)")
+    }
+}
+

@@ -43,6 +43,25 @@ object I18n {
     fun menuExtractPreviewVideo(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 미리보기 재생용 비디오 추출" else "Extract Preview Video"
     fun menuMotionFrameDropAnalysis(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 동영상 프레임 드랍 분석" else "Motion Video Frame Drop Analysis"
 
+    // Menu: Gain Map
+    fun menuGainmap(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵" else "Gain Map"
+    fun menuViewGainmapXmp(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 XMP 메타데이터 보기..." else "View Gain Map XMP..."
+    fun menuViewGainmapImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 보기 (팝업)..." else "View Gain Map Image (Popup)..."
+    fun menuExtractGainmapImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 추출 및 저장..." else "Extract & Save Gain Map Image..."
+
+    // Gain Map UI Titles & Actions
+    fun titleGainmapXmpWindow(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 XMP 메타데이터" else "Gain Map XMP Metadata"
+    fun titleGainmapImageWindow(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지" else "Gain Map Image"
+    fun tabGainmapParameters(lang: AppLanguage) = if (lang == AppLanguage.KO) "📊 파싱된 게인맵 파라미터" else "📊 Parsed Gain Map Parameters"
+    fun tabGainmapRawXmp(lang: AppLanguage) = if (lang == AppLanguage.KO) "📄 전체 XMP 메타데이터 원본" else "📄 Raw XMP Metadata"
+    fun tabGainmapSecondaryXmp(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 XMP (Secondary)" else "Gain Map XMP (Secondary)"
+    fun tabGainmapPrimaryXmp(lang: AppLanguage) = if (lang == AppLanguage.KO) "컨테이너 XMP (Primary)" else "Container XMP (Primary)"
+    fun btnCopyXmp(lang: AppLanguage) = if (lang == AppLanguage.KO) "XMP 복사" else "Copy XMP"
+    fun btnViewGainmapImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 열기" else "View Gain Map Image"
+    fun btnSaveGainmapImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 저장..." else "Save Gain Map Image..."
+    fun btnViewXmp(lang: AppLanguage) = if (lang == AppLanguage.KO) "XMP 메타데이터 보기" else "View XMP Metadata"
+    fun saveGainmapDialogTitle(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 저장" else "Save Gain Map Image"
+
     // Menu: Bitstream
     fun menuBitstream(lang: AppLanguage) = if (lang == AppLanguage.KO) "비트스트림 추출" else "Extract Bitstream"
     fun menuExtractVideoTrack(lang: AppLanguage) = if (lang == AppLanguage.KO) "비디오 추출 (.mp4 or .mov etc)" else "Extract Video (.mp4 or .mov etc)"
@@ -85,6 +104,9 @@ object I18n {
     fun toastMotionPhotoFailed(lang: AppLanguage, msg: String) = if (lang == AppLanguage.KO) "모션포토 생성 실패: $msg" else "Failed to create Motion Photo: $msg"
     fun toastSaved(lang: AppLanguage, filename: String) = if (lang == AppLanguage.KO) "저장됨: $filename" else "Saved: $filename"
     fun toastExtractionFailed(lang: AppLanguage) = if (lang == AppLanguage.KO) "트랙 추출 실패" else "Track extraction failed"
+    fun toastGainmapExtracted(lang: AppLanguage, filename: String) = if (lang == AppLanguage.KO) "게인맵 이미지가 저장되었습니다: $filename" else "Gain map image saved: $filename"
+    fun toastGainmapExtractFailed(lang: AppLanguage, msg: String) = if (lang == AppLanguage.KO) "게인맵 이미지 저장 실패: $msg" else "Failed to save gain map image: $msg"
+    fun toastGainmapXmpCopied(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 XMP 메타데이터가 클립보드에 복사되었습니다." else "Gain map XMP copied to clipboard."
 
     // Motion Photo Validation Errors
     fun dialogTitleMotionPhotoCannotCreate(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 생성 불가" else "Cannot Create Motion Photo"

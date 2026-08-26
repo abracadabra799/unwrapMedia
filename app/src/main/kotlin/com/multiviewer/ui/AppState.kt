@@ -132,6 +132,10 @@ class TabState(val file: File) {
     var tileHighlightRange: LongRange? by mutableStateOf(null)
     var selectedTileIndex: Int? by mutableStateOf(null)
     var isPrimaryImagePopupOpen: Boolean by mutableStateOf(false)
+    var gainmapInfo: com.multiviewer.parser.GainmapInfo? by mutableStateOf(null)
+    var isGainmapXmpPopupOpen: Boolean by mutableStateOf(false)
+    var isGainmapImagePopupOpen: Boolean by mutableStateOf(false)
+    var gainmapBitmap: ImageBitmap? by mutableStateOf(null)
     // Decoded GIF animation frames (see GifFrameDecoder.kt) -- null until the background decode
     // in openFile finishes (or forever, for non-GIF files, which never trigger it). A non-null
     // value with frames.size <= 1 means "decoded successfully but not actually animated" -- see
@@ -570,6 +574,12 @@ class AppState {
                     null
                 }
 
+                val gainmapInfo = try {
+                    com.multiviewer.parser.GainmapParser.findGainmapInfo(file, root)
+                } catch (e: Exception) {
+                    null
+                }
+
                 var imageForensic: ImageForensicData? = null
                 when (type) {
                     MediaType.IMAGE -> imageForensic = ImageAnalyzer.analyze(file, root)
@@ -588,6 +598,7 @@ class AppState {
                     tab.mediaSummary = mediaSummary
                     tab.embeddedVideo = embeddedVideo
                     tab.motionPhotoPreview = motionPhotoPreview
+                    tab.gainmapInfo = gainmapInfo
                     tab.largeResolutionWarning = warning
                     tab.isLoading = false
 
@@ -640,7 +651,7 @@ class AppState {
                             } else {
                                 // Skia has no HEIF/HEVC decoder — fall back to ffmpeg (already async
                                 // and posts back via EventQueue.invokeLater itself).
-                                FfmpegImageSnapshotDecoder.decodeFirstFrameAsync(file) { fallbackBitmap ->
+                                FfmpegImageSnapshotDecoder.decodeFirstFrameAsync(file, root) { fallbackBitmap ->
                                     val current = tab.imageForensic ?: finalImageForensic
                                     // Do NOT substitute the full-resolution primary decode as the
                                     // "thumbnail" when the real embedded thumbnail item couldn't be

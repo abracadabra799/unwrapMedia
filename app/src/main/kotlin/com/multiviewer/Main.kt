@@ -102,6 +102,32 @@ private fun extractMotionPhotoPreviewVideo(appState: AppState, tab: TabState) {
     extractVideoToFile(appState, tab, video, "preview")
 }
 
+private fun extractGainmapImage(appState: AppState, tab: TabState, language: AppLanguage) {
+    val gainmap = tab.gainmapInfo ?: return
+    val ext = if (gainmap.imageFormat?.contains("hvc", ignoreCase = true) == true) "png" else "jpg"
+    val dialog = FileDialog(null as Frame?, I18n.saveGainmapDialogTitle(language), FileDialog.SAVE)
+    appState.lastOpenedDirectory?.let { dir ->
+        if (dir.exists() && dir.isDirectory) {
+            dialog.directory = dir.absolutePath
+        }
+    }
+    dialog.file = "${tab.file.nameWithoutExtension}_gainmap.$ext"
+    dialog.isVisible = true
+    val fileName = dialog.file
+    val directory = dialog.directory
+    if (fileName == null || directory == null) return
+    val destination = File(directory, fileName)
+    appState.updateLastOpenedDirectory(destination)
+
+    appState.statusMessage = "게인맵 이미지 추출 중..."
+    runInBackground {
+        val success = com.multiviewer.parser.GainmapParser.extractGainmapImageToFile(tab.file, tab.root, gainmap, destination)
+        EventQueue.invokeLater {
+            appState.statusMessage = if (success) I18n.toastGainmapExtracted(language, destination.name) else I18n.toastGainmapExtractFailed(language, "Unknown error")
+        }
+    }
+}
+
 private fun validateTabForMotionPhoto(
     tab: TabState,
     language: AppLanguage,
@@ -343,6 +369,28 @@ private fun runGuiApplication() = application {
                             }
                         }
                     },
+                )
+            }
+            Menu(I18n.menuGainmap(language)) {
+                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                val hasGainmap = currentTab != null && !currentTab.isLoading && currentTab.gainmapInfo?.hasGainmap == true
+                Item(
+                    I18n.menuViewGainmapXmp(language),
+                    enabled = hasGainmap,
+                    shortcut = KeyShortcut(Key.G, meta = true, shift = true),
+                    onClick = { currentTab?.isGainmapXmpPopupOpen = true },
+                )
+                Item(
+                    I18n.menuViewGainmapImage(language),
+                    enabled = hasGainmap,
+                    shortcut = KeyShortcut(Key.G, meta = true),
+                    onClick = { currentTab?.isGainmapImagePopupOpen = true },
+                )
+                Separator()
+                Item(
+                    I18n.menuExtractGainmapImage(language),
+                    enabled = hasGainmap,
+                    onClick = { currentTab?.let { extractGainmapImage(appState, it, language) } },
                 )
             }
             Menu(I18n.menuMotionPhoto(language)) {
@@ -638,6 +686,24 @@ private fun runGuiApplication() = application {
                 }
                 if (tab.isPrimaryImagePopupOpen) {
                     PrimaryImagePopupWindow(tab, onCloseRequest = { tab.isPrimaryImagePopupOpen = false })
+                }
+                if (tab.isGainmapXmpPopupOpen) {
+                    GainmapXmpWindow(
+                        tab = tab,
+                        themeMode = themeMode,
+                        language = language,
+                        onOpenImage = { tab.isGainmapImagePopupOpen = true },
+                        onCloseRequest = { tab.isGainmapXmpPopupOpen = false },
+                    )
+                }
+                if (tab.isGainmapImagePopupOpen) {
+                    GainmapImagePopupWindow(
+                        tab = tab,
+                        themeMode = themeMode,
+                        language = language,
+                        onOpenXmp = { tab.isGainmapXmpPopupOpen = true },
+                        onCloseRequest = { tab.isGainmapImagePopupOpen = false },
+                    )
                 }
             }
             Surface(modifier = Modifier.fillMaxSize(), color = AppColors.Background) {

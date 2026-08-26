@@ -21,7 +21,7 @@ enum class ThemeMode { DARK, LIGHT }
 private data class ThemePalette(
     val background: Color, val surface: Color, val panel: Color, val border: Color,
     val dividerHighlight: Color, val dividerShadow: Color,
-    val neonGreen: Color, val neonBlue: Color, val neonPurple: Color, val neonRed: Color, val neonYellow: Color,
+    val neonGreen: Color, val neonBlue: Color, val neonPurple: Color, val neonRed: Color, val neonYellow: Color, val neonOrange: Color,
     val textPrimary: Color, val textSecondary: Color, val textMuted: Color,
     val selection: Color,
     val frameTypeI: Color, val frameTypeP: Color, val frameTypeB: Color,
@@ -34,7 +34,7 @@ private val DarkPalette = ThemePalette(
     // Border" for its raised-edge resize-handle effect.
     background = Color(0xFF1A1D22), surface = Color(0xFF242930), panel = Color(0xFF2A2F36), border = Color(0xFF3A414B),
     dividerHighlight = Color(0xFF3D444C), dividerShadow = Color(0xFF0D0F12),
-    neonGreen = Color(0xFF39FF14), neonBlue = Color(0xFF00F3FF), neonPurple = Color(0xFFBC13FE), neonRed = Color(0xFFFF3131), neonYellow = Color(0xFFFFF01F),
+    neonGreen = Color(0xFF39FF14), neonBlue = Color(0xFF00F3FF), neonPurple = Color(0xFFBC13FE), neonRed = Color(0xFFFF3131), neonYellow = Color(0xFFFFF01F), neonOrange = Color(0xFFFF9500),
     textPrimary = Color(0xFFC9D1D9), textSecondary = Color(0xFF8B949E), textMuted = Color(0xFF484F58),
     selection = Color(0xFF264F78),
     frameTypeI = Color(0xFFE06C75), frameTypeP = Color(0xFF7EC699), frameTypeB = Color(0xFF6CA6E0),
@@ -43,7 +43,7 @@ private val DarkPalette = ThemePalette(
 private val LightPalette = ThemePalette(
     background = Color(0xFFFFFFFF), surface = Color(0xFFF3F4F6), panel = Color(0xFFECEEF1), border = Color(0xFFD0D3D8),
     dividerHighlight = Color(0xFFFFFFFF), dividerShadow = Color(0xFFB8BCC2),
-    neonGreen = Color(0xFF1A7F37), neonBlue = Color(0xFF0969DA), neonPurple = Color(0xFF8250DF), neonRed = Color(0xFFCF222E), neonYellow = Color(0xFF9A6700),
+    neonGreen = Color(0xFF1A7F37), neonBlue = Color(0xFF0969DA), neonPurple = Color(0xFF8250DF), neonRed = Color(0xFFCF222E), neonYellow = Color(0xFF9A6700), neonOrange = Color(0xFFBC4C00),
     textPrimary = Color(0xFF1A1D22), textSecondary = Color(0xFF57606A), textMuted = Color(0xFF8B949E),
     selection = Color(0xFFCFE3FA),
     frameTypeI = Color(0xFFC53030), frameTypeP = Color(0xFF2F855A), frameTypeB = Color(0xFF2B6CB0),
@@ -69,6 +69,7 @@ object AppColors {
     val NeonPurple: Color @Composable get() = LocalThemePalette.current.neonPurple
     val NeonRed: Color @Composable get() = LocalThemePalette.current.neonRed
     val NeonYellow: Color @Composable get() = LocalThemePalette.current.neonYellow
+    val NeonOrange: Color @Composable get() = LocalThemePalette.current.neonOrange
 
     val TextPrimary: Color @Composable get() = LocalThemePalette.current.textPrimary
     val TextSecondary: Color @Composable get() = LocalThemePalette.current.textSecondary
