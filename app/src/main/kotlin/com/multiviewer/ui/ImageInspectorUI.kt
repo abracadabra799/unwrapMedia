@@ -815,51 +815,57 @@ fun GainmapOverviewSummaryBox(
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "🔆 HDR 게인맵 분석 요약",
+                style = AppTypography.headlineSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    color = AppColors.NeonOrange,
+                ),
+            )
+            Spacer(Modifier.width(8.dp))
+            Box(
+                modifier = Modifier
+                    .background(AppColors.NeonOrange.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            ) {
                 Text(
-                    "🔆 HDR 게인맵 분석 요약",
-                    style = AppTypography.headlineSmall.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = AppColors.NeonOrange,
-                    ),
+                    gainmap.formatType.displayName,
+                    style = AppTypography.labelSmall.copy(fontSize = 10.sp, color = AppColors.NeonOrange),
                 )
-                Spacer(Modifier.width(8.dp))
-                Box(
-                    modifier = Modifier
-                        .background(AppColors.NeonOrange.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                ) {
-                    Text(
-                        gainmap.formatType.displayName,
-                        style = AppTypography.labelSmall.copy(fontSize = 10.sp, color = AppColors.NeonOrange),
-                    )
-                }
             }
+        }
 
-            Row {
-                Button(
-                    onClick = onOpenXmp,
-                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.NeonOrange),
-                    modifier = Modifier.border(1.dp, AppColors.NeonOrange.copy(alpha = 0.5f), RoundedCornerShape(4.dp)),
-                    shape = RoundedCornerShape(4.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                ) {
-                    Text("XMP 보기", fontSize = 11.sp)
-                }
-                Spacer(Modifier.width(6.dp))
-                Button(
-                    onClick = onOpenImage,
-                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.NeonGreen),
-                    modifier = Modifier.border(1.dp, AppColors.NeonGreen.copy(alpha = 0.5f), RoundedCornerShape(4.dp)),
-                    shape = RoundedCornerShape(4.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                ) {
-                    Text("이미지 팝업", fontSize = 11.sp)
-                }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Button(
+                onClick = onOpenXmp,
+                colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.NeonOrange),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(30.dp)
+                    .border(1.dp, AppColors.NeonOrange.copy(alpha = 0.6f), RoundedCornerShape(4.dp)),
+                shape = RoundedCornerShape(4.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+            ) {
+                Text("XMP 보기", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+            }
+            Button(
+                onClick = onOpenImage,
+                colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.NeonGreen),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(30.dp)
+                    .border(1.dp, AppColors.NeonGreen.copy(alpha = 0.6f), RoundedCornerShape(4.dp)),
+                shape = RoundedCornerShape(4.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+            ) {
+                Text("게인맵 이미지 보기", fontSize = 11.sp, fontWeight = FontWeight.Medium)
             }
         }
 
