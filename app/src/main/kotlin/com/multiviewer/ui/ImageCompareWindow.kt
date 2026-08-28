@@ -1019,10 +1019,12 @@ private fun MetadataDiffView(language: AppLanguage, infoA: CompareMediaInfo?, in
     }
 }
 
-private fun extractMetadataDiffRows(infoA: CompareMediaInfo, infoB: CompareMediaInfo): List<MetadataDiffRow> {
+internal fun extractMetadataDiffRows(infoA: CompareMediaInfo, infoB: CompareMediaInfo): List<MetadataDiffRow> {
     val rows = mutableListOf<MetadataDiffRow>()
+    val seenKeys = mutableSetOf<Pair<String, String>>()
 
     fun add(category: String, key: String, valA: String?, valB: String?) {
+        if (!seenKeys.add(category to key)) return
         val a = valA ?: ""
         val b = valB ?: ""
         rows.add(MetadataDiffRow(category, key, a, b, a != b))
