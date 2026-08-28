@@ -192,7 +192,13 @@ fun prettyPrintXmlOrRaw(raw: String): String {
             isExpandEntityReferences = false
             isXIncludeAware = false
         }
-        val doc = factory.newDocumentBuilder().parse(org.xml.sax.InputSource(java.io.StringReader(raw)))
+        val doc = factory.newDocumentBuilder().apply {
+            setErrorHandler(object : org.xml.sax.helpers.DefaultHandler() {
+                override fun warning(e: org.xml.sax.SAXParseException) {}
+                override fun error(e: org.xml.sax.SAXParseException) {}
+                override fun fatalError(e: org.xml.sax.SAXParseException) { throw e }
+            })
+        }.parse(org.xml.sax.InputSource(java.io.StringReader(raw)))
         val domImplLS = doc.implementation.getFeature("LS", "3.0") as org.w3c.dom.ls.DOMImplementationLS
         val serializer = domImplLS.createLSSerializer().apply {
             domConfig.setParameter("format-pretty-print", true)

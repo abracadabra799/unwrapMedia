@@ -101,7 +101,13 @@ private fun parseXmpDocument(xmpText: String): Document {
     val factory = DocumentBuilderFactory.newInstance()
     factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
     factory.isNamespaceAware = true
-    val builder = factory.newDocumentBuilder()
+    val builder = factory.newDocumentBuilder().apply {
+        setErrorHandler(object : org.xml.sax.helpers.DefaultHandler() {
+            override fun warning(e: org.xml.sax.SAXParseException) {}
+            override fun error(e: org.xml.sax.SAXParseException) {}
+            override fun fatalError(e: org.xml.sax.SAXParseException) { throw e }
+        })
+    }
     return builder.parse(InputSource(StringReader(xmpText)))
 }
 
