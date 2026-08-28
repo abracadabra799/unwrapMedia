@@ -30,6 +30,9 @@ import com.multiviewer.parser.EmbeddedVideo
 import com.multiviewer.parser.MotionPhotoBuilder
 import com.multiviewer.parser.extractEmbeddedVideo
 import com.multiviewer.ui.*
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.graphics.toComposeImageBitmap
+import org.jetbrains.skia.Image
 import java.awt.EventQueue
 import java.awt.FileDialog
 import java.awt.Frame
@@ -308,13 +311,22 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         }
     }
 
+    val appIcon = remember {
+        try {
+            val iconBytes = File("icons/app_source.png").takeIf { it.exists() }?.readBytes()
+                ?: Thread.currentThread().contextClassLoader?.getResourceAsStream("icons/app_source.png")?.readBytes()
+            iconBytes?.let { BitmapPainter(Image.makeFromEncoded(it).toComposeImageBitmap()) }
+        } catch (e: Exception) {
+            null
+        }
+    }
     val windowState = rememberWindowState(
         position = WindowPosition(Alignment.Center),
         // 1366x768 is still a common laptop resolution (notably on Windows) -- 1280x800 leaves
         // room for the taskbar/title bar instead of the window opening larger than the screen.
         size = DpSize(1280.dp, 800.dp),
     )
-    Window(onCloseRequest = ::exitApplication, title = "unwrapMedia", state = windowState) {
+    Window(onCloseRequest = ::exitApplication, title = "unwrapMedia", state = windowState, icon = appIcon) {
         var themeMode by remember { mutableStateOf(loadThemeMode()) }
         var showPixelGrid by remember { mutableStateOf(loadShowPixelGrid()) }
         var language by remember { mutableStateOf(loadLanguage()) }
