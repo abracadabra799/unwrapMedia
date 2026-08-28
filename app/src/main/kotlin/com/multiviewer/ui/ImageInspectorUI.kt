@@ -839,7 +839,7 @@ fun GainmapOverviewSummaryBox(
         }
 
         Row(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+            modifier = Modifier.padding(bottom = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -847,11 +847,10 @@ fun GainmapOverviewSummaryBox(
                 onClick = onOpenXmp,
                 colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.NeonOrange),
                 modifier = Modifier
-                    .weight(1f)
-                    .height(30.dp)
+                    .height(26.dp)
                     .border(1.dp, AppColors.NeonOrange.copy(alpha = 0.6f), RoundedCornerShape(4.dp)),
                 shape = RoundedCornerShape(4.dp),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
             ) {
                 Text("XMP 보기", fontSize = 11.sp, fontWeight = FontWeight.Medium)
             }
@@ -859,11 +858,10 @@ fun GainmapOverviewSummaryBox(
                 onClick = onOpenImage,
                 colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.NeonGreen),
                 modifier = Modifier
-                    .weight(1f)
-                    .height(30.dp)
+                    .height(26.dp)
                     .border(1.dp, AppColors.NeonGreen.copy(alpha = 0.6f), RoundedCornerShape(4.dp)),
                 shape = RoundedCornerShape(4.dp),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
             ) {
                 Text("게인맵 이미지 보기", fontSize = 11.sp, fontWeight = FontWeight.Medium)
             }
