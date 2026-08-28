@@ -22,20 +22,16 @@ import androidx.compose.ui.unit.dp
 import java.awt.Cursor
 
 private const val LEFT_PANEL_MIN_WIDTH_DP = 180f
-private const val LEFT_PANEL_MAX_WIDTH_DP = 700f
+private const val LEFT_PANEL_DEFAULT_WIDTH_DP = 370f
+private const val LEFT_PANEL_MAX_WIDTH_DP = 800f
 // The right panel used to start at exactly its own minimum width, so there was no room left to
 // drag-shrink it -- only grow. Default now sits above the floor instead of on top of it. The user
 // can always drag it wider (or resize the whole window) when they need more room, so the default
 // favors leaving more space to the center preview instead.
-private const val RIGHT_PANEL_MIN_WIDTH_DP = 220f
-// 350 -> 420 -> 530 -> 470 -> 380: the right panel now carries the Overview tab's full-width
-// summary cards (see CoreMetadataDisplay), which reads more comfortably with more room -- and
-// since the center panel takes whatever's left after left+right (weight(1f) in the Row below),
-// the right panel's width is what actually trades off against the center (thumbnail/image/video
-// preview) panel's real allocated width. Backed off from 470 to 380 because at the app's default
-// (non-maximized) window size the center panel read as visibly cramped; a maximized window has
-// enough extra width that this default barely matters there. Still user-draggable wider anytime.
-private const val RIGHT_PANEL_DEFAULT_WIDTH_DP = 380f
+private const val RIGHT_PANEL_MIN_WIDTH_DP = 240f
+// 350 -> 420 -> 530 -> 470 -> 380 -> 450: the right panel carries Overview summary cards, Gain Map info,
+// and detailed properties tables, which read much more comfortably with extra horizontal width.
+private const val RIGHT_PANEL_DEFAULT_WIDTH_DP = 450f
 private const val RIGHT_PANEL_MAX_WIDTH_DP = 1000f
 
 // Thin draggable strip between two side-by-side panels. onDragDeltaDp receives the horizontal
@@ -72,6 +68,7 @@ fun DashboardLayout(
     centerPanel: @Composable ColumnScope.() -> Unit,
     rightPanel: @Composable ColumnScope.() -> Unit,
     bottomPanel: @Composable ColumnScope.() -> Unit,
+    leftPanelDefaultWidthDp: Float = LEFT_PANEL_DEFAULT_WIDTH_DP,
     rightPanelDefaultWidthDp: Float = RIGHT_PANEL_DEFAULT_WIDTH_DP,
 ) {
     var containerHeightPx by remember { mutableStateOf(0) }
@@ -79,10 +76,9 @@ fun DashboardLayout(
     // Hex & Raw Data Viewer panel gets more room by default -- still a user-draggable ratio, not a
     // fixed pixel height.
     var verticalSplit by remember { mutableStateOf(0.6f) }
-    // Left (Structure) and right (Detailed Properties) panels start at their old fixed widths but
-    // the user can drag either wider -- e.g. pretty-printed XMP in the right panel needs much more
-    // horizontal room than 350dp to avoid wrapping mid-line.
-    var leftPanelWidthDp by remember { mutableStateOf(300f) }
+    // Left (Structure) and right (Detailed Properties) panels start at their default widths but
+    // the user can drag either wider.
+    var leftPanelWidthDp by remember { mutableStateOf(leftPanelDefaultWidthDp) }
     var rightPanelWidthDp by remember { mutableStateOf(rightPanelDefaultWidthDp) }
 
     Column(
