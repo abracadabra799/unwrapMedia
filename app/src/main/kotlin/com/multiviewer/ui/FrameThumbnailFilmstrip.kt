@@ -26,6 +26,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -65,6 +66,9 @@ fun FrameThumbnailFilmstrip(tab: TabState, frames: List<FrameInfo>, modifier: Mo
     val listState = rememberLazyListState()
     val focusRequester = remember { FocusRequester() }
     val coroutineScope = rememberCoroutineScope()
+    var dragStartPos by remember { mutableStateOf(Offset.Zero) }
+    var dragLastPos by remember { mutableStateOf(Offset.Zero) }
+    var isDragPanning by remember { mutableStateOf(false) }
 
     // Derived from the first successfully-decoded thumbnail's own pixel dimensions -- converges
     // to the real value almost immediately (as soon as the first batch lands) and every cell
@@ -148,6 +152,36 @@ fun FrameThumbnailFilmstrip(tab: TabState, frames: List<FrameInfo>, modifier: Mo
                         listState.scrollBy(scrollDelta * 60f)
                     }
                     event.changes.forEach { it.consume() }
+                }
+            }
+            .onPointerEvent(PointerEventType.Press, pass = PointerEventPass.Initial) { event ->
+                val pos = event.changes.firstOrNull()?.position ?: return@onPointerEvent
+                dragStartPos = pos
+                dragLastPos = pos
+                isDragPanning = false
+            }
+            .onPointerEvent(PointerEventType.Move, pass = PointerEventPass.Initial) { event ->
+                val change = event.changes.firstOrNull() ?: return@onPointerEvent
+                if (change.pressed) {
+                    val currentPos = change.position
+                    val dx = currentPos.x - dragLastPos.x
+                    val totalDist = (currentPos - dragStartPos).getDistance()
+                    if (totalDist > 4f) {
+                        isDragPanning = true
+                        dragLastPos = currentPos
+                        if (dx != 0f) {
+                            coroutineScope.launch {
+                                listState.scrollBy(-dx)
+                            }
+                        }
+                        change.consume()
+                    }
+                }
+            }
+            .onPointerEvent(PointerEventType.Release, pass = PointerEventPass.Initial) { event ->
+                if (isDragPanning) {
+                    event.changes.forEach { it.consume() }
+                    isDragPanning = false
                 }
             }
             .onKeyEvent { event ->

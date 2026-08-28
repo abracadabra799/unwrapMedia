@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollbarAdapter
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,8 +28,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -44,6 +47,7 @@ import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 
 // Starting/default frame-bar width -- also the initial value of the per-composable frameBarWidthDp
 // zoom state below. FRAME_BAR_MIN/MAX bound how far mouse-wheel zoom can shrink/grow it; STEP is
@@ -126,6 +130,10 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
             else -> {
                 val listState = rememberLazyListState()
                 val focusRequester = remember { FocusRequester() }
+                val coroutineScope = rememberCoroutineScope()
+                var dragStartPos by remember { mutableStateOf(Offset.Zero) }
+                var dragLastPos by remember { mutableStateOf(Offset.Zero) }
+                var isDragPanning by remember { mutableStateOf(false) }
                 LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
                 fun selectFrame(frame: FrameInfo) {
@@ -223,6 +231,36 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
                                 frameBarWidthDp = (frameBarWidthDp - scrollDeltaY * FRAME_BAR_ZOOM_STEP_DP)
                                     .coerceIn(FRAME_BAR_MIN_WIDTH_DP, FRAME_BAR_MAX_WIDTH_DP)
                                 event.changes.forEach { it.consume() }
+                            }
+                            .onPointerEvent(PointerEventType.Press, pass = PointerEventPass.Initial) { event ->
+                                val pos = event.changes.firstOrNull()?.position ?: return@onPointerEvent
+                                dragStartPos = pos
+                                dragLastPos = pos
+                                isDragPanning = false
+                            }
+                            .onPointerEvent(PointerEventType.Move, pass = PointerEventPass.Initial) { event ->
+                                val change = event.changes.firstOrNull() ?: return@onPointerEvent
+                                if (change.pressed) {
+                                    val currentPos = change.position
+                                    val dx = currentPos.x - dragLastPos.x
+                                    val totalDist = (currentPos - dragStartPos).getDistance()
+                                    if (totalDist > 4f) {
+                                        isDragPanning = true
+                                        dragLastPos = currentPos
+                                        if (dx != 0f) {
+                                            coroutineScope.launch {
+                                                listState.scrollBy(-dx)
+                                            }
+                                        }
+                                        change.consume()
+                                    }
+                                }
+                            }
+                            .onPointerEvent(PointerEventType.Release, pass = PointerEventPass.Initial) { event ->
+                                if (isDragPanning) {
+                                    event.changes.forEach { it.consume() }
+                                    isDragPanning = false
+                                }
                             },
                         horizontalArrangement = Arrangement.spacedBy(FRAME_BAR_SPACING_DP.dp),
                     ) {
