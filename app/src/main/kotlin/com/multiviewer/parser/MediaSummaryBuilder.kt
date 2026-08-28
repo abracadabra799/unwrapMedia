@@ -1078,8 +1078,16 @@ private fun formatBitrate(bitsPerSecond: Double): String = when {
 fun mergeStreamCodecDetailsIntoSections(sections: List<SummarySection>, videoFields: List<SummaryField>, audioFields: List<SummaryField>): List<SummarySection> {
     return sections.map { section ->
         when (section.title) {
-            "Video" -> section.copy(fields = section.fields + videoFields)
-            "Audio" -> section.copy(fields = section.fields + audioFields)
+            "Video" -> {
+                val existingNames = section.fields.map { it.label }.toSet()
+                val uniqueNewFields = videoFields.distinctBy { it.label }.filter { it.label !in existingNames }
+                section.copy(fields = section.fields + uniqueNewFields)
+            }
+            "Audio" -> {
+                val existingNames = section.fields.map { it.label }.toSet()
+                val uniqueNewFields = audioFields.distinctBy { it.label }.filter { it.label !in existingNames }
+                section.copy(fields = section.fields + uniqueNewFields)
+            }
             else -> section
         }
     }

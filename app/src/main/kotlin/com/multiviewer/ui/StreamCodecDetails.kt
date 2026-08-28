@@ -31,8 +31,8 @@ fun probeStreamDetails(file: File): StreamCodecDetails? {
 
         fun finalizeStream() {
             when (values["codec_type"]) {
-                "video" -> videoFields.addAll(buildVideoFields(values))
-                "audio" -> audioFields.addAll(buildAudioFields(values))
+                "video" -> if (videoFields.isEmpty()) videoFields.addAll(buildVideoFields(values))
+                "audio" -> if (audioFields.isEmpty()) audioFields.addAll(buildAudioFields(values))
             }
         }
 
