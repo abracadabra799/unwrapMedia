@@ -26,7 +26,7 @@ fun computeStatistics(perFrame: List<MetricFrameSample>): MetricStatistics? {
 }
 
 // ffprobe's video-stream width/height, or null if the file has no video stream or ffprobe fails.
-private fun probeResolution(file: File): Pair<Int, Int>? {
+fun probeResolution(file: File): Pair<Int, Int>? {
     return try {
         val process = ProcessBuilder(
             FfmpegLocator.ffprobePath(), "-v", "error", "-select_streams", "v:0",
@@ -223,6 +223,7 @@ fun runPsnrPass(
     reference: File,
     onProgress: (currentFrame: Int, totalFrames: Int?) -> Unit,
     isCancelled: () -> Boolean,
+    autoScale: Boolean = false,
 ): MetricRunResult? {
     val statsFile = try {
         File.createTempFile("multiviewer_psnr_", ".log")
@@ -230,9 +231,15 @@ fun runPsnrPass(
         return null
     }
     return try {
+        val psnrFilter = "psnr=stats_file=${escapeForFilterGraph(statsFile.absolutePath)}"
+        val filter = if (autoScale) {
+            "[0:v][1:v]scale2ref=flags=bicubic[cmp][ref];[cmp][ref]$psnrFilter"
+        } else {
+            psnrFilter
+        }
         val success = runMetricPass(
             comparison, reference,
-            filterSpec = "psnr=stats_file=${escapeForFilterGraph(statsFile.absolutePath)}",
+            filterSpec = filter,
             statsFile = statsFile, onProgress = onProgress, isCancelled = isCancelled,
         )
         if (!success) return null
@@ -249,6 +256,7 @@ fun runSsimPass(
     reference: File,
     onProgress: (currentFrame: Int, totalFrames: Int?) -> Unit,
     isCancelled: () -> Boolean,
+    autoScale: Boolean = false,
 ): MetricRunResult? {
     val statsFile = try {
         File.createTempFile("multiviewer_ssim_", ".log")
@@ -256,9 +264,15 @@ fun runSsimPass(
         return null
     }
     return try {
+        val ssimFilter = "ssim=stats_file=${escapeForFilterGraph(statsFile.absolutePath)}"
+        val filter = if (autoScale) {
+            "[0:v][1:v]scale2ref=flags=bicubic[cmp][ref];[cmp][ref]$ssimFilter"
+        } else {
+            ssimFilter
+        }
         val success = runMetricPass(
             comparison, reference,
-            filterSpec = "ssim=stats_file=${escapeForFilterGraph(statsFile.absolutePath)}",
+            filterSpec = filter,
             statsFile = statsFile, onProgress = onProgress, isCancelled = isCancelled,
         )
         if (!success) return null
@@ -295,6 +309,7 @@ fun runVmafPass(
     onProgress: (currentFrame: Int, totalFrames: Int?) -> Unit,
     isCancelled: () -> Boolean,
     fastMode: Boolean,
+    autoScale: Boolean = false,
 ): MetricRunResult? {
     val statsFile = try {
         File.createTempFile("multiviewer_vmaf_", ".csv")
@@ -304,9 +319,15 @@ fun runVmafPass(
     return try {
         val threads = Runtime.getRuntime().availableProcessors()
         val subsampleOption = if (fastMode) ":n_subsample=5" else ""
+        val vmafSpec = "libvmaf=log_path=${escapeForFilterGraph(statsFile.absolutePath)}:log_fmt=csv:n_threads=$threads$subsampleOption"
+        val filter = if (autoScale) {
+            "[0:v][1:v]scale2ref=flags=bicubic[cmp][ref];[cmp][ref]$vmafSpec"
+        } else {
+            vmafSpec
+        }
         val success = runMetricPass(
             comparison, reference,
-            filterSpec = "libvmaf=log_path=${escapeForFilterGraph(statsFile.absolutePath)}:log_fmt=csv:n_threads=$threads$subsampleOption",
+            filterSpec = filter,
             statsFile = statsFile, onProgress = onProgress, isCancelled = isCancelled,
         )
         if (!success) return null

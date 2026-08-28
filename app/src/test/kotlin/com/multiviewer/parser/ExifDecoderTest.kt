@@ -372,4 +372,85 @@ class ExifDecoderTest {
         assertEquals("100", exifIfd.fields.first { it.name == "ISOSpeedRatings" }.value)
         reader.close()
     }
+
+    @Test
+    fun `decodeTiff follows NextIFDOffset across 3 pages (IFD0, IFD1, IFD2)`() {
+        val tiff = byteArrayOf(
+            0x49, 0x49, 0x2a, 0x00, // "II", 42
+            0x08, 0x00, 0x00, 0x00, // IFD0 offset = 8
+            // IFD0 at offset 8 (entry_count = 1, next = 26)
+            0x01, 0x00,
+            0x00, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x80.toByte(), 0x02, 0x00, 0x00, // ImageWidth = 640
+            0x1a, 0x00, 0x00, 0x00, // NextIFDOffset = 26
+            // IFD1 at offset 26 (entry_count = 1, next = 44)
+            0x01, 0x00,
+            0x00, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x40, 0x01, 0x00, 0x00, // ImageWidth = 320
+            0x2c, 0x00, 0x00, 0x00, // NextIFDOffset = 44
+            // IFD2 at offset 44 (entry_count = 1, next = 0)
+            0x01, 0x00,
+            0x00, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0xa0.toByte(), 0x00, 0x00, 0x00, // ImageWidth = 160
+            0x00, 0x00, 0x00, 0x00, // NextIFDOffset = 0
+        )
+        val reader = byteReaderOf(tiff)
+        val ifds = decodeTiff(reader, 0, tiff.size.toLong())
+
+        assertEquals(3, ifds.size)
+        assertEquals("IFD0", ifds[0].type)
+        assertEquals("IFD1", ifds[1].type)
+        assertEquals("IFD2", ifds[2].type)
+        assertEquals("640", ifds[0].fields.first { it.name == "ImageWidth" }.value)
+        assertEquals("320", ifds[1].fields.first { it.name == "ImageWidth" }.value)
+        assertEquals("160", ifds[2].fields.first { it.name == "ImageWidth" }.value)
+        reader.close()
+    }
+
+    @Test
+    fun `decodeTiff extracts ImageData (Strips) child node from StripOffsets and StripByteCounts`() {
+        val tiff = byteArrayOf(
+            0x49, 0x49, 0x2a, 0x00, // "II", 42
+            0x08, 0x00, 0x00, 0x00, // IFD0 offset = 8
+            0x02, 0x00, // entry_count = 2
+            0x11, 0x01, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x26, 0x00, 0x00, 0x00, // StripOffsets (0x0111), count=1, value=38
+            0x17, 0x01, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, // StripByteCounts (0x0117), count=1, value=16
+            0x00, 0x00, 0x00, 0x00, // next = 0
+            // Strip data payload (16 bytes at offset 38)
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+        )
+        val reader = byteReaderOf(tiff)
+        val ifds = decodeTiff(reader, 0, tiff.size.toLong())
+
+        val stripNode = ifds[0].children.first { it.type == "ImageData (Strips)" }
+        assertEquals(38L, stripNode.offset)
+        assertEquals(16L, stripNode.size)
+        assertEquals("1", stripNode.fields.first { it.name == "Strip Count" }.value)
+        assertEquals("16 bytes (16 B)", stripNode.fields.first { it.name == "Total Payload Size" }.value)
+        reader.close()
+    }
+
+    @Test
+    fun `decodeTiff extracts ICCProfile, XMP, PhotoshopIRB, and GeoTIFF child nodes`() {
+        val tiff = byteArrayOf(
+            0x49, 0x49, 0x2a, 0x00, // "II", 42
+            0x08, 0x00, 0x00, 0x00, // IFD0 offset = 8
+            0x04, 0x00, // entry_count = 4
+            0x73, 0x87.toByte(), 0x07, 0x00, 0x08, 0x00, 0x00, 0x00, 0x3e, 0x00, 0x00, 0x00, // ICCProfile (0x8773), count=8, offset=62
+            0xbc.toByte(), 0x02, 0x02, 0x00, 0x08, 0x00, 0x00, 0x00, 0x46, 0x00, 0x00, 0x00, // XMP (0x02BC), count=8, offset=70
+            0x49, 0x86.toByte(), 0x07, 0x00, 0x08, 0x00, 0x00, 0x00, 0x4e, 0x00, 0x00, 0x00, // Photoshop (0x8649), count=8, offset=78
+            0xaf.toByte(), 0x87.toByte(), 0x03, 0x00, 0x04, 0x00, 0x00, 0x00, 0x56, 0x00, 0x00, 0x00, // GeoKeyDirectory (0x87AF), count=4, offset=86
+            0x00, 0x00, 0x00, 0x00, // next = 0
+            // Payload blocks
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, // ICC at 62
+            0x3c, 0x78, 0x6d, 0x70, 0x2f, 0x3e, 0x00, 0x00, // XMP at 70
+            0x38, 0x42, 0x49, 0x4d, 0x04, 0x04, 0x00, 0x00, // 8BIM at 78
+            0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, // GeoKeys at 86
+        )
+        val reader = byteReaderOf(tiff)
+        val ifds = decodeTiff(reader, 0, tiff.size.toLong())
+
+        assertEquals(true, ifds[0].children.any { it.type == "ICC Color Profile" })
+        assertEquals(true, ifds[0].children.any { it.type == "XMP Metadata (XML Packet)" })
+        assertEquals(true, ifds[0].children.any { it.type == "Photoshop IRB / IPTC" })
+        assertEquals(true, ifds[0].children.any { it.type == "GeoTIFF Metadata" })
+        reader.close()
+    }
 }

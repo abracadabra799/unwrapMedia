@@ -17,16 +17,20 @@ private val TIFF_TYPE_SIZES = mapOf(
     1 to 1, 2 to 1, 3 to 2, 4 to 4, 5 to 8, 6 to 1, 7 to 1, 8 to 2, 9 to 4, 10 to 8, 11 to 4, 12 to 8,
 )
 
-// TIFF 6.0 baseline tags plus Adobe DNG 1.6's private tag range (0xC612-0xC761) -- DNG stores its
-// tags directly in IFD0 alongside standard TIFF tags (not a separate pointer-based sub-IFD), so
-// they belong in this same map rather than a parallel one threaded through decodeIfd separately.
-private val TAG_NAMES_IFD0 = mapOf(
+// TIFF 6.0 baseline/extended tags, GeoTIFF, Photoshop/IPTC, ICC, XMP, plus Adobe DNG 1.6's private tag range
+val TAG_NAMES_TIFF = mapOf(
     0x00FE to "NewSubfileType",
+    0x00FF to "SubfileType",
     0x0100 to "ImageWidth",
     0x0101 to "ImageLength",
     0x0102 to "BitsPerSample",
     0x0103 to "Compression",
     0x0106 to "PhotometricInterpretation",
+    0x0107 to "Threshholding",
+    0x0108 to "CellWidth",
+    0x0109 to "CellLength",
+    0x010A to "FillOrder",
+    0x010D to "DocumentName",
     0x010E to "ImageDescription",
     0x010F to "Make",
     0x0110 to "Model",
@@ -35,22 +39,70 @@ private val TAG_NAMES_IFD0 = mapOf(
     0x0115 to "SamplesPerPixel",
     0x0116 to "RowsPerStrip",
     0x0117 to "StripByteCounts",
+    0x0118 to "MinSampleValue",
+    0x0119 to "MaxSampleValue",
     0x011A to "XResolution",
     0x011B to "YResolution",
     0x011C to "PlanarConfiguration",
+    0x011D to "PageName",
+    0x011E to "XPosition",
+    0x011F to "YPosition",
+    0x0120 to "FreeOffsets",
+    0x0121 to "FreeByteCounts",
+    0x0122 to "GrayResponseUnit",
+    0x0123 to "GrayResponseCurve",
+    0x0124 to "T4Options",
+    0x0125 to "T6Options",
     0x0128 to "ResolutionUnit",
+    0x0129 to "PageNumber",
+    0x012D to "TransferFunction",
     0x0131 to "Software",
     0x0132 to "DateTime",
     0x013B to "Artist",
+    0x013C to "HostComputer",
+    0x013D to "Predictor",
     0x013E to "WhitePoint",
     0x013F to "PrimaryChromaticities",
+    0x0140 to "ColorMap",
+    0x0141 to "HalftoneHints",
+    0x0142 to "TileWidth",
+    0x0143 to "TileLength",
+    0x0144 to "TileOffsets",
+    0x0145 to "TileByteCounts",
+    0x014C to "InkSet",
+    0x014D to "InkNames",
+    0x014E to "NumberOfInks",
+    0x0150 to "DotRange",
+    0x0151 to "TargetPrinter",
+    0x0152 to "ExtraSamples",
+    0x0153 to "SampleFormat",
+    0x0154 to "SMinSampleValue",
+    0x0155 to "SMaxSampleValue",
+    0x0156 to "TransferRange",
+    0x0157 to "ClipPath",
+    0x01B5 to "JPEGTables",
+    0x0201 to "JPEGInterchangeFormat",
+    0x0202 to "JPEGInterchangeFormatLength",
     0x0211 to "YCbCrCoefficients",
     0x0212 to "YCbCrSubSampling",
     0x0213 to "YCbCrPositioning",
     0x0214 to "ReferenceBlackWhite",
+    0x02BC to "XMP Metadata (XML Packet)",
     0x8298 to "Copyright",
     0x828D to "CFARepeatPatternDim",
     0x828E to "CFAPattern",
+    0x830E to "ModelPixelScaleTag (GeoTIFF)",
+    0x8482 to "ModelTiepointTag (GeoTIFF)",
+    0x85D8 to "ModelTransformationTag (GeoTIFF)",
+    0x8649 to "PhotoshopImageResources (IPTC/IRB)",
+    0x8769 to "ExifIFDPointer",
+    0x8773 to "ICCProfile",
+    0x87AF to "GeoKeyDirectoryTag (GeoTIFF)",
+    0x87B0 to "GeoDoubleParamsTag (GeoTIFF)",
+    0x87B1 to "GeoAsciiParamsTag (GeoTIFF)",
+    0x8825 to "GPSInfoIFDPointer",
+    0x927C to "MakerNote",
+    0xA005 to "InteroperabilityIFDPointer",
     // -- DNG private tags (Adobe DNG 1.6 spec) --
     0xC612 to "DNGVersion",
     0xC613 to "DNGBackwardVersion",
@@ -96,6 +148,7 @@ private val TAG_NAMES_IFD0 = mapOf(
     0xC715 to "ForwardMatrix2",
     0xC761 to "NoiseProfile",
 )
+val TAG_NAMES_IFD0 = TAG_NAMES_TIFF
 
 private val TAG_NAMES_EXIF = mapOf(
     0x829A to "ExposureTime",
@@ -263,6 +316,68 @@ private val TAG_NAMES_MAKERNOTE_SAMSUNG = mapOf(
 // vendor MakerNote reusing a low tag number) is never misinterpreted. Only single-value SHORT/
 // LONG/SSHORT/SLONG fields are looked up here (see interpretedDisplay) -- ASCII ref tags like
 // GPSLatitudeRef ("N"/"S") are already human-readable as raw text and never reach this table.
+private val TAG_VALUE_LABELS_TIFF: Map<Int, Map<Int, String>> = mapOf(
+    0x00FE to mapOf(
+        0 to "Full-resolution image",
+        1 to "Reduced-resolution image / thumbnail",
+        2 to "Single page of multi-page image",
+        3 to "Single page of multi-page reduced-resolution image",
+        4 to "Transparency mask",
+        5 to "Transparency mask of reduced-resolution image",
+        6 to "Transparency mask of multi-page image",
+        7 to "Transparency mask of multi-page reduced-resolution image",
+    ),
+    0x0103 to mapOf(
+        1 to "Uncompressed / None",
+        2 to "CCITT 1D RLE",
+        3 to "T.4 Group 3 Fax",
+        4 to "T.6 Group 4 Fax",
+        5 to "LZW",
+        6 to "JPEG (old-style)",
+        7 to "JPEG",
+        8 to "Adobe Deflate / ZIP",
+        9 to "JBIG B&W",
+        10 to "JBIG Color",
+        32773 to "PackBits RLE",
+        34892 to "Lossy JPEG / DNG",
+        50000 to "ZSTD",
+        50001 to "WebP",
+        50002 to "JPEG XL",
+    ),
+    0x0106 to mapOf(
+        0 to "WhiteIsZero (Monochrome)",
+        1 to "BlackIsZero (Monochrome)",
+        2 to "RGB Color",
+        3 to "Palette / Indexed Color",
+        4 to "Transparency Mask",
+        5 to "CMYK",
+        6 to "YCbCr",
+        8 to "CIELab",
+        9 to "ICCLab",
+        10 to "ITULab",
+        32803 to "CFA (Color Filter Array / Bayer RAW)",
+        34892 to "Linear Raw",
+    ),
+    0x0107 to mapOf(1 to "No dithering/halftoning", 2 to "Ordered dither/halftone", 3 to "Randomized dither"),
+    0x010A to mapOf(1 to "Normal / MSB first", 2 to "Reversed / LSB first"),
+    0x0112 to mapOf(
+        1 to "Horizontal (normal)", 2 to "Mirror horizontal", 3 to "Rotate 180",
+        4 to "Mirror vertical", 5 to "Mirror horizontal and rotate 270 CW", 6 to "Rotate 90 CW",
+        7 to "Mirror horizontal and rotate 90 CW", 8 to "Rotate 270 CW",
+    ),
+    0x011C to mapOf(1 to "Chunky / Interleaved (RGBRGB...)", 2 to "Planar (RRR... GGG... BBB...)"),
+    0x0128 to mapOf(1 to "None / Unitless", 2 to "inches (DPI)", 3 to "cm (DPCM)"),
+    0x013D to mapOf(1 to "No prediction", 2 to "Horizontal differencing", 3 to "Floating point horizontal differencing"),
+    0x0152 to mapOf(0 to "Unspecified data", 1 to "Associated Alpha (pre-multiplied)", 2 to "Unassociated Alpha", 3 to "Range or depth channel"),
+    0x0153 to mapOf(1 to "Unsigned integer", 2 to "Signed integer (2's complement)", 3 to "IEEE floating point", 4 to "Undefined data format"),
+    0x0213 to mapOf(1 to "Centered", 2 to "Co-sited"),
+)
+
+// Enum/flag tags whose raw integer value is translated to a label ExifTool would also show --
+// keyed by (IFD group label, tag ID) so the same numeric tag ID under a different group (e.g. a
+// vendor MakerNote reusing a low tag number) is never misinterpreted. Only single-value SHORT/
+// LONG/SSHORT/SLONG fields are looked up here (see interpretedDisplay) -- ASCII ref tags like
+// GPSLatitudeRef ("N"/"S") are already human-readable as raw text and never reach this table.
 private val TAG_VALUE_LABELS: Map<Pair<String, Int>, Map<Int, String>> = mapOf(
     ("IFD0" to 0x0112) to mapOf(
         1 to "Horizontal (normal)", 2 to "Mirror horizontal", 3 to "Rotate 180",
@@ -351,6 +466,32 @@ private val RATIONAL_FORMATTERS: Map<Pair<String, Int>, (Long, Long) -> String> 
     ("Exif" to 0x920A) to ::formatFocalLength,
 )
 
+private fun formatSize(bytes: Long): String = when {
+    bytes < 1024 -> "$bytes B"
+    bytes < 1024 * 1024 -> "%.1f KB".format(bytes / 1024.0)
+    bytes < 1024 * 1024 * 1024 -> "%.2f MB".format(bytes / (1024.0 * 1024.0))
+    else -> "%.2f GB".format(bytes / (1024.0 * 1024.0 * 1024.0))
+}
+
+private fun readUIntArray(reader: ByteReader, fieldType: Int, count: Int, valuePos: Long, littleEndian: Boolean, itemEnd: Long): List<Long> {
+    val result = mutableListOf<Long>()
+    for (i in 0 until count) {
+        val pos = valuePos + when (fieldType) {
+            3 -> i * 2L // SHORT
+            4 -> i * 4L // LONG
+            else -> i * 4L
+        }
+        if (pos < 0 || pos + (if (fieldType == 3) 2 else 4) > itemEnd) break
+        val v = when (fieldType) {
+            3 -> readUInt16Endian(reader, pos, littleEndian).toLong()
+            4 -> readUInt32Endian(reader, pos, littleEndian)
+            else -> readUInt32Endian(reader, pos, littleEndian)
+        }
+        result.add(v)
+    }
+    return result
+}
+
 // Returns a human-readable override for a single-value SHORT/LONG/SSHORT/SLONG (enum/flag lookup)
 // or RATIONAL/SRATIONAL (unit formatter) field when this task's tables have an entry for
 // (group, tag); null otherwise, in which case the caller falls back to formatTiffValue's raw
@@ -358,11 +499,14 @@ private val RATIONAL_FORMATTERS: Map<Pair<String, Int>, (Long, Long) -> String> 
 // or "list" reading of an enum table wouldn't be meaningful.
 private fun interpretedDisplay(group: String, tag: Int, fieldType: Int, count: Int, reader: ByteReader, valuePos: Long, littleEndian: Boolean): String? {
     if (count != 1) return null
+    val labelMap = TAG_VALUE_LABELS[group to tag]
+        ?: if (group.startsWith("IFD") || group.startsWith("SubIFD") || group.startsWith("Thumbnail")) TAG_VALUE_LABELS_TIFF[tag] else null
+
     return when (fieldType) {
-        3 -> TAG_VALUE_LABELS[group to tag]?.get(readUInt16Endian(reader, valuePos, littleEndian))
-        8 -> TAG_VALUE_LABELS[group to tag]?.get(readUInt16Endian(reader, valuePos, littleEndian).toShort().toInt())
-        4 -> TAG_VALUE_LABELS[group to tag]?.get(readUInt32Endian(reader, valuePos, littleEndian).toInt())
-        9 -> TAG_VALUE_LABELS[group to tag]?.get(readUInt32Endian(reader, valuePos, littleEndian).toInt())
+        3 -> labelMap?.get(readUInt16Endian(reader, valuePos, littleEndian))
+        8 -> labelMap?.get(readUInt16Endian(reader, valuePos, littleEndian).toShort().toInt())
+        4 -> labelMap?.get(readUInt32Endian(reader, valuePos, littleEndian).toInt())
+        9 -> labelMap?.get(readUInt32Endian(reader, valuePos, littleEndian).toInt())
         5 -> {
             val num = readUInt32Endian(reader, valuePos, littleEndian)
             val den = readUInt32Endian(reader, valuePos + 4, littleEndian)
@@ -407,17 +551,35 @@ fun decodeTiff(reader: ByteReader, tiffStart: Long, itemEnd: Long): List<BoxNode
         else -> MakerNoteVendor.UNKNOWN
     }
     val visitedOffsets = mutableSetOf<Long>()
-    val ifd0Node = decodeIfd(reader, tiffStart, ifd0AbsoluteOffset, itemEnd, littleEndian, "IFD0", TAG_NAMES_IFD0, makerNoteVendor, visitedOffsets)
+    val ifds = mutableListOf<BoxNode>()
 
-    val ifds = mutableListOf(ifd0Node)
-    val nextIfdOffsetPos = ifd0Node.offset + ifd0Node.size
-    if (nextIfdOffsetPos + 4 <= itemEnd) {
-        val nextIfdOffset = readUInt32Endian(reader, nextIfdOffsetPos, littleEndian)
-        if (nextIfdOffset != 0L) {
-            val ifd1AbsoluteOffset = tiffStart + nextIfdOffset
-            ifds.add(decodeIfd(reader, tiffStart, ifd1AbsoluteOffset, itemEnd, littleEndian, "IFD1", TAG_NAMES_IFD0, makerNoteVendor, visitedOffsets))
+    // Traverse all chained IFDs in the TIFF file (IFD0, IFD1, IFD2, ...)
+    var currentIfdOffset = ifd0AbsoluteOffset
+    var ifdIndex = 0
+    while (currentIfdOffset > 0 && currentIfdOffset + 2 <= itemEnd) {
+        val ifdLabel = when (ifdIndex) {
+            0 -> "IFD0"
+            1 -> "IFD1"
+            else -> "IFD$ifdIndex"
+        }
+        val ifdNode = decodeIfd(reader, tiffStart, currentIfdOffset, itemEnd, littleEndian, ifdLabel, TAG_NAMES_TIFF, makerNoteVendor, visitedOffsets)
+        ifds.add(ifdNode)
+
+        val nextIfdOffsetPos = ifdNode.offset + ifdNode.size
+        if (nextIfdOffsetPos + 4 <= itemEnd) {
+            val nextOffsetRel = readUInt32Endian(reader, nextIfdOffsetPos, littleEndian)
+            if (nextOffsetRel != 0L) {
+                currentIfdOffset = tiffStart + nextOffsetRel
+                ifdIndex++
+                if (ifdIndex > 200) break // Safety circuit breaker against corrupted IFD loops
+            } else {
+                break
+            }
+        } else {
+            break
         }
     }
+
     return ifds
 }
 
@@ -472,6 +634,20 @@ private fun decodeIfd(
     val children = mutableListOf<BoxNode>()
     var jpegThumbnailOffset: Long? = null
     var jpegThumbnailLength: Long? = null
+
+    var stripOffsets: List<Long>? = null
+    var stripByteCounts: List<Long>? = null
+    var tileOffsets: List<Long>? = null
+    var tileByteCounts: List<Long>? = null
+    var iccOffset: Long? = null
+    var iccSize: Long? = null
+    var xmpOffset: Long? = null
+    var xmpSize: Long? = null
+    var photoshopOffset: Long? = null
+    var photoshopSize: Long? = null
+    var geoKeyOffset: Long? = null
+    var geoKeySize: Long? = null
+
     var pos = ifdOffset + 2
     for (i in 0 until entryCount) {
         if (pos + 12 > itemEnd) break
@@ -521,12 +697,12 @@ private fun decodeIfd(
                 }
             }
             TAG_SUB_IFDS -> {
-                for (i in 0 until count.toInt()) {
-                    val entryPos = valueAbsolutePos + i * 4L
+                for (subIdx in 0 until count.toInt()) {
+                    val entryPos = valueAbsolutePos + subIdx * 4L
                     if (entryPos + 4 > itemEnd) break
                     val subIfdOffset = tiffStart + readUInt32Endian(reader, entryPos, littleEndian)
                     children.add(
-                        decodeIfd(reader, tiffStart, subIfdOffset, itemEnd, littleEndian, "SubIFD$i", TAG_NAMES_IFD0, makerNoteVendor, visitedOffsets),
+                        decodeIfd(reader, tiffStart, subIfdOffset, itemEnd, littleEndian, "SubIFD$subIdx", TAG_NAMES_TIFF, makerNoteVendor, visitedOffsets),
                     )
                 }
             }
@@ -535,6 +711,49 @@ private fun decodeIfd(
             }
             TAG_JPEG_INTERCHANGE_FORMAT_LENGTH -> {
                 jpegThumbnailLength = readUInt32Endian(reader, valueOffsetPos, littleEndian)
+            }
+            0x0111 -> { // StripOffsets
+                stripOffsets = readUIntArray(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian, itemEnd)
+                val display = if (count > 8) "${stripOffsets.take(8).joinToString(", ")}... (${count} strips)" else formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian)
+                fields.add(BoxField("StripOffsets", display, valueAbsolutePos, totalSize))
+            }
+            0x0117 -> { // StripByteCounts
+                stripByteCounts = readUIntArray(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian, itemEnd)
+                val totalBytes = stripByteCounts.sum()
+                val display = if (count > 8) "${stripByteCounts.take(8).joinToString(", ")}... (total: ${formatSize(totalBytes)})" else formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian)
+                fields.add(BoxField("StripByteCounts", display, valueAbsolutePos, totalSize))
+            }
+            0x0144 -> { // TileOffsets
+                tileOffsets = readUIntArray(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian, itemEnd)
+                val display = if (count > 8) "${tileOffsets.take(8).joinToString(", ")}... (${count} tiles)" else formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian)
+                fields.add(BoxField("TileOffsets", display, valueAbsolutePos, totalSize))
+            }
+            0x0145 -> { // TileByteCounts
+                tileByteCounts = readUIntArray(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian, itemEnd)
+                val totalBytes = tileByteCounts.sum()
+                val display = if (count > 8) "${tileByteCounts.take(8).joinToString(", ")}... (total: ${formatSize(totalBytes)})" else formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian)
+                fields.add(BoxField("TileByteCounts", display, valueAbsolutePos, totalSize))
+            }
+            0x8773 -> { // ICCProfile
+                iccOffset = valueAbsolutePos
+                iccSize = totalSize
+                fields.add(BoxField("ICCProfile", "${formatSize(totalSize)} embedded profile", valueAbsolutePos, totalSize))
+            }
+            0x02BC -> { // XMP Packet
+                xmpOffset = valueAbsolutePos
+                xmpSize = totalSize
+                fields.add(BoxField("XMP Metadata", "${formatSize(totalSize)} XML packet", valueAbsolutePos, totalSize))
+            }
+            0x8649 -> { // Photoshop Image Resources (IPTC)
+                photoshopOffset = valueAbsolutePos
+                photoshopSize = totalSize
+                fields.add(BoxField("PhotoshopImageResources", "${formatSize(totalSize)} IRB block", valueAbsolutePos, totalSize))
+            }
+            0x87AF -> { // GeoKeyDirectory
+                geoKeyOffset = valueAbsolutePos
+                geoKeySize = totalSize
+                val display = formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian)
+                fields.add(BoxField("GeoKeyDirectoryTag", display, valueAbsolutePos, totalSize))
             }
             else -> {
                 val name = tagNames[tag] ?: "Tag 0x${tag.toString(16).padStart(4, '0')}"
@@ -550,6 +769,108 @@ private fun decodeIfd(
         pos += 12
     }
 
+    // Attach Image Data Strip payload node if StripOffsets & StripByteCounts are found
+    if (!stripOffsets.isNullOrEmpty() && !stripByteCounts.isNullOrEmpty()) {
+        val minOffset = stripOffsets.minOrNull() ?: 0L
+        val totalBytes = stripByteCounts.sum()
+        val maxOffset = stripOffsets.mapIndexed { idx, off -> off + (stripByteCounts.getOrNull(idx) ?: 0L) }.maxOrNull() ?: minOffset
+        val stripSummary = "${stripOffsets.size} strips, ${formatSize(totalBytes)}"
+        val stripFields = mutableListOf(
+            BoxField("Strip Count", "${stripOffsets.size}", minOffset, 0L),
+            BoxField("Total Payload Size", "$totalBytes bytes (${formatSize(totalBytes)})", minOffset, totalBytes),
+            BoxField("Offset Range", "0x%08X ~ 0x%08X".format(minOffset, maxOffset), minOffset, if (maxOffset >= minOffset) maxOffset - minOffset else totalBytes),
+        )
+        children.add(
+            BoxNode(
+                type = "ImageData (Strips)",
+                offset = minOffset,
+                headerSize = 0,
+                size = if (maxOffset >= minOffset) maxOffset - minOffset else totalBytes,
+                summary = stripSummary,
+                fields = stripFields,
+            ),
+        )
+    }
+
+    // Attach Image Data Tile payload node if TileOffsets & TileByteCounts are found
+    if (!tileOffsets.isNullOrEmpty() && !tileByteCounts.isNullOrEmpty()) {
+        val minOffset = tileOffsets.minOrNull() ?: 0L
+        val totalBytes = tileByteCounts.sum()
+        val maxOffset = tileOffsets.mapIndexed { idx, off -> off + (tileByteCounts.getOrNull(idx) ?: 0L) }.maxOrNull() ?: minOffset
+        val tileSummary = "${tileOffsets.size} tiles, ${formatSize(totalBytes)}"
+        val tileFields = mutableListOf(
+            BoxField("Tile Count", "${tileOffsets.size}", minOffset, 0L),
+            BoxField("Total Payload Size", "$totalBytes bytes (${formatSize(totalBytes)})", minOffset, totalBytes),
+            BoxField("Offset Range", "0x%08X ~ 0x%08X".format(minOffset, maxOffset), minOffset, if (maxOffset >= minOffset) maxOffset - minOffset else totalBytes),
+        )
+        children.add(
+            BoxNode(
+                type = "ImageData (Tiles)",
+                offset = minOffset,
+                headerSize = 0,
+                size = if (maxOffset >= minOffset) maxOffset - minOffset else totalBytes,
+                summary = tileSummary,
+                fields = tileFields,
+            ),
+        )
+    }
+
+    // Attach ICC Color Profile child node
+    if (iccOffset != null && iccSize != null && iccSize > 0) {
+        children.add(
+            BoxNode(
+                type = "ICC Color Profile",
+                offset = iccOffset,
+                headerSize = 0,
+                size = iccSize,
+                summary = formatSize(iccSize),
+                fields = listOf(BoxField("Profile Size", "$iccSize bytes", iccOffset, iccSize)),
+            ),
+        )
+    }
+
+    // Attach XMP Metadata child node
+    if (xmpOffset != null && xmpSize != null && xmpSize > 0) {
+        children.add(
+            BoxNode(
+                type = "XMP Metadata (XML Packet)",
+                offset = xmpOffset,
+                headerSize = 0,
+                size = xmpSize,
+                summary = formatSize(xmpSize),
+                fields = listOf(BoxField("Packet Size", "$xmpSize bytes", xmpOffset, xmpSize)),
+            ),
+        )
+    }
+
+    // Attach Photoshop IRB / IPTC child node
+    if (photoshopOffset != null && photoshopSize != null && photoshopSize > 0) {
+        children.add(
+            BoxNode(
+                type = "Photoshop IRB / IPTC",
+                offset = photoshopOffset,
+                headerSize = 0,
+                size = photoshopSize,
+                summary = formatSize(photoshopSize),
+                fields = listOf(BoxField("Resource Size", "$photoshopSize bytes", photoshopOffset, photoshopSize)),
+            ),
+        )
+    }
+
+    // Attach GeoTIFF Key Directory child node
+    if (geoKeyOffset != null && geoKeySize != null && geoKeySize > 0) {
+        children.add(
+            BoxNode(
+                type = "GeoTIFF Metadata",
+                offset = geoKeyOffset,
+                headerSize = 0,
+                size = geoKeySize,
+                summary = formatSize(geoKeySize),
+                fields = listOf(BoxField("GeoKey Directory Size", "$geoKeySize bytes", geoKeyOffset, geoKeySize)),
+            ),
+        )
+    }
+
     val thumbnailOffset = jpegThumbnailOffset
     val thumbnailLength = jpegThumbnailLength
     if (thumbnailOffset != null && thumbnailLength != null && thumbnailLength > 0) {
@@ -563,6 +884,7 @@ private fun decodeIfd(
 
     return BoxNode(
         type = label, offset = ifdOffset, headerSize = 2, size = pos - ifdOffset,
+        summary = "$entryCount entries",
         fields = fields, children = children,
     )
 }

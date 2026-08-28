@@ -277,4 +277,32 @@ class QualityMetricsTest {
         assertNull(result)
         reference.delete(); comparison.delete()
     }
+
+    // autoScale tests -----------------------------------------------------------------------------
+
+    @Test
+    fun `runPsnrPass with autoScale succeeds on different resolution inputs`() {
+        val reference = generateTestClip("64x48", "psnr-scale-ref")
+        val comparison = generateTestClip("32x24", "psnr-scale-cmp")
+
+        val result = runPsnrPass(comparison, reference, onProgress = { _, _ -> }, isCancelled = { false }, autoScale = true)
+
+        assertNotNull(result)
+        assertTrue(result.perFrame.isNotEmpty())
+        assertTrue(result.statistics.mean > 0.0)
+        reference.delete(); comparison.delete()
+    }
+
+    @Test
+    fun `runSsimPass with autoScale succeeds on different resolution inputs`() {
+        val reference = generateTestClip("64x48", "ssim-scale-ref")
+        val comparison = generateTestClip("32x24", "ssim-scale-cmp")
+
+        val result = runSsimPass(comparison, reference, onProgress = { _, _ -> }, isCancelled = { false }, autoScale = true)
+
+        assertNotNull(result)
+        assertTrue(result.perFrame.isNotEmpty())
+        assertTrue(result.statistics.mean in 0.0..1.0)
+        reference.delete(); comparison.delete()
+    }
 }

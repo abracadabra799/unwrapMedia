@@ -62,10 +62,15 @@ fun QualityCompareWindow(appState: AppState? = null, onCloseRequest: () -> Unit)
         var rawFile by remember { mutableStateOf<File?>(null) }
         var encodedAFile by remember { mutableStateOf<File?>(null) }
         var encodedBFile by remember { mutableStateOf<File?>(null) }
+        var rawRes by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+        var encodedARes by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+        var encodedBRes by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+        var pairResolutions by remember { mutableStateOf<Map<String, Pair<Pair<Int, Int>?, Pair<Int, Int>?>>>(emptyMap()) }
         var psnrEnabled by remember { mutableStateOf(true) }
         var ssimEnabled by remember { mutableStateOf(true) }
         var vmafEnabled by remember { mutableStateOf(true) }
         var fastModeEnabled by remember { mutableStateOf(false) }
+        var autoScaleEnabled by remember { mutableStateOf(false) }
         var vmafAvailable by remember { mutableStateOf(vmafAvailableCache) }
         var isRunning by remember { mutableStateOf(false) }
         var currentFrame by remember { mutableStateOf(0) }
@@ -94,12 +99,33 @@ fun QualityCompareWindow(appState: AppState? = null, onCloseRequest: () -> Unit)
             val pairs = determineComparisonPairs(rawFile, encodedAFile, encodedBFile)
             if (pairs.isEmpty()) {
                 pairStatuses = emptyMap()
+                pairResolutions = emptyMap()
+                rawRes = null
+                encodedARes = null
+                encodedBRes = null
                 return
             }
             pairStatuses = pairs.associate { it.id to null }
             qualityCompareExecutor.execute {
-                val checked = pairs.associate { it.id to resolutionsMatch(it.comparison, it.reference) }
-                EventQueue.invokeLater { pairStatuses = checked }
+                val rRaw = rawFile?.let { probeResolution(it) }
+                val rA = encodedAFile?.let { probeResolution(it) }
+                val rB = encodedBFile?.let { probeResolution(it) }
+                val pairRes = pairs.associate {
+                    val compRes = probeResolution(it.comparison)
+                    val refRes = probeResolution(it.reference)
+                    it.id to Pair(compRes, refRes)
+                }
+                val checked = pairs.associate {
+                    val (compRes, refRes) = pairRes[it.id] ?: Pair(null, null)
+                    it.id to (compRes != null && refRes != null && compRes == refRes)
+                }
+                EventQueue.invokeLater {
+                    rawRes = rRaw
+                    encodedARes = rA
+                    encodedBRes = rB
+                    pairResolutions = pairRes
+                    pairStatuses = checked
+                }
             }
         }
 
@@ -123,7 +149,7 @@ fun QualityCompareWindow(appState: AppState? = null, onCloseRequest: () -> Unit)
 
         fun runComparison() {
             val queuedPairs = determineComparisonPairs(rawFile, encodedAFile, encodedBFile)
-                .filter { pairStatuses[it.id] == true }
+                .filter { pairStatuses[it.id] == true || autoScaleEnabled }
             val vmafQueueable = vmafEnabled && vmafAvailable == true
             if (queuedPairs.isEmpty() || (!psnrEnabled && !ssimEnabled && !vmafQueueable)) return
 
@@ -157,9 +183,9 @@ fun QualityCompareWindow(appState: AppState? = null, onCloseRequest: () -> Unit)
                         EventQueue.invokeLater { currentFrame = frame; totalFrames = total }
                     }
                     val result = when (item.metricName) {
-                        "PSNR" -> runPsnrPass(item.pair.comparison, item.pair.reference, onProgress, { cancelRequested.get() })
-                        "SSIM" -> runSsimPass(item.pair.comparison, item.pair.reference, onProgress, { cancelRequested.get() })
-                        else -> runVmafPass(item.pair.comparison, item.pair.reference, onProgress, { cancelRequested.get() }, fastMode = fastModeEnabled)
+                        "PSNR" -> runPsnrPass(item.pair.comparison, item.pair.reference, onProgress, { cancelRequested.get() }, autoScale = autoScaleEnabled)
+                        "SSIM" -> runSsimPass(item.pair.comparison, item.pair.reference, onProgress, { cancelRequested.get() }, autoScale = autoScaleEnabled)
+                        else -> runVmafPass(item.pair.comparison, item.pair.reference, onProgress, { cancelRequested.get() }, fastMode = fastModeEnabled, autoScale = autoScaleEnabled)
                     }
                     if (result != null) {
                         collected.getOrPut(item.pair.label) { mutableMapOf() }[item.metricName] = result
@@ -181,8 +207,6 @@ fun QualityCompareWindow(appState: AppState? = null, onCloseRequest: () -> Unit)
 
         fun exportCsv() {
             val currentResults = results ?: return
-            // The picked filename is intentionally discarded -- only its directory is used, since one
-            // CSV file per pair must be written (up to 3), not the single file a SAVE dialog implies.
             val dialog = FileDialog(null as Frame?, "CSV 저장 폴더 선택", FileDialog.SAVE)
             appState?.lastOpenedDirectory?.let { dir ->
                 if (dir.exists() && dir.isDirectory) {
@@ -222,17 +246,20 @@ fun QualityCompareWindow(appState: AppState? = null, onCloseRequest: () -> Unit)
 
         Column(modifier = Modifier.fillMaxSize().background(AppColors.Background).padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Raw: ${rawFile?.name ?: "(없음)"}", modifier = Modifier.weight(1f))
+                val resStr = rawRes?.let { " (${it.first}x${it.second})" } ?: ""
+                Text("Raw: ${rawFile?.name ?: "(없음)"}$resStr", modifier = Modifier.weight(1f))
                 Button(enabled = !isRunning, onClick = { pickFile("Raw 파일 선택") { rawFile = it } }) { Text("선택") }
             }
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Encoded A: ${encodedAFile?.name ?: "(없음)"}", modifier = Modifier.weight(1f))
+                val resStr = encodedARes?.let { " (${it.first}x${it.second})" } ?: ""
+                Text("Encoded A: ${encodedAFile?.name ?: "(없음)"}$resStr", modifier = Modifier.weight(1f))
                 Button(enabled = !isRunning, onClick = { pickFile("Encoded A 파일 선택") { encodedAFile = it } }) { Text("선택") }
             }
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Encoded B: ${encodedBFile?.name ?: "(없음)"}", modifier = Modifier.weight(1f))
+                val resStr = encodedBRes?.let { " (${it.first}x${it.second})" } ?: ""
+                Text("Encoded B: ${encodedBFile?.name ?: "(없음)"}$resStr", modifier = Modifier.weight(1f))
                 Button(enabled = !isRunning, onClick = { pickFile("Encoded B 파일 선택") { encodedBFile = it } }) { Text("선택") }
             }
 
@@ -241,10 +268,13 @@ fun QualityCompareWindow(appState: AppState? = null, onCloseRequest: () -> Unit)
                 Spacer(Modifier.height(8.dp))
                 Column {
                     candidatePairs.forEach { pair ->
-                        val statusText = when (pairStatuses[pair.id]) {
-                            null -> "확인 중..."
-                            true -> "일치"
-                            false -> "불일치 (건너뜀)"
+                        val isMatch = pairStatuses[pair.id]
+                        val (compRes, refRes) = pairResolutions[pair.id] ?: Pair(null, null)
+                        val statusText = when {
+                            isMatch == null -> "확인 중..."
+                            isMatch == true -> "✓ 해상도 일치 (${compRes?.first}x${compRes?.second})"
+                            autoScaleEnabled -> "⚠️ 해상도 불일치 (${compRes?.let { "${it.first}x${it.second}" } ?: "?"} vs ${refRes?.let { "${it.first}x${it.second}" } ?: "?"}) → 자동 맞춤 적용"
+                            else -> "❌ 해상도 불일치 (${compRes?.let { "${it.first}x${it.second}" } ?: "?"} vs ${refRes?.let { "${it.first}x${it.second}" } ?: "?"}) — [해상도 자동 맞춤] 필요"
                         }
                         Text("${pair.label}: $statusText")
                     }
@@ -268,13 +298,16 @@ fun QualityCompareWindow(appState: AppState? = null, onCloseRequest: () -> Unit)
                 Spacer(Modifier.width(8.dp))
                 Checkbox(checked = fastModeEnabled, enabled = vmafAvailable == true && vmafEnabled, onCheckedChange = { fastModeEnabled = it })
                 Text("빠른 모드")
+                Spacer(Modifier.width(8.dp))
+                Checkbox(checked = autoScaleEnabled, onCheckedChange = { autoScaleEnabled = it })
+                Text("해상도 자동 맞춤")
             }
             Spacer(Modifier.height(8.dp))
             Row {
                 Button(
                     onClick = { runComparison() },
                     enabled = !isRunning && (psnrEnabled || ssimEnabled || (vmafEnabled && vmafAvailable == true)) &&
-                        candidatePairs.any { pairStatuses[it.id] == true },
+                        candidatePairs.any { pairStatuses[it.id] == true || autoScaleEnabled },
                 ) { Text("비교 시작") }
                 if (isRunning) {
                     Spacer(Modifier.width(8.dp))
