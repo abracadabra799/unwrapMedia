@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -19,6 +20,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -32,8 +34,12 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 
 // Fallback aspect ratio (width/height) used only until the first thumbnail decodes and reveals
 // the video's actual aspect -- 16:9 is a reasonable landscape-video default guess. Fixing cell
@@ -58,6 +64,7 @@ fun FrameThumbnailFilmstrip(tab: TabState, frames: List<FrameInfo>, modifier: Mo
 
     val listState = rememberLazyListState()
     val focusRequester = remember { FocusRequester() }
+    val coroutineScope = rememberCoroutineScope()
 
     // Derived from the first successfully-decoded thumbnail's own pixel dimensions -- converges
     // to the real value almost immediately (as soon as the first batch lands) and every cell
@@ -133,6 +140,16 @@ fun FrameThumbnailFilmstrip(tab: TabState, frames: List<FrameInfo>, modifier: Mo
             .background(Color.Black)
             .focusRequester(focusRequester)
             .focusable()
+            .onPointerEvent(PointerEventType.Scroll, pass = PointerEventPass.Initial) { event ->
+                val delta = event.changes.firstOrNull()?.scrollDelta ?: return@onPointerEvent
+                val scrollDelta = if (delta.x != 0f) delta.x else delta.y
+                if (scrollDelta != 0f) {
+                    coroutineScope.launch {
+                        listState.scrollBy(scrollDelta * 60f)
+                    }
+                    event.changes.forEach { it.consume() }
+                }
+            }
             .onKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                 when (event.key) {
