@@ -89,7 +89,7 @@ fun FrameThumbnailFilmstrip(tab: TabState, frames: List<FrameInfo>, modifier: Mo
                 tab.file, range.first, frames[range.first].ptsSeconds, range.last - range.first + 1,
             ) { decoded ->
                 tab.thumbnailCache = tab.thumbnailCache + decoded
-                tab.pendingThumbnailIndices = tab.pendingThumbnailIndices - range
+                tab.pendingThumbnailIndices = tab.pendingThumbnailIndices - decoded.keys
             }
         }
     }

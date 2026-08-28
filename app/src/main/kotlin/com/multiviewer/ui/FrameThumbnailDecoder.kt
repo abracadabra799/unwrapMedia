@@ -42,31 +42,41 @@ fun missingThumbnailRange(
     return missing.min()..missing.max()
 }
 
-// High-speed batch thumbnail extractor using fast seek (-ss before -i) and GPU hardware acceleration.
-// Uses high-quality JPEG output (-q:v 2) for 5-10x faster encoding & Skia decoding than PNG.
+// High-speed streaming thumbnail extractor using fast seek (-ss before -i) and GPU hardware acceleration.
+// Uses high-quality JPEG output (-q:v 2) for fast encoding & Skia decoding, and polls the output directory
+// to display each thumbnail progressively in real-time as it is decoded rather than waiting for the whole batch.
 object FrameThumbnailDecoder {
-    fun decodeRangeAsync(file: File, startIndex: Int, startPtsSeconds: Double, count: Int, onResult: (Map<Int, ImageBitmap>) -> Unit) {
+    fun decodeRangeAsync(
+        file: File,
+        startIndex: Int,
+        startPtsSeconds: Double,
+        count: Int,
+        onProgress: (Map<Int, ImageBitmap>) -> Unit,
+    ) {
         thumbnailDecoderExecutor.submit {
-            val offsetToBitmap = decodeRangeToBitmaps(file, startPtsSeconds, count)
-            val result = offsetToBitmap.mapKeys { (offset, _) -> startIndex + offset }
-            EventQueue.invokeLater { onResult(result) }
+            decodeRangeStreaming(file, startIndex, startPtsSeconds, count) { partialMap ->
+                EventQueue.invokeLater { onProgress(partialMap) }
+            }
         }
     }
 
-    // Keyed by OFFSET FROM startIndex (0-based), parsed from each output file's own "thumb_%05d"
-    // number rather than from its position in a post-filter list -- if a file in the MIDDLE of the
-    // batch fails to decode (corrupt/truncated image), a position-based index would silently shift
-    // every later frame's offset down by one, mislabeling it as an earlier frame. Deriving the
-    // offset from the filename itself means a mid-batch failure just leaves a gap at its own
-    // correct offset instead of corrupting every offset after it. ffmpeg's %05d sequence starts at
-    // 1, so offset = parsed number - 1.
-    private fun decodeRangeToBitmaps(file: File, startPtsSeconds: Double, count: Int): Map<Int, ImageBitmap> {
+    // Keyed by global frame index (startIndex + offset), parsed from each output file's own "thumb_%05d"
+    // number. As ffmpeg writes each frame's JPEG, it is immediately decoded to ImageBitmap, emitted to
+    // the UI, and deleted from disk for minimal latency and memory footprint.
+    private fun decodeRangeStreaming(
+        file: File,
+        startIndex: Int,
+        startPtsSeconds: Double,
+        count: Int,
+        onBatchDecoded: (Map<Int, ImageBitmap>) -> Unit,
+    ) {
         val tempDir = try {
             Files.createTempDirectory("frame-thumbnails-").toFile().apply { deleteOnExit() }
         } catch (e: Exception) {
-            return emptyMap()
+            return
         }
-        return try {
+
+        try {
             val process = ProcessBuilder(
                 FfmpegLocator.ffmpegPath(), "-y",
                 "-hwaccel", "auto",
@@ -82,28 +92,57 @@ object FrameThumbnailDecoder {
                 .also { FfmpegLocator.configureEnvironment(it) }
                 .start()
                 .also { com.multiviewer.util.ProcessManager.register(it) }
-            val finished = process.waitFor(BATCH_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-            if (!finished) {
-                com.multiviewer.util.ProcessManager.terminate(process)
-                return emptyMap()
-            }
-            com.multiviewer.util.ProcessManager.unregister(process)
-            if (process.exitValue() != 0) return emptyMap()
-            tempDir.listFiles { f -> f.name.startsWith(THUMB_FILENAME_PREFIX) && f.name.endsWith(THUMB_FILENAME_SUFFIX) }
-                ?.mapNotNull { thumbFile ->
-                    thumbFile.deleteOnExit()
+
+            val processedOffsets = mutableSetOf<Int>()
+            val startTime = System.currentTimeMillis()
+
+            fun scanAndEmitNewThumbnails() {
+                val files = tempDir.listFiles { f -> f.name.startsWith(THUMB_FILENAME_PREFIX) && f.name.endsWith(THUMB_FILENAME_SUFFIX) }
+                    ?: return
+                val batch = mutableMapOf<Int, ImageBitmap>()
+                for (thumbFile in files) {
                     val offset = thumbFile.name.removePrefix(THUMB_FILENAME_PREFIX).removeSuffix(THUMB_FILENAME_SUFFIX)
-                        .toIntOrNull()?.minus(1) ?: return@mapNotNull null
+                        .toIntOrNull()?.minus(1) ?: continue
+                    if (offset in processedOffsets) continue
+                    if (thumbFile.length() <= 0) continue
                     try {
-                        offset to Image.makeFromEncoded(thumbFile.readBytes()).toComposeImageBitmap()
+                        val bytes = thumbFile.readBytes()
+                        if (bytes.isNotEmpty()) {
+                            val bitmap = Image.makeFromEncoded(bytes).toComposeImageBitmap()
+                            processedOffsets.add(offset)
+                            batch[startIndex + offset] = bitmap
+                            thumbFile.delete()
+                        }
                     } catch (e: Exception) {
-                        null
+                        // File may still be being written by ffmpeg, retry on next poll tick
                     }
                 }
-                ?.toMap()
-                ?: emptyMap()
+                if (batch.isNotEmpty()) {
+                    onBatchDecoded(batch)
+                }
+            }
+
+            while (process.isAlive) {
+                scanAndEmitNewThumbnails()
+                if (System.currentTimeMillis() - startTime > BATCH_TIMEOUT_MS) {
+                    com.multiviewer.util.ProcessManager.terminate(process)
+                    break
+                }
+                try {
+                    Thread.sleep(25)
+                } catch (e: InterruptedException) {
+                    com.multiviewer.util.ProcessManager.terminate(process)
+                    break
+                }
+            }
+
+            process.waitFor(2000, TimeUnit.MILLISECONDS)
+            com.multiviewer.util.ProcessManager.unregister(process)
+
+            // Final sweep to pick up any remaining frames finished just before process exit
+            scanAndEmitNewThumbnails()
         } catch (e: Exception) {
-            emptyMap()
+            // ignore
         } finally {
             tempDir.deleteRecursively()
         }
