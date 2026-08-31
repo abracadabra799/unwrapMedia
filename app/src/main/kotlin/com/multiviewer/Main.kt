@@ -326,7 +326,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         // room for the taskbar/title bar instead of the window opening larger than the screen.
         size = DpSize(1280.dp, 800.dp),
     )
-    Window(onCloseRequest = ::exitApplication, title = "unwrapMedia", state = windowState, icon = appIcon) {
+    Window(onCloseRequest = ::exitApplication, title = "unwrapMedia v${I18n.APP_VERSION}", state = windowState, icon = appIcon) {
         var themeMode by remember { mutableStateOf(loadThemeMode()) }
         var showPixelGrid by remember { mutableStateOf(loadShowPixelGrid()) }
         var language by remember { mutableStateOf(loadLanguage()) }
@@ -337,6 +337,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var dumpStructureWindowOpen by remember { mutableStateOf(false) }
         var checkStructureWindowOpen by remember { mutableStateOf(false) }
         var aiPromptWindowOpen by remember { mutableStateOf(false) }
+        var aboutWindowOpen by remember { mutableStateOf(false) }
         // App-level, not per-tab -- matches showPixelGrid's own precedent (switching tabs keeps
         // whichever mode is checked; unlike a per-panel button, this is a "lens" the user turns on
         // rather than a per-video setting). null = neither mode active.
@@ -540,6 +541,17 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     },
                 )
             }
+            Menu(I18n.menuHelp(language)) {
+                Item(
+                    I18n.menuVersionInfo(language),
+                    onClick = { aboutWindowOpen = true },
+                )
+                Separator()
+                Item(
+                    I18n.menuAbout(language),
+                    onClick = { aboutWindowOpen = true },
+                )
+            }
         }
 
         LaunchedEffect(Unit) {
@@ -697,6 +709,9 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     aiPromptWindowOpen = false
                 }
             }
+            if (aboutWindowOpen) {
+                AboutWindow(language = language, onCloseRequest = { aboutWindowOpen = false })
+            }
             appState.tabs.forEach { tab ->
                 if (tab.fullSizeFramePreviewOpen) {
                     FrameFullSizePreviewWindow(tab, onCloseRequest = { tab.fullSizeFramePreviewOpen = false })
@@ -729,7 +744,11 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                         modifier = Modifier.fillMaxSize().clickable { showOpenFileDialog(appState) },
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(I18n.placeholderEmptyState(language), fontSize = 22.sp, color = AppColors.TextPrimary)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(I18n.placeholderEmptyState(language), fontSize = 22.sp, color = AppColors.TextPrimary)
+                            Spacer(Modifier.height(10.dp))
+                            Text("unwrapMedia v${I18n.APP_VERSION}", fontSize = 12.sp, color = AppColors.TextSecondary)
+                        }
                     }
                 } else {
                     Column {
