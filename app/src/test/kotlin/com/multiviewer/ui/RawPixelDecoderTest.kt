@@ -399,4 +399,53 @@ class RawPixelDecoderTest {
         assertNull(decodeRawPixelFile(file, width, height, RawPixelFormat.RGBA8888, frameIndex = 1))
         file.delete()
     }
+
+    @Test
+    fun `parseResolutionFromFilename extracts resolution from standard cross separated filenames`() {
+        assertEquals(Pair(1920, 1080), parseResolutionFromFilename("video_1920x1080.yuv"))
+        assertEquals(Pair(3840, 2160), parseResolutionFromFilename("dump_3840X2160_nv12.raw"))
+        assertEquals(Pair(1280, 720), parseResolutionFromFilename("test_1280*720.rgb"))
+        assertEquals(Pair(640, 480), parseResolutionFromFilename("sample_640×480.rgba"))
+        assertEquals(Pair(1000, 564), parseResolutionFromFilename("1000x564.nv12"))
+    }
+
+    @Test
+    fun `parseResolutionFromFilename extracts resolution from width and height tagged filenames`() {
+        assertEquals(Pair(1920, 1080), parseResolutionFromFilename("frame_w1920_h1080.raw"))
+        assertEquals(Pair(1920, 1080), parseResolutionFromFilename("W1920H1080.bin"))
+        assertEquals(Pair(1280, 720), parseResolutionFromFilename("out_width_1280_height_720.yuv"))
+    }
+
+    @Test
+    fun `parseResolutionFromFilename extracts resolution from underscore or dash separated filenames`() {
+        assertEquals(Pair(1920, 1080), parseResolutionFromFilename("camera_1920_1080.nv21"))
+        assertEquals(Pair(3840, 2160), parseResolutionFromFilename("dump-3840-2160.raw"))
+        assertEquals(Pair(1280, 720), parseResolutionFromFilename("test_1280_720_30fps.yuv"))
+    }
+
+    @Test
+    fun `parseResolutionFromFilename rejects dates and non-resolution numbers`() {
+        assertNull(parseResolutionFromFilename("IMG_20260831_120000.raw"))
+        assertNull(parseResolutionFromFilename("photo_2026_08_31.raw"))
+        assertNull(parseResolutionFromFilename("capture_12_05.yuv"))
+        assertNull(parseResolutionFromFilename("test_video.raw"))
+    }
+
+    @Test
+    fun `detectRawPixelFormat recognizes format tokens in filename and extensions`() {
+        assertEquals(RawPixelFormat.YUV420SP_NV12, detectRawPixelFormat(File("frame_1920x1080_nv12.raw")))
+        assertEquals(RawPixelFormat.YUV420SP_NV21, detectRawPixelFormat(File("dump_1920x1080_nv21.bin")))
+        assertEquals(RawPixelFormat.YV12, detectRawPixelFormat(File("test_1280x720_yv12.yuv")))
+        assertEquals(RawPixelFormat.YUV420P, detectRawPixelFormat(File("camera_1920x1080_i420.raw")))
+        assertEquals(RawPixelFormat.RGBA8888, detectRawPixelFormat(File("screen_3840x2160_rgba.raw")))
+        assertEquals(RawPixelFormat.RGB565, detectRawPixelFormat(File("display_640x480_rgb565.bin")))
+    }
+
+    @Test
+    fun `parseFpsFromFilename extracts frame rate accurately`() {
+        assertEquals("30", parseFpsFromFilename("video_1920x1080_30fps.yuv"))
+        assertEquals("60", parseFpsFromFilename("dump_3840x2160_60fps_nv12.raw"))
+        assertEquals("24.0", parseFpsFromFilename("film_1920x1080_24.0fps.yuv"))
+        assertNull(parseFpsFromFilename("test_1920x1080.raw"))
+    }
 }

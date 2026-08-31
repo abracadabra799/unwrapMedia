@@ -37,11 +37,13 @@ fun RawPixelOpenDialog(
     onConfirm: (width: Int, height: Int, format: RawPixelFormat, byteOrder: RawPixelByteOrder, fps: Double) -> Unit,
     onCancel: () -> Unit,
 ) {
-    var widthText by remember { mutableStateOf("") }
-    var heightText by remember { mutableStateOf("") }
-    var format by remember { mutableStateOf(defaultRawPixelFormat(file.extension)) }
-    var byteOrder by remember { mutableStateOf(RawPixelByteOrder.LITTLE_ENDIAN) }
-    var fpsText by remember { mutableStateOf("30") }
+    val detectedDimensions = remember(file) { parseResolutionFromFilename(file.name) }
+    var widthText by remember(file) { mutableStateOf(detectedDimensions?.first?.toString() ?: "") }
+    var heightText by remember(file) { mutableStateOf(detectedDimensions?.second?.toString() ?: "") }
+    var format by remember(file) { mutableStateOf(detectRawPixelFormat(file)) }
+    var byteOrder by remember(file) { mutableStateOf(RawPixelByteOrder.LITTLE_ENDIAN) }
+    val detectedFps = remember(file) { parseFpsFromFilename(file.name) }
+    var fpsText by remember(file) { mutableStateOf(detectedFps ?: "30") }
 
     val width = widthText.toIntOrNull()
     val height = heightText.toIntOrNull()
@@ -136,6 +138,14 @@ fun RawPixelOpenDialog(
                     }
                 }
                 Spacer(Modifier.height(12.dp))
+            }
+
+            if (detectedDimensions != null) {
+                Text(
+                    "💡 파일 이름에서 해상도(${detectedDimensions.first}×${detectedDimensions.second})를 자동으로 감지했습니다.",
+                    style = AppTypography.labelSmall.copy(fontSize = 10.sp, color = AppColors.NeonBlue),
+                    modifier = Modifier.padding(bottom = 6.dp),
+                )
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

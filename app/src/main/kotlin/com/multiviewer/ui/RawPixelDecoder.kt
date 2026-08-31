@@ -55,6 +55,106 @@ fun defaultRawPixelFormat(extension: String): RawPixelFormat = when (extension.l
     else -> RawPixelFormat.entries.first()
 }
 
+fun detectRawPixelFormat(file: File): RawPixelFormat {
+    val ext = file.extension.lowercase()
+    val nameLower = file.name.lowercase()
+
+    // 1. Check exact extension first
+    val fromExt = when (ext) {
+        "nv12" -> RawPixelFormat.YUV420SP_NV12
+        "nv21" -> RawPixelFormat.YUV420SP_NV21
+        "yv12" -> RawPixelFormat.YV12
+        "i420", "yuv420p" -> RawPixelFormat.YUV420P
+        "rgb565" -> RawPixelFormat.RGB565
+        "bgr565" -> RawPixelFormat.BGR565
+        "rgb888" -> RawPixelFormat.RGB888
+        "bgr888" -> RawPixelFormat.BGR888
+        "rgba8888", "rgba" -> RawPixelFormat.RGBA8888
+        "argb8888", "argb" -> RawPixelFormat.ARGB8888
+        else -> null
+    }
+    if (fromExt != null) return fromExt
+
+    // 2. Check filename tokens if extension is generic (.raw, .bin, .dat, .yuv, etc.)
+    return when {
+        nameLower.contains("nv12") -> RawPixelFormat.YUV420SP_NV12
+        nameLower.contains("nv21") -> RawPixelFormat.YUV420SP_NV21
+        nameLower.contains("yv12") -> RawPixelFormat.YV12
+        nameLower.contains("i420") || nameLower.contains("yuv420p") -> RawPixelFormat.YUV420P
+        nameLower.contains("rgba8888") || nameLower.contains("rgba") -> RawPixelFormat.RGBA8888
+        nameLower.contains("argb8888") || nameLower.contains("argb") -> RawPixelFormat.ARGB8888
+        nameLower.contains("rgb888") -> RawPixelFormat.RGB888
+        nameLower.contains("bgr888") -> RawPixelFormat.BGR888
+        nameLower.contains("rgb565") -> RawPixelFormat.RGB565
+        nameLower.contains("bgr565") -> RawPixelFormat.BGR565
+        else -> defaultRawPixelFormat(ext)
+    }
+}
+
+/**
+ * Automatically extracts resolution (width, height) from a RAW filename if present.
+ * Supported patterns:
+ * - `1920x1080`, `3840X2160`, `1280*720`, `640×480`
+ * - `w1920_h1080`, `width1920_height1080`, `W1920H1080`
+ * - `frame_1920_1080_nv12.raw`, `test_1280-720.yuv` (excluding date patterns like 2026_08_31)
+ */
+fun parseResolutionFromFilename(filename: String): Pair<Int, Int>? {
+    val nameWithoutExt = filename.substringBeforeLast('.')
+
+    // 1. Explicit width and height tags: w1920_h1080, W1920H1080, width_1920_height_1080, etc.
+    val whTag = Regex("""(?i)(?:^|[^0-9a-z])(?:w|width)[_\s-]?(\d{2,5})[_\s-]*(?:h|height)[_\s-]?(\d{2,5})(?:$|[^0-9a-z])""")
+    val hwTag = Regex("""(?i)(?:^|[^0-9a-z])(?:h|height)[_\s-]?(\d{2,5})[_\s-]*(?:w|width)[_\s-]?(\d{2,5})(?:$|[^0-9a-z])""")
+    val whMatch = whTag.find(nameWithoutExt)
+    if (whMatch != null) {
+        val w = whMatch.groupValues[1].toIntOrNull()
+        val h = whMatch.groupValues[2].toIntOrNull()
+        if (w != null && h != null && w in 16..32768 && h in 16..32768) return Pair(w, h)
+    }
+    val hwMatch = hwTag.find(nameWithoutExt)
+    if (hwMatch != null) {
+        val h = hwMatch.groupValues[1].toIntOrNull()
+        val w = hwMatch.groupValues[2].toIntOrNull()
+        if (w != null && h != null && w in 16..32768 && h in 16..32768) return Pair(w, h)
+    }
+
+    // 2. Explicit 'x', 'X', '×', '*' separator: 1920x1080, 3840X2160, 1280*720, 640×480
+    val xPattern = Regex("""(?i)(?:^|[^0-9])(\d{2,5})\s*[xX*×]\s*(\d{2,5})(?:$|[^0-9])""")
+    for (m in xPattern.findAll(nameWithoutExt)) {
+        val w = m.groupValues[1].toIntOrNull()
+        val h = m.groupValues[2].toIntOrNull()
+        if (w != null && h != null && w in 16..32768 && h in 16..32768) {
+            return Pair(w, h)
+        }
+    }
+
+    // 3. Underscore or dash separated numbers: 1920_1080, 3840-2160 (filtering out date patterns)
+    val sepPattern = Regex("""(?:^|[^0-9])(\d{2,5})[_-](\d{2,5})(?:$|[^0-9])""")
+    for (m in sepPattern.findAll(nameWithoutExt)) {
+        val num1 = m.groupValues[1].toIntOrNull() ?: continue
+        val num2 = m.groupValues[2].toIntOrNull() ?: continue
+
+        // Ignore year-month patterns like 2024_08, 2026_12
+        if (num1 in 1900..2100 && num2 in 1..31) continue
+        // Ignore date/time sub-tokens (both <= 31)
+        if (num1 in 1..31 && num2 in 1..31) continue
+
+        if (num1 in 32..32768 && num2 in 32..32768) {
+            return Pair(num1, num2)
+        }
+    }
+
+    return null
+}
+
+/**
+ * Extracts playback frame rate from filename if specified (e.g. `_30fps`, `60fps`, `24.0fps`).
+ */
+fun parseFpsFromFilename(filename: String): String? {
+    val fpsRegex = Regex("""(?i)(?:^|[^0-9])(\d{1,3}(?:\.\d+)?)\s*fps(?:$|[^a-z0-9])""")
+    val match = fpsRegex.find(filename) ?: return null
+    return match.groupValues[1]
+}
+
 // 4:2:0 chroma subsampling covers each plane at ceil(dim/2), not floor(dim/2) -- verified
 // directly: a real ffmpeg-generated 5x3 yuv420p frame is 27 bytes (5*3 + 2*ceil(5/2)*ceil(3/2) =
 // 15 + 12 = 27), not the 19 bytes floor division would predict.
