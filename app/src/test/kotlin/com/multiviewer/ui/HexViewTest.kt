@@ -75,4 +75,76 @@ class HexViewTest {
         assertTrue(dump.startsWith("00000010  45 78 69 66 00 00"))
         assertTrue(dump.endsWith("|Exif..|"))
     }
+
+    @Test
+    fun `formatBytesAsPythonBytes formats byte literal`() {
+        val bytes = byteArrayOf(0x4A, 0x66, 0x69, 0x66)
+        assertEquals("b\"\\x4A\\x66\\x69\\x66\"", formatBytesAsPythonBytes(bytes))
+    }
+
+    @Test
+    fun `formatBytesAsBase64 encodes bytes to base64 string`() {
+        val bytes = "JFIF".toByteArray(Charsets.US_ASCII)
+        assertEquals("SkZJRg==", formatBytesAsBase64(bytes))
+    }
+
+    @Test
+    fun `parseOffsetInput handles hex decimal and percentage`() {
+        val fileLength = 10000L
+        assertEquals(0x1000L, parseOffsetInput("0x1000", fileLength))
+        assertEquals(0x1A40L, parseOffsetInput("1A40h", fileLength))
+        assertEquals(4096L, parseOffsetInput("4096", fileLength))
+        assertEquals(5000L, parseOffsetInput("50%", fileLength))
+        assertEquals(0L, parseOffsetInput("0", fileLength))
+    }
+
+    @Test
+    fun `parseHexSearchPattern handles text and hex modes`() {
+        val textBytes = parseHexSearchPattern("ftyp", isHexMode = false)
+        assertEquals("ftyp", String(textBytes!!, Charsets.UTF_8))
+
+        val hexBytes = parseHexSearchPattern("FF D8 FF E0", isHexMode = true)
+        assertEquals(4, hexBytes!!.size)
+        assertEquals(0xFF.toByte(), hexBytes[0])
+        assertEquals(0xD8.toByte(), hexBytes[1])
+        assertEquals(0xFF.toByte(), hexBytes[2])
+        assertEquals(0xE0.toByte(), hexBytes[3])
+    }
+
+    @Test
+    fun `searchHex finds matching byte patterns`() {
+        val tempFile = java.io.File.createTempFile("hex-search-test", ".bin")
+        tempFile.deleteOnExit()
+        val data = byteArrayOf(0x00, 0x01, 0x4A, 0x66, 0x69, 0x66, 0x02, 0x03, 0x4A, 0x66, 0x69, 0x66, 0x04)
+        tempFile.writeBytes(data)
+
+        val raf = java.io.RandomAccessFile(tempFile, "r")
+        val pattern = byteArrayOf(0x4A, 0x66, 0x69, 0x66)
+        val matches = searchHex(raf, pattern)
+        raf.close()
+        tempFile.delete()
+
+        assertEquals(listOf(2L, 8L), matches)
+    }
+
+    @Test
+    fun `readDataInspectorValues extracts little and big endian integers`() {
+        val tempFile = java.io.File.createTempFile("inspector-test", ".bin")
+        tempFile.deleteOnExit()
+        // 4 bytes: 0x01, 0x02, 0x03, 0x04
+        tempFile.writeBytes(byteArrayOf(0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08))
+
+        val raf = java.io.RandomAccessFile(tempFile, "r")
+        val values = readDataInspectorValues(raf, offset = 0, fileLength = 8)
+        raf.close()
+        tempFile.delete()
+
+        assertTrue(values != null)
+        assertEquals(1, values.uint8)
+        assertEquals("00000001", values.binary8)
+        assertEquals(0x0201, values.uint16LE)
+        assertEquals(0x0102, values.uint16BE)
+        assertEquals(0x04030201L, values.uint32LE)
+        assertEquals(0x01020304L, values.uint32BE)
+    }
 }
