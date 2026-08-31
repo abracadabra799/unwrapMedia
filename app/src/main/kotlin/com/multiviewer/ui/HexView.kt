@@ -382,6 +382,21 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
     // Go to state
     var goToInput by remember(file) { mutableStateOf("") }
 
+    val findFocusRequester = remember { FocusRequester() }
+    val goToFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(showFindBar) {
+        if (showFindBar) {
+            findFocusRequester.requestFocus()
+        }
+    }
+
+    LaunchedEffect(showGoToBar) {
+        if (showGoToBar) {
+            goToFocusRequester.requestFocus()
+        }
+    }
+
     val selectedRange = if (selectionAnchor != null && selectionEnd != null) {
         minOf(selectionAnchor!!, selectionEnd!!)..maxOf(selectionAnchor!!, selectionEnd!!)
     } else {
@@ -532,7 +547,10 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
                         Row(
                             modifier = Modifier
                                 .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
-                                .clickable { isHexSearchMode = !isHexSearchMode }
+                                .clickable {
+                                    isHexSearchMode = !isHexSearchMode
+                                    performSearch()
+                                }
                                 .padding(horizontal = 6.dp, vertical = 4.dp),
                         ) {
                             Text(
@@ -543,16 +561,53 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
                             )
                         }
 
-                        OutlinedTextField(
+                        androidx.compose.foundation.text.BasicTextField(
                             value = searchQuery,
                             onValueChange = {
                                 searchQuery = it
                                 performSearch()
                             },
-                            placeholder = { Text(if (isHexSearchMode) "Hex sequence (e.g. FF D8 FF E0)" else "Text string (e.g. ftyp, moov)", fontSize = 11.sp) },
                             singleLine = true,
-                            modifier = Modifier.weight(1f).height(32.dp),
-                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = Color.White),
+                            textStyle = androidx.compose.ui.text.TextStyle(
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.Monospace,
+                            ),
+                            cursorBrush = androidx.compose.ui.graphics.SolidColor(AppColors.NeonBlue),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(26.dp)
+                                .focusRequester(findFocusRequester)
+                                .background(Color(0xFF1A1A1A), RoundedCornerShape(4.dp))
+                                .border(1.dp, Color(0xFF444444), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                .onKeyEvent { keyEvent ->
+                                    if (keyEvent.type == KeyEventType.KeyDown) {
+                                        when (keyEvent.key) {
+                                            Key.Enter -> {
+                                                if (keyEvent.isShiftPressed) prevMatch() else nextMatch()
+                                                true
+                                            }
+                                            Key.Escape -> {
+                                                showFindBar = false
+                                                true
+                                            }
+                                            else -> false
+                                        }
+                                    } else false
+                                },
+                            decorationBox = { innerTextField ->
+                                Box(contentAlignment = Alignment.CenterStart) {
+                                    if (searchQuery.isEmpty()) {
+                                        Text(
+                                            if (isHexSearchMode) "Hex sequence (e.g. FF D8 FF E0)" else "Text string (e.g. ftyp, moov)",
+                                            fontSize = 11.sp,
+                                            color = Color.Gray,
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            },
                         )
 
                         FilledTonalButton(
@@ -603,13 +658,51 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Text("Go to Offset:", fontSize = 11.sp, color = AppColors.TextPrimary)
-                        OutlinedTextField(
+                        androidx.compose.foundation.text.BasicTextField(
                             value = goToInput,
                             onValueChange = { goToInput = it },
-                            placeholder = { Text("e.g. 0x1A40 or 4096 or 50%", fontSize = 11.sp) },
                             singleLine = true,
-                            modifier = Modifier.weight(1f).height(32.dp),
-                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = Color.White),
+                            textStyle = androidx.compose.ui.text.TextStyle(
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.Monospace,
+                            ),
+                            cursorBrush = androidx.compose.ui.graphics.SolidColor(AppColors.NeonBlue),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(26.dp)
+                                .focusRequester(goToFocusRequester)
+                                .background(Color(0xFF1A1A1A), RoundedCornerShape(4.dp))
+                                .border(1.dp, Color(0xFF444444), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                .onKeyEvent { keyEvent ->
+                                    if (keyEvent.type == KeyEventType.KeyDown) {
+                                        when (keyEvent.key) {
+                                            Key.Enter -> {
+                                                val offset = parseOffsetInput(goToInput, fileLength)
+                                                if (offset != null) {
+                                                    selectionAnchor = offset
+                                                    selectionEnd = offset
+                                                    scrollToOffset(offset)
+                                                }
+                                                true
+                                            }
+                                            Key.Escape -> {
+                                                showGoToBar = false
+                                                true
+                                            }
+                                            else -> false
+                                        }
+                                    } else false
+                                },
+                            decorationBox = { innerTextField ->
+                                Box(contentAlignment = Alignment.CenterStart) {
+                                    if (goToInput.isEmpty()) {
+                                        Text("e.g. 0x1A40 or 4096 or 50%", fontSize = 11.sp, color = Color.Gray)
+                                    }
+                                    innerTextField()
+                                }
+                            },
                         )
                         FilledTonalButton(
                             onClick = {
