@@ -846,9 +846,7 @@ fun GainmapOverviewSummaryBox(
             Button(
                 onClick = onOpenXmp,
                 colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.NeonOrange),
-                modifier = Modifier
-                    .height(26.dp)
-                    .border(1.dp, AppColors.NeonOrange.copy(alpha = 0.6f), RoundedCornerShape(4.dp)),
+                modifier = Modifier.height(26.dp),
                 shape = RoundedCornerShape(4.dp),
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
             ) {
@@ -857,9 +855,7 @@ fun GainmapOverviewSummaryBox(
             Button(
                 onClick = onOpenImage,
                 colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.NeonGreen),
-                modifier = Modifier
-                    .height(26.dp)
-                    .border(1.dp, AppColors.NeonGreen.copy(alpha = 0.6f), RoundedCornerShape(4.dp)),
+                modifier = Modifier.height(26.dp),
                 shape = RoundedCornerShape(4.dp),
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
             ) {
