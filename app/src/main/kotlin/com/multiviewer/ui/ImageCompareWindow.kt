@@ -18,13 +18,18 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asSkiaBitmap
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -32,12 +37,18 @@ import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.rememberWindowState
 import com.multiviewer.parser.*
@@ -1248,17 +1259,13 @@ private fun VisualDiffView(language: AppLanguage, infoA: CompareMediaInfo?, info
                         WiperCanvas(displayBitmapA, displayBitmapB, wiperPos, onWiperChanged = { wiperPos = it })
                     }
                     VisualCompareMode.SIDE_BY_SIDE -> {
-                        Row(modifier = Modifier.fillMaxSize().padding(8.dp)) {
-                            Box(modifier = Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                                androidx.compose.foundation.Image(bitmap = displayBitmapA, contentDescription = "Media A", modifier = Modifier.fillMaxSize())
-                                Text("Media A", modifier = Modifier.align(Alignment.TopStart).background(Color.Black.copy(alpha = 0.6f)).padding(4.dp), color = Color.White, fontSize = 11.sp)
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Box(modifier = Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                                androidx.compose.foundation.Image(bitmap = displayBitmapB, contentDescription = "Media B", modifier = Modifier.fillMaxSize())
-                                Text("Media B", modifier = Modifier.align(Alignment.TopStart).background(Color.Black.copy(alpha = 0.6f)).padding(4.dp), color = Color.White, fontSize = 11.sp)
-                            }
-                        }
+                        SideBySideCompareView(
+                            bitmapA = displayBitmapA,
+                            bitmapB = displayBitmapB,
+                            labelA = if (infoA.isVideo) "Video A" else "Image A",
+                            labelB = if (infoB.isVideo) "Video B" else "Image B",
+                            language = language,
+                        )
                     }
                     VisualCompareMode.DIFF_HEATMAP -> {
                         val diffBitmap = remember(displayBitmapA, displayBitmapB) { computeDiffBitmap(displayBitmapA, displayBitmapB) }
@@ -1274,6 +1281,202 @@ private fun VisualDiffView(language: AppLanguage, infoA: CompareMediaInfo?, info
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun SideBySideCompareView(
+    bitmapA: ImageBitmap,
+    bitmapB: ImageBitmap,
+    labelA: String,
+    labelB: String,
+    language: AppLanguage,
+) {
+    var scale by remember(bitmapA, bitmapB) { mutableStateOf(1f) }
+    var offset by remember(bitmapA, bitmapB) { mutableStateOf(Offset.Zero) }
+    var paneSize by remember { mutableStateOf(Size.Zero) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(8.dp)
+            .clipToBounds(),
+    ) {
+        Row(modifier = Modifier.fillMaxSize()) {
+            // Pane A
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clipToBounds()
+                    .onGloballyPositioned { paneSize = it.size.toSize() }
+                    .onPointerEvent(PointerEventType.Scroll, pass = PointerEventPass.Initial) { event ->
+                        val change = event.changes.firstOrNull() ?: return@onPointerEvent
+                        val (newScale, rawOffset) = zoomTowardPoint(scale, offset, change.position, change.scrollDelta.y)
+                        scale = newScale
+                        offset = clampPanOffset(rawOffset, paneSize, newScale)
+                        event.changes.forEach { it.consume() }
+                    }
+                    .pointerInput(bitmapA, bitmapB) {
+                        detectDragGestures { change, dragAmount ->
+                            change.consume()
+                            offset = clampPanOffset(offset + dragAmount, paneSize, scale)
+                        }
+                    }
+                    .pointerInput(bitmapA, bitmapB) {
+                        detectTapGestures(
+                            onTap = { tapPosition ->
+                                offset = panToPoint(offset, paneSize, scale, tapPosition)
+                            },
+                            onDoubleTap = {
+                                scale = 1f
+                                offset = Offset.Zero
+                            },
+                        )
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                androidx.compose.foundation.Image(
+                    bitmap = bitmapA,
+                    contentDescription = labelA,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer(
+                            scaleX = scale,
+                            scaleY = scale,
+                            translationX = offset.x,
+                            translationY = offset.y,
+                            transformOrigin = TransformOrigin(0f, 0f),
+                        ),
+                    contentScale = ContentScale.Fit,
+                )
+                if (LocalShowPixelGrid.current) {
+                    PixelGridOverlay(
+                        nativeSize = Size(bitmapA.width.toFloat(), bitmapA.height.toFloat()),
+                        scale = scale,
+                        modifier = Modifier.graphicsLayer(
+                            scaleX = scale,
+                            scaleY = scale,
+                            translationX = offset.x,
+                            translationY = offset.y,
+                            transformOrigin = TransformOrigin(0f, 0f),
+                        ),
+                    )
+                }
+                Text(
+                    labelA,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(bottomEnd = 4.dp))
+                        .padding(horizontal = 6.dp, vertical = 3.dp),
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            // Pane B
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clipToBounds()
+                    .onGloballyPositioned { paneSize = it.size.toSize() }
+                    .onPointerEvent(PointerEventType.Scroll, pass = PointerEventPass.Initial) { event ->
+                        val change = event.changes.firstOrNull() ?: return@onPointerEvent
+                        val (newScale, rawOffset) = zoomTowardPoint(scale, offset, change.position, change.scrollDelta.y)
+                        scale = newScale
+                        offset = clampPanOffset(rawOffset, paneSize, newScale)
+                        event.changes.forEach { it.consume() }
+                    }
+                    .pointerInput(bitmapA, bitmapB) {
+                        detectDragGestures { change, dragAmount ->
+                            change.consume()
+                            offset = clampPanOffset(offset + dragAmount, paneSize, scale)
+                        }
+                    }
+                    .pointerInput(bitmapA, bitmapB) {
+                        detectTapGestures(
+                            onTap = { tapPosition ->
+                                offset = panToPoint(offset, paneSize, scale, tapPosition)
+                            },
+                            onDoubleTap = {
+                                scale = 1f
+                                offset = Offset.Zero
+                            },
+                        )
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                androidx.compose.foundation.Image(
+                    bitmap = bitmapB,
+                    contentDescription = labelB,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer(
+                            scaleX = scale,
+                            scaleY = scale,
+                            translationX = offset.x,
+                            translationY = offset.y,
+                            transformOrigin = TransformOrigin(0f, 0f),
+                        ),
+                    contentScale = ContentScale.Fit,
+                )
+                if (LocalShowPixelGrid.current) {
+                    PixelGridOverlay(
+                        nativeSize = Size(bitmapB.width.toFloat(), bitmapB.height.toFloat()),
+                        scale = scale,
+                        modifier = Modifier.graphicsLayer(
+                            scaleX = scale,
+                            scaleY = scale,
+                            translationX = offset.x,
+                            translationY = offset.y,
+                            transformOrigin = TransformOrigin(0f, 0f),
+                        ),
+                    )
+                }
+                Text(
+                    labelB,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(bottomEnd = 4.dp))
+                        .padding(horizontal = 6.dp, vertical = 3.dp),
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        }
+
+        // Zoom info indicator & reset button when zoomed in
+        if (scale > 1.01f) {
+            Surface(
+                color = Color.Black.copy(alpha = 0.75f),
+                shape = RoundedCornerShape(4.dp),
+                border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.3f)),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(8.dp)
+                    .clickable {
+                        scale = 1f
+                        offset = Offset.Zero
+                    },
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "🔍 %.1fx".format(scale) + if (language == AppLanguage.KO) " (더블클릭/클릭 시 초기화)" else " (Double-click to reset)",
+                        fontSize = 11.sp,
+                        color = Color.Yellow,
+                    )
                 }
             }
         }
