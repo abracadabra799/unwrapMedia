@@ -1,15 +1,12 @@
 package com.multiviewer.ui
 
+import androidx.compose.foundation.HorizontalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollbarAdapter
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -176,6 +173,14 @@ fun GifFilmstripPlayer(tab: TabState, animation: GifAnimationData, modifier: Mod
         PreviewCaption(
             "Frame ${tab.gifFrameIndex + 1}/${animation.frames.size} · ${animation.durationsMs[tab.gifFrameIndex]}ms",
             modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
+        )
+
+        HorizontalScrollbar(
+            adapter = rememberScrollbarAdapter(listState),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 2.dp),
         )
     }
 }

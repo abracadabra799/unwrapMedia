@@ -1,20 +1,17 @@
 package com.multiviewer.ui
 
+import androidx.compose.foundation.HorizontalScrollbar
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.scrollBy
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -137,90 +134,103 @@ fun FrameThumbnailFilmstrip(tab: TabState, frames: List<FrameInfo>, modifier: Mo
         selectFrame(frames[target])
     }
 
-    LazyRow(
-        state = listState,
+    Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black)
-            .focusRequester(focusRequester)
-            .focusable()
-            .onPointerEvent(PointerEventType.Scroll, pass = PointerEventPass.Initial) { event ->
-                val delta = event.changes.firstOrNull()?.scrollDelta ?: return@onPointerEvent
-                val scrollDelta = if (delta.x != 0f) delta.x else delta.y
-                if (scrollDelta != 0f) {
-                    coroutineScope.launch {
-                        listState.scrollBy(scrollDelta * 60f)
-                    }
-                    event.changes.forEach { it.consume() }
-                }
-            }
-            .onPointerEvent(PointerEventType.Press, pass = PointerEventPass.Initial) { event ->
-                val pos = event.changes.firstOrNull()?.position ?: return@onPointerEvent
-                dragStartPos = pos
-                dragLastPos = pos
-                isDragPanning = false
-            }
-            .onPointerEvent(PointerEventType.Move, pass = PointerEventPass.Initial) { event ->
-                val change = event.changes.firstOrNull() ?: return@onPointerEvent
-                if (change.pressed) {
-                    val currentPos = change.position
-                    val dx = currentPos.x - dragLastPos.x
-                    val totalDist = (currentPos - dragStartPos).getDistance()
-                    if (totalDist > 4f) {
-                        isDragPanning = true
-                        dragLastPos = currentPos
-                        if (dx != 0f) {
-                            coroutineScope.launch {
-                                listState.scrollBy(-dx)
-                            }
+            .background(Color.Black),
+    ) {
+        LazyRow(
+            state = listState,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .focusRequester(focusRequester)
+                .focusable()
+                .onPointerEvent(PointerEventType.Scroll, pass = PointerEventPass.Initial) { event ->
+                    val delta = event.changes.firstOrNull()?.scrollDelta ?: return@onPointerEvent
+                    val scrollDelta = if (delta.x != 0f) delta.x else delta.y
+                    if (scrollDelta != 0f) {
+                        coroutineScope.launch {
+                            listState.scrollBy(scrollDelta * 60f)
                         }
-                        change.consume()
+                        event.changes.forEach { it.consume() }
                     }
                 }
-            }
-            .onPointerEvent(PointerEventType.Release, pass = PointerEventPass.Initial) { event ->
-                if (isDragPanning) {
-                    event.changes.forEach { it.consume() }
+                .onPointerEvent(PointerEventType.Press, pass = PointerEventPass.Initial) { event ->
+                    val pos = event.changes.firstOrNull()?.position ?: return@onPointerEvent
+                    dragStartPos = pos
+                    dragLastPos = pos
                     isDragPanning = false
                 }
-            }
-            .onKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
-                when (event.key) {
-                    Key.DirectionLeft -> { stepFrame(-1); true }
-                    Key.DirectionRight -> { stepFrame(1); true }
-                    else -> false
+                .onPointerEvent(PointerEventType.Move, pass = PointerEventPass.Initial) { event ->
+                    val change = event.changes.firstOrNull() ?: return@onPointerEvent
+                    if (change.pressed) {
+                        val currentPos = change.position
+                        val dx = currentPos.x - dragLastPos.x
+                        val totalDist = (currentPos - dragStartPos).getDistance()
+                        if (totalDist > 4f) {
+                            isDragPanning = true
+                            dragLastPos = currentPos
+                            if (dx != 0f) {
+                                coroutineScope.launch {
+                                    listState.scrollBy(-dx)
+                                }
+                            }
+                            change.consume()
+                        }
+                    }
                 }
-            },
-    ) {
-        itemsIndexed(frames) { index, frame ->
-            val bitmap = tab.thumbnailCache[index]
-            val isCurrent = index == currentIndex
-            Box(
-                modifier = Modifier
-                    .aspectRatio(aspectRatio)
-                    .fillMaxHeight()
-                    .padding(1.dp)
-                    .let { if (isCurrent) it.border(2.dp, Color.White) else it }
-                    .clickable {
-                        focusRequester.requestFocus()
-                        selectFrame(frame)
-                        tab.fullSizeFramePreviewOpen = true
-                    },
-            ) {
-                if (bitmap != null) {
-                    Image(
-                        bitmap = bitmap,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxHeight().fillMaxWidth(),
-                        contentScale = ContentScale.Fit,
+                .onPointerEvent(PointerEventType.Release, pass = PointerEventPass.Initial) { event ->
+                    if (isDragPanning) {
+                        event.changes.forEach { it.consume() }
+                        isDragPanning = false
+                    }
+                }
+                .onKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                    when (event.key) {
+                        Key.DirectionLeft -> { stepFrame(-1); true }
+                        Key.DirectionRight -> { stepFrame(1); true }
+                        else -> false
+                    }
+                },
+        ) {
+            itemsIndexed(frames) { index, frame ->
+                val bitmap = tab.thumbnailCache[index]
+                val isCurrent = index == currentIndex
+                Box(
+                    modifier = Modifier
+                        .aspectRatio(aspectRatio)
+                        .fillMaxHeight()
+                        .padding(1.dp)
+                        .let { if (isCurrent) it.border(2.dp, Color.White) else it }
+                        .clickable {
+                            focusRequester.requestFocus()
+                            selectFrame(frame)
+                            tab.fullSizeFramePreviewOpen = true
+                        },
+                ) {
+                    if (bitmap != null) {
+                        Image(
+                            bitmap = bitmap,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxHeight().fillMaxWidth(),
+                            contentScale = ContentScale.Fit,
+                        )
+                    }
+                    PreviewCaption(
+                        "#${frame.index} ${frame.type}",
+                        modifier = Modifier.align(Alignment.TopStart).padding(2.dp),
                     )
                 }
-                PreviewCaption(
-                    "#${frame.index} ${frame.type}",
-                    modifier = Modifier.align(Alignment.TopStart).padding(2.dp),
-                )
             }
         }
+
+        HorizontalScrollbar(
+            adapter = rememberScrollbarAdapter(listState),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 2.dp),
+        )
     }
 }
