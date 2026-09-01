@@ -13,7 +13,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.KeyShortcut
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.DpSize
@@ -326,7 +333,43 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         // room for the taskbar/title bar instead of the window opening larger than the screen.
         size = DpSize(1280.dp, 800.dp),
     )
-    Window(onCloseRequest = ::exitApplication, title = "unwrapMedia v${I18n.APP_VERSION}", state = windowState, icon = appIcon) {
+    Window(
+        onCloseRequest = ::exitApplication,
+        title = "unwrapMedia v${I18n.APP_VERSION}",
+        state = windowState,
+        icon = appIcon,
+        onKeyEvent = { keyEvent ->
+            if (keyEvent.type == KeyEventType.KeyDown) {
+                val isCtrlOrMeta = keyEvent.isCtrlPressed || keyEvent.isMetaPressed
+                if (isCtrlOrMeta && !keyEvent.isShiftPressed && !keyEvent.isAltPressed && keyEvent.key == Key.C) {
+                    val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                    if (currentTab != null && !currentTab.isLoading) {
+                        val activeField = currentTab.selected?.fields?.let { fields -> currentTab.selectedField?.takeIf { it in fields } }
+                        val hexHighlightRange = currentTab.parameterSetHighlightRange
+                            ?: currentTab.tileHighlightRange
+                            ?: activeField?.let { it.offset until (it.offset + it.length) }
+                            ?: currentTab.selected?.let { it.offset until (it.offset + it.size) }
+                            ?: currentTab.selectedFrame?.let { frame ->
+                                frame.byteOffset?.let { offset -> offset until (offset + frame.sizeBytes) }
+                            }
+                        if (hexHighlightRange != null && hexHighlightRange.first >= 0) {
+                            try {
+                                java.io.RandomAccessFile(currentTab.file, "r").use { raf ->
+                                    val buf = readRangeBytes(raf, hexHighlightRange)
+                                    val dump = formatHexDump(buf, hexHighlightRange.first)
+                                    if (com.multiviewer.util.ClipboardUtil.copyToClipboard(dump)) {
+                                        appState.statusMessage = "선택된 박스/마커 데이터(Hex Dump)가 클립보드에 복사되었습니다."
+                                        return@Window true
+                                    }
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    }
+                }
+            }
+            false
+        },
+    ) {
         var themeMode by remember { mutableStateOf(loadThemeMode()) }
         var showPixelGrid by remember { mutableStateOf(loadShowPixelGrid()) }
         var language by remember { mutableStateOf(loadLanguage()) }

@@ -147,4 +147,25 @@ class HexViewTest {
         assertEquals(0x04030201L, values.uint32LE)
         assertEquals(0x01020304L, values.uint32BE)
     }
+
+    @Test
+    fun `readRangeBytes reads requested slice and caps at maxBytes`() {
+        val tempFile = java.io.File.createTempFile("read-range-test", ".bin")
+        tempFile.deleteOnExit()
+        tempFile.writeBytes(byteArrayOf(0x10, 0x20, 0x30, 0x40, 0x50, 0x60))
+
+        val raf = java.io.RandomAccessFile(tempFile, "r")
+        val fullSlice = readRangeBytes(raf, 1L..4L)
+        val cappedSlice = readRangeBytes(raf, 0L..5L, maxBytes = 3)
+        raf.close()
+        tempFile.delete()
+
+        assertEquals(4, fullSlice.size)
+        assertEquals(0x20.toByte(), fullSlice[0])
+        assertEquals(0x50.toByte(), fullSlice[3])
+
+        assertEquals(3, cappedSlice.size)
+        assertEquals(0x10.toByte(), cappedSlice[0])
+        assertEquals(0x30.toByte(), cappedSlice[2])
+    }
 }

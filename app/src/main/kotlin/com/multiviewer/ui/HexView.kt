@@ -282,50 +282,51 @@ internal fun readDataInspectorValues(raf: RandomAccessFile, offset: Long, fileLe
     )
 }
 
-private fun readRangeBytes(raf: RandomAccessFile, range: LongRange): ByteArray {
-    val length = (range.last - range.first + 1).toInt()
-    val buf = ByteArray(length)
+internal fun readRangeBytes(raf: RandomAccessFile, range: LongRange, maxBytes: Int = 5 * 1024 * 1024): ByteArray {
+    val totalLen = maxOf(0L, range.last - range.first + 1)
+    val readLen = minOf(maxBytes.toLong(), totalLen).toInt()
+    val buf = ByteArray(readLen)
     raf.seek(range.first)
     raf.readFully(buf)
     return buf
 }
 
-private fun copyBytesAsText(raf: RandomAccessFile, range: LongRange) {
+internal fun copyBytesAsText(raf: RandomAccessFile, range: LongRange) {
     val buf = readRangeBytes(raf, range)
     com.multiviewer.util.ClipboardUtil.copyToClipboard(formatBytesAsText(buf))
 }
 
-private fun copyBytesAsPrintableAscii(raf: RandomAccessFile, range: LongRange) {
+internal fun copyBytesAsPrintableAscii(raf: RandomAccessFile, range: LongRange) {
     val buf = readRangeBytes(raf, range)
     com.multiviewer.util.ClipboardUtil.copyToClipboard(formatBytesAsPrintableAscii(buf))
 }
 
-private fun copyBytesAsHex(raf: RandomAccessFile, range: LongRange, multiLine: Boolean = true) {
+internal fun copyBytesAsHex(raf: RandomAccessFile, range: LongRange, multiLine: Boolean = true) {
     val buf = readRangeBytes(raf, range)
     com.multiviewer.util.ClipboardUtil.copyToClipboard(formatBytesAsHex(buf, multiLine))
 }
 
-private fun copyBytesAsContinuousHex(raf: RandomAccessFile, range: LongRange) {
+internal fun copyBytesAsContinuousHex(raf: RandomAccessFile, range: LongRange) {
     val buf = readRangeBytes(raf, range)
     com.multiviewer.util.ClipboardUtil.copyToClipboard(formatBytesAsContinuousHex(buf))
 }
 
-private fun copyBytesAsFormattedDump(raf: RandomAccessFile, range: LongRange) {
+internal fun copyBytesAsFormattedDump(raf: RandomAccessFile, range: LongRange) {
     val buf = readRangeBytes(raf, range)
     com.multiviewer.util.ClipboardUtil.copyToClipboard(formatHexDump(buf, range.first))
 }
 
-private fun copyBytesAsCodeArray(raf: RandomAccessFile, range: LongRange) {
+internal fun copyBytesAsCodeArray(raf: RandomAccessFile, range: LongRange) {
     val buf = readRangeBytes(raf, range)
     com.multiviewer.util.ClipboardUtil.copyToClipboard(formatBytesAsCodeArray(buf))
 }
 
-private fun copyBytesAsPythonBytes(raf: RandomAccessFile, range: LongRange) {
+internal fun copyBytesAsPythonBytes(raf: RandomAccessFile, range: LongRange) {
     val buf = readRangeBytes(raf, range)
     com.multiviewer.util.ClipboardUtil.copyToClipboard(formatBytesAsPythonBytes(buf))
 }
 
-private fun copyBytesAsBase64(raf: RandomAccessFile, range: LongRange) {
+internal fun copyBytesAsBase64(raf: RandomAccessFile, range: LongRange) {
     val buf = readRangeBytes(raf, range)
     com.multiviewer.util.ClipboardUtil.copyToClipboard(formatBytesAsBase64(buf))
 }
@@ -401,6 +402,15 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
         minOf(selectionAnchor!!, selectionEnd!!)..maxOf(selectionAnchor!!, selectionEnd!!)
     } else {
         null
+    }
+
+    val activeCopyRange = selectedRange ?: highlightRange
+    var copyToastMessage by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(copyToastMessage) {
+        if (copyToastMessage != null) {
+            kotlinx.coroutines.delay(2000)
+            copyToastMessage = null
+        }
     }
 
     val activeCursorOffset = selectionEnd ?: selectionAnchor ?: highlightRange?.first ?: 0L
@@ -726,78 +736,114 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
             }
         }
 
-        // Selection / Copy Info Bar
-        selectedRange?.let { range ->
+        // Selection / Box Range / Copy Info Bar
+        activeCopyRange?.let { range ->
+            val isManualSelection = selectedRange != null
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF1E281E))
+                    .background(if (isManualSelection) Color(0xFF1E281E) else Color(0xFF16253A))
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 val byteCount = range.last - range.first + 1
+                val labelPrefix = if (isManualSelection) "📍 선택 영역 (Selection)" else "📦 선택된 박스/마커 (Box/Marker)"
                 val text = if (byteCount == 1L) {
                     raf.seek(range.first)
                     val value = raf.read()
                     val asciiSuffix = if (value in 0x20..0x7E) "  '${value.toChar()}'" else ""
-                    "Offset: ${range.first} (0x${range.first.toString(16).uppercase()}) · Value: 0x${"%02X".format(value)} ($value)$asciiSuffix"
+                    "$labelPrefix: 0x${range.first.toString(16).uppercase()} · Value: 0x${"%02X".format(value)} ($value)$asciiSuffix"
                 } else {
-                    "Range: 0x${range.first.toString(16).uppercase()} - 0x${range.last.toString(16).uppercase()} ($byteCount bytes)"
+                    "$labelPrefix: 0x${range.first.toString(16).uppercase()} - 0x${range.last.toString(16).uppercase()} ($byteCount bytes)"
                 }
                 Text(
                     text,
-                    style = AppTypography.labelLarge.copy(color = AppColors.NeonGreen, fontSize = 11.sp),
+                    style = AppTypography.labelLarge.copy(
+                        color = if (isManualSelection) AppColors.NeonGreen else AppColors.NeonBlue,
+                        fontSize = 11.sp,
+                    ),
                     modifier = Modifier.weight(1f).padding(end = 8.dp),
                 )
-                Text(
-                    "(ESC: 선택 해제)",
-                    fontSize = 10.sp,
-                    color = AppColors.TextSecondary,
-                    modifier = Modifier.padding(end = 8.dp),
-                )
+                if (isManualSelection) {
+                    Text(
+                        "(ESC: 선택 해제)",
+                        fontSize = 10.sp,
+                        color = AppColors.TextSecondary,
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
+                }
+
+                // Copy Toast Feedback Indicator
+                copyToastMessage?.let { toast ->
+                    Text(
+                        "✓ $toast",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AppColors.NeonGreen,
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
+                }
 
                 // Quick copy buttons
                 FilledTonalButton(
-                    onClick = { copyBytesAsText(raf, range) },
+                    onClick = {
+                        copyBytesAsFormattedDump(raf, range)
+                        copyToastMessage = "덤프 복사됨"
+                    },
                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                     modifier = Modifier.height(24.dp).padding(end = 2.dp),
                 ) {
-                    Text("Text", fontSize = 10.sp)
+                    Text("Dump", fontSize = 10.sp)
                 }
                 FilledTonalButton(
-                    onClick = { copyBytesAsHex(raf, range, multiLine = true) },
+                    onClick = {
+                        copyBytesAsHex(raf, range, multiLine = true)
+                        copyToastMessage = "Hex 복사됨"
+                    },
                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                     modifier = Modifier.height(24.dp).padding(end = 2.dp),
                 ) {
                     Text("Hex", fontSize = 10.sp)
                 }
                 FilledTonalButton(
-                    onClick = { copyBytesAsBase64(raf, range) },
+                    onClick = {
+                        copyBytesAsText(raf, range)
+                        copyToastMessage = "Text 복사됨"
+                    },
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                    modifier = Modifier.height(24.dp).padding(end = 2.dp),
+                ) {
+                    Text("Text", fontSize = 10.sp)
+                }
+                FilledTonalButton(
+                    onClick = {
+                        copyBytesAsBase64(raf, range)
+                        copyToastMessage = "Base64 복사됨"
+                    },
                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                     modifier = Modifier.height(24.dp).padding(end = 2.dp),
                 ) {
                     Text("Base64", fontSize = 10.sp)
                 }
                 FilledTonalButton(
-                    onClick = { copyBytesAsCodeArray(raf, range) },
+                    onClick = {
+                        copyBytesAsCodeArray(raf, range)
+                        copyToastMessage = "C-Array 복사됨"
+                    },
                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                     modifier = Modifier.height(24.dp).padding(end = 2.dp),
                 ) {
                     Text("C-Array", fontSize = 10.sp)
                 }
                 FilledTonalButton(
-                    onClick = { copyBytesAsPythonBytes(raf, range) },
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                    modifier = Modifier.height(24.dp).padding(end = 2.dp),
-                ) {
-                    Text("Py-Bytes", fontSize = 10.sp)
-                }
-                FilledTonalButton(
-                    onClick = { copyBytesAsFormattedDump(raf, range) },
+                    onClick = {
+                        copyBytesAsPythonBytes(raf, range)
+                        copyToastMessage = "Py-Bytes 복사됨"
+                    },
                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                     modifier = Modifier.height(24.dp),
                 ) {
-                    Text("Dump", fontSize = 10.sp)
+                    Text("Py-Bytes", fontSize = 10.sp)
                 }
             }
         }
@@ -824,18 +870,43 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             ContextMenuArea(
                 items = {
-                    selectedRange?.let { range ->
+                    activeCopyRange?.let { range ->
                         listOf(
-                            ContextMenuItem("📋 Copy as Text (Raw UTF-8 / String)") { copyBytesAsText(raf, range) },
-                            ContextMenuItem("🔤 Copy as Printable ASCII") { copyBytesAsPrintableAscii(raf, range) },
-                            ContextMenuItem("🔢 Copy as Hex (Space-separated)") { copyBytesAsHex(raf, range, multiLine = true) },
-                            ContextMenuItem("🔗 Copy as Hex Stream (Continuous)") { copyBytesAsContinuousHex(raf, range) },
-                            ContextMenuItem("📦 Copy as Base64 String") { copyBytesAsBase64(raf, range) },
-                            ContextMenuItem("🐍 Copy as Python Bytes (b'\\x00...')") { copyBytesAsPythonBytes(raf, range) },
-                            ContextMenuItem("💻 Copy as C/C++ Byte Array (0xXX, ...)") { copyBytesAsCodeArray(raf, range) },
-                            ContextMenuItem("📑 Copy as Formatted Dump (Offset + Hex + ASCII)") { copyBytesAsFormattedDump(raf, range) },
-                            ContextMenuItem("❌ Clear Selection (ESC)") { clearSelection() },
-                        )
+                            ContextMenuItem("📑 Copy as Formatted Dump (Offset + Hex + ASCII) [Ctrl+C]") {
+                                copyBytesAsFormattedDump(raf, range)
+                                copyToastMessage = "덤프 복사됨"
+                            },
+                            ContextMenuItem("🔢 Copy as Hex (Space-separated, 16B/line) [Ctrl+Shift+C]") {
+                                copyBytesAsHex(raf, range, multiLine = true)
+                                copyToastMessage = "Hex 복사됨"
+                            },
+                            ContextMenuItem("📋 Copy as Text (Raw UTF-8 / String)") {
+                                copyBytesAsText(raf, range)
+                                copyToastMessage = "Text 복사됨"
+                            },
+                            ContextMenuItem("🔤 Copy as Printable ASCII") {
+                                copyBytesAsPrintableAscii(raf, range)
+                                copyToastMessage = "ASCII 복사됨"
+                            },
+                            ContextMenuItem("🔗 Copy as Hex Stream (Continuous)") {
+                                copyBytesAsContinuousHex(raf, range)
+                                copyToastMessage = "Continuous Hex 복사됨"
+                            },
+                            ContextMenuItem("📦 Copy as Base64 String") {
+                                copyBytesAsBase64(raf, range)
+                                copyToastMessage = "Base64 복사됨"
+                            },
+                            ContextMenuItem("🐍 Copy as Python Bytes (b'\\x00...')") {
+                                copyBytesAsPythonBytes(raf, range)
+                                copyToastMessage = "Python Bytes 복사됨"
+                            },
+                            ContextMenuItem("💻 Copy as C/C++ Byte Array (0xXX, ...)") {
+                                copyBytesAsCodeArray(raf, range)
+                                copyToastMessage = "C-Array 복사됨"
+                            },
+                        ) + (if (selectedRange != null) listOf(
+                            ContextMenuItem("❌ Clear Selection (ESC)") { clearSelection() }
+                        ) else emptyList())
                     } ?: listOf(
                         ContextMenuItem("🔍 Find in Hex (Ctrl+F)") { showFindBar = true },
                         ContextMenuItem("📍 Go to Offset (Ctrl+G)") { showGoToBar = true },
@@ -874,17 +945,27 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
                                         showInspector = !showInspector
                                         true
                                     }
-                                    // Ctrl+C / Cmd+C copies as Text
-                                    (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) && !keyEvent.isShiftPressed && keyEvent.key == Key.C -> {
-                                        selectedRange?.let { range ->
-                                            copyBytesAsText(raf, range)
+                                    // Ctrl+C / Cmd+C copies as Formatted Dump
+                                    (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) && !keyEvent.isShiftPressed && !keyEvent.isAltPressed && keyEvent.key == Key.C -> {
+                                        activeCopyRange?.let { range ->
+                                            copyBytesAsFormattedDump(raf, range)
+                                            copyToastMessage = "덤프 복사됨"
                                             true
                                         } ?: false
                                     }
                                     // Ctrl+Shift+C / Cmd+Shift+C copies as Hex
                                     (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) && keyEvent.isShiftPressed && keyEvent.key == Key.C -> {
-                                        selectedRange?.let { range ->
+                                        activeCopyRange?.let { range ->
                                             copyBytesAsHex(raf, range, multiLine = true)
+                                            copyToastMessage = "Hex 복사됨"
+                                            true
+                                        } ?: false
+                                    }
+                                    // Ctrl+Alt+C / Cmd+Alt+C copies as Text
+                                    (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) && keyEvent.isAltPressed && keyEvent.key == Key.C -> {
+                                        activeCopyRange?.let { range ->
+                                            copyBytesAsText(raf, range)
+                                            copyToastMessage = "Text 복사됨"
                                             true
                                         } ?: false
                                     }
