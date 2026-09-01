@@ -168,4 +168,39 @@ class HexViewTest {
         assertEquals(0x10.toByte(), cappedSlice[0])
         assertEquals(0x30.toByte(), cappedSlice[2])
     }
+
+    @Test
+    fun `charIndexToByteIndex maps character coordinates to correct byte index across hex and ascii sections`() {
+        val rowByteCount = 16
+        // Offset prefix (0..9) -> null
+        assertEquals(null, charIndexToByteIndex(0, rowByteCount))
+        assertEquals(null, charIndexToByteIndex(9, rowByteCount))
+
+        // Hex column 00 (10..12) -> 0
+        assertEquals(0, charIndexToByteIndex(10, rowByteCount))
+        assertEquals(0, charIndexToByteIndex(11, rowByteCount))
+        assertEquals(0, charIndexToByteIndex(12, rowByteCount))
+
+        // Hex column 07 (31..33) -> 7
+        assertEquals(7, charIndexToByteIndex(31, rowByteCount))
+        assertEquals(7, charIndexToByteIndex(32, rowByteCount))
+        assertEquals(7, charIndexToByteIndex(33, rowByteCount))
+
+        // Hex column 08 (35..37) -> 8
+        assertEquals(8, charIndexToByteIndex(35, rowByteCount))
+        assertEquals(8, charIndexToByteIndex(36, rowByteCount))
+        assertEquals(8, charIndexToByteIndex(37, rowByteCount))
+
+        // Hex column 0F (56..58) -> 15
+        assertEquals(15, charIndexToByteIndex(56, rowByteCount))
+        assertEquals(15, charIndexToByteIndex(57, rowByteCount))
+        assertEquals(15, charIndexToByteIndex(58, rowByteCount))
+
+        // ASCII section starts at 60 -> 0..15
+        assertEquals(0, charIndexToByteIndex(60, rowByteCount))
+        assertEquals(1, charIndexToByteIndex(61, rowByteCount))
+        assertEquals(7, charIndexToByteIndex(67, rowByteCount))
+        assertEquals(8, charIndexToByteIndex(68, rowByteCount))
+        assertEquals(15, charIndexToByteIndex(75, rowByteCount))
+    }
 }

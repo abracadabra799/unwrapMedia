@@ -60,14 +60,14 @@ fun hexZoomFontSize(currentSp: Float, scrollDeltaY: Float): Float =
     (currentSp * (1f - scrollDeltaY * HEX_ZOOM_STEP_FACTOR)).coerceIn(MIN_HEX_FONT_SP, MAX_HEX_FONT_SP)
 
 private const val OFFSET_PREFIX_CHARS = 10
-private const val HEX_SECTION_CHARS = BYTES_PER_ROW * 3
-private const val ASCII_SECTION_START = OFFSET_PREFIX_CHARS + HEX_SECTION_CHARS + 1
+private const val ASCII_SECTION_START = 60
 
-private fun charIndexToByteIndex(charIndex: Int, rowByteCount: Int): Int? {
-    val hexEnd = OFFSET_PREFIX_CHARS + HEX_SECTION_CHARS
+internal fun charIndexToByteIndex(charIndex: Int, rowByteCount: Int): Int? {
     return when {
-        charIndex in OFFSET_PREFIX_CHARS until hexEnd ->
+        charIndex in OFFSET_PREFIX_CHARS until 34 ->
             ((charIndex - OFFSET_PREFIX_CHARS) / 3).takeIf { it < rowByteCount }
+        charIndex in 34 until ASCII_SECTION_START ->
+            ((charIndex - OFFSET_PREFIX_CHARS - 1) / 3).coerceIn(0, BYTES_PER_ROW - 1).takeIf { it < rowByteCount }
         charIndex >= ASCII_SECTION_START ->
             (charIndex - ASCII_SECTION_START).takeIf { it < rowByteCount }
         else -> null
@@ -897,15 +897,17 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
             color = Color(0xFF141414),
         ) {
             Text(
-                text = "Offset (h)   00 01 02 03 04 05 06 07  08 09 0A 0B 0C 0D 0E 0F  Decoded text",
+                text = "Offset    00 01 02 03 04 05 06 07  08 09 0A 0B 0C 0D 0E 0F  Decoded text",
                 style = AppTypography.bodyLarge.copy(
                     fontSize = fontSizeSp.sp,
+                    lineHeight = (fontSizeSp * (16f / 12f)).sp,
+                    letterSpacing = 0.2.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
                     color = AppColors.TextSecondary,
-                    letterSpacing = 0.2.sp,
                 ),
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                softWrap = false,
+                modifier = Modifier.padding(start = 6.dp, end = 16.dp, top = 2.dp, bottom = 2.dp),
             )
         }
 
@@ -1025,27 +1027,32 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
                             fontSizeSp = hexZoomFontSize(fontSizeSp, delta)
                             event.changes.forEach { it.consume() }
                         }
-                        .pointerInput(file) {
-                            awaitEachGesture {
-                                val down = awaitFirstDown()
-                                focusRequester.requestFocus()
-                                val isShiftExtend = currentEvent.keyboardModifiers.isShiftPressed && selectionAnchor != null
-                                val startOffset = resolveByteAt(down.position, listState, layoutResults, fileLength) ?: return@awaitEachGesture
-                                if (isShiftExtend) {
-                                    selectionEnd = startOffset
-                                } else {
-                                    selectionAnchor = startOffset
-                                    selectionEnd = startOffset
-                                }
-                                drag(down.id) { change ->
-                                    change.consume()
-                                    val offset = resolveByteAt(change.position, listState, layoutResults, fileLength)
-                                    if (offset != null) selectionEnd = offset
-                                }
-                            }
-                        },
                 ) {
-                    LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(start = 6.dp, end = 16.dp)
+                            .pointerInput(file) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown()
+                                    focusRequester.requestFocus()
+                                    val isShiftExtend = currentEvent.keyboardModifiers.isShiftPressed && selectionAnchor != null
+                                    val startOffset = resolveByteAt(down.position, listState, layoutResults, fileLength) ?: return@awaitEachGesture
+                                    if (isShiftExtend) {
+                                        selectionEnd = startOffset
+                                    } else {
+                                        selectionAnchor = startOffset
+                                        selectionEnd = startOffset
+                                    }
+                                    drag(down.id) { change ->
+                                        change.consume()
+                                        val offset = resolveByteAt(change.position, listState, layoutResults, fileLength)
+                                        if (offset != null) selectionEnd = offset
+                                    }
+                                }
+                            },
+                    ) {
                         items(rowCount) { rowIndex ->
                             val rowStart = rowIndex.toLong() * BYTES_PER_ROW
                             val rowLength = minOf(BYTES_PER_ROW.toLong(), fileLength - rowStart).toInt()
