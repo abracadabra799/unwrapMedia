@@ -523,6 +523,95 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
                         Text("📊 Data Inspector (Ctrl+I)", fontSize = 10.sp)
                     }
 
+                    var showToolbarCopyMenu by remember { mutableStateOf(false) }
+                    Box {
+                        FilledTonalButton(
+                            onClick = { showToolbarCopyMenu = !showToolbarCopyMenu },
+                            enabled = activeCopyRange != null,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.height(26.dp),
+                            colors = ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.NeonBlue.copy(alpha = 0.25f)),
+                        ) {
+                            Text("📋 데이터 복사 (Copy) ▾", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (activeCopyRange != null) AppColors.NeonBlue else AppColors.TextSecondary)
+                        }
+                        DropdownMenu(
+                            expanded = showToolbarCopyMenu,
+                            onDismissRequest = { showToolbarCopyMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("📑 덤프 포맷 복사 (Offset + Hex + ASCII) [Ctrl+C]", fontSize = 11.sp) },
+                                onClick = {
+                                    showToolbarCopyMenu = false
+                                    activeCopyRange?.let {
+                                        copyBytesAsFormattedDump(raf, it)
+                                        copyToastMessage = "덤프 복사됨"
+                                    }
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("🔢 16진수 바이트 복사 (Hex 16B/줄) [Ctrl+Shift+C]", fontSize = 11.sp) },
+                                onClick = {
+                                    showToolbarCopyMenu = false
+                                    activeCopyRange?.let {
+                                        copyBytesAsHex(raf, it, multiLine = true)
+                                        copyToastMessage = "Hex 바이트 복사됨"
+                                    }
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("🔤 텍스트(UTF-8) 복사 [Ctrl+Alt+C]", fontSize = 11.sp) },
+                                onClick = {
+                                    showToolbarCopyMenu = false
+                                    activeCopyRange?.let {
+                                        copyBytesAsText(raf, it)
+                                        copyToastMessage = "텍스트 복사됨"
+                                    }
+                                },
+                            )
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                            DropdownMenuItem(
+                                text = { Text("📦 Base64 문자열 복사", fontSize = 11.sp) },
+                                onClick = {
+                                    showToolbarCopyMenu = false
+                                    activeCopyRange?.let {
+                                        copyBytesAsBase64(raf, it)
+                                        copyToastMessage = "Base64 복사됨"
+                                    }
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("💻 C/C++ 바이트 배열 복사 (0xXX, ...)", fontSize = 11.sp) },
+                                onClick = {
+                                    showToolbarCopyMenu = false
+                                    activeCopyRange?.let {
+                                        copyBytesAsCodeArray(raf, it)
+                                        copyToastMessage = "C-Array 복사됨"
+                                    }
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("🐍 Python Bytes 리터럴 복사 (b'\\x00...')", fontSize = 11.sp) },
+                                onClick = {
+                                    showToolbarCopyMenu = false
+                                    activeCopyRange?.let {
+                                        copyBytesAsPythonBytes(raf, it)
+                                        copyToastMessage = "Py-Bytes 복사됨"
+                                    }
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("🔗 연속 16진수(Hex Stream) 복사", fontSize = 11.sp) },
+                                onClick = {
+                                    showToolbarCopyMenu = false
+                                    activeCopyRange?.let {
+                                        copyBytesAsContinuousHex(raf, it)
+                                        copyToastMessage = "Continuous Hex 복사됨"
+                                    }
+                                },
+                            )
+                        }
+                    }
+
                     Spacer(modifier = Modifier.weight(1f))
 
                     // Font Zoom Controls
@@ -743,30 +832,31 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(if (isManualSelection) Color(0xFF1E281E) else Color(0xFF16253A))
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 val byteCount = range.last - range.first + 1
-                val labelPrefix = if (isManualSelection) "📍 선택 영역 (Selection)" else "📦 선택된 박스/마커 (Box/Marker)"
+                val labelPrefix = if (isManualSelection) "📍 선택 영역" else "📦 선택된 박스/마커"
                 val text = if (byteCount == 1L) {
                     raf.seek(range.first)
                     val value = raf.read()
                     val asciiSuffix = if (value in 0x20..0x7E) "  '${value.toChar()}'" else ""
-                    "$labelPrefix: 0x${range.first.toString(16).uppercase()} · Value: 0x${"%02X".format(value)} ($value)$asciiSuffix"
+                    "$labelPrefix: 0x${range.first.toString(16).uppercase()} · 0x${"%02X".format(value)} ($value)$asciiSuffix"
                 } else {
-                    "$labelPrefix: 0x${range.first.toString(16).uppercase()} - 0x${range.last.toString(16).uppercase()} ($byteCount bytes)"
+                    "$labelPrefix: 0x${range.first.toString(16).uppercase()} - 0x${range.last.toString(16).uppercase()} ($byteCount 바이트)"
                 }
                 Text(
                     text,
                     style = AppTypography.labelLarge.copy(
                         color = if (isManualSelection) AppColors.NeonGreen else AppColors.NeonBlue,
                         fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
                     ),
                     modifier = Modifier.weight(1f).padding(end = 8.dp),
                 )
                 if (isManualSelection) {
                     Text(
-                        "(ESC: 선택 해제)",
+                        "(ESC: 해제)",
                         fontSize = 10.sp,
                         color = AppColors.TextSecondary,
                         modifier = Modifier.padding(end = 8.dp),
@@ -775,14 +865,29 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
 
                 // Copy Toast Feedback Indicator
                 copyToastMessage?.let { toast ->
-                    Text(
-                        "✓ $toast",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = AppColors.NeonGreen,
+                    Surface(
+                        color = AppColors.NeonGreen.copy(alpha = 0.2f),
+                        shape = RoundedCornerShape(4.dp),
                         modifier = Modifier.padding(end = 8.dp),
-                    )
+                    ) {
+                        Text(
+                            "✓ $toast",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AppColors.NeonGreen,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
                 }
+
+                // Copy Action Group Label
+                Text(
+                    "복사:",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AppColors.TextPrimary,
+                    modifier = Modifier.padding(end = 4.dp),
+                )
 
                 // Quick copy buttons
                 FilledTonalButton(
@@ -790,60 +895,87 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
                         copyBytesAsFormattedDump(raf, range)
                         copyToastMessage = "덤프 복사됨"
                     },
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                    modifier = Modifier.height(24.dp).padding(end = 2.dp),
+                    contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp),
+                    modifier = Modifier.height(24.dp).padding(end = 3.dp),
+                    colors = ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.NeonBlue.copy(alpha = 0.25f)),
                 ) {
-                    Text("Dump", fontSize = 10.sp)
+                    Text("📋 덤프 복사", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AppColors.NeonBlue)
                 }
                 FilledTonalButton(
                     onClick = {
                         copyBytesAsHex(raf, range, multiLine = true)
                         copyToastMessage = "Hex 복사됨"
                     },
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                    modifier = Modifier.height(24.dp).padding(end = 2.dp),
+                    contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp),
+                    modifier = Modifier.height(24.dp).padding(end = 3.dp),
                 ) {
-                    Text("Hex", fontSize = 10.sp)
+                    Text("🔢 Hex 복사", fontSize = 10.sp)
                 }
                 FilledTonalButton(
                     onClick = {
                         copyBytesAsText(raf, range)
-                        copyToastMessage = "Text 복사됨"
+                        copyToastMessage = "텍스트 복사됨"
                     },
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                    modifier = Modifier.height(24.dp).padding(end = 2.dp),
+                    contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp),
+                    modifier = Modifier.height(24.dp).padding(end = 3.dp),
                 ) {
-                    Text("Text", fontSize = 10.sp)
+                    Text("🔤 텍스트 복사", fontSize = 10.sp)
                 }
-                FilledTonalButton(
-                    onClick = {
-                        copyBytesAsBase64(raf, range)
-                        copyToastMessage = "Base64 복사됨"
-                    },
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                    modifier = Modifier.height(24.dp).padding(end = 2.dp),
-                ) {
-                    Text("Base64", fontSize = 10.sp)
-                }
-                FilledTonalButton(
-                    onClick = {
-                        copyBytesAsCodeArray(raf, range)
-                        copyToastMessage = "C-Array 복사됨"
-                    },
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                    modifier = Modifier.height(24.dp).padding(end = 2.dp),
-                ) {
-                    Text("C-Array", fontSize = 10.sp)
-                }
-                FilledTonalButton(
-                    onClick = {
-                        copyBytesAsPythonBytes(raf, range)
-                        copyToastMessage = "Py-Bytes 복사됨"
-                    },
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                    modifier = Modifier.height(24.dp),
-                ) {
-                    Text("Py-Bytes", fontSize = 10.sp)
+
+                var showMoreFormatsMenu by remember { mutableStateOf(false) }
+                Box {
+                    FilledTonalButton(
+                        onClick = { showMoreFormatsMenu = !showMoreFormatsMenu },
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                        modifier = Modifier.height(24.dp),
+                    ) {
+                        Text("기타 포맷 ▾", fontSize = 10.sp)
+                    }
+                    DropdownMenu(
+                        expanded = showMoreFormatsMenu,
+                        onDismissRequest = { showMoreFormatsMenu = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("📦 Base64 문자열 복사", fontSize = 11.sp) },
+                            onClick = {
+                                showMoreFormatsMenu = false
+                                copyBytesAsBase64(raf, range)
+                                copyToastMessage = "Base64 복사됨"
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("💻 C/C++ 배열 복사 (0xXX, ...)", fontSize = 11.sp) },
+                            onClick = {
+                                showMoreFormatsMenu = false
+                                copyBytesAsCodeArray(raf, range)
+                                copyToastMessage = "C-Array 복사됨"
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("🐍 Python Bytes 복사 (b'\\x00...')", fontSize = 11.sp) },
+                            onClick = {
+                                showMoreFormatsMenu = false
+                                copyBytesAsPythonBytes(raf, range)
+                                copyToastMessage = "Py-Bytes 복사됨"
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("🔗 연속 16진수(Hex Stream) 복사", fontSize = 11.sp) },
+                            onClick = {
+                                showMoreFormatsMenu = false
+                                copyBytesAsContinuousHex(raf, range)
+                                copyToastMessage = "Continuous Hex 복사됨"
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("🔤 출력 가능한 ASCII 문자만 복사", fontSize = 11.sp) },
+                            onClick = {
+                                showMoreFormatsMenu = false
+                                copyBytesAsPrintableAscii(raf, range)
+                                copyToastMessage = "ASCII 복사됨"
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -872,40 +1004,40 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
                 items = {
                     activeCopyRange?.let { range ->
                         listOf(
-                            ContextMenuItem("📑 Copy as Formatted Dump (Offset + Hex + ASCII) [Ctrl+C]") {
+                            ContextMenuItem("📋 덤프 형식으로 복사 (Offset + Hex + ASCII) [Ctrl+C]") {
                                 copyBytesAsFormattedDump(raf, range)
                                 copyToastMessage = "덤프 복사됨"
                             },
-                            ContextMenuItem("🔢 Copy as Hex (Space-separated, 16B/line) [Ctrl+Shift+C]") {
+                            ContextMenuItem("🔢 16진수(Hex) 바이트 형식으로 복사 [Ctrl+Shift+C]") {
                                 copyBytesAsHex(raf, range, multiLine = true)
                                 copyToastMessage = "Hex 복사됨"
                             },
-                            ContextMenuItem("📋 Copy as Text (Raw UTF-8 / String)") {
+                            ContextMenuItem("🔤 텍스트(UTF-8) 형식으로 복사 [Ctrl+Alt+C]") {
                                 copyBytesAsText(raf, range)
-                                copyToastMessage = "Text 복사됨"
+                                copyToastMessage = "텍스트 복사됨"
                             },
-                            ContextMenuItem("🔤 Copy as Printable ASCII") {
+                            ContextMenuItem("🔤 출력 가능한 ASCII 문자만 복사") {
                                 copyBytesAsPrintableAscii(raf, range)
                                 copyToastMessage = "ASCII 복사됨"
                             },
-                            ContextMenuItem("🔗 Copy as Hex Stream (Continuous)") {
+                            ContextMenuItem("🔗 연속 16진수(Hex Stream)로 복사") {
                                 copyBytesAsContinuousHex(raf, range)
                                 copyToastMessage = "Continuous Hex 복사됨"
                             },
-                            ContextMenuItem("📦 Copy as Base64 String") {
+                            ContextMenuItem("📦 Base64 인코딩 문자열로 복사") {
                                 copyBytesAsBase64(raf, range)
                                 copyToastMessage = "Base64 복사됨"
                             },
-                            ContextMenuItem("🐍 Copy as Python Bytes (b'\\x00...')") {
+                            ContextMenuItem("🐍 Python 바이트 리터럴(b'\\x00...')로 복사") {
                                 copyBytesAsPythonBytes(raf, range)
                                 copyToastMessage = "Python Bytes 복사됨"
                             },
-                            ContextMenuItem("💻 Copy as C/C++ Byte Array (0xXX, ...)") {
+                            ContextMenuItem("💻 C/C++ 바이트 배열(0xXX, ...)로 복사") {
                                 copyBytesAsCodeArray(raf, range)
                                 copyToastMessage = "C-Array 복사됨"
                             },
                         ) + (if (selectedRange != null) listOf(
-                            ContextMenuItem("❌ Clear Selection (ESC)") { clearSelection() }
+                            ContextMenuItem("❌ 선택 영역 해제 (ESC)") { clearSelection() }
                         ) else emptyList())
                     } ?: listOf(
                         ContextMenuItem("🔍 Find in Hex (Ctrl+F)") { showFindBar = true },
