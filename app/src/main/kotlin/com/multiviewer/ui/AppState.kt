@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import com.multiviewer.parser.*
+import com.multiviewer.util.withTempFile
 import java.awt.EventQueue
 import java.io.File
 
@@ -791,16 +792,17 @@ class AppState {
         if (tab.isAnalyzingMotionPhotoCodec || tab.motionPhotoCodecDetailsLoaded) return
         tab.isAnalyzingMotionPhotoCodec = true
         runInBackground {
-            val temp = try {
-                val dest = File.createTempFile("motion-photo-codec-probe-", ".${video.extension}")
-                dest.deleteOnExit()
-                extractEmbeddedVideo(tab.file, video, dest)
-                dest
-            } catch (e: Exception) {
-                null
+            // The extracted video is deleted even if the extract or the probe throws -- see
+            // withTempFile. Previously the delete sat after the probe, so a probe failure stranded
+            // the whole extracted video in the temp directory for the rest of the session.
+            val details = withTempFile("motion-photo-codec-probe-", ".${video.extension}") { dest ->
+                try {
+                    extractEmbeddedVideo(tab.file, video, dest)
+                    probeStreamDetails(dest)
+                } catch (e: Exception) {
+                    null
+                }
             }
-            val details = temp?.let { probeStreamDetails(it) }
-            temp?.delete()
             EventQueue.invokeLater {
                 val summary = tab.mediaSummary
                 if (details != null && summary != null) {
@@ -819,29 +821,29 @@ class AppState {
         if (tab.isAnalyzingMotionPhotoFrames || tab.motionPhotoGopFrames != null) return
         tab.isAnalyzingMotionPhotoFrames = true
         runInBackground {
-            val temp = try {
-                val dest = File.createTempFile("motion-photo-frame-interval-", ".${video.extension}")
-                dest.deleteOnExit()
-                extractEmbeddedVideo(tab.file, video, dest)
-                dest
-            } catch (e: Exception) {
-                null
-            }
-            val videoInfo = temp?.let { probeVideo(it) }
-            if (temp != null) {
-                kotlinx.coroutines.runBlocking {
-                    probeFrameTypesStreaming(temp, isCancelled = { tab.isClosed }).collect { progress ->
-                        EventQueue.invokeLater {
-                            tab.motionPhotoGopFrames = progress.frames
-                            tab.motionPhotoVideoFps = videoInfo?.fps
-                            if (progress.isComplete) {
-                                tab.isAnalyzingMotionPhotoFrames = false
+            // Same contract as analyzeMotionPhotoCodecDetails above: the extracted video goes away
+            // on every path, including the ones that throw.
+            val scanned = withTempFile("motion-photo-frame-interval-", ".${video.extension}") { temp ->
+                try {
+                    extractEmbeddedVideo(tab.file, video, temp)
+                    val videoInfo = probeVideo(temp)
+                    kotlinx.coroutines.runBlocking {
+                        probeFrameTypesStreaming(temp, isCancelled = { tab.isClosed }).collect { progress ->
+                            EventQueue.invokeLater {
+                                tab.motionPhotoGopFrames = progress.frames
+                                tab.motionPhotoVideoFps = videoInfo?.fps
+                                if (progress.isComplete) {
+                                    tab.isAnalyzingMotionPhotoFrames = false
+                                }
                             }
                         }
                     }
+                    true
+                } catch (e: Exception) {
+                    false
                 }
-                temp.delete()
-            } else {
+            }
+            if (scanned != true) {
                 EventQueue.invokeLater {
                     tab.motionPhotoGopFrames = emptyList()
                     tab.isAnalyzingMotionPhotoFrames = false
