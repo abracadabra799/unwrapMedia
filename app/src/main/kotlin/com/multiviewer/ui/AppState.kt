@@ -25,16 +25,13 @@ val IMAGE_EXTENSIONS = listOf(
     "cr2", "nef", "arw", "dng",
 )
 val VIDEO_EXTENSIONS = listOf("mp4", "mov", "m4v", "webm", "apv", "av1", "ivf")
-// M4A is an MP4-family container (same ftyp/moov/trak structure as mp4/mov/m4v above) holding an
-// audio-only track (AAC, ALAC, or AC-3) -- parseFile's magic-byte dispatch already reaches the
-// same generic ISOBMFF box walker for it with no new parser needed, and MediaSummaryBuilder's
-// detectCategory/buildVideoSummary already handle a video-less "soun"-only moov correctly (that
-// code predates this extension even being routed here). MP3, WAV, FLAC, OGG, and AIFF each have
-// their own dedicated parsers (Mp3Walker/WavWalker/FlacWalker/OggWalker/AiffWalker). "opus" files
-// are themselves Ogg containers (same "OggS" magic and page format), just carrying an Opus stream
-// instead of Vorbis, so they route through the same OggWalker with no separate parser needed.
-// "aif"/"aifc" are alternate extensions for the same AIFF/AIFF-C container format as "aiff".
 val AUDIO_EXTENSIONS = listOf("m4a", "mp3", "wav", "flac", "ogg", "opus", "aiff", "aif", "aifc")
+val RAW_PIXEL_EXTENSIONS = listOf("raw", "rgb", "rgba", "yuv", "nv12", "nv21")
+val RAW_AUDIO_EXTENSIONS = listOf("pcm")
+
+val ALL_SUPPORTED_MEDIA_EXTENSIONS: Set<String> = (IMAGE_EXTENSIONS + VIDEO_EXTENSIONS + AUDIO_EXTENSIONS + RAW_PIXEL_EXTENSIONS + RAW_AUDIO_EXTENSIONS)
+    .map { it.lowercase(java.util.Locale.US) }
+    .toSet()
 
 // Resolution guidance shared by the normal open flow (AppState.openFile) and the raw pixel dialog
 // (RawPixelOpenDialog) -- see README's "Supported Specs & Limits" section. Below WARN: no notice.
@@ -287,9 +284,6 @@ class TabState(val file: File) {
     // format hints raw PCM can't self-describe.
     var rawAudioParams: RawAudioParams? by mutableStateOf(null)
 }
-
-private val RAW_PIXEL_EXTENSIONS = listOf("raw", "rgb", "rgba", "yuv", "nv12", "nv21")
-private val RAW_AUDIO_EXTENSIONS = listOf("pcm")
 
 class AppState {
     val tabs = mutableStateListOf<TabState>()

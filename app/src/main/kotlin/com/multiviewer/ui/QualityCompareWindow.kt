@@ -25,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.rememberWindowState
 import java.awt.EventQueue
@@ -248,19 +249,34 @@ fun QualityCompareWindow(appState: AppState? = null, onCloseRequest: () -> Unit)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val resStr = rawRes?.let { " (${it.first}x${it.second})" } ?: ""
                 Text("Raw: ${rawFile?.name ?: "(없음)"}$resStr", modifier = Modifier.weight(1f))
-                Button(enabled = !isRunning, onClick = { pickFile("Raw 파일 선택") { rawFile = it } }) { Text("선택") }
+                androidx.compose.material3.OutlinedButton(
+                    enabled = !isRunning,
+                    onClick = { pickFile("Raw 파일 선택") { rawFile = it } },
+                    modifier = Modifier.height(28.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                ) { Text("선택", fontSize = 11.sp) }
             }
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val resStr = encodedARes?.let { " (${it.first}x${it.second})" } ?: ""
                 Text("Encoded A: ${encodedAFile?.name ?: "(없음)"}$resStr", modifier = Modifier.weight(1f))
-                Button(enabled = !isRunning, onClick = { pickFile("Encoded A 파일 선택") { encodedAFile = it } }) { Text("선택") }
+                androidx.compose.material3.OutlinedButton(
+                    enabled = !isRunning,
+                    onClick = { pickFile("Encoded A 파일 선택") { encodedAFile = it } },
+                    modifier = Modifier.height(28.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                ) { Text("선택", fontSize = 11.sp) }
             }
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val resStr = encodedBRes?.let { " (${it.first}x${it.second})" } ?: ""
                 Text("Encoded B: ${encodedBFile?.name ?: "(없음)"}$resStr", modifier = Modifier.weight(1f))
-                Button(enabled = !isRunning, onClick = { pickFile("Encoded B 파일 선택") { encodedBFile = it } }) { Text("선택") }
+                androidx.compose.material3.OutlinedButton(
+                    enabled = !isRunning,
+                    onClick = { pickFile("Encoded B 파일 선택") { encodedBFile = it } },
+                    modifier = Modifier.height(28.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                ) { Text("선택", fontSize = 11.sp) }
             }
 
             val candidatePairs = determineComparisonPairs(rawFile, encodedAFile, encodedBFile)
