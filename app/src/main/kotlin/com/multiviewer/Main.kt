@@ -336,7 +336,13 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         size = DpSize(1280.dp, 800.dp),
     )
     Window(
-        onCloseRequest = ::exitApplication,
+        onCloseRequest = {
+            try {
+                com.multiviewer.util.ProcessManager.destroyAll()
+            } catch (_: Throwable) {}
+            exitApplication()
+            exitProcess(0)
+        },
         title = "unwrapMedia v${I18n.APP_VERSION}",
         state = windowState,
         icon = appIcon,

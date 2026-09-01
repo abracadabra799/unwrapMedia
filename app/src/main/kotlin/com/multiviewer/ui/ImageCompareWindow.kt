@@ -1197,8 +1197,8 @@ internal fun extractMetadataDiffRows(infoA: CompareMediaInfo, infoB: CompareMedi
     }
 
     // 3. Motion Photo Metadata (if any)
-    val mpA = infoA.root?.let { findEmbeddedVideo(it, ByteReader.open(infoA.file)) }
-    val mpB = infoB.root?.let { findEmbeddedVideo(it, ByteReader.open(infoB.file)) }
+    val mpA = infoA.root?.let { root -> try { ByteReader.open(infoA.file).use { reader -> findEmbeddedVideo(root, reader) } } catch (_: Exception) { null } }
+    val mpB = infoB.root?.let { root -> try { ByteReader.open(infoB.file).use { reader -> findEmbeddedVideo(root, reader) } } catch (_: Exception) { null } }
     if (mpA != null || mpB != null) {
         add("Motion Photo", "Has Motion Video", (mpA != null).toString(), (mpB != null).toString())
         add("Motion Photo", "Video Offset Range", mpA?.let { "${it.start}..${it.end} (${formatSize(it.end - it.start)})" }, mpB?.let { "${it.start}..${it.end} (${formatSize(it.end - it.start)})" })
