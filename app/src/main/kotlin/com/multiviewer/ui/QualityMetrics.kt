@@ -1,5 +1,6 @@
 package com.multiviewer.ui
 
+import com.multiviewer.util.ProcessManager
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -131,15 +132,17 @@ private fun runMetricPass(
 ): Boolean {
     val totalFrames = probeFrameCount(comparison)
     val process = try {
-        ProcessBuilder(
-            FfmpegLocator.ffmpegPath(), "-y",
-            "-i", comparison.absolutePath, "-i", reference.absolutePath,
-            "-lavfi", filterSpec,
-            "-progress", "pipe:1",
-            "-f", "null", "-",
-        ).also { FfmpegLocator.configureEnvironment(it) }
-            .redirectError(ProcessBuilder.Redirect.DISCARD)
-            .start()
+        ProcessManager.register(
+            ProcessBuilder(
+                FfmpegLocator.ffmpegPath(), "-y",
+                "-i", comparison.absolutePath, "-i", reference.absolutePath,
+                "-lavfi", filterSpec,
+                "-progress", "pipe:1",
+                "-f", "null", "-",
+            ).also { FfmpegLocator.configureEnvironment(it) }
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
+                .start()
+        )
     } catch (e: Exception) {
         return false
     }
@@ -165,6 +168,8 @@ private fun runMetricPass(
     } catch (e: Exception) {
         process.destroyForcibly()
         false
+    } finally {
+        ProcessManager.terminate(process)
     }
 }
 

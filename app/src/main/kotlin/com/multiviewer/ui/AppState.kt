@@ -108,6 +108,13 @@ data class ImageForensicData(
 )
 
 class TabState(val file: File) {
+    // Set by AppState.closeTab. Polled (not observed) from background threads, so it's a plain
+    // @Volatile field rather than Compose state -- nothing recomposes on it; it exists so in-flight
+    // background scans can notice their tab is gone and stop instead of finishing work nobody will
+    // ever see. See analyzeFrames / probeFrameTypesStreaming's isCancelled.
+    @Volatile
+    var isClosed: Boolean = false
+
     var isLoading: Boolean by mutableStateOf(true)
     var type by mutableStateOf(MediaType.UNKNOWN)
     var root: BoxNode? by mutableStateOf(null)
@@ -746,7 +753,7 @@ class AppState {
 
     fun closeTab(index: Int) {
         statusMessage = null
-        tabs.removeAt(index)
+        tabs.removeAt(index).isClosed = true
         selectedTabIndex = when {
             tabs.isEmpty() -> 0
             index < selectedTabIndex -> selectedTabIndex - 1
@@ -762,7 +769,7 @@ class AppState {
         tab.frameAnalysisProgress = null
         runInBackground {
             kotlinx.coroutines.runBlocking {
-                probeFrameTypesStreaming(tab.file).collect { progress ->
+                probeFrameTypesStreaming(tab.file, isCancelled = { tab.isClosed }).collect { progress ->
                     EventQueue.invokeLater {
                         tab.gopFrames = progress.frames
                         tab.frameAnalysisLoadedCount = progress.loadedCount
@@ -823,7 +830,7 @@ class AppState {
             val videoInfo = temp?.let { probeVideo(it) }
             if (temp != null) {
                 kotlinx.coroutines.runBlocking {
-                    probeFrameTypesStreaming(temp).collect { progress ->
+                    probeFrameTypesStreaming(temp, isCancelled = { tab.isClosed }).collect { progress ->
                         EventQueue.invokeLater {
                             tab.motionPhotoGopFrames = progress.frames
                             tab.motionPhotoVideoFps = videoInfo?.fps

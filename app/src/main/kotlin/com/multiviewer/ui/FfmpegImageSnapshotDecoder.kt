@@ -73,7 +73,6 @@ object FfmpegImageSnapshotDecoder {
                 EventQueue.invokeLater { onResult(null) }
                 return@Thread
             }
-            tempH265.deleteOnExit()
             val result = try {
                 tempH265.writeBytes(annexB)
                 decodeSingleFrameToBitmap(
@@ -99,8 +98,8 @@ object FfmpegImageSnapshotDecoder {
         } catch (e: Exception) {
             return null
         }
-        tempFile.deleteOnExit()
-
+        // No deleteOnExit(): the finally below deletes it on every path, and this runs once per
+        // decoded snapshot -- see RawPixelDecoder.decodeYuvFamily for why that pairing leaks.
         var process: Process? = null
         return try {
             process = ProcessBuilder(inputArgs + listOf(tempFile.absolutePath))

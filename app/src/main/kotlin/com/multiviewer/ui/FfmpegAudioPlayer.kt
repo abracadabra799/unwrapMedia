@@ -102,7 +102,8 @@ private fun renderAudioVisualization(
     } catch (e: Exception) {
         return null
     }
-    tempPng.deleteOnExit()
+    // No deleteOnExit(): the finally below deletes it on every path, and this re-runs on every
+    // spectrogram render/zoom (see RawPixelDecoder.decodeYuvFamily).
     var inputFile: File? = null
     return try {
         val resolvedInputFile = if (rawAudioParams != null) rawAudioSourceFile(file, rawAudioParams.offsetBytes) else file

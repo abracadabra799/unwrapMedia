@@ -320,29 +320,60 @@ private fun decodeYv12(bytes: ByteArray, width: Int, height: Int): ImageBitmap? 
     return decodeYuvFamily(reordered, width, height, "yuv420p")
 }
 
+// Runs one ffmpeg conversion, bounded by timeoutSeconds, and guarantees the process is gone before
+// returning -- true only if it exited on its own within the bound.
+//
+// The guarantee matters most on the path that isn't the timeout: closing a tab interrupts its
+// background thread (see BackgroundTask.kt), and an interrupt makes waitFor throw immediately, long
+// before the bound is reached. Terminating in a finally (rather than only on the timeout branch) is
+// what keeps that case from leaving a process behind, and registering with ProcessManager is what
+// lets window-close/shutdown reach it in the meantime.
+//
+// Extracted from decodeYuvFamily so this bound-and-cleanup contract can be tested directly against
+// an ffmpeg that would otherwise never exit -- see ProcessTrackingTest.
+internal fun runBoundedFfmpeg(args: List<String>, timeoutSeconds: Long = 8): Boolean {
+    val process = try {
+        com.multiviewer.util.ProcessManager.register(
+            ProcessBuilder(args)
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
+                .also { FfmpegLocator.configureEnvironment(it) }
+                .start()
+        )
+    } catch (e: Exception) {
+        return false
+    }
+    return try {
+        process.waitFor(timeoutSeconds, TimeUnit.SECONDS)
+    } catch (e: Exception) {
+        false
+    } finally {
+        com.multiviewer.util.ProcessManager.terminate(process)
+    }
+}
+
 // No new dependency for YUV->RGB color conversion -- ffmpeg (already bundled/required elsewhere in
 // the app) already does exactly this for raw video frames, so this writes the (possibly
 // reordered) bytes to a temp file, points ffmpeg at it, and reads back a BGRA raw frame the same
 // way FfmpegVideoPlayer already does. Covers YUV420P/YV12 as well as the NV12/NV21 semi-planar
 // layouts -- only the -pix_fmt name (and, for YV12, the chroma plane order) differs.
 private fun decodeYuvFamily(bytes: ByteArray, width: Int, height: Int, ffmpegPixFmt: String): ImageBitmap? {
+    // Deliberately no deleteOnExit() here (nor at the other temp-file decode sites): the finally
+    // below already deletes both files on every path, and deleteOnExit() would additionally pin the
+    // path in the JVM's DeleteOnExitHook set, which is never pruned -- on a per-frame decode path
+    // like this one that set grows for the life of the process.
     val tempIn = File.createTempFile("raw-yuv-input-", ".raw")
     val tempOut = File.createTempFile("raw-yuv-decode-", ".bgra")
-    tempIn.deleteOnExit()
-    tempOut.deleteOnExit()
     return try {
         tempIn.writeBytes(bytes)
-        val process = ProcessBuilder(
-            FfmpegLocator.ffmpegPath(), "-y",
-            "-f", "rawvideo", "-pix_fmt", ffmpegPixFmt, "-s", "${width}x$height", "-i", tempIn.absolutePath,
-            "-f", "rawvideo", "-pix_fmt", "bgra", "-frames:v", "1", tempOut.absolutePath,
-        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD)
-            .also { FfmpegLocator.configureEnvironment(it) }.start()
-        val finished = process.waitFor(8, TimeUnit.SECONDS)
-        if (!finished) {
-            process.destroyForcibly()
-            return null
-        }
+        val finished = runBoundedFfmpeg(
+            listOf(
+                FfmpegLocator.ffmpegPath(), "-y",
+                "-f", "rawvideo", "-pix_fmt", ffmpegPixFmt, "-s", "${width}x$height", "-i", tempIn.absolutePath,
+                "-f", "rawvideo", "-pix_fmt", "bgra", "-frames:v", "1", tempOut.absolutePath,
+            ),
+        )
+        if (!finished) return null
         val outBytes = tempOut.readBytes()
         val expectedOut = width * height * 4
         if (outBytes.size < expectedOut) return null

@@ -3,6 +3,7 @@ package com.multiviewer.ui
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AppStateTest {
@@ -201,6 +202,22 @@ class AppStateTest {
 
         assertTrue(appState.tabs.isEmpty())
         assertEquals(0, appState.selectedTabIndex)
+    }
+
+    // The closed flag is what an in-flight background scan polls to know its tab is gone (see
+    // analyzeFrames / probeFrameTypesStreaming's isCancelled) -- without it the scan keeps one of
+    // runInBackground's two pool threads busy for a tab nobody can see any more.
+    @Test
+    fun `closeTab marks the closed tab so its in-flight background work stops`() {
+        val appState = AppState()
+        val tab = TabState(File("dummy.bin"))
+        appState.tabs.add(tab)
+        appState.selectedTabIndex = 0
+        assertFalse(tab.isClosed)
+
+        appState.closeTab(0)
+
+        assertTrue(tab.isClosed)
     }
 
     @Test

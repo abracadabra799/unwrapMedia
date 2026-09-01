@@ -1,6 +1,7 @@
 package com.multiviewer.ui
 
 import com.multiviewer.cache.MediaIndexCache
+import com.multiviewer.util.ProcessManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -16,11 +17,16 @@ data class FrameAnalysisProgress(
     val isComplete: Boolean,
 )
 
+// isCancelled is polled per ffprobe output line so a scan whose tab has been closed stops reading
+// instead of running the file to completion -- runInBackground's pool is only 2 threads wide, so an
+// abandoned scan blocks other tabs' work behind it. Flow cancellation alone can't do this: the
+// blocking stdout read below is not interruptible, so nothing unwinds until ffprobe itself is done.
 fun probeFrameTypesStreaming(
     file: File,
     estimatedDurationSec: Double? = null,
     estimatedFps: Double? = null,
     chunkSize: Int = 1000,
+    isCancelled: () -> Boolean = { false },
 ): Flow<FrameAnalysisProgress> = flow {
     val cached = MediaIndexCache.get(file)
     if (cached != null) {
@@ -32,20 +38,31 @@ fun probeFrameTypesStreaming(
         (estimatedDurationSec * estimatedFps).toInt().coerceAtLeast(1)
     } else null
 
+    // Tracked so a cancelled collection (tab switch mid-scan) or app shutdown kills the ffprobe:
+    // neither Flow cancellation nor the coroutine machinery interrupts the blocking stdout read
+    // below, so without this the process outlives its collector.
+    var process: Process? = null
     try {
-        val process = ProcessBuilder(
-            FfmpegLocator.ffprobePath(), "-v", "error", "-select_streams", "v:0",
-            "-show_entries", "frame=pict_type,pkt_size,pts_time,pkt_pos",
-            "-of", "default=noprint_wrappers=1", file.absolutePath,
-        ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD)
-            .also { FfmpegLocator.configureEnvironment(it) }.start()
+        process = ProcessManager.register(
+            ProcessBuilder(
+                FfmpegLocator.ffprobePath(), "-v", "error", "-select_streams", "v:0",
+                "-show_entries", "frame=pict_type,pkt_size,pts_time,pkt_pos",
+                "-of", "default=noprint_wrappers=1", file.absolutePath,
+            ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD)
+                .also { FfmpegLocator.configureEnvironment(it) }.start()
+        )
 
         val values = mutableMapOf<String, String>()
         val frames = ArrayList<FrameInfo>(estimatedTotal ?: 10000)
         var chunkCount = 0
 
+        var cancelled = false
         process.inputStream.bufferedReader().useLines { lines ->
             for (line in lines) {
+                if (isCancelled()) {
+                    cancelled = true
+                    break
+                }
                 val eq = line.indexOf('=')
                 if (eq < 0) continue
                 val key = line.substring(0, eq)
@@ -75,6 +92,9 @@ fun probeFrameTypesStreaming(
                 }
             }
         }
+        // A cancelled scan read only part of the file: emitting or caching that partial list would
+        // let a later scan read it back from the cache as if it were the complete frame index.
+        if (cancelled) return@flow
         process.waitFor()
 
         if (frames.isNotEmpty()) {
@@ -83,6 +103,8 @@ fun probeFrameTypesStreaming(
         emit(FrameAnalysisProgress(frames, frames.size, estimatedTotal, isComplete = true))
     } catch (e: Exception) {
         emit(FrameAnalysisProgress(emptyList(), 0, estimatedTotal, isComplete = true))
+    } finally {
+        ProcessManager.terminate(process)
     }
 }.flowOn(Dispatchers.IO)
 

@@ -596,7 +596,6 @@ object GainmapParser {
         } catch (e: Exception) {
             return null
         }
-        tempH265.deleteOnExit()
         return try {
             tempH265.writeBytes(annexB)
             FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap(

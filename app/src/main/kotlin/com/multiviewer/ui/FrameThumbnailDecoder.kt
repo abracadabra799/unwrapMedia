@@ -71,7 +71,9 @@ object FrameThumbnailDecoder {
         onBatchDecoded: (Map<Int, ImageBitmap>) -> Unit,
     ) {
         val tempDir = try {
-            Files.createTempDirectory("frame-thumbnails-").toFile().apply { deleteOnExit() }
+            // No deleteOnExit(): the finally below removes the whole directory on every path, and
+            // this runs once per thumbnail batch (see RawPixelDecoder.decodeYuvFamily).
+            Files.createTempDirectory("frame-thumbnails-").toFile()
         } catch (e: Exception) {
             return
         }
