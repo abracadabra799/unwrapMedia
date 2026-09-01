@@ -71,8 +71,9 @@ object I18n {
     fun menuFrameInterval(lang: AppLanguage) = if (lang == AppLanguage.KO) "프레임 간격 분석" else "Frame Intervals"
     fun menuViewFrameIntervals(lang: AppLanguage) = if (lang == AppLanguage.KO) "프레임 간격 분석 보기" else "View Frame Interval Analysis"
 
-    // Menu: Compare & Analysis
-    fun menuCompareAndAnalysis(lang: AppLanguage) = if (lang == AppLanguage.KO) "비교 및 분석" else "Compare & Analysis"
+    // Menu: Tools / Compare
+    fun menuTools(lang: AppLanguage) = if (lang == AppLanguage.KO) "도구" else "Tools"
+    fun menuCompareAndAnalysis(lang: AppLanguage) = menuTools(lang)
     fun menuCompareFiles(lang: AppLanguage) = if (lang == AppLanguage.KO) "두 파일 상세 비교 (구조 · 메타 · 프레임 · Hex Diff)..." else "Compare Two Files (Structure, Meta, Frame, Hex Diff)..."
     fun menuQualityBenchmark(lang: AppLanguage) = if (lang == AppLanguage.KO) "동영상 인코딩 화질 측정 (PSNR · SSIM · VMAF 벤치마크)..." else "Video Quality Benchmark (PSNR, SSIM, VMAF Metrics)..."
 

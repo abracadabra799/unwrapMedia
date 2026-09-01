@@ -344,12 +344,38 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var codecViewMode by remember { mutableStateOf<CodecViewMode?>(null) }
         MenuBar {
             Menu(I18n.menuFile(language)) {
+                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                val isVideo = currentTab?.type == MediaType.VIDEO
+                val hasVideoTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Video" } == true
+                val hasAudioTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Audio" } == true
+                val hasGainmap = currentTab != null && !currentTab.isLoading && currentTab.gainmapInfo?.hasGainmap == true
+
                 Item(I18n.menuOpen(language), shortcut = KeyShortcut(Key.O, meta = true), onClick = { showOpenFileDialog(appState) })
                 Item(I18n.menuClose(language), enabled = appState.tabs.isNotEmpty(), shortcut = KeyShortcut(Key.W, meta = true), onClick = { appState.closeTab(appState.selectedTabIndex) })
+                Separator()
+                Item(
+                    I18n.menuExtractVideoTrack(language),
+                    enabled = hasVideoTrack,
+                    onClick = { currentTab?.let { extractVideoTrackFromCurrentFile(appState, it) } },
+                )
+                Item(
+                    I18n.menuExtractAudioTrack(language),
+                    enabled = hasAudioTrack,
+                    onClick = { currentTab?.let { extractAudioTrackFromCurrentFile(appState, it) } },
+                )
+                Item(
+                    I18n.menuExtractGainmapImage(language),
+                    enabled = hasGainmap,
+                    onClick = { currentTab?.let { extractGainmapImage(appState, it, language) } },
+                )
             }
             Menu(I18n.menuAnalyze(language)) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val hasActiveFile = currentTab != null && !currentTab.isLoading && currentTab.root != null
+                val isVideo = currentTab?.type == MediaType.VIDEO
+                val hasVideoTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Video" } == true
+                val hasGainmap = currentTab != null && !currentTab.isLoading && currentTab.gainmapInfo?.hasGainmap == true
+
                 Item(
                     I18n.menuDumpStructure(language),
                     enabled = hasActiveFile,
@@ -388,10 +414,12 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                         }
                     },
                 )
-            }
-            Menu(I18n.menuGainmap(language)) {
-                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
-                val hasGainmap = currentTab != null && !currentTab.isLoading && currentTab.gainmapInfo?.hasGainmap == true
+                Separator()
+                Item(
+                    I18n.menuViewFrameIntervals(language),
+                    enabled = hasVideoTrack,
+                    onClick = { frameIntervalWindowOpen = true },
+                )
                 Item(
                     I18n.menuViewGainmapXmp(language),
                     enabled = hasGainmap,
@@ -403,12 +431,6 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     enabled = hasGainmap,
                     shortcut = KeyShortcut(Key.G, meta = true),
                     onClick = { currentTab?.isGainmapImagePopupOpen = true },
-                )
-                Separator()
-                Item(
-                    I18n.menuExtractGainmapImage(language),
-                    enabled = hasGainmap,
-                    onClick = { currentTab?.let { extractGainmapImage(appState, it, language) } },
                 )
             }
             Menu(I18n.menuMotionPhoto(language)) {
@@ -436,43 +458,14 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     enabled = currentTab?.motionPhotoPreview != null,
                     onClick = { currentTab?.let { extractMotionPhotoPreviewVideo(appState, it) } },
                 )
+                Separator()
                 Item(
                     I18n.menuMotionFrameDropAnalysis(language),
                     enabled = currentTab?.embeddedVideo != null,
                     onClick = { motionPhotoFrameIntervalWindowOpen = true },
                 )
             }
-            Menu(I18n.menuBitstream(language)) {
-                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
-                val isVideo = currentTab?.type == MediaType.VIDEO
-                // "Video"/"Audio" summary sections are only built (buildVideoSummary,
-                // MediaSummaryBuilder.kt) when the corresponding track actually exists in the
-                // container -- this is set synchronously when the tab opens, so it doesn't need
-                // to wait for the async per-stream codec-detail probe to know track presence.
-                val hasVideoTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Video" } == true
-                val hasAudioTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Audio" } == true
-                Item(
-                    I18n.menuExtractVideoTrack(language),
-                    enabled = hasVideoTrack,
-                    onClick = { currentTab?.let { extractVideoTrackFromCurrentFile(appState, it) } },
-                )
-                Item(
-                    I18n.menuExtractAudioTrack(language),
-                    enabled = hasAudioTrack,
-                    onClick = { currentTab?.let { extractAudioTrackFromCurrentFile(appState, it) } },
-                )
-            }
-            Menu(I18n.menuFrameInterval(language)) {
-                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
-                val isVideo = currentTab?.type == MediaType.VIDEO
-                val hasVideoTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Video" } == true
-                Item(
-                    I18n.menuViewFrameIntervals(language),
-                    enabled = hasVideoTrack,
-                    onClick = { frameIntervalWindowOpen = true },
-                )
-            }
-            Menu(I18n.menuCompareAndAnalysis(language)) {
+            Menu(I18n.menuTools(language)) {
                 Item(
                     I18n.menuCompareFiles(language),
                     shortcut = KeyShortcut(Key.D, meta = true),
@@ -500,6 +493,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                         saveThemeMode(themeMode)
                     },
                 )
+                Separator()
                 CheckboxItem(
                     I18n.menuPixelGrid(language),
                     checked = showPixelGrid,
