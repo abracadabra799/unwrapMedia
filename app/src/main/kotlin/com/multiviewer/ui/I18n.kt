@@ -25,7 +25,15 @@ object I18n {
     // Menu: File
     fun menuFile(lang: AppLanguage) = if (lang == AppLanguage.KO) "파일" else "File"
     fun menuOpen(lang: AppLanguage) = if (lang == AppLanguage.KO) "열기" else "Open"
+    fun menuOpenFile(lang: AppLanguage) = if (lang == AppLanguage.KO) "파일 열기..." else "Open File..."
+    fun menuOpenFolder(lang: AppLanguage) = if (lang == AppLanguage.KO) "폴더 열기..." else "Open Folder..."
     fun menuClose(lang: AppLanguage) = if (lang == AppLanguage.KO) "닫기" else "Close"
+
+    // Menu: Navigate (Folder Media)
+    fun menuNavigate(lang: AppLanguage) = if (lang == AppLanguage.KO) "탐색" else "Navigate"
+    fun menuPrevFileInFolder(lang: AppLanguage) = if (lang == AppLanguage.KO) "이전 미디어 파일 (폴더 내)" else "Previous Media File in Folder"
+    fun menuNextFileInFolder(lang: AppLanguage) = if (lang == AppLanguage.KO) "다음 미디어 파일 (폴더 내)" else "Next Media File in Folder"
+    fun menuToggleLeftPanel(lang: AppLanguage) = if (lang == AppLanguage.KO) "좌측 패널 전환 (구조 트리 ↔ 폴더 탐색)" else "Toggle Left Panel (Structure ↔ Folder)"
 
     // Menu: Analyze
     fun menuAnalyze(lang: AppLanguage) = if (lang == AppLanguage.KO) "분석" else "Analyze"

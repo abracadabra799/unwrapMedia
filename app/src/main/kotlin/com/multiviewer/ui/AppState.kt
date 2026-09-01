@@ -285,10 +285,18 @@ class TabState(val file: File) {
     var rawAudioParams: RawAudioParams? by mutableStateOf(null)
 }
 
+enum class LeftPanelMode {
+    STRUCTURE_TREE,
+    FOLDER_EXPLORER,
+}
+
 class AppState {
     val tabs = mutableStateListOf<TabState>()
     var selectedTabIndex by mutableStateOf(0)
     var statusMessage: String? by mutableStateOf(null)
+
+    var leftPanelMode: LeftPanelMode by mutableStateOf(LeftPanelMode.STRUCTURE_TREE)
+    var selectedFolder: File? by mutableStateOf(null)
 
     // Tracks the directory of the last opened/selected file so subsequent file picker dialogs
     // automatically open at the same location rather than resetting to the system default.
@@ -470,8 +478,57 @@ class AppState {
         firstNewTabIndex?.let { selectedTabIndex = it }
     }
 
+    fun openFolder(folder: File) {
+        if (!folder.exists() || !folder.isDirectory) return
+        selectedFolder = folder
+        updateLastOpenedDirectory(folder)
+        leftPanelMode = LeftPanelMode.FOLDER_EXPLORER
+        val files = getFolderMediaFiles(folder)
+        if (files.isNotEmpty()) {
+            val currentFile = tabs.getOrNull(selectedTabIndex)?.file
+            if (currentFile == null || currentFile.parentFile?.absolutePath != folder.absolutePath) {
+                openFile(files[0])
+            }
+        }
+    }
+
+    fun getFolderMediaFiles(folder: File? = null): List<File> {
+        val dir = folder ?: selectedFolder ?: tabs.getOrNull(selectedTabIndex)?.file?.parentFile ?: return emptyList()
+        if (!dir.exists() || !dir.isDirectory) return emptyList()
+        return try {
+            dir.listFiles { f ->
+                f.isFile && !f.isHidden && f.extension.lowercase(java.util.Locale.US) in ALL_SUPPORTED_MEDIA_EXTENSIONS
+            }?.sortedBy { it.name.lowercase(java.util.Locale.US) }?.toList() ?: emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun navigateToNextFileInFolder() {
+        val dir = selectedFolder ?: tabs.getOrNull(selectedTabIndex)?.file?.parentFile ?: return
+        val files = getFolderMediaFiles(dir)
+        if (files.isEmpty()) return
+        val currentFile = tabs.getOrNull(selectedTabIndex)?.file
+        val currentIndex = if (currentFile != null) files.indexOfFirst { it.absolutePath == currentFile.absolutePath } else -1
+        val nextIndex = if (currentIndex in 0 until files.size - 1) currentIndex + 1 else 0
+        openFile(files[nextIndex])
+    }
+
+    fun navigateToPrevFileInFolder() {
+        val dir = selectedFolder ?: tabs.getOrNull(selectedTabIndex)?.file?.parentFile ?: return
+        val files = getFolderMediaFiles(dir)
+        if (files.isEmpty()) return
+        val currentFile = tabs.getOrNull(selectedTabIndex)?.file
+        val currentIndex = if (currentFile != null) files.indexOfFirst { it.absolutePath == currentFile.absolutePath } else -1
+        val prevIndex = if (currentIndex > 0) currentIndex - 1 else files.size - 1
+        openFile(files[prevIndex])
+    }
+
     fun openFile(file: File) {
         updateLastOpenedDirectory(file)
+        if (selectedFolder == null || selectedFolder?.absolutePath != file.parentFile?.absolutePath) {
+            selectedFolder = file.parentFile
+        }
         val existingIndex = tabs.indexOfFirst { it.file.absolutePath == file.absolutePath }
         if (existingIndex >= 0) {
             selectedTabIndex = existingIndex

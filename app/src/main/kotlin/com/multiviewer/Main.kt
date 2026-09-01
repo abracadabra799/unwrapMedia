@@ -37,6 +37,8 @@ import com.multiviewer.parser.EmbeddedVideo
 import com.multiviewer.parser.MotionPhotoBuilder
 import com.multiviewer.parser.extractEmbeddedVideo
 import com.multiviewer.ui.*
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import org.jetbrains.skia.Image
@@ -394,6 +396,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 val hasGainmap = currentTab != null && !currentTab.isLoading && currentTab.gainmapInfo?.hasGainmap == true
 
                 Item(I18n.menuOpen(language), shortcut = KeyShortcut(Key.O, meta = true), onClick = { showOpenFileDialog(appState) })
+                Item(I18n.menuOpenFolder(language), shortcut = KeyShortcut(Key.O, meta = true, shift = true), onClick = { showOpenFolderDialog(appState) })
                 Item(I18n.menuClose(language), enabled = appState.tabs.isNotEmpty(), shortcut = KeyShortcut(Key.W, meta = true), onClick = { appState.closeTab(appState.selectedTabIndex) })
                 Separator()
                 Item(
@@ -519,6 +522,30 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     onClick = { qualityCompareWindowOpen = true },
                 )
             }
+            Menu(I18n.menuNavigate(language)) {
+                Item(
+                    I18n.menuPrevFileInFolder(language),
+                    shortcut = KeyShortcut(Key.PageUp),
+                    onClick = { appState.navigateToPrevFileInFolder() },
+                )
+                Item(
+                    I18n.menuNextFileInFolder(language),
+                    shortcut = KeyShortcut(Key.PageDown),
+                    onClick = { appState.navigateToNextFileInFolder() },
+                )
+                Separator()
+                Item(
+                    I18n.menuToggleLeftPanel(language),
+                    shortcut = KeyShortcut(Key.E, meta = true, alt = true),
+                    onClick = {
+                        appState.leftPanelMode = if (appState.leftPanelMode == LeftPanelMode.STRUCTURE_TREE) {
+                            LeftPanelMode.FOLDER_EXPLORER
+                        } else {
+                            LeftPanelMode.STRUCTURE_TREE
+                        }
+                    },
+                )
+            }
             Menu(I18n.menuView(language)) {
                 CheckboxItem(
                     I18n.menuDarkTheme(language),
@@ -616,7 +643,11 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                         @Suppress("UNCHECKED_CAST")
                         val files = event.transferable.getTransferData(DataFlavor.javaFileListFlavor) as List<File>
                         if (files.isNotEmpty()) {
-                            appState.openFiles(files)
+                            if (files.size == 1 && files[0].isDirectory) {
+                                appState.openFolder(files[0])
+                            } else {
+                                appState.openFiles(files)
+                            }
                         }
                         event.dropComplete(true)
                     } catch (e: Exception) {
@@ -778,12 +809,39 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
             Surface(modifier = Modifier.fillMaxSize(), color = AppColors.Background) {
                 if (appState.tabs.isEmpty()) {
                     Box(
-                        modifier = Modifier.fillMaxSize().clickable { showOpenFileDialog(appState) },
+                        modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center,
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(I18n.placeholderEmptyState(language), fontSize = 22.sp, color = AppColors.TextPrimary)
-                            Spacer(Modifier.height(10.dp))
+                            Text(
+                                I18n.placeholderEmptyState(language),
+                                fontSize = 20.sp,
+                                color = AppColors.TextPrimary,
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                OutlinedButton(
+                                    onClick = { showOpenFileDialog(appState) },
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = AppColors.Surface.copy(alpha = 0.5f),
+                                        contentColor = AppColors.NeonBlue,
+                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.Border),
+                                ) {
+                                    Text(if (language == AppLanguage.KO) "📂 파일 열기..." else "📂 Open File...")
+                                }
+                                OutlinedButton(
+                                    onClick = { showOpenFolderDialog(appState) },
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = AppColors.Surface.copy(alpha = 0.5f),
+                                        contentColor = AppColors.NeonYellow,
+                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.Border),
+                                ) {
+                                    Text(if (language == AppLanguage.KO) "📁 폴더 열기..." else "📁 Open Folder...")
+                                }
+                            }
+                            Spacer(Modifier.height(14.dp))
                             Text("unwrapMedia v${I18n.APP_VERSION}", fontSize = 12.sp, color = AppColors.TextSecondary)
                         }
                     }
@@ -837,16 +895,80 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                         }
 
                         val leftPanel: @Composable ColumnScope.() -> Unit = {
-                            PanelHeader("Media Structure")
-                            currentTab.root?.let { rootNode ->
-                                BoxTreeView(
-                                    root = rootNode,
-                                    selected = currentTab.selected,
-                                    onSelect = {
-                                        currentTab.selected = it
-                                        currentTab.selectedFrame = null
-                                    },
-                                )
+                            val folderFilesCount = remember(appState.selectedFolder?.absolutePath, currentTab.file.parentFile?.absolutePath) {
+                                appState.getFolderMediaFiles().size
+                            }
+                            Surface(
+                                color = AppColors.Panel,
+                                modifier = Modifier.fillMaxWidth().height(32.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.Border),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Surface(
+                                        color = if (appState.leftPanelMode == LeftPanelMode.STRUCTURE_TREE) AppColors.Surface else Color.Transparent,
+                                        shape = RoundedCornerShape(4.dp),
+                                        modifier = Modifier.weight(1f).fillMaxHeight().clickable {
+                                            appState.leftPanelMode = LeftPanelMode.STRUCTURE_TREE
+                                        },
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxSize(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center,
+                                        ) {
+                                            Text(
+                                                text = if (language == AppLanguage.KO) "🌲 구조 트리" else "🌲 Structure",
+                                                fontSize = 11.sp,
+                                                fontWeight = if (appState.leftPanelMode == LeftPanelMode.STRUCTURE_TREE) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (appState.leftPanelMode == LeftPanelMode.STRUCTURE_TREE) AppColors.NeonBlue else AppColors.TextSecondary,
+                                            )
+                                        }
+                                    }
+                                    Spacer(Modifier.width(4.dp))
+                                    Surface(
+                                        color = if (appState.leftPanelMode == LeftPanelMode.FOLDER_EXPLORER) AppColors.Surface else Color.Transparent,
+                                        shape = RoundedCornerShape(4.dp),
+                                        modifier = Modifier.weight(1f).fillMaxHeight().clickable {
+                                            appState.leftPanelMode = LeftPanelMode.FOLDER_EXPLORER
+                                        },
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxSize(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center,
+                                        ) {
+                                            Text(
+                                                text = if (language == AppLanguage.KO) "📁 폴더 탐색 ($folderFilesCount)" else "📁 Folder ($folderFilesCount)",
+                                                fontSize = 11.sp,
+                                                fontWeight = if (appState.leftPanelMode == LeftPanelMode.FOLDER_EXPLORER) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (appState.leftPanelMode == LeftPanelMode.FOLDER_EXPLORER) AppColors.NeonYellow else AppColors.TextSecondary,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                when (appState.leftPanelMode) {
+                                    LeftPanelMode.STRUCTURE_TREE -> {
+                                        currentTab.root?.let { rootNode ->
+                                            BoxTreeView(
+                                                root = rootNode,
+                                                selected = currentTab.selected,
+                                                onSelect = {
+                                                    currentTab.selected = it
+                                                    currentTab.selectedFrame = null
+                                                },
+                                            )
+                                        }
+                                    }
+                                    LeftPanelMode.FOLDER_EXPLORER -> {
+                                        FolderExplorerView(appState = appState, currentTab = currentTab, language = language)
+                                    }
+                                }
                             }
                         }
 
