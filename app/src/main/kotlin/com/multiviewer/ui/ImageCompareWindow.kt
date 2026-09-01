@@ -131,9 +131,10 @@ fun ImageCompareWindow(
     onCloseRequest: () -> Unit,
 ) {
     var selectedTab by remember { mutableStateOf(MediaCompareTab.STRUCTURE) }
-
-    var fileA by remember { mutableStateOf(initialFileA ?: appState.tabs.getOrNull(0)?.file) }
-    var fileB by remember { mutableStateOf(initialFileB ?: appState.tabs.getOrNull(1)?.file) }
+    var fileA by remember { mutableStateOf(initialFileA) }
+    var fileB by remember { mutableStateOf(initialFileB) }
+    var folderA by remember { mutableStateOf<File?>(initialFileA?.parentFile) }
+    var folderB by remember { mutableStateOf<File?>(initialFileB?.parentFile) }
 
     var infoA by remember { mutableStateOf<CompareMediaInfo?>(null) }
     var infoB by remember { mutableStateOf<CompareMediaInfo?>(null) }
@@ -265,17 +266,29 @@ fun ImageCompareWindow(
                 MediaSelectionBar(
                     appState = appState,
                     language = language,
-                    openTabs = appState.tabs.map { it.file },
                     fileA = fileA,
                     fileB = fileB,
+                    folderA = folderA,
+                    folderB = folderB,
                     infoA = infoA,
                     infoB = infoB,
+                    onPickA = { file ->
+                        fileA = file
+                        folderA = file.parentFile
+                    },
+                    onPickB = { file ->
+                        fileB = file
+                        folderB = file.parentFile
+                    },
                     onSelectA = { fileA = it },
                     onSelectB = { fileB = it },
                     onSwap = {
-                        val temp = fileA
+                        val tempFile = fileA
                         fileA = fileB
-                        fileB = temp
+                        fileB = tempFile
+                        val tempFolder = folderA
+                        folderA = folderB
+                        folderB = tempFolder
                     },
                 )
 
@@ -328,11 +341,14 @@ fun ImageCompareWindow(
 private fun MediaSelectionBar(
     appState: AppState,
     language: AppLanguage,
-    openTabs: List<File>,
     fileA: File?,
     fileB: File?,
+    folderA: File?,
+    folderB: File?,
     infoA: CompareMediaInfo?,
     infoB: CompareMediaInfo?,
+    onPickA: (File) -> Unit,
+    onPickB: (File) -> Unit,
     onSelectA: (File) -> Unit,
     onSelectB: (File) -> Unit,
     onSwap: () -> Unit,
@@ -373,7 +389,7 @@ private fun MediaSelectionBar(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     OutlinedButton(
-                        onClick = { openFileDialog(if (language == AppLanguage.KO) "미디어 A 선택" else "Select Media A", onSelectA) },
+                        onClick = { openFileDialog(if (language == AppLanguage.KO) "미디어 A 선택" else "Select Media A", onPickA) },
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                         modifier = Modifier.height(26.dp),
                         colors = ButtonDefaults.outlinedButtonColors(
@@ -389,10 +405,10 @@ private fun MediaSelectionBar(
                 Spacer(modifier = Modifier.height(4.dp))
                 FileDropdownOrLabel(
                     selectedFile = fileA,
-                    appState = appState,
+                    selectedFolder = folderA,
                     language = language,
-                    availableTabs = openTabs,
                     onSelect = onSelectA,
+                    onOpenBrowse = { openFileDialog(if (language == AppLanguage.KO) "미디어 A 선택" else "Select Media A", onPickA) },
                 )
                 if (infoA != null) {
                     val typeLabel = if (infoA.isVideo) "🎬 동영상 (Video)" else "🖼️ 이미지 (Image)"
@@ -421,7 +437,7 @@ private fun MediaSelectionBar(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     OutlinedButton(
-                        onClick = { openFileDialog(if (language == AppLanguage.KO) "미디어 B 선택" else "Select Media B", onSelectB) },
+                        onClick = { openFileDialog(if (language == AppLanguage.KO) "미디어 B 선택" else "Select Media B", onPickB) },
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                         modifier = Modifier.height(26.dp),
                         colors = ButtonDefaults.outlinedButtonColors(
@@ -437,10 +453,10 @@ private fun MediaSelectionBar(
                 Spacer(modifier = Modifier.height(4.dp))
                 FileDropdownOrLabel(
                     selectedFile = fileB,
-                    appState = appState,
+                    selectedFolder = folderB,
                     language = language,
-                    availableTabs = openTabs,
                     onSelect = onSelectB,
+                    onOpenBrowse = { openFileDialog(if (language == AppLanguage.KO) "미디어 B 선택" else "Select Media B", onPickB) },
                 )
                 if (infoB != null) {
                     val typeLabel = if (infoB.isVideo) "🎬 동영상 (Video)" else "🖼️ 이미지 (Image)"
@@ -461,19 +477,18 @@ private fun MediaSelectionBar(
 @Composable
 private fun FileDropdownOrLabel(
     selectedFile: File?,
-    appState: AppState,
+    selectedFolder: File?,
     language: AppLanguage,
-    availableTabs: List<File>,
     onSelect: (File) -> Unit,
+    onOpenBrowse: () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
 
-    // Automatically scan the folder of the selected file (or last opened directory) for all supported media files
-    val currentFolder = selectedFile?.parentFile ?: appState.lastOpenedDirectory
-    val folderFiles = remember(selectedFile?.absolutePath, currentFolder?.absolutePath) {
-        if (currentFolder != null && currentFolder.exists() && currentFolder.isDirectory) {
+    // When folder is chosen via browse dialog, scan all supported media files in that specific folder
+    val folderFiles = remember(selectedFolder?.absolutePath) {
+        if (selectedFolder != null && selectedFolder.exists() && selectedFolder.isDirectory) {
             try {
-                currentFolder.listFiles { f ->
+                selectedFolder.listFiles { f ->
                     f.isFile && !f.isHidden && f.extension.lowercase(Locale.US) in ALL_SUPPORTED_MEDIA_EXTENSIONS
                 }?.sortedBy { it.name.lowercase(Locale.US) }?.toList() ?: emptyList()
             } catch (_: Exception) {
@@ -484,13 +499,15 @@ private fun FileDropdownOrLabel(
         }
     }
 
-    val otherTabs = remember(availableTabs, folderFiles) {
-        availableTabs.filter { tab -> folderFiles.none { it.absolutePath == tab.absolutePath } }
-    }
-
     Box {
         Surface(
-            modifier = Modifier.fillMaxWidth().clickable { expanded = true }.padding(vertical = 2.dp),
+            modifier = Modifier.fillMaxWidth().clickable {
+                if (selectedFolder == null) {
+                    onOpenBrowse()
+                } else {
+                    expanded = true
+                }
+            }.padding(vertical = 2.dp),
             shape = RoundedCornerShape(4.dp),
             color = MaterialTheme.colorScheme.surface,
             border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
@@ -504,41 +521,47 @@ private fun FileDropdownOrLabel(
                     if (ext in VIDEO_EXTENSIONS) "🎬" else if (ext in AUDIO_EXTENSIONS) "🎵" else "🖼️"
                 } else ""
                 Text(
-                    if (selectedFile != null) "$icon ${selectedFile.name}" else (if (language == AppLanguage.KO) "선택된 파일 없음 (목록에서 선택)" else "No file selected"),
+                    text = if (selectedFile != null) {
+                        "$icon ${selectedFile.name}"
+                    } else {
+                        if (language == AppLanguage.KO) "📂 [파일 찾기]를 눌러 파일을 선택하세요" else "📂 Click [Browse...] to select file"
+                    },
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = if (selectedFile != null) FontWeight.Medium else FontWeight.Normal,
                     color = if (selectedFile != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
                     maxLines = 1,
                 )
-                Text("▾", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (selectedFolder != null) {
+                    Text("▾", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
 
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier.heightIn(max = 420.dp).widthIn(min = 320.dp, max = 540.dp),
-        ) {
-            if (folderFiles.isEmpty() && otherTabs.isEmpty()) {
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            if (language == AppLanguage.KO) "선택 가능한 지원 파일 없음" else "No supported files found",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    },
-                    onClick = { expanded = false },
-                )
-            } else {
-                if (folderFiles.isNotEmpty() && currentFolder != null) {
+        if (selectedFolder != null) {
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.heightIn(max = 420.dp).widthIn(min = 320.dp, max = 540.dp),
+            ) {
+                if (folderFiles.isEmpty()) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                if (language == AppLanguage.KO) "해당 폴더에 지원되는 미디어 파일 없음" else "No supported media files in this folder",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
+                        onClick = { expanded = false },
+                    )
+                } else {
                     Surface(
                         color = Color(0xFF1E2838),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(
-                            text = if (language == AppLanguage.KO) "📁 ${currentFolder.name} 폴더 내 파일 (${folderFiles.size}개)" else "📁 Folder: ${currentFolder.name} (${folderFiles.size} files)",
+                            text = if (language == AppLanguage.KO) "📁 ${selectedFolder.name} 폴더 내 파일 (${folderFiles.size}개)" else "📁 Folder: ${selectedFolder.name} (${folderFiles.size} files)",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = AppColors.NeonBlue,
@@ -576,57 +599,7 @@ private fun FileDropdownOrLabel(
                                 }
                             },
                             onClick = {
-                                appState.updateLastOpenedDirectory(file)
                                 onSelect(file)
-                                expanded = false
-                            },
-                        )
-                    }
-                }
-
-                if (otherTabs.isNotEmpty()) {
-                    if (folderFiles.isNotEmpty()) {
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                    }
-                    Surface(
-                        color = Color(0xFF28241E),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(
-                            text = if (language == AppLanguage.KO) "🗂️ 다른 열려있는 탭 (${otherTabs.size}개)" else "🗂️ Other Open Tabs (${otherTabs.size})",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = AppColors.NeonYellow,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                        )
-                    }
-                    otherTabs.forEach { tabFile ->
-                        val isCurrent = tabFile.absolutePath == selectedFile?.absolutePath
-                        val ext = tabFile.extension.lowercase(Locale.US)
-                        val icon = if (ext in VIDEO_EXTENSIONS) "🎬" else if (ext in AUDIO_EXTENSIONS) "🎵" else "🖼️"
-                        DropdownMenuItem(
-                            text = {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        "$icon ${tabFile.name}",
-                                        fontSize = 12.sp,
-                                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isCurrent) AppColors.NeonGreen else MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.weight(1f),
-                                        maxLines = 1,
-                                    )
-                                    if (isCurrent) {
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("✓", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = AppColors.NeonGreen)
-                                    }
-                                }
-                            },
-                            onClick = {
-                                appState.updateLastOpenedDirectory(tabFile)
-                                onSelect(tabFile)
                                 expanded = false
                             },
                         )
