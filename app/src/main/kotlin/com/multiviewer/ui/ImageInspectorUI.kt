@@ -1,6 +1,3 @@
-
-
-
 package com.multiviewer.ui
 
 import androidx.compose.foundation.VerticalScrollbar
@@ -16,8 +13,7 @@ import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -298,42 +294,96 @@ private fun MotionPhotoVideoPreview(tab: TabState, video: EmbeddedVideo) {
     }
 }
 
-private enum class DetailPanelTab { OVERVIEW, DETAIL }
+private enum class DetailPanelTab { OVERVIEW, DETAIL, WARNINGS }
+
+private const val WARNINGS_BADGE_CAP = 99
+
+// The Warnings tab's label doubles as the file's defect indicator: whichever tab the user is
+// actually reading, this still says whether the file has structural defects and how many. That
+// matters because the warning list used to live in Detailed Properties as a "nothing selected"
+// fallback, so it disappeared the moment a tree node was picked -- the count in the label is what
+// keeps the fact visible after it moved to its own tab. Counts above the cap are abbreviated so a
+// pathological file can't widen the tab enough to squeeze out the other two.
+internal fun warningsTabLabel(count: Int): String = when {
+    count <= 0 -> "✓ Warnings"
+    count > WARNINGS_BADGE_CAP -> "⚠ Warnings $WARNINGS_BADGE_CAP+"
+    else -> "⚠ Warnings $count"
+}
 
 // Starts on Overview for every newly-opened file (remember(tab) resets it -- same per-file-reset
 // convention used throughout this app, e.g. waveformSplit/selectedFrame), and auto-switches to
 // Detail the first time the user actually selects something in the tree, so they don't have to
 // manually click over after clicking a node/marker.
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun DetailedPropertiesPanel(appState: AppState, tab: TabState) {
     var activeTab by remember(tab) { mutableStateOf(DetailPanelTab.OVERVIEW) }
+    // Hoisted out of DetailPropertiesTabContent, where it was computed only while nothing was
+    // selected: the tab label needs it at all times, and it depends on the file's structure alone,
+    // never on what happens to be selected.
+    val root = tab.root
+    val warnings = remember(root) { root?.let { collectWarnings(it) } ?: emptyList() }
+
     LaunchedEffect(tab.selected, tab.selectedFrame) {
-        if (tab.selected != null || tab.selectedFrame != null) {
+        // Deliberately does not fire while the user is on Warnings: they went there to read the
+        // defect list, so a tree click shouldn't yank the list out from under them. Drilling into a
+        // specific warning still switches to Detail -- that click asks for it explicitly (see
+        // WarningsTabContent's onSelectNode).
+        if (activeTab == DetailPanelTab.OVERVIEW && (tab.selected != null || tab.selectedFrame != null)) {
             activeTab = DetailPanelTab.DETAIL
         }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        TabRow(
-            selectedTabIndex = activeTab.ordinal,
-            containerColor = AppColors.Panel,
-            contentColor = AppColors.NeonBlue,
+        // FlowRow of chips rather than a TabRow: a TabRow stretches its tabs to fill the width
+        // evenly, so three tabs ate a tall band of a panel the user can narrow at will, and the
+        // longest label ("Detailed Properties") drove everyone's height. Chips size to their own
+        // text and wrap to a second line when the panel is too narrow, which keeps the header small
+        // at any width instead of forcing a horizontal fit.
+        FlowRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(AppColors.Panel)
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Tab(
+            DetailPanelTabChip(
+                label = "Overview",
                 selected = activeTab == DetailPanelTab.OVERVIEW,
                 onClick = { activeTab = DetailPanelTab.OVERVIEW },
-                text = { Text("Overview", style = AppTypography.labelLarge) },
             )
-            Tab(
+            DetailPanelTabChip(
+                label = "Detailed Properties",
                 selected = activeTab == DetailPanelTab.DETAIL,
                 onClick = { activeTab = DetailPanelTab.DETAIL },
-                text = { Text("Detailed Properties", style = AppTypography.labelLarge) },
+            )
+            DetailPanelTabChip(
+                label = warningsTabLabel(warnings.size),
+                selected = activeTab == DetailPanelTab.WARNINGS,
+                onClick = { activeTab = DetailPanelTab.WARNINGS },
+                // The defect state keeps its own colour even when the chip isn't selected -- that
+                // is the whole point of the badge (see warningsTabLabel).
+                accent = if (warnings.isEmpty()) AppColors.NeonGreen else AppColors.NeonRed,
             )
         }
 
         when (activeTab) {
             DetailPanelTab.OVERVIEW -> OverviewTabContent(appState, tab)
             DetailPanelTab.DETAIL -> DetailPropertiesTabContent(tab)
+            DetailPanelTab.WARNINGS -> WarningsTabContent(
+                tab = tab,
+                warnings = warnings,
+                onSelectNode = { node ->
+                    // Selecting the node is what drives both other panels: BoxTreeView expands and
+                    // scrolls to it, and the hex viewer scrolls to (and highlights) its byte range.
+                    // The structure tree has to be the visible left panel for the first of those to
+                    // be seen at all -- the folder explorer shares that space.
+                    appState.leftPanelMode = LeftPanelMode.STRUCTURE_TREE
+                    tab.selected = node
+                    activeTab = DetailPanelTab.DETAIL
+                },
+            )
         }
     }
 }
@@ -401,6 +451,113 @@ private fun OverviewTabContent(appState: AppState, tab: TabState) {
     }
 }
 
+// One compact tab chip. Deliberately the same shape/weight vocabulary as FolderExplorerView's
+// CategoryChip so the two chip rows in the app read as the same control, just at the slightly
+// larger size this header warrants.
+@Composable
+private fun DetailPanelTabChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    accent: Color = AppColors.NeonBlue,
+) {
+    Surface(
+        color = if (selected) accent.copy(alpha = 0.18f) else Color.Transparent,
+        shape = RoundedCornerShape(4.dp),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (selected) accent.copy(alpha = 0.8f) else AppColors.Border,
+        ),
+        modifier = Modifier.clickable { onClick() },
+    ) {
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            color = if (selected) accent else accent.copy(alpha = 0.65f),
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+    }
+}
+
+// The file's structural defects, as their own destination rather than a fallback inside Detailed
+// Properties. Its content depends only on the parsed structure, so it stays put no matter what is
+// selected in the tree -- which is the whole reason it was split out.
+@Composable
+private fun WarningsTabContent(
+    tab: TabState,
+    warnings: List<com.multiviewer.parser.WarningEntry>,
+    onSelectNode: (com.multiviewer.parser.BoxNode) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        if (warnings.isEmpty()) {
+            Text("✓ 구조적 이상 없음", style = AppTypography.bodyLarge.copy(color = AppColors.NeonGreen))
+            return@Column
+        }
+        val listState = rememberLazyListState()
+        Box(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "⚠ ${warnings.size}개의 구조적 이상 징후",
+                            style = AppTypography.labelLarge.copy(color = AppColors.NeonRed),
+                        )
+                        var copied by remember(warnings) { mutableStateOf(false) }
+                        Row(
+                            modifier = Modifier
+                                .clickable {
+                                    val prompt = AiDiagnosticPromptBuilder.buildPrompt(tab.file, tab.root, warnings)
+                                    if (ClipboardUtil.copyToClipboard(prompt)) {
+                                        copied = true
+                                    }
+                                }
+                                .background(AppColors.NeonGreen.copy(alpha = 0.15f), shape = RoundedCornerShape(4.dp))
+                                .border(0.5.dp, AppColors.NeonGreen.copy(alpha = 0.5f), shape = RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                if (copied) "✓ AI 프롬프트 복사됨" else "📋 AI 진단 프롬프트 복사",
+                                style = AppTypography.labelMedium.copy(fontSize = 10.sp, color = AppColors.NeonGreen),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+                items(warnings) { entry ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clickable { onSelectNode(entry.node) },
+                    ) {
+                        Column {
+                            Text(
+                                "${entry.node.type} — 0x${entry.node.offset.toString(16).uppercase()}",
+                                style = AppTypography.labelLarge.copy(color = AppColors.TextPrimary, fontSize = 12.sp),
+                            )
+                            Text(
+                                entry.warning,
+                                style = AppTypography.bodyLarge.copy(color = AppColors.NeonRed, fontSize = 12.sp),
+                            )
+                        }
+                    }
+                }
+            }
+            VerticalScrollbar(
+                adapter = rememberScrollbarAdapter(listState),
+                modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
+            )
+        }
+    }
+}
+
 @Composable
 private fun DetailPropertiesTabContent(tab: TabState) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
@@ -413,15 +570,7 @@ private fun DetailPropertiesTabContent(tab: TabState) {
         val selectedFrame = tab.selectedFrame
         val selectedNode = tab.selected
         val root = tab.root
-        // remember() needs a @Composable context, which the LazyColumn content lambda below is
-        // NOT (it's a LazyListScope builder, only item {}/items {} inside it are composable) --
-        // computed here instead, same as the original non-lazy version did.
-        val warnings = if (selectedFrame == null && selectedNode == null && root != null) {
-            remember(root) { collectWarnings(root) }
-        } else {
-            emptyList()
-        }
-        // Resolved OUTSIDE the LazyColumn below for the same reason `warnings` above is -- a
+        // Resolved OUTSIDE the LazyColumn below because a
         // LazyListScope builder lambda isn't itself a @Composable context, so produceState (like
         // remember) has to run here instead.
         val resolvedH264Params = if (selectedFrame != null) {
@@ -680,62 +829,14 @@ private fun DetailPropertiesTabContent(tab: TabState) {
                         }
                     }
                     else -> {
-                        if (warnings.isNotEmpty()) {
-                            item {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        "⚠ ${warnings.size}개의 구조적 이상 징후",
-                                        style = AppTypography.labelLarge.copy(color = AppColors.NeonRed),
-                                    )
-                                    var copied by remember(warnings) { mutableStateOf(false) }
-                                    Row(
-                                        modifier = Modifier
-                                            .clickable {
-                                                val prompt = AiDiagnosticPromptBuilder.buildPrompt(tab.file, tab.root, warnings)
-                                                if (ClipboardUtil.copyToClipboard(prompt)) {
-                                                    copied = true
-                                                }
-                                            }
-                                            .background(AppColors.NeonGreen.copy(alpha = 0.15f), shape = RoundedCornerShape(4.dp))
-                                            .border(0.5.dp, AppColors.NeonGreen.copy(alpha = 0.5f), shape = RoundedCornerShape(4.dp))
-                                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        Text(
-                                            if (copied) "✓ AI 프롬프트 복사됨" else "📋 AI 진단 프롬프트 복사",
-                                            style = AppTypography.labelMedium.copy(fontSize = 10.sp, color = AppColors.NeonGreen),
-                                        )
-                                    }
-                                }
-                                Spacer(Modifier.height(8.dp))
-                            }
-                            items(warnings) { entry ->
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp)
-                                        .clickable { tab.selected = entry.node },
-                                ) {
-                                    Column {
-                                        Text(
-                                            "${entry.node.type} — 0x${entry.node.offset.toString(16).uppercase()}",
-                                            style = AppTypography.labelLarge.copy(color = AppColors.TextPrimary, fontSize = 12.sp),
-                                        )
-                                        Text(
-                                            entry.warning,
-                                            style = AppTypography.bodyLarge.copy(color = AppColors.NeonRed, fontSize = 12.sp),
-                                        )
-                                    }
-                                }
-                            }
-                        } else {
-                            item {
-                                Text("✓ 구조적 이상 없음", style = AppTypography.bodyLarge.copy(color = AppColors.NeonGreen))
-                            }
+                        // The structural warning list used to live here as the "nothing selected"
+                        // fallback, which is exactly why it vanished on the first tree click. It
+                        // now has its own tab; this branch just says what to do next.
+                        item {
+                            Text(
+                                "좌측 구조 트리에서 항목을 선택하면 상세 정보가 표시됩니다.",
+                                style = AppTypography.bodyLarge.copy(color = AppColors.TextSecondary, fontSize = 12.sp),
+                            )
                         }
                     }
                 }

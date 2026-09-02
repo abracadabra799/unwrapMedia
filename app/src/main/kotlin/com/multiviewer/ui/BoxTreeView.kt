@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -45,8 +46,20 @@ fun BoxTreeView(root: BoxNode, selected: BoxNode?, onSelect: (BoxNode) -> Unit) 
     }
 
     val rows = remember(root, expanded.value) { flatten(root, 0, expanded.value) }
+    val listState = rememberLazyListState()
 
-    LazyColumn {
+    // Bring the selection into view. Keyed on `rows` as well as `selected` because the expansion
+    // above only takes effect on the next composition -- on the first pass after a deep selection
+    // the target still has no row, and scrolling has to wait until it does.
+    LaunchedEffect(selected, rows) {
+        val target = selected ?: return@LaunchedEffect
+        val index = rows.indexOfFirst { it.node === target }
+        if (index >= 0) {
+            listState.animateScrollToItem(index)
+        }
+    }
+
+    LazyColumn(state = listState) {
         items(rows) { row ->
             val isSelected = row.node === selected
             val isExpanded = row.node in expanded.value
@@ -105,6 +118,16 @@ fun findAncestors(current: BoxNode, target: BoxNode, path: List<BoxNode>): List<
     }
     return null
 }
+
+// Row index of [target] in the tree as it is currently drawn, or -1 when it has no row (an ancestor
+// is collapsed, or the node belongs to a different tree). Used to scroll a selection into view --
+// expanding and highlighting a node is not enough when it sits far down a large file's structure,
+// which is the usual case for a node reached by clicking a structural warning.
+//
+// Matched by identity, like findAncestors above: BoxNode is a data class, so repeated small boxes
+// are frequently equal to one another while being different rows.
+fun visibleRowIndexOf(root: BoxNode, expanded: Set<BoxNode>, target: BoxNode): Int =
+    flatten(root, 0, expanded).indexOfFirst { it.node === target }
 
 private fun flatten(node: BoxNode, depth: Int, expanded: Set<BoxNode>): List<FlatRow> {
     val rows = mutableListOf(FlatRow(node, depth))
