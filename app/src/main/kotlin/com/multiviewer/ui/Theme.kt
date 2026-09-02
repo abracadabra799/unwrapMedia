@@ -34,7 +34,13 @@ private val DarkPalette = ThemePalette(
     // Border" for its raised-edge resize-handle effect.
     background = Color(0xFF1A1D22), surface = Color(0xFF242930), panel = Color(0xFF2A2F36), border = Color(0xFF3A414B),
     dividerHighlight = Color(0xFF3D444C), dividerShadow = Color(0xFF0D0F12),
-    neonGreen = Color(0xFF39FF14), neonBlue = Color(0xFF00F3FF), neonPurple = Color(0xFFBC13FE), neonRed = Color(0xFFFF3131), neonYellow = Color(0xFFFFF01F), neonOrange = Color(0xFFFF9500),
+    // Muted accents rather than the fully-saturated neon this started with (#39FF14, #00F3FF,
+    // #BC13FE, #FF3131, #FFF01F, #FF9500). At full saturation they glowed against the dark
+    // background and every accented label competed for attention at once -- the same objection the
+    // frameType colors below were already introduced for. These are the One Dark family, which
+    // frameTypeI (#E06C75) and frameTypeB (#6CA6E0) already belong to, so accents and frame bars
+    // now read as one palette. The names stay "neon" because they are referenced app-wide.
+    neonGreen = Color(0xFF98C379), neonBlue = Color(0xFF61AFEF), neonPurple = Color(0xFFC678DD), neonRed = Color(0xFFE06C75), neonYellow = Color(0xFFE5C07B), neonOrange = Color(0xFFD19A66),
     textPrimary = Color(0xFFC9D1D9), textSecondary = Color(0xFF8B949E), textMuted = Color(0xFF484F58),
     selection = Color(0xFF264F78),
     frameTypeI = Color(0xFFE06C75), frameTypeP = Color(0xFF7EC699), frameTypeB = Color(0xFF6CA6E0),

@@ -368,10 +368,13 @@ fun FolderExplorerView(
                         val isCurrentTab = currentTab?.file?.absolutePath == file.absolutePath
                         val ext = file.extension.lowercase(Locale.US)
                         val (icon, badgeColor) = when {
-                            ext in VIDEO_EXTENSIONS -> "🎬" to Color(0xFF00E5FF)
-                            ext in AUDIO_EXTENSIONS -> "🎵" to Color(0xFF69F0AE)
-                            ext in RAW_PIXEL_EXTENSIONS || ext in RAW_AUDIO_EXTENSIONS || ext in listOf("cr2", "nef", "arw", "dng") -> "🎞️" to Color(0xFFE040FB)
-                            else -> "🖼️" to Color(0xFFFFAB40)
+                            // Muted to match the theme's accents (see Theme.kt's DarkPalette): a
+                            // long file list shows these badges on every row, so saturated ones
+                            // turned the whole panel into competing colour.
+                            ext in VIDEO_EXTENSIONS -> "🎬" to Color(0xFF61AFEF)
+                            ext in AUDIO_EXTENSIONS -> "🎵" to Color(0xFF98C379)
+                            ext in RAW_PIXEL_EXTENSIONS || ext in RAW_AUDIO_EXTENSIONS || ext in listOf("cr2", "nef", "arw", "dng") -> "🎞️" to Color(0xFFC678DD)
+                            else -> "🖼️" to Color(0xFFD19A66)
                         }
 
                         ContextMenuArea(
