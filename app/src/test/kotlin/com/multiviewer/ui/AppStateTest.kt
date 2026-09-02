@@ -68,6 +68,86 @@ class AppStateTest {
         video.delete()
     }
 
+    // A folder holding several media files, named so their alphabetical order is unambiguous --
+    // "a-first" sorts first, so "z-last" opening instead of it can only mean the caller's own
+    // choice was honored.
+    private fun tempFolderWithFiles(vararg names: String): Pair<File, List<File>> {
+        val dir = File.createTempFile("folder-nav-test-", "").let {
+            it.delete(); it.mkdirs(); it
+        }
+        dir.deleteOnExit()
+        val files = names.map { name ->
+            File(dir, name).apply { writeBytes(ByteArray(4)); deleteOnExit() }
+        }
+        return dir to files
+    }
+
+    // Picking a file in the folder dialog used to be reduced to "open its parent folder", which
+    // then auto-opened whatever sorted first -- so choosing z-last.mp4 opened a-first.mp4 instead.
+    @Test
+    fun `openFolder with an explicit file opens that file, not the folder's first one`() {
+        val (dir, files) = tempFolderWithFiles("a-first.mp4", "m-middle.mp4", "z-last.mp4")
+        val chosen = files.last()
+        val appState = AppState()
+
+        appState.openFolder(dir, fileToOpen = chosen)
+
+        assertEquals(dir.absolutePath, appState.selectedFolder?.absolutePath)
+        assertEquals(1, appState.tabs.size)
+        assertEquals(chosen.absolutePath, appState.tabs[0].file.absolutePath)
+    }
+
+    @Test
+    fun `openFolder without an explicit file still opens the folder's first file`() {
+        val (dir, files) = tempFolderWithFiles("a-first.mp4", "z-last.mp4")
+        val appState = AppState()
+
+        appState.openFolder(dir)
+
+        assertEquals(files.first().absolutePath, appState.tabs.singleOrNull()?.file?.absolutePath)
+    }
+
+    // Navigating into a subfolder has to be reversible -- without this the folder explorer offers
+    // no way back up, which is what made a subfolder a dead end.
+    @Test
+    fun `navigateToParentFolder moves the explorer up one level`() {
+        val (dir, _) = tempFolderWithFiles("a-first.mp4")
+        val sub = File(dir, "nested").apply { mkdirs(); deleteOnExit() }
+        val appState = AppState()
+        appState.openFolder(sub)
+        assertEquals(sub.absolutePath, appState.selectedFolder?.absolutePath)
+
+        appState.navigateToParentFolder()
+
+        assertEquals(dir.absolutePath, appState.selectedFolder?.absolutePath)
+    }
+
+    // Going up must not hijack the user's current tab: the parent's own first file is not what they
+    // asked for, they asked to look at the parent folder.
+    @Test
+    fun `navigateToParentFolder does not open any file`() {
+        val (dir, _) = tempFolderWithFiles("a-first.mp4")
+        val sub = File(dir, "nested").apply { mkdirs(); deleteOnExit() }
+        val appState = AppState()
+        appState.openFolder(sub)
+        val tabsBefore = appState.tabs.map { it.file.absolutePath }
+
+        appState.navigateToParentFolder()
+
+        assertEquals(tabsBefore, appState.tabs.map { it.file.absolutePath })
+    }
+
+    @Test
+    fun `navigateToParentFolder is a no-op at the filesystem root`() {
+        val appState = AppState()
+        val root = generateSequence(File(".").absoluteFile) { it.parentFile }.last()
+        appState.openFolder(root)
+
+        appState.navigateToParentFolder()
+
+        assertEquals(root.absolutePath, appState.selectedFolder?.absolutePath)
+    }
+
     @Test
     fun `openFile rejects a file beyond the open-file limit and sets statusMessage`() {
         val appState = AppState()

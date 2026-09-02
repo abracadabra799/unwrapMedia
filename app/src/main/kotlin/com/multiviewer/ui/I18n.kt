@@ -25,27 +25,22 @@ object I18n {
     // Menu: File
     fun menuFile(lang: AppLanguage) = if (lang == AppLanguage.KO) "파일" else "File"
     fun menuOpen(lang: AppLanguage) = if (lang == AppLanguage.KO) "열기" else "Open"
-    fun menuOpenFile(lang: AppLanguage) = if (lang == AppLanguage.KO) "파일 열기..." else "Open File..."
-    fun menuOpenFolder(lang: AppLanguage) = if (lang == AppLanguage.KO) "폴더 열기..." else "Open Folder..."
+    fun menuOpenFile(lang: AppLanguage) = if (lang == AppLanguage.KO) "파일 열기" else "Open File"
     fun menuClose(lang: AppLanguage) = if (lang == AppLanguage.KO) "닫기" else "Close"
 
-    // Menu: Navigate (Folder Media)
-    fun menuNavigate(lang: AppLanguage) = if (lang == AppLanguage.KO) "탐색" else "Navigate"
-    fun menuPrevFileInFolder(lang: AppLanguage) = if (lang == AppLanguage.KO) "이전 미디어 파일 (폴더 내)" else "Previous Media File in Folder"
-    fun menuNextFileInFolder(lang: AppLanguage) = if (lang == AppLanguage.KO) "다음 미디어 파일 (폴더 내)" else "Next Media File in Folder"
-    fun menuToggleLeftPanel(lang: AppLanguage) = if (lang == AppLanguage.KO) "좌측 패널 전환 (구조 트리 ↔ 폴더 탐색)" else "Toggle Left Panel (Structure ↔ Folder)"
+    // Menu: Extract
+    fun menuExtract(lang: AppLanguage) = if (lang == AppLanguage.KO) "추출" else "Extract"
 
     // Menu: Analyze
     fun menuAnalyze(lang: AppLanguage) = if (lang == AppLanguage.KO) "분석" else "Analyze"
-    fun menuDumpStructure(lang: AppLanguage) = if (lang == AppLanguage.KO) "구조 덤프..." else "Dump Structure..."
-    fun menuCheckStructure(lang: AppLanguage) = if (lang == AppLanguage.KO) "구조 결함 검사..." else "Check Structure..."
-    fun menuGenerateAiPrompt(lang: AppLanguage) = if (lang == AppLanguage.KO) "AI 진단 프롬프트 생성..." else "Generate AI Prompt..."
-    fun menuGenerateAiPromptAndCopy(lang: AppLanguage) = if (lang == AppLanguage.KO) "AI 프롬프트 생성 및 클립보드 복사" else "Generate AI Prompt & Copy"
+    fun menuDumpStructure(lang: AppLanguage) = if (lang == AppLanguage.KO) "구조 덤프" else "Dump Structure"
+    fun menuCheckStructure(lang: AppLanguage) = if (lang == AppLanguage.KO) "구조 결함 검사" else "Check Structure"
+    fun menuGenerateAiPrompt(lang: AppLanguage) = if (lang == AppLanguage.KO) "AI 진단 프롬프트 생성" else "Generate AI Prompt"
 
     // Menu: Motion Photo
     fun menuMotionPhoto(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토" else "Motion Photo"
-    fun menuCreateMotionPhotoV2(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 v2.0 생성 (권장)..." else "Create Motion Photo v2.0 (Recommended)..."
-    fun menuCreateMotionPhotoV1(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 v1.0 생성 (MicroVideo)..." else "Create Motion Photo v1.0 (MicroVideo)..."
+    fun menuCreateMotionPhotoV2(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 v2.0 생성 (권장)" else "Create Motion Photo v2.0 (Recommended)"
+    fun menuCreateMotionPhotoV1(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 v1.0 생성 (MicroVideo)" else "Create Motion Photo v1.0 (MicroVideo)"
     fun menuCreateMotionPhoto(lang: AppLanguage) = menuCreateMotionPhotoV2(lang)
     fun menuExtractMotionVideo(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 동영상 추출" else "Extract Motion Photo Video"
     fun menuExtractPreviewVideo(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 미리보기 재생용 비디오 추출" else "Extract Preview Video"
@@ -53,9 +48,9 @@ object I18n {
 
     // Menu: Gain Map
     fun menuGainmap(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵" else "Gain Map"
-    fun menuViewGainmapXmp(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 XMP 메타데이터 보기..." else "View Gain Map XMP..."
-    fun menuViewGainmapImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 보기 (팝업)..." else "View Gain Map Image (Popup)..."
-    fun menuExtractGainmapImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 추출 및 저장..." else "Extract & Save Gain Map Image..."
+    fun menuViewGainmapXmp(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 XMP 메타데이터 보기" else "View Gain Map XMP"
+    fun menuViewGainmapImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 보기 (팝업)" else "View Gain Map Image (Popup)"
+    fun menuExtractGainmapImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 추출 및 저장" else "Extract & Save Gain Map Image"
 
     // Gain Map UI Titles & Actions
     fun titleGainmapXmpWindow(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 XMP 메타데이터" else "Gain Map XMP Metadata"
@@ -65,8 +60,18 @@ object I18n {
     fun tabGainmapSecondaryXmp(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 XMP (Secondary)" else "Gain Map XMP (Secondary)"
     fun tabGainmapPrimaryXmp(lang: AppLanguage) = if (lang == AppLanguage.KO) "컨테이너 XMP (Primary)" else "Container XMP (Primary)"
     fun btnCopyXmp(lang: AppLanguage) = if (lang == AppLanguage.KO) "XMP 복사" else "Copy XMP"
+    fun btnCopied(lang: AppLanguage) = if (lang == AppLanguage.KO) "복사됨!" else "Copied!"
+
+    // File XMP viewer (every XMP packet in the file, one tab each)
+    fun menuViewFileXmp(lang: AppLanguage) = if (lang == AppLanguage.KO) "파일 내 XMP 정보" else "XMP in File"
+    fun titleFileXmpWindow(lang: AppLanguage) = if (lang == AppLanguage.KO) "파일 내 XMP 정보" else "XMP in File"
+    fun labelFileXmpScanning(lang: AppLanguage) = if (lang == AppLanguage.KO) "XMP 검색 중..." else "Scanning for XMP..."
+    fun labelFileXmpCount(lang: AppLanguage, count: Int) =
+        if (lang == AppLanguage.KO) "XMP 패킷 ${count}개" else "$count XMP packet(s)"
+    fun labelFileXmpNone(lang: AppLanguage) =
+        if (lang == AppLanguage.KO) "이 파일에서 XMP 메타데이터를 찾을 수 없습니다" else "No XMP metadata found in this file"
     fun btnViewGainmapImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 열기" else "View Gain Map Image"
-    fun btnSaveGainmapImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 저장..." else "Save Gain Map Image..."
+    fun btnSaveGainmapImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 저장" else "Save Gain Map Image"
     fun btnViewXmp(lang: AppLanguage) = if (lang == AppLanguage.KO) "XMP 메타데이터 보기" else "View XMP Metadata"
     fun saveGainmapDialogTitle(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 저장" else "Save Gain Map Image"
 
@@ -82,8 +87,11 @@ object I18n {
     // Menu: Tools / Compare
     fun menuTools(lang: AppLanguage) = if (lang == AppLanguage.KO) "도구" else "Tools"
     fun menuCompareAndAnalysis(lang: AppLanguage) = menuTools(lang)
-    fun menuCompareFiles(lang: AppLanguage) = if (lang == AppLanguage.KO) "두 파일 상세 비교 (구조 · 메타 · 프레임 · Hex Diff)..." else "Compare Two Files (Structure, Meta, Frame, Hex Diff)..."
-    fun menuQualityBenchmark(lang: AppLanguage) = if (lang == AppLanguage.KO) "동영상 인코딩 화질 측정 (PSNR · SSIM · VMAF 벤치마크)..." else "Video Quality Benchmark (PSNR, SSIM, VMAF Metrics)..."
+    // Named to match the window it opens (see ImageCompareWindow's own title) -- the menu used to
+    // say "두 파일 상세 비교 …" while the window called itself "미디어 비교 분석기", so the thing you
+    // clicked and the thing that appeared had different names.
+    fun menuCompareFiles(lang: AppLanguage) = if (lang == AppLanguage.KO) "미디어 비교 분석기" else "Media Comparison Analyzer"
+    fun menuQualityBenchmark(lang: AppLanguage) = if (lang == AppLanguage.KO) "화질 벤치마크" else "Quality Benchmark"
 
     // Backward compatibility aliases
     fun menuMediaCompare(lang: AppLanguage) = menuCompareAndAnalysis(lang)
@@ -104,8 +112,6 @@ object I18n {
     fun menuEnglish(lang: AppLanguage) = "English"
 
     // Feedback & Toast messages
-    fun toastPromptCopied(lang: AppLanguage) = if (lang == AppLanguage.KO) "AI 분석 프롬프트가 클립보드에 복사되었습니다." else "AI analysis prompt copied to clipboard."
-    fun toastClipboardFailed(lang: AppLanguage) = if (lang == AppLanguage.KO) "클립보드 접근에 실패했습니다." else "Failed to access clipboard."
     fun toastExtractingVideo(lang: AppLanguage) = if (lang == AppLanguage.KO) "비디오 트랙 추출 중..." else "Extracting video track..."
     fun toastExtractingAudio(lang: AppLanguage) = if (lang == AppLanguage.KO) "오디오 트랙 추출 중..." else "Extracting audio track..."
     fun toastCreatingMotionPhoto(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 생성 중..." else "Creating Motion Photo..."
@@ -133,7 +139,7 @@ object I18n {
     // App Version & About
     const val APP_VERSION = "1.9.1"
     fun menuHelp(lang: AppLanguage) = if (lang == AppLanguage.KO) "도움말" else "Help"
-    fun menuAbout(lang: AppLanguage) = if (lang == AppLanguage.KO) "unwrapMedia 정보..." else "About unwrapMedia..."
+    fun menuAbout(lang: AppLanguage) = if (lang == AppLanguage.KO) "unwrapMedia 정보" else "About unwrapMedia"
     fun menuVersionInfo(lang: AppLanguage) = if (lang == AppLanguage.KO) "버전: v$APP_VERSION" else "Version: v$APP_VERSION"
     fun titleAboutWindow(lang: AppLanguage) = if (lang == AppLanguage.KO) "unwrapMedia 정보" else "About unwrapMedia"
 }

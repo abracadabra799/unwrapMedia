@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -53,8 +54,11 @@ fun showOpenFolderDialog(appState: AppState) {
             if (folder.exists() && folder.isDirectory) {
                 appState.openFolder(folder)
             } else if (folder.exists() && folder.isFile) {
+                // Open the file the user actually picked. Passing only its parent here used to make
+                // openFolder fall back to "first file in the folder", so choosing any file but the
+                // alphabetically first one silently opened the wrong one.
                 val parent = folder.parentFile
-                if (parent != null) appState.openFolder(parent)
+                if (parent != null) appState.openFolder(parent, fileToOpen = folder)
             }
         }
     } finally {
@@ -102,15 +106,31 @@ fun FolderExplorerView(
         }
     }
 
+    // Listed above the files so the explorer can go down as well as up, instead of the native
+    // folder dialog being the only way to change folders.
+    val subfolders = remember(targetFolder?.absolutePath, refreshTrigger, searchQuery) {
+        appState.getSubfolders(targetFolder)
+            .filter { searchQuery.isBlank() || it.name.contains(searchQuery, ignoreCase = true) }
+    }
+
     val listState = rememberLazyListState()
 
+    // Arriving in a different folder starts at the top. listState survives the folder change (it is
+    // remembered for the whole panel), so without this a new folder inherits the previous one's
+    // scroll offset and opens part-way down -- with its first entries, including the subfolder rows,
+    // scrolled out of sight.
+    LaunchedEffect(targetFolder?.absolutePath) {
+        listState.scrollToItem(0)
+    }
+
     // Auto-scroll to currently active tab file when folder opens or active tab changes
-    LaunchedEffect(currentTab?.file?.absolutePath, filteredFiles) {
+    LaunchedEffect(currentTab?.file?.absolutePath, filteredFiles, subfolders) {
         val currentFile = currentTab?.file
         if (currentFile != null) {
             val idx = filteredFiles.indexOfFirst { it.absolutePath == currentFile.absolutePath }
             if (idx >= 0) {
-                listState.animateScrollToItem(idx)
+                // Files sit below the subfolder rows, so the scroll index has to clear those first.
+                listState.animateScrollToItem(idx + subfolders.size)
             }
         }
     }
@@ -150,7 +170,7 @@ fun FolderExplorerView(
                         ),
                         border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.Border),
                     ) {
-                        Text(if (language == AppLanguage.KO) "📂 폴더 열기 / 선택..." else "📂 Open Folder...")
+                        Text(if (language == AppLanguage.KO) "📂 폴더 열기 / 선택" else "📂 Open Folder")
                     }
                 }
             }
@@ -183,6 +203,19 @@ fun FolderExplorerView(
                             color = AppColors.TextSecondary,
                         )
                         Spacer(Modifier.width(4.dp))
+                        // Without this, entering a subfolder was a one-way trip: the list shows no
+                        // way back, so the only escape was re-opening the native folder dialog.
+                        IconButton(
+                            onClick = { appState.navigateToParentFolder() },
+                            enabled = targetFolder.parentFile?.isDirectory == true,
+                            modifier = Modifier.size(24.dp),
+                        ) {
+                            Text(
+                                "⬆️",
+                                fontSize = 11.sp,
+                                color = if (targetFolder.parentFile?.isDirectory == true) AppColors.TextPrimary else AppColors.TextSecondary,
+                            )
+                        }
                         IconButton(
                             onClick = { refreshTrigger++ },
                             modifier = Modifier.size(24.dp),
@@ -280,8 +313,9 @@ fun FolderExplorerView(
                 }
             }
 
-            // File List
-            if (filteredFiles.isEmpty()) {
+            // File List -- the placeholder only stands in when there is nothing at all to show;
+            // a folder holding only subfolders still has somewhere to go, so it lists those.
+            if (filteredFiles.isEmpty() && subfolders.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize().padding(16.dp),
                     contentAlignment = Alignment.Center,
@@ -301,6 +335,35 @@ fun FolderExplorerView(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(vertical = 4.dp),
                 ) {
+                    items(subfolders, key = { it.absolutePath }) { folder ->
+                        Surface(
+                            color = Color.Transparent,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { appState.openFolder(folder, openFirstFile = false) }
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                            shape = RoundedCornerShape(4.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 8.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text("📁", fontSize = 12.sp)
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    folder.name,
+                                    style = AppTypography.bodySmall.copy(color = AppColors.NeonBlue, fontSize = 11.sp),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text("›", fontSize = 12.sp, color = AppColors.TextSecondary)
+                            }
+                        }
+                    }
+
                     itemsIndexed(filteredFiles, key = { _, file -> file.absolutePath }) { index, file ->
                         val isCurrentTab = currentTab?.file?.absolutePath == file.absolutePath
                         val ext = file.extension.lowercase(Locale.US)

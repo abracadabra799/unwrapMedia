@@ -402,9 +402,17 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 val hasGainmap = currentTab != null && !currentTab.isLoading && currentTab.gainmapInfo?.hasGainmap == true
 
                 Item(I18n.menuOpen(language), shortcut = KeyShortcut(Key.O, meta = true), onClick = { showOpenFileDialog(appState) })
-                Item(I18n.menuOpenFolder(language), shortcut = KeyShortcut(Key.O, meta = true, shift = true), onClick = { showOpenFolderDialog(appState) })
                 Item(I18n.menuClose(language), enabled = appState.tabs.isNotEmpty(), shortcut = KeyShortcut(Key.W, meta = true), onClick = { appState.closeTab(appState.selectedTabIndex) })
-                Separator()
+            }
+            // Track extraction, previously tacked onto the end of 파일 alongside open/close.
+            // The motion photo extractions stay in 모션포토: they belong with the create/analyze
+            // commands for that format rather than with plain track extraction.
+            Menu(I18n.menuExtract(language)) {
+                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                val isVideo = currentTab?.type == MediaType.VIDEO
+                val hasVideoTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Video" } == true
+                val hasAudioTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Audio" } == true
+
                 Item(
                     I18n.menuExtractVideoTrack(language),
                     enabled = hasVideoTrack,
@@ -415,10 +423,37 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     enabled = hasAudioTrack,
                     onClick = { currentTab?.let { extractAudioTrackFromCurrentFile(appState, it) } },
                 )
+            }
+            // Every gain map command in one place -- they were split between 파일 (extract) and
+            // 분석 (the two viewers), which meant hunting through two menus for one feature.
+            Menu(I18n.menuGainmap(language)) {
+                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                val hasGainmap = currentTab != null && !currentTab.isLoading && currentTab.gainmapInfo?.hasGainmap == true
+
+                Item(
+                    I18n.menuViewGainmapImage(language),
+                    enabled = hasGainmap,
+                    shortcut = KeyShortcut(Key.G, meta = true),
+                    onClick = { currentTab?.isGainmapImagePopupOpen = true },
+                )
                 Item(
                     I18n.menuExtractGainmapImage(language),
                     enabled = hasGainmap,
                     onClick = { currentTab?.let { extractGainmapImage(appState, it, language) } },
+                )
+                Item(
+                    I18n.menuViewGainmapXmp(language),
+                    enabled = hasGainmap,
+                    shortcut = KeyShortcut(Key.G, meta = true, shift = true),
+                    onClick = { currentTab?.isGainmapXmpPopupOpen = true },
+                )
+                Separator()
+                // Not gated on hasGainmap, unlike everything above it: this lists whatever XMP the
+                // file actually holds, which is worth looking at on files with no gain map at all.
+                Item(
+                    I18n.menuViewFileXmp(language),
+                    enabled = currentTab != null && !currentTab.isLoading,
+                    onClick = { currentTab?.isFileXmpPopupOpen = true },
                 )
             }
             Menu(I18n.menuAnalyze(language)) {
@@ -426,7 +461,6 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 val hasActiveFile = currentTab != null && !currentTab.isLoading && currentTab.root != null
                 val isVideo = currentTab?.type == MediaType.VIDEO
                 val hasVideoTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Video" } == true
-                val hasGainmap = currentTab != null && !currentTab.isLoading && currentTab.gainmapInfo?.hasGainmap == true
 
                 Item(
                     I18n.menuDumpStructure(language),
@@ -447,42 +481,11 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     shortcut = KeyShortcut(Key.P, meta = true, shift = true),
                     onClick = { aiPromptWindowOpen = true },
                 )
-                Item(
-                    I18n.menuGenerateAiPromptAndCopy(language),
-                    enabled = hasActiveFile,
-                    shortcut = KeyShortcut(Key.P, meta = true, alt = true),
-                    onClick = {
-                        currentTab?.let { tab ->
-                            val root = tab.root
-                            if (root != null) {
-                                val warnings = com.multiviewer.parser.collectWarnings(root)
-                                val prompt = com.multiviewer.cli.AiDiagnosticPromptBuilder.buildPrompt(tab.file, root, warnings)
-                                if (com.multiviewer.util.ClipboardUtil.copyToClipboard(prompt)) {
-                                    appState.statusMessage = I18n.toastPromptCopied(language)
-                                } else {
-                                    appState.statusMessage = I18n.toastClipboardFailed(language)
-                                }
-                            }
-                        }
-                    },
-                )
                 Separator()
                 Item(
                     I18n.menuViewFrameIntervals(language),
                     enabled = hasVideoTrack,
                     onClick = { frameIntervalWindowOpen = true },
-                )
-                Item(
-                    I18n.menuViewGainmapXmp(language),
-                    enabled = hasGainmap,
-                    shortcut = KeyShortcut(Key.G, meta = true, shift = true),
-                    onClick = { currentTab?.isGainmapXmpPopupOpen = true },
-                )
-                Item(
-                    I18n.menuViewGainmapImage(language),
-                    enabled = hasGainmap,
-                    shortcut = KeyShortcut(Key.G, meta = true),
-                    onClick = { currentTab?.isGainmapImagePopupOpen = true },
                 )
             }
             Menu(I18n.menuMotionPhoto(language)) {
@@ -528,30 +531,9 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     onClick = { qualityCompareWindowOpen = true },
                 )
             }
-            Menu(I18n.menuNavigate(language)) {
-                Item(
-                    I18n.menuPrevFileInFolder(language),
-                    shortcut = KeyShortcut(Key.PageUp),
-                    onClick = { appState.navigateToPrevFileInFolder() },
-                )
-                Item(
-                    I18n.menuNextFileInFolder(language),
-                    shortcut = KeyShortcut(Key.PageDown),
-                    onClick = { appState.navigateToNextFileInFolder() },
-                )
-                Separator()
-                Item(
-                    I18n.menuToggleLeftPanel(language),
-                    shortcut = KeyShortcut(Key.E, meta = true, alt = true),
-                    onClick = {
-                        appState.leftPanelMode = if (appState.leftPanelMode == LeftPanelMode.STRUCTURE_TREE) {
-                            LeftPanelMode.FOLDER_EXPLORER
-                        } else {
-                            LeftPanelMode.STRUCTURE_TREE
-                        }
-                    },
-                )
-            }
+            // The "탐색" menu used to sit here. Removed as confusing: its panel toggle duplicated the
+            // 구조 트리 / 폴더 탐색 tabs right below, and "탐색" read as being about the folder explorer
+            // while actually holding file-stepping commands.
             Menu(I18n.menuView(language)) {
                 CheckboxItem(
                     I18n.menuDarkTheme(language),
@@ -793,6 +775,14 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 if (tab.isPrimaryImagePopupOpen) {
                     PrimaryImagePopupWindow(tab, onCloseRequest = { tab.isPrimaryImagePopupOpen = false })
                 }
+                if (tab.isFileXmpPopupOpen) {
+                    FileXmpWindow(
+                        tab = tab,
+                        themeMode = themeMode,
+                        language = language,
+                        onCloseRequest = { tab.isFileXmpPopupOpen = false },
+                    )
+                }
                 if (tab.isGainmapXmpPopupOpen) {
                     GainmapXmpWindow(
                         tab = tab,
@@ -825,27 +815,19 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                                 color = AppColors.TextPrimary,
                             )
                             Spacer(Modifier.height(16.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                OutlinedButton(
-                                    onClick = { showOpenFileDialog(appState) },
-                                    colors = ButtonDefaults.outlinedButtonColors(
-                                        containerColor = AppColors.Surface.copy(alpha = 0.5f),
-                                        contentColor = AppColors.NeonBlue,
-                                    ),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.Border),
-                                ) {
-                                    Text(if (language == AppLanguage.KO) "📂 파일 열기..." else "📂 Open File...")
-                                }
-                                OutlinedButton(
-                                    onClick = { showOpenFolderDialog(appState) },
-                                    colors = ButtonDefaults.outlinedButtonColors(
-                                        containerColor = AppColors.Surface.copy(alpha = 0.5f),
-                                        contentColor = AppColors.NeonYellow,
-                                    ),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.Border),
-                                ) {
-                                    Text(if (language == AppLanguage.KO) "📁 폴더 열기..." else "📁 Open Folder...")
-                                }
+                            // Only "open file" here. Opening a folder happens in the folder explorer
+                            // panel (its 📂 button), which appears as soon as any file is open --
+                            // and opening a file already selects that file's folder there, so the
+                            // explorer is one step away rather than a separate starting choice.
+                            OutlinedButton(
+                                onClick = { showOpenFileDialog(appState) },
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = AppColors.Surface.copy(alpha = 0.5f),
+                                    contentColor = AppColors.NeonBlue,
+                                ),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.Border),
+                            ) {
+                                Text(if (language == AppLanguage.KO) "📂 파일 열기" else "📂 Open File")
                             }
                             Spacer(Modifier.height(14.dp))
                             Text("unwrapMedia v${I18n.APP_VERSION}", fontSize = 12.sp, color = AppColors.TextSecondary)
