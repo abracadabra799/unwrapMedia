@@ -172,7 +172,22 @@ internal fun parseHexSearchPattern(input: String, isHexMode: Boolean): ByteArray
     }
 }
 
-internal fun searchHex(raf: RandomAccessFile, pattern: ByteArray, maxResults: Int = 100): List<Long> {
+// Folds ASCII letters only. Bit 5 is what separates 'A' from 'a', but flipping it blindly would
+// also equate 0x00 with 0x20 and '@' with '`' -- pairs of unrelated bytes that are common in binary
+// data. Bytes above 0x7F are left alone so UTF-8 text and binary keep matching exactly.
+private fun foldAsciiCase(b: Byte): Byte =
+    if (b >= 'A'.code.toByte() && b <= 'Z'.code.toByte()) (b + 0x20).toByte() else b
+
+// ignoreCase applies to the ASCII letters in the pattern, which is what a text-mode search needs:
+// the case a marker happens to be stored in ("Exif" in JPEG, "ftyp" in ISOBMFF, vendor strings in
+// whatever they please) is not something the user knows before searching. It has no effect on a hex
+// pattern's meaning -- hex digits already parse case-insensitively.
+internal fun searchHex(
+    raf: RandomAccessFile,
+    pattern: ByteArray,
+    maxResults: Int = 100,
+    ignoreCase: Boolean = false,
+): List<Long> {
     if (pattern.isEmpty()) return emptyList()
     val fileLength = raf.length()
     if (fileLength < pattern.size) return emptyList()
@@ -192,7 +207,9 @@ internal fun searchHex(raf: RandomAccessFile, pattern: ByteArray, maxResults: In
         for (i in 0 until searchLimit) {
             var match = true
             for (j in pattern.indices) {
-                if (buffer[i + j] != pattern[j]) {
+                val a = if (ignoreCase) foldAsciiCase(buffer[i + j]) else buffer[i + j]
+                val b = if (ignoreCase) foldAsciiCase(pattern[j]) else pattern[j]
+                if (a != b) {
                     match = false
                     break
                 }
@@ -384,6 +401,10 @@ fun HexView(
     // Find state
     var searchQuery by remember(file) { mutableStateOf("") }
     var isHexSearchMode by remember(file) { mutableStateOf(false) }
+    // On by default: a text search is normally for a marker whose stored case the user does not
+    // know yet. Turn it off when the case itself is the thing being checked -- box types are
+    // case-sensitive in ISOBMFF, so 'moov' and 'MOOV' are genuinely different findings.
+    var ignoreSearchCase by remember(file) { mutableStateOf(true) }
     var searchMatches by remember(file) { mutableStateOf<List<Long>>(emptyList()) }
     var currentMatchIndex by remember(file) { mutableStateOf(0) }
     var activeSearchPatternLength by remember(file) { mutableStateOf(0) }
@@ -453,7 +474,7 @@ fun HexView(
         activeSearchPatternLength = pattern.size
         coroutineScope.launch {
             val results = withContext(Dispatchers.IO) {
-                searchHex(raf, pattern)
+                searchHex(raf, pattern, ignoreCase = ignoreSearchCase && !isHexSearchMode)
             }
             searchMatches = results
             currentMatchIndex = 0
@@ -583,6 +604,31 @@ fun HexView(
                                 fontWeight = FontWeight.Bold,
                                 color = if (isHexSearchMode) AppColors.NeonYellow else AppColors.NeonBlue,
                             )
+                        }
+
+                        // Only meaningful for a text pattern: hex digits already parse in either
+                        // case, so the control is hidden rather than left there doing nothing.
+                        if (!isHexSearchMode) {
+                            Row(
+                                modifier = Modifier
+                                    .border(
+                                        1.dp,
+                                        if (ignoreSearchCase) AppColors.NeonBlue.copy(alpha = 0.7f) else AppColors.Border,
+                                        RoundedCornerShape(4.dp),
+                                    )
+                                    .clickable {
+                                        ignoreSearchCase = !ignoreSearchCase
+                                        performSearch()
+                                    }
+                                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                            ) {
+                                Text(
+                                    "Aa",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (ignoreSearchCase) AppColors.NeonBlue else AppColors.TextMuted,
+                                )
+                            }
                         }
 
                         androidx.compose.foundation.text.BasicTextField(
