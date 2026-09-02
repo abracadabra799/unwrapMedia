@@ -231,7 +231,7 @@ fun StructureDumpWindow(
 }
 
 /**
- * Window dialog for "Check Structure..."
+ * Window dialog for "구조 정합성 검사" (Validate Structure).
  * Displays structural defects, anomalies, warnings and severity levels.
  */
 @Composable
@@ -263,7 +263,7 @@ fun StructureCheckWindow(
 
     Window(
         onCloseRequest = onCloseRequest,
-        title = "Check Structure - ${tab.file.name}",
+        title = "Validate Structure - ${tab.file.name}",
         state = windowState,
         onKeyEvent = { event ->
             if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
@@ -291,7 +291,7 @@ fun StructureCheckWindow(
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        "Structure Check",
+                                        "Structure Integrity",
                                         style = AppTypography.headlineSmall.copy(fontSize = 18.sp, fontWeight = FontWeight.Bold),
                                         color = if (warnings.isEmpty()) AppColors.NeonGreen else AppColors.NeonYellow,
                                     )

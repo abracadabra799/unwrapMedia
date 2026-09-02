@@ -34,7 +34,7 @@ object I18n {
     // Menu: Analyze
     fun menuAnalyze(lang: AppLanguage) = if (lang == AppLanguage.KO) "분석" else "Analyze"
     fun menuDumpStructure(lang: AppLanguage) = if (lang == AppLanguage.KO) "구조 덤프" else "Dump Structure"
-    fun menuCheckStructure(lang: AppLanguage) = if (lang == AppLanguage.KO) "구조 결함 검사" else "Check Structure"
+    fun menuCheckStructure(lang: AppLanguage) = if (lang == AppLanguage.KO) "구조 정합성 검사" else "Validate Structure"
     fun menuGenerateAiPrompt(lang: AppLanguage) = if (lang == AppLanguage.KO) "AI 진단 프롬프트 생성" else "Generate AI Prompt"
 
     // Menu: Motion Photo
