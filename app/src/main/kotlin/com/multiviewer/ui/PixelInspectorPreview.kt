@@ -48,22 +48,57 @@ fun zoomTowardPoint(scale: Float, offset: Offset, cursorPosition: Offset, scroll
     return newScale to newOffset
 }
 
-// Bounds pan so the scaled content can never be dragged far enough to reveal empty space beyond
-// its own edge -- half of however much the scaled content now overhangs the box's own bounds on
-// that axis. At scale == 1 this collapses to exactly 0f..0f (no pan possible), so callers don't
-// need a separate "only pan when zoomed in" branch anywhere.
-fun clampPanOffset(offset: Offset, boxSize: Size, scale: Float): Offset {
-    val maxX = ((boxSize.width * scale) - boxSize.width) / 2f
-    val maxY = ((boxSize.height * scale) - boxSize.height) / 2f
-    // At scale == 1, maxX/maxY are exactly 0f, and IEEE 754 negation of +0f yields -0f -- so a
-    // negative input coerced against a lower bound of -0f comes out as -0f, not 0f. Kotlin's
-    // Float equality (unlike primitive IEEE compare) treats -0f and 0f as unequal, which broke
-    // Offset.Zero comparisons downstream. Adding +0f normalizes -0f back to 0f (IEEE 754:
-    // -0f + 0f == 0f) without affecting any other value.
-    return Offset(
-        offset.x.coerceIn(-maxX, maxX) + 0f,
-        offset.y.coerceIn(-maxY, maxY) + 0f,
+// The size ContentScale.Fit actually draws `nativeSize` at inside `boxSize` -- uniformly scaled by
+// whichever axis binds first, so one axis fills the box and the other is letterboxed. This is the
+// real extent of the image on screen, which is what pan has to be measured against: the layer the
+// transform is applied to is always the full box, but the picture inside it usually isn't.
+fun fittedContentSize(boxSize: Size, nativeSize: Size): Size {
+    if (nativeSize.width <= 0f || nativeSize.height <= 0f || boxSize.width <= 0f || boxSize.height <= 0f) {
+        return boxSize
+    }
+    val fitScale = minOf(boxSize.width / nativeSize.width, boxSize.height / nativeSize.height)
+    return Size(nativeSize.width * fitScale, nativeSize.height * fitScale)
+}
+
+// Bounds pan so the drawn image can never be dragged off the box -- neither past its own far edge
+// (leaving blank space) nor out of view entirely. At scale == 1 this yields exactly (0, 0) on both
+// axes, so callers need no separate "only pan when zoomed in" branch anywhere.
+//
+// Two things make the bounds asymmetric rather than the ±overhang/2 a center pivot would give:
+//
+//  - Every call site draws with transformOrigin = TransformOrigin(0f, 0f). With a top-left pivot
+//    the layer grows only right/down, so a layer-local x lands on screen at offset.x + scale*x.
+//    The symmetric bound is the *center*-pivot formula, and against a top-left pivot it cut the
+//    reachable pan in half: the far edge stopped at (scale+1)/(2*scale) of the content's width --
+//    the right quarter of the image unreachable at 2x, worse the further in you zoom.
+//  - The image is letterboxed inside that box-sized layer (contentSize, from fittedContentSize),
+//    so bounding the *layer* to the box still let a tall image's narrow strip slide out of view
+//    sideways, even though vertically -- where it fills the layer edge to edge -- it could not.
+//    Bounding the drawn image makes both axes behave the same way.
+//
+// zoomTowardPoint and panToPoint already use the same top-left model.
+fun clampPanOffset(offset: Offset, boxSize: Size, scale: Float, contentSize: Size = boxSize): Offset =
+    Offset(
+        clampPanAxis(offset.x, boxSize.width, contentSize.width, scale),
+        clampPanAxis(offset.y, boxSize.height, contentSize.height, scale),
     )
+
+private fun clampPanAxis(value: Float, box: Float, drawn: Float, scale: Float): Float {
+    // Screen distance from the layer's own origin to the drawn image's near edge -- the scaled
+    // letterbox bar. The image occupies [value + letterbox, value + letterbox + scale*drawn].
+    val letterbox = scale * (box - drawn) / 2f
+    val overhang = scale * drawn - box
+    // Adding +0f normalizes IEEE 754's -0f (which a coerceIn against a -0f bound can produce, and
+    // which Kotlin's Float equality treats as unequal to 0f) back to 0f, without affecting any
+    // other value -- Offset.Zero comparisons downstream depend on it.
+    return if (overhang >= 0f) {
+        // Big enough to cover the box: pan freely, but keep it covered edge to edge.
+        value.coerceIn(-letterbox - overhang, -letterbox) + 0f
+    } else {
+        // Still smaller than the box on this axis, so there is nothing to pan to -- stay centered
+        // instead of letting the image drift toward (or past) an edge.
+        -letterbox - overhang / 2f + 0f
+    }
 }
 
 // Re-centers the box on the tapped content point -- click-to-navigate while zoomed in, so the
@@ -71,14 +106,14 @@ fun clampPanOffset(offset: Offset, boxSize: Size, scale: Float): Offset {
 // clampPanOffset so the result is bounded exactly like a drag's is, and (like every other function
 // here) needs no separate "only when zoomed in" branch: at scale == 1 the clamp collapses any
 // result to (0, 0).
-fun panToPoint(offset: Offset, boxSize: Size, scale: Float, tapPosition: Offset): Offset {
+fun panToPoint(offset: Offset, boxSize: Size, scale: Float, tapPosition: Offset, contentSize: Size = boxSize): Offset {
     val contentX = (tapPosition.x - offset.x) / scale
     val contentY = (tapPosition.y - offset.y) / scale
     val recentered = Offset(
         boxSize.width / 2f - contentX * scale,
         boxSize.height / 2f - contentY * scale,
     )
-    return clampPanOffset(recentered, boxSize, scale)
+    return clampPanOffset(recentered, boxSize, scale, contentSize)
 }
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -94,6 +129,10 @@ fun PixelInspectorPreview(
     var scale by remember(resetKey) { mutableStateOf(1f) }
     var offset by remember(resetKey) { mutableStateOf(Offset.Zero) }
     var boxSize by remember(resetKey) { mutableStateOf(Size.Zero) }
+    val nativeSize = Size(bitmap.width.toFloat(), bitmap.height.toFloat())
+    // What ContentScale.Fit actually draws inside the box -- pan is bounded against this, not the
+    // box-sized layer, so a letterboxed image can't be dragged out of view sideways.
+    val contentSize = fittedContentSize(boxSize, nativeSize)
 
     Box(
         modifier = modifier
@@ -105,13 +144,13 @@ fun PixelInspectorPreview(
                 val change = event.changes.firstOrNull() ?: return@onPointerEvent
                 val (newScale, rawOffset) = zoomTowardPoint(scale, offset, change.position, change.scrollDelta.y)
                 scale = newScale
-                offset = clampPanOffset(rawOffset, boxSize, newScale)
+                offset = clampPanOffset(rawOffset, boxSize, newScale, contentSize)
                 event.changes.forEach { it.consume() }
             }
             .pointerInput(resetKey) {
                 detectDragGestures { change, dragAmount ->
                     change.consume()
-                    offset = clampPanOffset(offset + dragAmount, boxSize, scale)
+                    offset = clampPanOffset(offset + dragAmount, boxSize, scale, contentSize)
                 }
             }
             .pointerInput(resetKey) {
@@ -121,13 +160,13 @@ fun PixelInspectorPreview(
                             resolveTileIndexAt(
                                 tapPosition = tapPosition,
                                 boxSize = boxSize,
-                                nativeSize = Size(bitmap.width.toFloat(), bitmap.height.toFloat()),
+                                nativeSize = nativeSize,
                                 scale = scale,
                                 offset = offset,
                                 tileGrid = tileGrid,
                             )?.let { onTileClick(it) }
                         }
-                        offset = panToPoint(offset, boxSize, scale, tapPosition)
+                        offset = panToPoint(offset, boxSize, scale, tapPosition, contentSize)
                     },
                     onDoubleTap = {
                         scale = 1f

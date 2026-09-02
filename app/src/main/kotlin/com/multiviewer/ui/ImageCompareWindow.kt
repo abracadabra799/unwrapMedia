@@ -76,6 +76,43 @@ enum class MediaCompareTab {
     HEX,
 }
 
+/**
+ * Which of the two compare slots a browse produced. A null slot is left as it was.
+ *
+ * [refusedCount] is set instead when more files were picked than a comparison can use; both slots
+ * are then null and the caller shows that count rather than applying anything.
+ */
+data class ComparePick(val fileA: File?, val fileB: File?, val refusedCount: Int? = null)
+
+/** A comparison names exactly two sides, so a browse can contribute at most this many files. */
+const val MAX_COMPARE_SELECTION = 2
+
+/**
+ * Works out which slots a browse fills, so one trip through the file dialog can set up both sides.
+ *
+ * Selecting two files fills A and B together -- the case this exists for, since comparing means
+ * naming two files and doing that in two separate dialogs is the friction being removed. They are
+ * assigned in name order rather than selection order: the order the OS reports a multi-selection in
+ * isn't visible to the user afterwards, so name order at least makes the same two files land the
+ * same way round every time, and the window's ⇄ button fixes it when the guess is backwards.
+ *
+ * Selecting one file fills only [targetIsA]'s slot, exactly as before multi-select existed.
+ *
+ * Selecting more than [MAX_COMPARE_SELECTION] is refused rather than trimmed. The native dialog
+ * cannot cap a selection (java.awt.FileDialog offers only setMultipleMode(boolean)), so refusing is
+ * the closest thing to preventing it -- and quietly keeping two of three would drop the rest with
+ * no explanation, which is precisely the surprise worth avoiding.
+ */
+fun resolveComparePick(picked: List<File>, targetIsA: Boolean): ComparePick {
+    if (picked.size > MAX_COMPARE_SELECTION) return ComparePick(null, null, refusedCount = picked.size)
+    val sorted = picked.sortedBy { it.name.lowercase(Locale.US) }
+    return when {
+        sorted.isEmpty() -> ComparePick(null, null)
+        sorted.size == 1 -> if (targetIsA) ComparePick(sorted[0], null) else ComparePick(null, sorted[0])
+        else -> ComparePick(sorted[0], sorted[1])
+    }
+}
+
 enum class VisualCompareMode {
     SPLIT_WIPER,
     SIDE_BY_SIDE,
@@ -133,6 +170,9 @@ fun ImageCompareWindow(
     var selectedTab by remember { mutableStateOf(MediaCompareTab.STRUCTURE) }
     var fileA by remember { mutableStateOf(initialFileA) }
     var fileB by remember { mutableStateOf(initialFileB) }
+    // Set when a browse selected more files than a comparison can take; cleared by the next browse.
+    // Without it the refusal would be invisible and look like the dialog simply did nothing.
+    var tooManyPickedCount by remember { mutableStateOf<Int?>(null) }
     var folderA by remember { mutableStateOf<File?>(initialFileA?.parentFile) }
     var folderB by remember { mutableStateOf<File?>(initialFileB?.parentFile) }
 
@@ -272,13 +312,15 @@ fun ImageCompareWindow(
                     folderB = folderB,
                     infoA = infoA,
                     infoB = infoB,
-                    onPickA = { file ->
-                        fileA = file
-                        folderA = file.parentFile
-                    },
-                    onPickB = { file ->
-                        fileB = file
-                        folderB = file.parentFile
+                    openTabFiles = appState.tabs.map { it.file },
+                    // A pick can carry one slot or both (see resolveComparePick). Each slot keeps
+                    // its own folder, so the two files never have to live in the same directory --
+                    // browsing per slot still works exactly as before for files far apart.
+                    tooManyPickedCount = tooManyPickedCount,
+                    onPick = { pick ->
+                        tooManyPickedCount = pick.refusedCount
+                        pick.fileA?.let { fileA = it; folderA = it.parentFile }
+                        pick.fileB?.let { fileB = it; folderB = it.parentFile }
                     },
                     onSelectA = { fileA = it },
                     onSelectB = { fileB = it },
@@ -347,33 +389,55 @@ private fun MediaSelectionBar(
     folderB: File?,
     infoA: CompareMediaInfo?,
     infoB: CompareMediaInfo?,
-    onPickA: (File) -> Unit,
-    onPickB: (File) -> Unit,
+    openTabFiles: List<File>,
+    tooManyPickedCount: Int?,
+    onPick: (ComparePick) -> Unit,
     onSelectA: (File) -> Unit,
     onSelectB: (File) -> Unit,
     onSwap: () -> Unit,
 ) {
-    fun openFileDialog(title: String, onPicked: (File) -> Unit) {
+    // Multi-select is on so both sides can be chosen in one trip -- picking two files fills A and B
+    // together (see resolveComparePick). Picking one behaves as it always did.
+    fun openFileDialog(title: String, targetIsA: Boolean, onPicked: (ComparePick) -> Unit) {
         val dialog = FileDialog(null as Frame?, title, FileDialog.LOAD)
         appState.lastOpenedDirectory?.let { dir ->
             if (dir.exists() && dir.isDirectory) {
                 dialog.directory = dir.absolutePath
             }
         }
+        dialog.isMultipleMode = true
         dialog.isVisible = true
-        val name = dialog.file
-        val dir = dialog.directory
-        if (name != null && dir != null) {
-            val file = File(dir, name)
-            appState.updateLastOpenedDirectory(file)
-            onPicked(file)
-        }
+        // dialog.files is empty on cancel; fall back to the single-file fields for the platforms
+        // where only those are populated (the same belt-and-braces pattern as Main.kt's open dialog).
+        val picked = dialog.files?.toList()?.takeIf { it.isNotEmpty() }
+            ?: listOfNotNull(dialog.file?.let { name -> dialog.directory?.let { dir -> File(dir, name) } })
+        if (picked.isEmpty()) return
+        picked.firstOrNull()?.let { appState.updateLastOpenedDirectory(it) }
+        onPicked(resolveComparePick(picked, targetIsA))
     }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
     ) {
+      Column {
+        if (tooManyPickedCount != null) {
+            Surface(
+                color = AppColors.NeonRed.copy(alpha = 0.15f),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = if (language == AppLanguage.KO) {
+                        "⚠ 비교는 최대 2개까지만 선택할 수 있습니다 (${tooManyPickedCount}개 선택됨). 다시 선택해 주세요."
+                    } else {
+                        "⚠ A comparison takes at most 2 files ($tooManyPickedCount selected). Please pick again."
+                    },
+                    fontSize = 11.sp,
+                    color = AppColors.NeonRed,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                )
+            }
+        }
         Row(
             modifier = Modifier.fillMaxWidth().padding(10.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -389,7 +453,7 @@ private fun MediaSelectionBar(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     OutlinedButton(
-                        onClick = { openFileDialog(if (language == AppLanguage.KO) "미디어 A 선택" else "Select Media A", onPickA) },
+                        onClick = { openFileDialog(if (language == AppLanguage.KO) "미디어 A 선택" else "Select Media A", targetIsA = true, onPicked = onPick) },
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                         modifier = Modifier.height(26.dp),
                         colors = ButtonDefaults.outlinedButtonColors(
@@ -399,7 +463,7 @@ private fun MediaSelectionBar(
                         border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.Border),
                         shape = RoundedCornerShape(4.dp),
                     ) {
-                        Text(if (language == AppLanguage.KO) "📂 파일 찾기..." else "📂 Browse...", fontSize = 11.sp)
+                        Text(if (language == AppLanguage.KO) "📂 파일 찾기" else "📂 Browse", fontSize = 11.sp)
                     }
                 }
                 Spacer(modifier = Modifier.height(4.dp))
@@ -407,8 +471,9 @@ private fun MediaSelectionBar(
                     selectedFile = fileA,
                     selectedFolder = folderA,
                     language = language,
+                    openTabFiles = openTabFiles,
                     onSelect = onSelectA,
-                    onOpenBrowse = { openFileDialog(if (language == AppLanguage.KO) "미디어 A 선택" else "Select Media A", onPickA) },
+                    onOpenBrowse = { openFileDialog(if (language == AppLanguage.KO) "미디어 A 선택" else "Select Media A", targetIsA = true, onPicked = onPick) },
                 )
                 if (infoA != null) {
                     val typeLabel = if (infoA.isVideo) "🎬 동영상 (Video)" else "🖼️ 이미지 (Image)"
@@ -437,7 +502,7 @@ private fun MediaSelectionBar(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     OutlinedButton(
-                        onClick = { openFileDialog(if (language == AppLanguage.KO) "미디어 B 선택" else "Select Media B", onPickB) },
+                        onClick = { openFileDialog(if (language == AppLanguage.KO) "미디어 B 선택" else "Select Media B", targetIsA = false, onPicked = onPick) },
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                         modifier = Modifier.height(26.dp),
                         colors = ButtonDefaults.outlinedButtonColors(
@@ -447,7 +512,7 @@ private fun MediaSelectionBar(
                         border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.Border),
                         shape = RoundedCornerShape(4.dp),
                     ) {
-                        Text(if (language == AppLanguage.KO) "📂 파일 찾기..." else "📂 Browse...", fontSize = 11.sp)
+                        Text(if (language == AppLanguage.KO) "📂 파일 찾기" else "📂 Browse", fontSize = 11.sp)
                     }
                 }
                 Spacer(modifier = Modifier.height(4.dp))
@@ -455,8 +520,9 @@ private fun MediaSelectionBar(
                     selectedFile = fileB,
                     selectedFolder = folderB,
                     language = language,
+                    openTabFiles = openTabFiles,
                     onSelect = onSelectB,
-                    onOpenBrowse = { openFileDialog(if (language == AppLanguage.KO) "미디어 B 선택" else "Select Media B", onPickB) },
+                    onOpenBrowse = { openFileDialog(if (language == AppLanguage.KO) "미디어 B 선택" else "Select Media B", targetIsA = false, onPicked = onPick) },
                 )
                 if (infoB != null) {
                     val typeLabel = if (infoB.isVideo) "🎬 동영상 (Video)" else "🖼️ 이미지 (Image)"
@@ -471,6 +537,7 @@ private fun MediaSelectionBar(
                 }
             }
         }
+      }
     }
 }
 
@@ -479,6 +546,10 @@ private fun FileDropdownOrLabel(
     selectedFile: File?,
     selectedFolder: File?,
     language: AppLanguage,
+    // Files already open in the main window. Listed above the folder contents because they are the
+    // one source that spans folders -- the two files being compared often live nowhere near each
+    // other, and picking them from here skips browsing entirely.
+    openTabFiles: List<File>,
     onSelect: (File) -> Unit,
     onOpenBrowse: () -> Unit,
 ) {
@@ -502,7 +573,7 @@ private fun FileDropdownOrLabel(
     Box {
         Surface(
             modifier = Modifier.fillMaxWidth().clickable {
-                if (selectedFolder == null) {
+                if (selectedFolder == null && openTabFiles.isEmpty()) {
                     onOpenBrowse()
                 } else {
                     expanded = true
@@ -524,7 +595,13 @@ private fun FileDropdownOrLabel(
                     text = if (selectedFile != null) {
                         "$icon ${selectedFile.name}"
                     } else {
-                        if (language == AppLanguage.KO) "📂 [파일 찾기]를 눌러 파일을 선택하세요" else "📂 Click [Browse...] to select file"
+                        // Clicking the slot now opens the dropdown whenever there are tabs to offer,
+                        // so the hint has to name that path too rather than only the Browse button.
+                        if (openTabFiles.isNotEmpty()) {
+                            if (language == AppLanguage.KO) "📑 클릭하여 열린 탭에서 선택 · 또는 [파일 찾기]" else "📑 Click to pick an open tab · or [Browse...]"
+                        } else {
+                            if (language == AppLanguage.KO) "📂 [파일 찾기]를 눌러 파일을 선택하세요" else "📂 Click [Browse...] to select file"
+                        }
                     },
                     fontSize = 12.sp,
                     fontWeight = if (selectedFile != null) FontWeight.Medium else FontWeight.Normal,
@@ -532,19 +609,52 @@ private fun FileDropdownOrLabel(
                     modifier = Modifier.weight(1f),
                     maxLines = 1,
                 )
-                if (selectedFolder != null) {
+                if (selectedFolder != null || openTabFiles.isNotEmpty()) {
                     Text("▾", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
 
-        if (selectedFolder != null) {
+        if (selectedFolder != null || openTabFiles.isNotEmpty()) {
             DropdownMenu(
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
                 modifier = Modifier.heightIn(max = 420.dp).widthIn(min = 320.dp, max = 540.dp),
             ) {
-                if (folderFiles.isEmpty()) {
+                if (openTabFiles.isNotEmpty()) {
+                    Surface(color = Color(0xFF1E2838), modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = if (language == AppLanguage.KO) "📑 현재 열린 탭 (${openTabFiles.size}개)" else "📑 Open tabs (${openTabFiles.size})",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AppColors.NeonGreen,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                        )
+                    }
+                    openTabFiles.forEach { file ->
+                        val isCurrent = file.absolutePath == selectedFile?.absolutePath
+                        val ext = file.extension.lowercase(Locale.US)
+                        val icon = if (ext in VIDEO_EXTENSIONS) "🎬" else if (ext in AUDIO_EXTENSIONS) "🎵" else "🖼️"
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    "$icon ${file.name}",
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isCurrent) AppColors.NeonGreen else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                )
+                            },
+                            onClick = {
+                                onSelect(file)
+                                expanded = false
+                            },
+                        )
+                    }
+                }
+                if (selectedFolder == null) {
+                    // Nothing more to list until a folder has been browsed to.
+                } else if (folderFiles.isEmpty()) {
                     DropdownMenuItem(
                         text = {
                             Text(
@@ -1415,6 +1525,12 @@ private fun SideBySideCompareView(
     var scale by remember(bitmapA, bitmapB) { mutableStateOf(1f) }
     var offset by remember(bitmapA, bitmapB) { mutableStateOf(Offset.Zero) }
     var paneSize by remember { mutableStateOf(Size.Zero) }
+    // What ContentScale.Fit actually draws in each pane -- pan is bounded against this rather than
+    // the pane-sized layer, so a letterboxed image can't be dragged out of view (see clampPanOffset).
+    // The two panes share one scale/offset but can hold differently-shaped images, so each pane
+    // clamps against its own fitted size.
+    val fittedSizeA = fittedContentSize(paneSize, Size(bitmapA.width.toFloat(), bitmapA.height.toFloat()))
+    val fittedSizeB = fittedContentSize(paneSize, Size(bitmapB.width.toFloat(), bitmapB.height.toFloat()))
 
     Box(
         modifier = Modifier
@@ -1434,19 +1550,19 @@ private fun SideBySideCompareView(
                         val change = event.changes.firstOrNull() ?: return@onPointerEvent
                         val (newScale, rawOffset) = zoomTowardPoint(scale, offset, change.position, change.scrollDelta.y)
                         scale = newScale
-                        offset = clampPanOffset(rawOffset, paneSize, newScale)
+                        offset = clampPanOffset(rawOffset, paneSize, newScale, fittedSizeA)
                         event.changes.forEach { it.consume() }
                     }
                     .pointerInput(bitmapA, bitmapB) {
                         detectDragGestures { change, dragAmount ->
                             change.consume()
-                            offset = clampPanOffset(offset + dragAmount, paneSize, scale)
+                            offset = clampPanOffset(offset + dragAmount, paneSize, scale, fittedSizeA)
                         }
                     }
                     .pointerInput(bitmapA, bitmapB) {
                         detectTapGestures(
                             onTap = { tapPosition ->
-                                offset = panToPoint(offset, paneSize, scale, tapPosition)
+                                offset = panToPoint(offset, paneSize, scale, tapPosition, fittedSizeA)
                             },
                             onDoubleTap = {
                                 scale = 1f
@@ -1508,19 +1624,19 @@ private fun SideBySideCompareView(
                         val change = event.changes.firstOrNull() ?: return@onPointerEvent
                         val (newScale, rawOffset) = zoomTowardPoint(scale, offset, change.position, change.scrollDelta.y)
                         scale = newScale
-                        offset = clampPanOffset(rawOffset, paneSize, newScale)
+                        offset = clampPanOffset(rawOffset, paneSize, newScale, fittedSizeB)
                         event.changes.forEach { it.consume() }
                     }
                     .pointerInput(bitmapA, bitmapB) {
                         detectDragGestures { change, dragAmount ->
                             change.consume()
-                            offset = clampPanOffset(offset + dragAmount, paneSize, scale)
+                            offset = clampPanOffset(offset + dragAmount, paneSize, scale, fittedSizeB)
                         }
                     }
                     .pointerInput(bitmapA, bitmapB) {
                         detectTapGestures(
                             onTap = { tapPosition ->
-                                offset = panToPoint(offset, paneSize, scale, tapPosition)
+                                offset = panToPoint(offset, paneSize, scale, tapPosition, fittedSizeB)
                             },
                             onDoubleTap = {
                                 scale = 1f
