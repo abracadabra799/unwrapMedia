@@ -353,7 +353,15 @@ private fun resolveByteAt(
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
+// onSelectionChanged reports the first byte of whatever the user just selected -- by click, drag,
+// shift-extend, "Go to", or a search hit alike. Reported from one place (the effect below) rather
+// than from each of those handlers so no path can silently skip it.
+fun HexView(
+    file: File,
+    highlightRange: LongRange?,
+    listState: LazyListState,
+    onSelectionChanged: (Long) -> Unit = {},
+) {
     val raf = remember(file) { RandomAccessFile(file, "r") }
     DisposableEffect(raf) {
         onDispose { raf.close() }
@@ -402,6 +410,12 @@ fun HexView(file: File, highlightRange: LongRange?, listState: LazyListState) {
         minOf(selectionAnchor!!, selectionEnd!!)..maxOf(selectionAnchor!!, selectionEnd!!)
     } else {
         null
+    }
+
+    // The block's first byte is what identifies it structurally: a drag can span several boxes, and
+    // the one it starts in is the one the user aimed at.
+    LaunchedEffect(selectedRange?.first) {
+        selectedRange?.let { onSelectionChanged(it.first) }
     }
 
     val activeCopyRange = selectedRange ?: highlightRange

@@ -119,6 +119,23 @@ fun findAncestors(current: BoxNode, target: BoxNode, path: List<BoxNode>): List<
     return null
 }
 
+// The innermost box/marker covering [offset], or null when the offset lies outside the tree.
+// Drives the hex viewer -> structure tree direction: a byte selected in the hex dump resolves to
+// the node that actually contains it.
+//
+// Innermost rather than any match, because every byte inside a child is also inside its ancestors,
+// so anything less specific would just answer "the root" for the whole file. Zero-sized nodes
+// (markers recorded with no payload, e.g. JPEG's SOI) cover no bytes and are skipped, otherwise
+// they would shadow the real container that starts at the same offset.
+fun findNodeAtOffset(root: BoxNode, offset: Long): BoxNode? {
+    if (root.size <= 0L || offset < root.offset || offset >= root.offset + root.size) return null
+    for (child in root.children) {
+        val hit = findNodeAtOffset(child, offset)
+        if (hit != null) return hit
+    }
+    return root
+}
+
 // Row index of [target] in the tree as it is currently drawn, or -1 when it has no row (an ancestor
 // is collapsed, or the node belongs to a different tree). Used to scroll a selection into view --
 // expanding and highlighting a node is not enough when it sits far down a large file's structure,

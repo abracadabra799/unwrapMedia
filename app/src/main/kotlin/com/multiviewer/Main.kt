@@ -866,7 +866,31 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                             currentTab.selectedField?.takeIf { it in fields }
                         }
 
+                        // Hex viewer -> structure tree. Selecting bytes picks the innermost box
+                        // covering them, which BoxTreeView then expands, scrolls to and highlights.
+                        //
+                        // The node is remembered so the scroll effect below can tell this apart from
+                        // a tree-originated selection: scrolling the hex viewer to the box's first
+                        // row would yank the dump away from the bytes the user just clicked, which
+                        // is the opposite of following them.
+                        var hexOriginatedSelection by remember(currentTab) { mutableStateOf<com.multiviewer.parser.BoxNode?>(null) }
+                        val selectNodeAtHexOffset: (Long) -> Unit = { offset ->
+                            val root = currentTab.root
+                            if (root != null) {
+                                val node = findNodeAtOffset(root, offset)
+                                if (node != null && node !== currentTab.selected) {
+                                    hexOriginatedSelection = node
+                                    currentTab.selectedField = null
+                                    currentTab.selected = node
+                                }
+                            }
+                        }
+
                         LaunchedEffect(currentTab.selected, currentTab.selectedField, currentTab.tileHighlightRange, currentTab.selectedFrame, currentTab.parameterSetHighlightRange) {
+                            if (currentTab.selected != null && currentTab.selected === hexOriginatedSelection) {
+                                hexOriginatedSelection = null
+                                return@LaunchedEffect
+                            }
                             val paramRange = currentTab.parameterSetHighlightRange
                             val tileRange = currentTab.tileHighlightRange
                             val field = activeField
@@ -1004,6 +1028,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                                             file = currentTab.file,
                                             highlightRange = hexHighlightRange,
                                             listState = hexListState,
+                                            onSelectionChanged = selectNodeAtHexOffset,
                                         )
                                     }
 
@@ -1025,6 +1050,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                                     file = currentTab.file,
                                     highlightRange = hexHighlightRange,
                                     listState = hexListState,
+                                    onSelectionChanged = selectNodeAtHexOffset,
                                 )
                             }
                         }

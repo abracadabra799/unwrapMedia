@@ -6,6 +6,52 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class BoxTreeViewTest {
+    // Hex viewer -> tree sync: a byte the user clicked has to resolve to the box that actually
+    // contains it. The innermost one, because every byte inside a child is also inside its
+    // ancestors and naming the root would tell the user nothing.
+    @Test
+    fun `findNodeAtOffset returns the innermost box containing the byte`() {
+        val leaf = BoxNode(type = "hvcC", offset = 40, headerSize = 8, size = 20)
+        val mid = BoxNode(type = "stsd", offset = 20, headerSize = 8, size = 60, children = listOf(leaf))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 200, children = listOf(mid))
+
+        assertEquals(leaf, findNodeAtOffset(root, 45))
+        // Inside mid but before the leaf starts.
+        assertEquals(mid, findNodeAtOffset(root, 25))
+        // Inside root but outside mid.
+        assertEquals(root, findNodeAtOffset(root, 150))
+    }
+
+    @Test
+    fun `findNodeAtOffset includes a box's first and last byte but not the byte after it`() {
+        val child = BoxNode(type = "mdat", offset = 100, headerSize = 8, size = 50)
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 200, children = listOf(child))
+
+        assertEquals(child, findNodeAtOffset(root, 100))
+        assertEquals(child, findNodeAtOffset(root, 149))
+        assertEquals(root, findNodeAtOffset(root, 150))
+    }
+
+    @Test
+    fun `findNodeAtOffset returns null for an offset outside the tree`() {
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 100)
+
+        assertNull(findNodeAtOffset(root, 100))
+        assertNull(findNodeAtOffset(root, -1))
+    }
+
+    // JPEG markers and some boxes are recorded with size 0 (a marker with no payload). Such a node
+    // contains no bytes, so it must never swallow the offset and hide the real container.
+    @Test
+    fun `findNodeAtOffset skips zero-sized nodes`() {
+        val empty = BoxNode(type = "SOI", offset = 10, headerSize = 0, size = 0)
+        val real = BoxNode(type = "APP1", offset = 10, headerSize = 4, size = 30)
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 100, children = listOf(empty, real))
+
+        assertEquals(real, findNodeAtOffset(root, 10))
+    }
+
+
     // Clicking a structural warning selects its node; the tree then has to scroll that node into
     // view, not just expand and highlight it. A defect is usually deep in a large file, so without
     // a row index to scroll to it stays off-screen and the click looks like it did nothing.
