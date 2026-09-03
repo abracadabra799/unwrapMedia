@@ -224,37 +224,9 @@ object GainmapParser {
 
         val primaryXmp = allXmpFields.firstOrNull()?.value
 
-        // 1. Check GContainer (Ultra HDR / Adobe Gain Map in JPEG)
-        if (primaryXmp != null && primaryXmp.contains("GainMap", ignoreCase = true)) {
-            val lengthPattern = Regex("""Item:Semantic\s*=\s*["']GainMap["'][^>]*Item:Length\s*=\s*["'](\d+)["']""", RegexOption.IGNORE_CASE)
-            val altLengthPattern = Regex("""Item:Length\s*=\s*["'](\d+)["'][^>]*Item:Semantic\s*=\s*["']GainMap["']""", RegexOption.IGNORE_CASE)
-            val match = lengthPattern.find(primaryXmp) ?: altLengthPattern.find(primaryXmp)
-            val gainmapLength = match?.groupValues?.get(1)?.toLongOrNull()
-
-            if (gainmapLength != null && gainmapLength > 0 && gainmapLength < file.length()) {
-                val gainmapOffset = file.length() - gainmapLength
-                val (secondaryXmp, secWidth, secHeight) = readJpegHeaderAndXmp(file, gainmapOffset, gainmapLength)
-                val params = (secondaryXmp ?: primaryXmp).let { parseGainmapParametersFromXmp(it) }
-
-                return GainmapInfo(
-                    hasGainmap = true,
-                    hasGainmapImage = true,
-                    formatType = if (primaryXmp.contains("21496", ignoreCase = true)) GainmapFormatType.ISO_21496_1_JPEG else GainmapFormatType.ULTRA_HDR_JPEG,
-                    rawXmp = secondaryXmp ?: primaryXmp,
-                    secondaryXmp = secondaryXmp,
-                    primaryXmp = primaryXmp,
-                    parameters = params,
-                    imageWidth = secWidth,
-                    imageHeight = secHeight,
-                    imageFormat = "JPEG",
-                    byteOffset = gainmapOffset,
-                    byteLength = gainmapLength,
-                    summaryDescription = "Ultra HDR secondary JPEG (${gainmapLength / 1024} KB)",
-                )
-            }
-        }
-
-        // 2. Check MPF (Multi-Picture Format in APP2)
+        // 1. Check MPF (Multi-Picture Format in APP2) first!
+        // MPF contains exact absolute offsets for secondary images in the JPEG,
+        // which avoids guessing offsets when files have trailing motion photo/SEFD data!
         try {
             ByteReader.open(file).use { reader ->
                 for (app2Node in root.children.filter { it.type == "APP2" }) {
@@ -273,13 +245,17 @@ object GainmapParser {
                                         combinedXmp?.contains("hdrgm", ignoreCase = true) == true ||
                                         combinedXmp?.contains("HDRGainMap", ignoreCase = true) == true ||
                                         entry.typeFlags and 0x00FFFFFFL == 0x020002L ||
-                                        params?.gainMapMax != null
+                                        params?.gainMapMax != null ||
+                                        root.children.any { it.type == "APP2" && it.offset >= entry.offset && it.summary?.contains("Gain Map", ignoreCase = true) == true }
 
                                     if (isGainmap) {
+                                        val isIso = primaryXmp?.contains("21496", ignoreCase = true) == true ||
+                                            secXmp?.contains("21496", ignoreCase = true) == true
+                                        val formatType = if (isIso) GainmapFormatType.ISO_21496_1_JPEG else GainmapFormatType.APPLE_MPF_JPEG
                                         return GainmapInfo(
                                             hasGainmap = true,
                                             hasGainmapImage = true,
-                                            formatType = GainmapFormatType.APPLE_MPF_JPEG,
+                                            formatType = formatType,
                                             rawXmp = secXmp ?: primaryXmp,
                                             secondaryXmp = secXmp,
                                             primaryXmp = primaryXmp,
@@ -289,7 +265,7 @@ object GainmapParser {
                                             imageFormat = "JPEG",
                                             byteOffset = entry.offset,
                                             byteLength = entry.size,
-                                            summaryDescription = "MPF secondary JPEG image #${i + 1} (${entry.size / 1024} KB)",
+                                            summaryDescription = "Secondary JPEG gain map (${entry.size / 1024} KB)",
                                         )
                                     }
                                 }
@@ -299,6 +275,57 @@ object GainmapParser {
                 }
             }
         } catch (_: Exception) {}
+
+        // 2. Check GContainer (Ultra HDR / Adobe Gain Map in JPEG)
+        if (primaryXmp != null && primaryXmp.contains("GainMap", ignoreCase = true)) {
+            val lengthPattern = Regex("""Item:Semantic\s*=\s*["']GainMap["'][^>]*Item:Length\s*=\s*["'](\d+)["']""", RegexOption.IGNORE_CASE)
+            val altLengthPattern = Regex("""Item:Length\s*=\s*["'](\d+)["'][^>]*Item:Semantic\s*=\s*["']GainMap["']""", RegexOption.IGNORE_CASE)
+            val match = lengthPattern.find(primaryXmp) ?: altLengthPattern.find(primaryXmp)
+            val gainmapLength = match?.groupValues?.get(1)?.toLongOrNull()
+
+            if (gainmapLength != null && gainmapLength > 0 && gainmapLength < file.length()) {
+                // Find accurate offset:
+                // a) Try second SOI node in root (parsed by JpegParser)
+                // b) Try candidate offset file.length() - gainmapLength
+                val secondSoi = root.children.filter { it.type == "SOI" }.getOrNull(1)?.offset
+                val candidateOffset = if (secondSoi != null && secondSoi > 0) secondSoi else file.length() - gainmapLength
+
+                val validOffset = try {
+                    ByteReader.open(file).use { reader ->
+                        fun isValidJpeg(off: Long): Boolean {
+                            if (off < 0 || off + 2 > reader.length) return false
+                            val b = reader.readBytes(off, 2)
+                            return b[0] == 0xFF.toByte() && b[1] == 0xD8.toByte()
+                        }
+                        if (isValidJpeg(candidateOffset)) candidateOffset
+                        else if (secondSoi != null && isValidJpeg(secondSoi)) secondSoi
+                        else if (isValidJpeg(file.length() - gainmapLength)) file.length() - gainmapLength
+                        else null
+                    }
+                } catch (_: Exception) { null }
+
+                if (validOffset != null) {
+                    val (secondaryXmp, secWidth, secHeight) = readJpegHeaderAndXmp(file, validOffset, gainmapLength)
+                    val params = (secondaryXmp ?: primaryXmp).let { parseGainmapParametersFromXmp(it) }
+
+                    return GainmapInfo(
+                        hasGainmap = true,
+                        hasGainmapImage = true,
+                        formatType = if (primaryXmp.contains("21496", ignoreCase = true)) GainmapFormatType.ISO_21496_1_JPEG else GainmapFormatType.ULTRA_HDR_JPEG,
+                        rawXmp = secondaryXmp ?: primaryXmp,
+                        secondaryXmp = secondaryXmp,
+                        primaryXmp = primaryXmp,
+                        parameters = params,
+                        imageWidth = secWidth,
+                        imageHeight = secHeight,
+                        imageFormat = "JPEG",
+                        byteOffset = validOffset,
+                        byteLength = gainmapLength,
+                        summaryDescription = "Ultra HDR secondary JPEG (${gainmapLength / 1024} KB)",
+                    )
+                }
+            }
+        }
 
         // 3. Fallback: primary XMP containing standalone gainmap metadata (NO separate image data)
         if (primaryXmp != null) {
