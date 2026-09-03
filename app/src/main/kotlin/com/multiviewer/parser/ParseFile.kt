@@ -12,11 +12,15 @@ fun parseFile(path: File): BoxNode {
         val isTiff = !isJpeg && !isPng && !isBmp && !isGif && isTiffMagic(reader)
         val isWebp = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && isWebpMagic(reader)
         val isWav = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && isWavMagic(reader)
-        val isMp3 = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && isMp3Magic(reader)
-        val isEbml = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isMp3 && isEbmlMagic(reader)
-        val isFlac = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isMp3 && !isEbml && isFlacMagic(reader)
-        val isOgg = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isMp3 && !isEbml && !isFlac && isOggMagic(reader)
-        val isAiff = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isMp3 && !isEbml && !isFlac && !isOgg && isAiffMagic(reader)
+        val isAvi = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && isAviMagic(reader)
+        val isFlv = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isAvi && isFlvMagic(reader)
+        val isAsf = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isAvi && !isFlv && isAsfMagic(reader)
+        val isAac = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isAvi && !isFlv && !isAsf && isAacMagic(reader)
+        val isMp3 = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isAvi && !isFlv && !isAsf && !isAac && isMp3Magic(reader)
+        val isEbml = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isAvi && !isFlv && !isAsf && !isAac && !isMp3 && isEbmlMagic(reader)
+        val isFlac = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isAvi && !isFlv && !isAsf && !isAac && !isMp3 && !isEbml && isFlacMagic(reader)
+        val isOgg = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isAvi && !isFlv && !isAsf && !isAac && !isMp3 && !isEbml && !isFlac && isOggMagic(reader)
+        val isAiff = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isAvi && !isFlv && !isAsf && !isAac && !isMp3 && !isEbml && !isFlac && !isOgg && isAiffMagic(reader)
         val children = when {
             isJpeg -> parseJpegSegments(reader, 0, reader.length)
             isPng -> parsePngChunks(reader, 8, reader.length)
@@ -25,6 +29,10 @@ fun parseFile(path: File): BoxNode {
             isTiff -> decodeTiff(reader, 0, reader.length)
             isWebp -> parseWebpChunks(reader, 0, reader.length)
             isWav -> parseWavChunks(reader, 0, reader.length)
+            isAvi -> parseAviChunks(reader, 0, reader.length)
+            isFlv -> parseFlv(reader, 0, reader.length)
+            isAsf -> parseAsf(reader, 0, reader.length)
+            isAac -> parseAac(reader, 0, reader.length)
             isMp3 -> parseMp3(reader, 0, reader.length)
             isEbml -> parseEbmlElements(reader, 0, reader.length)
             isFlac -> parseFlacBlocks(reader, 0, reader.length)
@@ -73,6 +81,29 @@ private fun isWebpMagic(reader: ByteReader): Boolean {
 private fun isWavMagic(reader: ByteReader): Boolean {
     if (reader.length < 12) return false
     return reader.readFourCC(0) == "RIFF" && reader.readFourCC(8) == "WAVE"
+}
+
+private fun isAviMagic(reader: ByteReader): Boolean {
+    if (reader.length < 12) return false
+    return reader.readFourCC(0) == "RIFF" && (reader.readFourCC(8) == "AVI " || reader.readFourCC(8) == "AVIX")
+}
+
+private fun isFlvMagic(reader: ByteReader): Boolean {
+    if (reader.length < 9) return false
+    return String(reader.readBytes(0, 3), Charsets.US_ASCII) == "FLV"
+}
+
+private fun isAsfMagic(reader: ByteReader): Boolean {
+    if (reader.length < 24) return false
+    val b = reader.readBytes(0, 16)
+    return b[0] == 0x30.toByte() && b[1] == 0x26.toByte() && b[2] == 0xB2.toByte() && b[3] == 0x75.toByte() &&
+        b[4] == 0x8E.toByte() && b[5] == 0x66.toByte() && b[6] == 0xCF.toByte() && b[7] == 0x11.toByte() &&
+        b[8] == 0xA6.toByte() && b[9] == 0xD9.toByte() && b[10] == 0x00.toByte() && b[11] == 0xAA.toByte() &&
+        b[12] == 0x00.toByte() && b[13] == 0x62.toByte() && b[14] == 0xCE.toByte() && b[15] == 0x6C.toByte()
+}
+
+private fun isAacMagic(reader: ByteReader): Boolean {
+    return isAdtsMagic(reader)
 }
 
 private fun isMp3Magic(reader: ByteReader): Boolean {

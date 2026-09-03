@@ -2,10 +2,12 @@ package com.multiviewer.ui
 
 import androidx.compose.foundation.ContextMenuArea
 import androidx.compose.foundation.ContextMenuItem
+import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -330,11 +332,12 @@ fun FolderExplorerView(
                     )
                 }
             } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 4.dp),
-                ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(vertical = 4.dp),
+                    ) {
                     items(subfolders, key = { it.absolutePath }) { folder ->
                         Surface(
                             color = Color.Transparent,
@@ -365,6 +368,8 @@ fun FolderExplorerView(
                     }
 
                     itemsIndexed(filteredFiles, key = { _, file -> file.absolutePath }) { index, file ->
+                        val openedTabIndex = appState.tabs.indexOfFirst { it.file.absolutePath == file.absolutePath }
+                        val isOpened = openedTabIndex >= 0
                         val isCurrentTab = currentTab?.file?.absolutePath == file.absolutePath
                         val ext = file.extension.lowercase(Locale.US)
                         val (icon, badgeColor) = when {
@@ -379,21 +384,34 @@ fun FolderExplorerView(
 
                         ContextMenuArea(
                             items = {
-                                listOf(
-                                    ContextMenuItem(if (language == AppLanguage.KO) "열기" else "Open") {
-                                        appState.openFile(file)
-                                    },
-                                    ContextMenuItem(if (language == AppLanguage.KO) "파일 경로 복사" else "Copy File Path") {
-                                        Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(file.absolutePath), null)
-                                    },
-                                    ContextMenuItem(if (language == AppLanguage.KO) "시스템 탐색기에서 보기" else "Reveal in Finder/Explorer") {
-                                        try {
-                                            if (Desktop.isDesktopSupported()) {
-                                                Desktop.getDesktop().open(file.parentFile)
+                                buildList {
+                                    add(
+                                        ContextMenuItem(if (language == AppLanguage.KO) "열기" else "Open") {
+                                            appState.openFile(file)
+                                        }
+                                    )
+                                    if (isOpened) {
+                                        add(
+                                            ContextMenuItem(if (language == AppLanguage.KO) "탭 닫기" else "Close Tab") {
+                                                appState.closeTabByFile(file)
                                             }
-                                        } catch (_: Exception) {}
-                                    },
-                                )
+                                        )
+                                    }
+                                    add(
+                                        ContextMenuItem(if (language == AppLanguage.KO) "파일 경로 복사" else "Copy File Path") {
+                                            Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(file.absolutePath), null)
+                                        }
+                                    )
+                                    add(
+                                        ContextMenuItem(if (language == AppLanguage.KO) "시스템 탐색기에서 보기" else "Reveal in Finder/Explorer") {
+                                            try {
+                                                if (Desktop.isDesktopSupported()) {
+                                                    Desktop.getDesktop().open(file.parentFile)
+                                                }
+                                            } catch (_: Exception) {}
+                                        }
+                                    )
+                                }
                             },
                         ) {
                             Surface(
@@ -419,7 +437,7 @@ fun FolderExplorerView(
                                                 text = file.name,
                                                 style = AppTypography.bodySmall.copy(
                                                     fontWeight = if (isCurrentTab) FontWeight.Bold else FontWeight.Normal,
-                                                    color = if (isCurrentTab) AppColors.NeonGreen else AppColors.TextPrimary,
+                                                    color = if (isCurrentTab) AppColors.NeonGreen else if (isOpened) AppColors.NeonBlue else AppColors.TextPrimary,
                                                     fontSize = 11.sp,
                                                 ),
                                                 maxLines = 1,
@@ -457,11 +475,25 @@ fun FolderExplorerView(
                                             }
                                         }
                                     }
+                                    if (isOpened) {
+                                        Spacer(Modifier.width(4.dp))
+                                        IconButton(
+                                            onClick = { appState.closeTabByFile(file) },
+                                            modifier = Modifier.size(20.dp),
+                                        ) {
+                                            Text("✕", fontSize = 10.sp, color = AppColors.NeonRed)
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                 }
+                VerticalScrollbar(
+                    adapter = rememberScrollbarAdapter(listState),
+                    modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
+                )
+            }
             }
         }
     }

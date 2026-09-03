@@ -25,8 +25,8 @@ val IMAGE_EXTENSIONS = listOf(
     // raw sensor data either.
     "cr2", "nef", "arw", "dng",
 )
-val VIDEO_EXTENSIONS = listOf("mp4", "mov", "m4v", "webm", "apv", "av1", "ivf")
-val AUDIO_EXTENSIONS = listOf("m4a", "mp3", "wav", "flac", "ogg", "opus", "aiff", "aif", "aifc")
+val VIDEO_EXTENSIONS = listOf("mp4", "mov", "m4v", "webm", "apv", "av1", "ivf", "avi", "flv", "wmv", "asf")
+val AUDIO_EXTENSIONS = listOf("m4a", "mp3", "wav", "flac", "ogg", "opus", "aiff", "aif", "aifc", "aac", "wma")
 val RAW_PIXEL_EXTENSIONS = listOf("raw", "rgb", "rgba", "yuv", "nv12", "nv21")
 val RAW_AUDIO_EXTENSIONS = listOf("pcm")
 
@@ -772,13 +772,22 @@ class AppState {
     }
 
     fun closeTab(index: Int) {
+        if (index !in tabs.indices) return
         statusMessage = null
-        tabs.removeAt(index).isClosed = true
-        selectedTabIndex = when {
-            tabs.isEmpty() -> 0
+        val nextIndex = when {
+            tabs.size <= 1 -> 0
             index < selectedTabIndex -> selectedTabIndex - 1
-            index == selectedTabIndex -> index.coerceAtMost(tabs.size - 1)
+            index == selectedTabIndex -> index.coerceAtMost(tabs.size - 2)
             else -> selectedTabIndex
+        }
+        selectedTabIndex = nextIndex
+        tabs.removeAt(index).isClosed = true
+    }
+
+    fun closeTabByFile(file: File) {
+        val index = tabs.indexOfFirst { it.file.absolutePath == file.absolutePath }
+        if (index >= 0) {
+            closeTab(index)
         }
     }
 

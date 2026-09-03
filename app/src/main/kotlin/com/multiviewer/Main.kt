@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,7 +39,11 @@ import com.multiviewer.parser.MotionPhotoBuilder
 import com.multiviewer.parser.extractEmbeddedVideo
 import com.multiviewer.ui.*
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerButton
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import org.jetbrains.skia.Image
@@ -389,6 +394,9 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var checkStructureWindowOpen by remember { mutableStateOf(false) }
         var aiPromptWindowOpen by remember { mutableStateOf(false) }
         var aboutWindowOpen by remember { mutableStateOf(false) }
+        var updateWindowOpen by remember { mutableStateOf(false) }
+        var hasUpdateAvailable by remember { mutableStateOf(false) }
+        var latestUpdateVersion by remember { mutableStateOf("") }
         // App-level, not per-tab -- matches showPixelGrid's own precedent (switching tabs keeps
         // whichever mode is checked; unlike a per-panel button, this is a "lens" the user turns on
         // rather than a per-video setting). null = neither mode active.
@@ -595,8 +603,16 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
             }
             Menu(I18n.menuHelp(language)) {
                 Item(
-                    I18n.menuVersionInfo(language),
-                    onClick = { aboutWindowOpen = true },
+                    I18n.menuCheckForUpdates(language),
+                    onClick = { updateWindowOpen = true },
+                )
+                Item(
+                    if (hasUpdateAvailable) "🔔 ${if (language == AppLanguage.KO) "새 버전 v$latestUpdateVersion 사용 가능" else "New version v$latestUpdateVersion available"}"
+                    else I18n.menuVersionInfo(language),
+                    onClick = {
+                        if (hasUpdateAvailable) updateWindowOpen = true
+                        else aboutWindowOpen = true
+                    },
                 )
                 Separator()
                 Item(
@@ -766,7 +782,27 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 }
             }
             if (aboutWindowOpen) {
-                AboutWindow(language = language, onCloseRequest = { aboutWindowOpen = false })
+                AboutWindow(
+                    language = language,
+                    onCloseRequest = { aboutWindowOpen = false },
+                    onCheckUpdate = {
+                        aboutWindowOpen = false
+                        updateWindowOpen = true
+                    },
+                )
+            }
+            if (updateWindowOpen) {
+                UpdateWindow(language = language, onCloseRequest = { updateWindowOpen = false })
+            }
+
+            LaunchedEffect(Unit) {
+                val result = com.multiviewer.update.UpdateChecker.checkForUpdates(I18n.APP_VERSION)
+                result.onSuccess { info ->
+                    if (info.hasUpdate) {
+                        hasUpdateAvailable = true
+                        latestUpdateVersion = info.latestVersion
+                    }
+                }
             }
             appState.tabs.forEach { tab ->
                 if (tab.fullSizeFramePreviewOpen) {
@@ -835,19 +871,55 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     }
                 } else {
                     Column {
-                        TabRow(
-                            selectedTabIndex = appState.selectedTabIndex,
+                        val safeSelectedTabIndex = appState.selectedTabIndex.coerceIn(0, (appState.tabs.size - 1).coerceAtLeast(0))
+                        ScrollableTabRow(
+                            selectedTabIndex = safeSelectedTabIndex,
                             containerColor = AppColors.Panel,
-                            contentColor = AppColors.NeonBlue
+                            contentColor = AppColors.NeonBlue,
+                            edgePadding = 0.dp,
+                            indicator = { tabPositions ->
+                                if (safeSelectedTabIndex in tabPositions.indices) {
+                                    TabRowDefaults.SecondaryIndicator(
+                                        modifier = Modifier.tabIndicatorOffset(tabPositions[safeSelectedTabIndex]),
+                                        color = AppColors.NeonBlue
+                                    )
+                                }
+                            }
                         ) {
                             appState.tabs.forEachIndexed { index, tab ->
                                 Tab(
-                                    selected = index == appState.selectedTabIndex,
+                                    selected = index == safeSelectedTabIndex,
                                     onClick = { appState.selectedTabIndex = index },
+                                    modifier = Modifier
+                                        .widthIn(min = 100.dp, max = 220.dp)
+                                        .pointerInput(tab) {
+                                            @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+                                            awaitPointerEventScope {
+                                                while (true) {
+                                                    val event = awaitPointerEvent()
+                                                    if (event.type == PointerEventType.Press && event.button == PointerButton.Tertiary) {
+                                                        appState.closeTabByFile(tab.file)
+                                                    }
+                                                }
+                                            }
+                                        },
                                     text = {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(tab.file.name, style = AppTypography.labelLarge)
-                                            IconButton(onClick = { appState.closeTab(index) }, modifier = Modifier.size(24.dp)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text(
+                                                text = tab.file.name,
+                                                style = AppTypography.labelLarge,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f, fill = false)
+                                            )
+                                            Spacer(Modifier.width(4.dp))
+                                            IconButton(
+                                                onClick = { appState.closeTabByFile(tab.file) },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
                                                 Text("✕", color = AppColors.NeonRed, fontSize = 10.sp)
                                             }
                                         }

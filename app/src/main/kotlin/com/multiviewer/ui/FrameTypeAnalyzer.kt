@@ -171,3 +171,15 @@ fun gopPositionOf(frames: List<FrameInfo>, index: Int): GopPosition? {
 fun currentFrameIndex(frames: List<FrameInfo>, playbackElapsedSeconds: Double): Int =
     if (playbackElapsedSeconds <= 0.0) -1
     else frames.indexOfLast { it.ptsSeconds <= playbackElapsedSeconds }
+
+fun formatFramePts(ptsSeconds: Double): String {
+    val totalMillis = (ptsSeconds * 1000).toLong()
+    val m = totalMillis / 60000
+    val s = (totalMillis % 60000) / 1000
+    val ms = totalMillis % 1000
+    return if (m > 0) {
+        String.format(java.util.Locale.US, "%d:%02d.%03d", m, s, ms)
+    } else {
+        String.format(java.util.Locale.US, "%.3fs", ptsSeconds)
+    }
+}

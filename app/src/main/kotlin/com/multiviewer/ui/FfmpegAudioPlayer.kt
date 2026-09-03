@@ -7,6 +7,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,6 +23,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -60,7 +62,7 @@ fun probeAudioFormat(file: File): AudioFileInfo? {
     return try {
         val process = ProcessBuilder(
             FfmpegLocator.ffprobePath(), "-v", "error", "-select_streams", "a:0",
-            "-show_entries", "stream=sample_rate,channels,duration",
+            "-show_entries", "stream=sample_rate,channels,duration:format=duration",
             "-of", "default=noprint_wrappers=1", file.absolutePath,
         ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD)
             .also { FfmpegLocator.configureEnvironment(it) }.start()
@@ -68,14 +70,24 @@ fun probeAudioFormat(file: File): AudioFileInfo? {
             ?: return null
 
         val values = mutableMapOf<String, String>()
+        val validDurations = mutableListOf<Double>()
         for (line in lines) {
             val eq = line.indexOf('=')
             if (eq < 0) continue
-            values[line.substring(0, eq)] = line.substring(eq + 1)
+            val key = line.substring(0, eq)
+            val value = line.substring(eq + 1)
+            if (key == "duration") {
+                val d = value.toDoubleOrNull()
+                if (d != null && d > 0.0) {
+                    validDurations.add(d)
+                }
+            } else {
+                values[key] = value
+            }
         }
         val sampleRate = values["sample_rate"]?.toIntOrNull() ?: return null
         val channels = values["channels"]?.toIntOrNull() ?: return null
-        val duration = values["duration"]?.toDoubleOrNull() ?: 0.0
+        val duration = validDurations.firstOrNull() ?: 0.0
         AudioFileInfo(sampleRate, channels, duration)
     } catch (e: Exception) {
         null
@@ -180,6 +192,7 @@ private const val PAN_STEP_FACTOR = 0.05
 @Composable
 fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifier: Modifier = Modifier) {
     var isPlaying by remember(file) { mutableStateOf(false) }
+    val isPlayingAtomic = remember(file) { AtomicBoolean(false) }
     var hasEnded by remember(file) { mutableStateOf(false) }
     var restartTrigger by remember(file) { mutableStateOf(0) }
     var playedSeconds by remember(file) { mutableStateOf(0.0) }
@@ -190,6 +203,24 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
     var probing by remember(file) { mutableStateOf(true) }
     var waveformPeaks by remember(file) { mutableStateOf<WaveformPeaks?>(null) }
     var spectrogramBitmap by remember(file) { mutableStateOf<ImageBitmap?>(null) }
+
+    fun setPlaying(play: Boolean) {
+        if (play) {
+            val totalDuration = probedInfo?.duration ?: 0.0
+            val isAtEnd = hasEnded || (totalDuration > 0.0 && (startFromSeconds + playedSeconds) >= totalDuration - 0.2)
+            if (isAtEnd) {
+                hasEnded = false
+                startFromSeconds = 0.0
+                playedSeconds = 0.0
+                restartTrigger++
+            }
+            isPlaying = true
+            isPlayingAtomic.set(true)
+        } else {
+            isPlaying = false
+            isPlayingAtomic.set(false)
+        }
+    }
 
     LaunchedEffect(file) {
         probing = true
@@ -232,6 +263,7 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
 
     DisposableEffect(file, restartTrigger) {
         playedSeconds = 0.0
+        isPlayingAtomic.set(isPlaying)
         val seekSeconds = startFromSeconds
         val seekArgs = if (seekSeconds > 0.0) listOf("-ss", seekSeconds.toString()) else emptyList()
         val sampleRate = info.sampleRate
@@ -249,7 +281,8 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
                     "-f", "s16le", "-ar", sampleRate.toString(), "-ac", channels.toString(),
                     "-acodec", "pcm_s16le", "-",
                 ),
-            ).also { FfmpegLocator.configureEnvironment(it) }.start().also {
+            ).redirectError(ProcessBuilder.Redirect.DISCARD)
+            .also { FfmpegLocator.configureEnvironment(it) }.start().also {
                 com.multiviewer.util.ProcessManager.register(it)
             }
         } catch (e: Exception) {
@@ -272,7 +305,7 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
                     val buffer = ByteArray(8192)
                     val input = process.inputStream
                     while (!stopped.get()) {
-                        if (!isPlaying) {
+                        if (!isPlayingAtomic.get()) {
                             if (wasPlaying) {
                                 line.stop()
                                 wasPlaying = false
@@ -287,7 +320,7 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
                         val bytesRead = input.read(buffer)
                         if (bytesRead < 0) {
                             EventQueue.invokeLater {
-                                isPlaying = false
+                                setPlaying(false)
                                 hasEnded = true
                             }
                             break
@@ -353,8 +386,16 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
 
     fun seekToFraction(fraction: Float) {
         hasEnded = false
-        isPlaying = false
+        val wasPlaying = isPlaying
         startFromSeconds = fraction.coerceIn(0f, 1f) * info.duration
+        playedSeconds = 0.0
+        if (wasPlaying) {
+            isPlaying = true
+            isPlayingAtomic.set(true)
+        } else {
+            isPlaying = false
+            isPlayingAtomic.set(false)
+        }
         restartTrigger++
     }
 
@@ -368,16 +409,6 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
                     val delta = event.changes.firstOrNull()?.scrollDelta ?: return@onPointerEvent
                     applyZoomOrPan(delta.x, delta.y)
                     event.changes.forEach { it.consume() }
-                }
-                .pointerInput(info.duration) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown()
-                        seekToFraction(down.position.x / size.width.toFloat())
-                        drag(down.id) { change ->
-                            change.consume()
-                            seekToFraction(change.position.x / size.width.toFloat())
-                        }
-                    }
                 },
         ) {
             val peaks = waveformPeaks
@@ -389,6 +420,29 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
             } else {
                 DecodingIndicator("파형 생성 중...", modifier = Modifier.align(Alignment.Center))
             }
+
+            // Click or drag on waveform to seek, skipping center button area to avoid interfering with play/pause clicks
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(info.duration) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown()
+                            val centerX = size.width / 2f
+                            val centerY = size.height / 2f
+                            val dx = down.position.x - centerX
+                            val dy = down.position.y - centerY
+                            val isOverCenterButton = (dx * dx + dy * dy) <= (36.dp.toPx() * 36.dp.toPx())
+                            if (!isOverCenterButton) {
+                                seekToFraction(down.position.x / size.width.toFloat())
+                            }
+                            drag(down.id) { change ->
+                                change.consume()
+                                seekToFraction(change.position.x / size.width.toFloat())
+                            }
+                        }
+                    },
+            )
 
             if (info.duration > 0) {
                 // Progress fill is relative to the VISIBLE window now, not the whole track -- when
@@ -405,27 +459,23 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
                 )
             }
 
-            if (!isPlaying) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .size(64.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.5f))
-                        .clickable {
-                            if (hasEnded) {
-                                hasEnded = false
-                                startFromSeconds = 0.0
-                                restartTrigger++
-                            }
-                            isPlaying = true
-                        },
-                    contentAlignment = Alignment.Center,
-                ) {
+            // Center play/pause overlay button
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(64.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.65f))
+                    .clickable {
+                        setPlaying(!isPlaying)
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                if (isPlaying) {
+                    AudioPauseIcon(modifier = Modifier.size(24.dp), color = Color.White)
+                } else {
                     Icon(Icons.Filled.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(48.dp))
                 }
-            } else {
-                Box(modifier = Modifier.fillMaxSize().clickable { isPlaying = false })
             }
         }
 
@@ -479,6 +529,7 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
             onSeek = { fraction -> seekToFraction(fraction) },
             modifier = Modifier.padding(top = 2.dp),
         )
+
     }
 }
 
@@ -518,5 +569,17 @@ private fun AudioZoomScrollbar(
                 Spacer(modifier = Modifier.weight(afterFraction.coerceAtLeast(0.0001f)))
             }
         }
+    }
+}
+
+@Composable
+private fun AudioPauseIcon(modifier: Modifier = Modifier, color: Color = Color.White) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(modifier = Modifier.fillMaxHeight().width(3.dp).background(color))
+        Box(modifier = Modifier.fillMaxHeight().width(3.dp).background(color))
     }
 }

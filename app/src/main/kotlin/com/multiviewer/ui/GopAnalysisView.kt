@@ -144,16 +144,11 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
                     focusRequester.requestFocus()
                 }
 
-                val playbackFrameIndex = remember(frames, tab.playbackElapsedSeconds) {
-                    currentFrameIndex(frames, tab.playbackElapsedSeconds)
-                }
-
                 fun stepFrame(delta: Int) {
-                    val current = tab.selectedFrame?.index ?: playbackFrameIndex.coerceAtLeast(0)
+                    val current = tab.selectedFrame?.index ?: 0
                     val target = (current + delta).coerceIn(0, frames.size - 1)
                     selectFrame(frames[target])
                 }
-
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -185,10 +180,17 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
                             }
                         }
 
-                        val selectedIndex = tab.selectedFrame?.index
-                        if (selectedIndex != null) {
+                        val selectedFrame = tab.selectedFrame
+                        if (selectedFrame != null) {
+                            val sizeStr = if (selectedFrame.sizeBytes >= 1024 * 1024) {
+                                String.format(java.util.Locale.US, "%.1f MB", selectedFrame.sizeBytes.toDouble() / (1024 * 1024))
+                            } else if (selectedFrame.sizeBytes >= 1024) {
+                                String.format(java.util.Locale.US, "%.1f KB", selectedFrame.sizeBytes.toDouble() / 1024)
+                            } else {
+                                "${selectedFrame.sizeBytes} B"
+                            }
                             Text(
-                                "${selectedIndex + 1} / ${frames.size} (◀ ▶ 키로 이동)",
+                                "#${selectedFrame.index} (${selectedFrame.type}) · ${formatFramePts(selectedFrame.ptsSeconds)} · $sizeStr | ${selectedFrame.index + 1} / ${frames.size}",
                                 style = AppTypography.labelLarge.copy(fontSize = 11.sp, color = AppColors.TextSecondary),
                             )
                         }
@@ -196,13 +198,7 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
 
                     val maxSize = remember(frames) { frames.maxOf { it.sizeBytes }.coerceAtLeast(1) }
                     var frameBarWidthDp by remember { mutableStateOf(FRAME_BAR_WIDTH_DP.toFloat()) }
-                    LaunchedEffect(playbackFrameIndex) {
-                        if (playbackFrameIndex < 0) return@LaunchedEffect
-                        val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == playbackFrameIndex }
-                        if (!isVisible) {
-                            listState.animateScrollToItem(playbackFrameIndex)
-                        }
-                    }
+
                     // Keeps a keyboard/click-selected frame in view too -- without this, stepping
                     // past the visible window with the arrow keys would move the selection out of
                     // sight with no way to tell where it landed.
@@ -272,7 +268,7 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
                             // zoom state above, not the FRAME_BAR_WIDTH_DP constant (which is now
                             // only the starting/default value).
                             val heightFraction = (frame.sizeBytes.toFloat() / maxSize * FRAME_BAR_MAX_HEIGHT_FRACTION).coerceAtLeast(0.02f)
-                            val isCurrent = index == playbackFrameIndex
+                            val isSelected = index == tab.selectedFrame?.index
                             Column(
                                 modifier = Modifier.width(frameBarWidthDp.dp).fillMaxSize(),
                                 verticalArrangement = Arrangement.Bottom,
@@ -282,7 +278,7 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
                                         .width(frameBarWidthDp.dp)
                                         .fillMaxHeight(heightFraction)
                                         .background(colorForFrameType(frame.type))
-                                        .let { if (isCurrent) it.border(2.dp, Color.White) else it }
+                                        .let { if (isSelected) it.border(2.dp, Color.White) else it }
                                         .clickable { selectFrame(frame) },
                                 )
                             }

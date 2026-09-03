@@ -34,6 +34,7 @@ import java.io.File
 fun AboutWindow(
     language: AppLanguage,
     onCloseRequest: () -> Unit,
+    onCheckUpdate: (() -> Unit)? = null,
 ) {
     val windowState = rememberWindowState(
         position = WindowPosition(Alignment.Center),
@@ -109,6 +110,20 @@ fun AboutWindow(
                                     color = AppColors.NeonGreen,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                 )
+                            }
+                            if (onCheckUpdate != null) {
+                                Spacer(Modifier.width(8.dp))
+                                TextButton(
+                                    onClick = onCheckUpdate,
+                                    modifier = Modifier.height(24.dp),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                ) {
+                                    Text(
+                                        I18n.menuCheckForUpdates(language),
+                                        fontSize = 11.sp,
+                                        color = AppColors.NeonBlue,
+                                    )
+                                }
                             }
                         }
                         Text(

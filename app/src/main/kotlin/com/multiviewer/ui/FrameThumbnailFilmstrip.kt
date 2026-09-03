@@ -97,21 +97,8 @@ fun FrameThumbnailFilmstrip(tab: TabState, frames: List<FrameInfo>, modifier: Mo
 
     // remember, not a plain val -- without it, the O(frames.size) indexOfLast scan inside
     // currentFrameIndex re-runs on EVERY recomposition of this composable, including ones
-    // triggered by unrelated state (e.g. thumbnailCache updates after each decode batch), not
-    // just actual playback-position changes. Matters here specifically because this feature's own
-    // point is scaling to videos with thousands of frames.
-    val currentIndex = remember(frames, tab.playbackElapsedSeconds) {
-        currentFrameIndex(frames, tab.playbackElapsedSeconds)
-    }
-    LaunchedEffect(currentIndex) {
-        if (currentIndex < 0) return@LaunchedEffect
-        val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == currentIndex }
-        if (!isVisible) listState.animateScrollToItem(currentIndex)
-    }
-
-    // Keeps a keyboard/click-selected frame in view too, same as GopAnalysisView's own equivalent
-    // effect -- without this, arrow-key stepping past the visible window would move the selection
-    // out of sight with no way to tell where it landed.
+    // Keeps a keyboard/click-selected frame in view -- without this, arrow-key stepping past the visible
+    // window would move the selection out of sight with no way to tell where it landed.
     LaunchedEffect(tab.selectedFrame) {
         val index = tab.selectedFrame?.index ?: return@LaunchedEffect
         val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == index }
@@ -129,7 +116,7 @@ fun FrameThumbnailFilmstrip(tab: TabState, frames: List<FrameInfo>, modifier: Mo
     // which requests it on click) -- there's no auto-focus-on-mount here, unlike GopAnalysisView's
     // own filmstrip, so opening this panel doesn't steal focus from wherever the user already was.
     fun stepFrame(delta: Int) {
-        val current = tab.selectedFrame?.index ?: currentIndex.coerceAtLeast(0)
+        val current = tab.selectedFrame?.index ?: 0
         val target = (current + delta).coerceIn(0, frames.size - 1)
         selectFrame(frames[target])
     }
@@ -197,13 +184,13 @@ fun FrameThumbnailFilmstrip(tab: TabState, frames: List<FrameInfo>, modifier: Mo
         ) {
             itemsIndexed(frames) { index, frame ->
                 val bitmap = tab.thumbnailCache[index]
-                val isCurrent = index == currentIndex
+                val isSelected = index == tab.selectedFrame?.index
                 Box(
                     modifier = Modifier
                         .aspectRatio(aspectRatio)
                         .fillMaxHeight()
                         .padding(1.dp)
-                        .let { if (isCurrent) it.border(2.dp, Color.White) else it }
+                        .let { if (isSelected) it.border(2.dp, Color.White) else it }
                         .clickable {
                             focusRequester.requestFocus()
                             selectFrame(frame)

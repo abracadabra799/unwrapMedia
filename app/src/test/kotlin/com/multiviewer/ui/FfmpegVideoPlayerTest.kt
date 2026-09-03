@@ -103,7 +103,44 @@ class FfmpegVideoPlayerTest {
         assertEquals(64, info?.width)
         assertEquals(48, info?.height)
         assertEquals(10.0, info?.fps)
+        assertTrue(info != null && info.duration >= 1.9, "Expected duration >= 1.9, got ${info?.duration}")
         video.delete()
+    }
+
+    @Test
+    fun `probeVideo correctly extracts duration for WebM, FLV, AVI, WMV videos where stream duration may be NA`() {
+        val webm = File.createTempFile("test-probe-", ".webm")
+        webm.deleteOnExit()
+        ProcessBuilder("ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=2:size=64x48:rate=10", webm.absolutePath)
+            .redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+        val webmInfo = probeVideo(webm)
+        assertTrue(webmInfo != null && webmInfo.duration >= 1.9, "WebM duration expected >= 1.9, got ${webmInfo?.duration}")
+
+        val flv = File.createTempFile("test-probe-", ".flv")
+        flv.deleteOnExit()
+        ProcessBuilder("ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=2:size=64x48:rate=10", flv.absolutePath)
+            .redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+        val flvInfo = probeVideo(flv)
+        assertTrue(flvInfo != null && flvInfo.duration >= 1.9, "FLV duration expected >= 1.9, got ${flvInfo?.duration}")
+
+        val avi = File.createTempFile("test-probe-", ".avi")
+        avi.deleteOnExit()
+        ProcessBuilder("ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=2:size=64x48:rate=10", avi.absolutePath)
+            .redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+        val aviInfo = probeVideo(avi)
+        assertTrue(aviInfo != null && aviInfo.duration >= 1.9, "AVI duration expected >= 1.9, got ${aviInfo?.duration}")
+
+        val wmv = File.createTempFile("test-probe-", ".wmv")
+        wmv.deleteOnExit()
+        ProcessBuilder("ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=2:size=64x48:rate=10", wmv.absolutePath)
+            .redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+        val wmvInfo = probeVideo(wmv)
+        assertTrue(wmvInfo != null && wmvInfo.duration >= 1.9, "WMV duration expected >= 1.9, got ${wmvInfo?.duration}")
+
+        webm.delete()
+        flv.delete()
+        avi.delete()
+        wmv.delete()
     }
 
     @Test

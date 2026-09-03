@@ -16,8 +16,18 @@ fun buildMediaSummary(root: BoxNode, file: File): MediaSummary {
     val category = detectCategory(root)
     val sections = when (category) {
         MediaCategory.IMAGE -> buildImageSummary(root, file)
-        MediaCategory.VIDEO -> if (isWebm(root)) buildWebmVideoSummary(root, file.length()) else buildVideoSummary(root, file.length())
-        MediaCategory.AUDIO -> if (root.children.any { it.type == "moov" }) buildVideoSummary(root, file.length()) else buildStandaloneAudioSummary(root, file.length())
+        MediaCategory.VIDEO -> when {
+            isWebm(root) -> buildWebmVideoSummary(root, file.length())
+            isAvi(root) -> buildAviVideoSummary(root, file.length())
+            isFlv(root) -> buildFlvVideoSummary(root, file.length())
+            isAsf(root) -> buildAsfVideoSummary(root, file.length())
+            else -> buildVideoSummary(root, file.length())
+        }
+        MediaCategory.AUDIO -> when {
+            root.children.any { it.type == "moov" } -> buildVideoSummary(root, file.length())
+            isAac(root) -> buildAacSummary(root, file.length())
+            else -> buildStandaloneAudioSummary(root, file.length())
+        }
     }
     val motionPhotoVideoSections = if (category == MediaCategory.IMAGE) {
         buildMotionPhotoVideoSummary(root, file)
@@ -70,6 +80,9 @@ private fun detectCategory(root: BoxNode): MediaCategory {
     if (root.children.any { it.type == "fLaC" }) return MediaCategory.AUDIO
     if (root.children.any { it.type.startsWith("Ogg") }) return MediaCategory.AUDIO
     if (root.children.any { it.type == "COMM" }) return MediaCategory.AUDIO
+    if (isAac(root)) return MediaCategory.AUDIO
+
+    if (isAvi(root) || isFlv(root) || isAsf(root)) return MediaCategory.VIDEO
 
     val moov = root.children.find { it.type == "moov" } ?: return MediaCategory.IMAGE
     val trakHandlerTypes = moov.children.filter { it.type == "trak" }.mapNotNull { trak ->
@@ -83,6 +96,18 @@ private fun detectCategory(root: BoxNode): MediaCategory {
 }
 
 private fun isWebm(root: BoxNode): Boolean = root.children.any { it.type == "EBML" }
+
+private fun isAvi(root: BoxNode): Boolean =
+    root.children.any { it.type == "RIFF" && it.fields.any { f -> f.value == "AVI " || f.value == "AVIX" } }
+
+private fun isFlv(root: BoxNode): Boolean =
+    root.children.any { it.type == "FLV Header" }
+
+private fun isAsf(root: BoxNode): Boolean =
+    root.children.any { it.type == "ASF Header Object" }
+
+private fun isAac(root: BoxNode): Boolean =
+    root.children.any { it.type.startsWith("ADTS Frame") }
 
 fun findFirst(node: BoxNode, predicate: (BoxNode) -> Boolean): BoxNode? {
     if (predicate(node)) return node
@@ -1338,4 +1363,239 @@ private fun buildAppleVideoMetadataSection(root: BoxNode, traks: List<BoxNode>):
     }
 
     return if (fields.isNotEmpty()) SummarySection("Video Metadata", fields) else null
+}
+
+private fun buildAviVideoSummary(root: BoxNode, fileSizeBytes: Long): List<SummarySection> {
+    val generalFields = mutableListOf(
+        SummaryField("Format", "AVI"),
+        SummaryField("File Size", formatFileSize(fileSizeBytes)),
+    )
+    val avih = findFirst(root) { it.type == "avih" }
+    val fps = avih?.fields?.find { it.name == "fps" }?.value?.toDoubleOrNull()
+    val totalFrames = avih?.fields?.find { it.name == "total_frames" }?.value?.toDoubleOrNull()
+    if (fps != null && fps > 0 && totalFrames != null) {
+        val durationSeconds = totalFrames / fps
+        generalFields.add(SummaryField("Duration", formatDuration(durationSeconds)))
+        if (durationSeconds > 0) {
+            val bitrate = (fileSizeBytes * 8) / durationSeconds
+            generalFields.add(SummaryField("Overall Bit Rate", formatBitrate(bitrate)))
+        }
+    }
+
+    val sections = mutableListOf(SummarySection("General", generalFields))
+
+    val strlNodes = mutableListOf<BoxNode>()
+    fun collectStrl(node: BoxNode) {
+        if (node.type == "LIST (strl)") strlNodes.add(node)
+        node.children.forEach { collectStrl(it) }
+    }
+    collectStrl(root)
+
+    var videoTrackCount = 0
+    var audioTrackCount = 0
+    val trackFields = mutableListOf<SummaryField>()
+
+    for (strl in strlNodes) {
+        val strh = strl.children.find { it.type == "strh" }
+        val streamType = strh?.fields?.find { it.name == "stream_type" }?.value
+        if (streamType == "vids") videoTrackCount++
+        else if (streamType == "auds") audioTrackCount++
+    }
+    if (videoTrackCount > 0) trackFields.add(SummaryField("Video Tracks", videoTrackCount.toString()))
+    if (audioTrackCount > 0) trackFields.add(SummaryField("Audio Tracks", audioTrackCount.toString()))
+    if (trackFields.isNotEmpty()) sections.add(SummarySection("Track List", trackFields))
+
+    // Video details
+    val videoStrl = strlNodes.find {
+        it.children.find { c -> c.type == "strh" }?.fields?.find { f -> f.name == "stream_type" }?.value == "vids"
+    }
+    val videoStrh = videoStrl?.children?.find { it.type == "strh" }
+    val videoStrf = videoStrl?.children?.find { it.type == "strf" }
+    val videoFields = mutableListOf<SummaryField>()
+
+    val videoCodec = videoStrf?.fields?.find { it.name == "compression" }?.value
+        ?: videoStrh?.fields?.find { it.name == "handler_codec" }?.value
+    videoCodec?.let { videoFields.add(SummaryField("Format", it)) }
+
+    val width = videoStrf?.fields?.find { it.name == "width" }?.value
+        ?: avih?.fields?.find { it.name == "width" }?.value
+    val height = videoStrf?.fields?.find { it.name == "height" }?.value
+        ?: avih?.fields?.find { it.name == "height" }?.value
+    width?.let { videoFields.add(SummaryField("Width", it)) }
+    height?.let { videoFields.add(SummaryField("Height", it)) }
+    fps?.let { videoFields.add(SummaryField("Frame Rate", "${String.format(java.util.Locale.US, "%.2f", it)} fps")) }
+    totalFrames?.let { videoFields.add(SummaryField("Total Frames", it.toLong().toString())) }
+    if (videoFields.isNotEmpty()) sections.add(SummarySection("Video", videoFields))
+
+    // Audio details
+    val audioStrl = strlNodes.find {
+        it.children.find { c -> c.type == "strh" }?.fields?.find { f -> f.name == "stream_type" }?.value == "auds"
+    }
+    val audioStrf = audioStrl?.children?.find { it.type == "strf" }
+    if (audioStrf != null) {
+        val audioFields = mutableListOf<SummaryField>()
+        audioStrf.fields.find { it.name == "audio_format" }?.let { audioFields.add(SummaryField("Format", it.value)) }
+        audioStrf.fields.find { it.name == "channels" }?.let { audioFields.add(SummaryField("Channel(s)", it.value)) }
+        audioStrf.fields.find { it.name == "sample_rate" }?.let { audioFields.add(SummaryField("Sampling Rate", "${it.value} Hz")) }
+        audioStrf.fields.find { it.name == "bits_per_sample" }?.takeIf { it.value != "0" }?.let { audioFields.add(SummaryField("Bit Depth", "${it.value}-bit")) }
+        if (audioFields.isNotEmpty()) sections.add(SummarySection("Audio", audioFields))
+    }
+
+    return sections
+}
+
+private fun buildFlvVideoSummary(root: BoxNode, fileSizeBytes: Long): List<SummarySection> {
+    val scriptTag = findFirst(root) { it.type == "ScriptTag (onMetaData)" }
+    val generalFields = mutableListOf(
+        SummaryField("Format", "Flash Video (FLV)"),
+        SummaryField("File Size", formatFileSize(fileSizeBytes)),
+    )
+    val durationSec = scriptTag?.fields?.find { it.name == "duration" }?.value?.toDoubleOrNull()
+    if (durationSec != null && durationSec > 0) {
+        generalFields.add(SummaryField("Duration", formatDuration(durationSec)))
+        val bitrate = (fileSizeBytes * 8) / durationSec
+        generalFields.add(SummaryField("Overall Bit Rate", formatBitrate(bitrate)))
+    }
+    val sections = mutableListOf(SummarySection("General", generalFields))
+
+    val videoTag = findFirst(root) { it.type == "VideoTag" }
+    val audioTag = findFirst(root) { it.type == "AudioTag" }
+
+    val trackFields = mutableListOf<SummaryField>()
+    if (videoTag != null || scriptTag?.fields?.any { it.name == "videocodecid" } == true) {
+        trackFields.add(SummaryField("Video Tracks", "1"))
+    }
+    if (audioTag != null || scriptTag?.fields?.any { it.name == "audiocodecid" } == true) {
+        trackFields.add(SummaryField("Audio Tracks", "1"))
+    }
+    if (trackFields.isNotEmpty()) sections.add(SummarySection("Track List", trackFields))
+
+    // Video section
+    val videoFields = mutableListOf<SummaryField>()
+    val rawVideoCodec = scriptTag?.fields?.find { it.name == "videocodecid" }?.value
+    val scriptVideoCodec = when (rawVideoCodec?.toDoubleOrNull()?.toInt()) {
+        7 -> "AVC/H.264"
+        2 -> "Sorenson Spark"
+        4 -> "On2 VP6"
+        5 -> "On2 VP6 with alpha"
+        else -> rawVideoCodec
+    }
+    val videoCodec = videoTag?.fields?.find { it.name == "codec" }?.value ?: scriptVideoCodec
+    videoCodec?.let { videoFields.add(SummaryField("Format", it)) }
+    scriptTag?.fields?.find { it.name == "width" }?.value?.toDoubleOrNull()?.let {
+        videoFields.add(SummaryField("Width", it.toInt().toString()))
+    }
+    scriptTag?.fields?.find { it.name == "height" }?.value?.toDoubleOrNull()?.let {
+        videoFields.add(SummaryField("Height", it.toInt().toString()))
+    }
+    scriptTag?.fields?.find { it.name == "framerate" }?.value?.let {
+        videoFields.add(SummaryField("Frame Rate", "$it fps"))
+    }
+    if (videoFields.isNotEmpty()) sections.add(SummarySection("Video", videoFields))
+
+    // Audio section
+    val audioFields = mutableListOf<SummaryField>()
+    val rawAudioCodec = scriptTag?.fields?.find { it.name == "audiocodecid" }?.value
+    val scriptAudioCodec = when (rawAudioCodec?.toDoubleOrNull()?.toInt()) {
+        10 -> "AAC"
+        2 -> "MP3"
+        else -> rawAudioCodec
+    }
+    val audioCodec = audioTag?.fields?.find { it.name == "format" }?.value ?: scriptAudioCodec
+    audioCodec?.let { audioFields.add(SummaryField("Format", it)) }
+    val sampleRate = audioTag?.fields?.find { it.name == "sample_rate" }?.value
+        ?: scriptTag?.fields?.find { it.name == "audiosamplerate" }?.value
+    sampleRate?.let { audioFields.add(SummaryField("Sampling Rate", if (it.endsWith("Hz")) it else "$it Hz")) }
+    val channels = audioTag?.fields?.find { it.name == "channels" }?.value
+        ?: scriptTag?.fields?.find { it.name == "stereo" }?.value?.let { if (it == "true") "2 channels (Stereo)" else "1 channel (Mono)" }
+    channels?.let { audioFields.add(SummaryField("Channel(s)", it)) }
+    if (audioFields.isNotEmpty()) sections.add(SummarySection("Audio", audioFields))
+
+    return sections
+}
+
+private fun buildAsfVideoSummary(root: BoxNode, fileSizeBytes: Long): List<SummarySection> {
+    val generalFields = mutableListOf(
+        SummaryField("Format", "Windows Media (ASF/WMV)"),
+        SummaryField("File Size", formatFileSize(fileSizeBytes)),
+    )
+    val fileProps = findFirst(root) { it.type == "File Properties Object" }
+    val durationSec = fileProps?.fields?.find { it.name == "play_duration_sec" }?.value?.removeSuffix("s")?.toDoubleOrNull()
+    if (durationSec != null && durationSec > 0) {
+        generalFields.add(SummaryField("Duration", formatDuration(durationSec)))
+        val bitrate = (fileSizeBytes * 8) / durationSec
+        generalFields.add(SummaryField("Overall Bit Rate", formatBitrate(bitrate)))
+    }
+
+    val contentDesc = findFirst(root) { it.type == "Content Description Object" }
+    contentDesc?.fields?.find { it.name == "title" }?.let { generalFields.add(SummaryField("Title", it.value)) }
+    contentDesc?.fields?.find { it.name == "author" }?.let { generalFields.add(SummaryField("Author", it.value)) }
+
+    val sections = mutableListOf(SummarySection("General", generalFields))
+
+    val streamProps = mutableListOf<BoxNode>()
+    fun collectStreamProps(node: BoxNode) {
+        if (node.type == "Stream Properties Object") streamProps.add(node)
+        node.children.forEach { collectStreamProps(it) }
+    }
+    collectStreamProps(root)
+
+    val videoStreams = streamProps.filter { it.fields.any { f -> f.name == "stream_type" && f.value == "Video" } }
+    val audioStreams = streamProps.filter { it.fields.any { f -> f.name == "stream_type" && f.value == "Audio" } }
+
+    val trackFields = mutableListOf<SummaryField>()
+    if (videoStreams.isNotEmpty()) trackFields.add(SummaryField("Video Tracks", videoStreams.size.toString()))
+    if (audioStreams.isNotEmpty()) trackFields.add(SummaryField("Audio Tracks", audioStreams.size.toString()))
+    if (trackFields.isNotEmpty()) sections.add(SummarySection("Track List", trackFields))
+
+    // Video details
+    val firstVideo = videoStreams.firstOrNull()
+    if (firstVideo != null) {
+        val videoFields = mutableListOf<SummaryField>()
+        val compression = firstVideo.fields.find { it.name == "compression" }?.value ?: "WMV"
+        videoFields.add(SummaryField("Format", compression))
+        firstVideo.fields.find { it.name == "width" }?.let { videoFields.add(SummaryField("Width", it.value)) }
+        firstVideo.fields.find { it.name == "height" }?.let { videoFields.add(SummaryField("Height", it.value)) }
+        firstVideo.fields.find { it.name == "bit_count" }?.let { videoFields.add(SummaryField("Bit Depth", "${it.value}-bit")) }
+        sections.add(SummarySection("Video", videoFields))
+    }
+
+    // Audio details
+    val firstAudio = audioStreams.firstOrNull()
+    if (firstAudio != null) {
+        val audioFields = mutableListOf<SummaryField>()
+        firstAudio.fields.find { it.name == "format" }?.let { audioFields.add(SummaryField("Format", it.value)) }
+        firstAudio.fields.find { it.name == "channels" }?.let { audioFields.add(SummaryField("Channel(s)", it.value)) }
+        firstAudio.fields.find { it.name == "sample_rate" }?.let { audioFields.add(SummaryField("Sampling Rate", "${it.value} Hz")) }
+        sections.add(SummarySection("Audio", audioFields))
+    }
+
+    return sections
+}
+
+private fun buildAacSummary(root: BoxNode, fileSizeBytes: Long): List<SummarySection> {
+    val generalFields = mutableListOf(
+        SummaryField("Format", "AAC (ADTS)"),
+        SummaryField("File Size", formatFileSize(fileSizeBytes)),
+    )
+
+    val id3v2 = root.children.find { it.type == "ID3v2" }
+    id3v2?.children?.filter { it.type in MP3_TEXT_FRAME_LABELS }?.forEach { frame ->
+        frame.fields.firstOrNull()?.let { field -> generalFields.add(SummaryField(field.name, field.value)) }
+    }
+
+    val firstFrame = findFirst(root) { it.type.startsWith("ADTS Frame") }
+    val audioFields = mutableListOf<SummaryField>()
+
+    val profile = firstFrame?.fields?.find { it.name == "profile" }?.value ?: "LC"
+    val sampleRate = firstFrame?.fields?.find { it.name == "sample_rate" }?.value ?: "44100Hz"
+    val channels = firstFrame?.fields?.find { it.name == "channels" }?.value ?: "2 channels (Stereo)"
+
+    audioFields.add(SummaryField("Format", "AAC ($profile)"))
+    audioFields.add(SummaryField("Sampling Rate", sampleRate))
+    audioFields.add(SummaryField("Channel(s)", channels))
+
+    val sections = mutableListOf(SummarySection("General", generalFields))
+    if (audioFields.isNotEmpty()) sections.add(SummarySection("Audio", audioFields))
+    return sections
 }

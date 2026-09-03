@@ -136,10 +136,23 @@ object I18n {
     // Empty state
     fun placeholderEmptyState(lang: AppLanguage) = if (lang == AppLanguage.KO) "📂 파일들을 끌어다 놓거나 클릭하여 열기 (다중 파일 지원)" else "📂 Drag & Drop or Click to Open (Multiple Files Supported)"
 
-    // App Version & About
-    const val APP_VERSION = "1.10.0"
+    const val APP_VERSION = "1.11.0"
     fun menuHelp(lang: AppLanguage) = if (lang == AppLanguage.KO) "도움말" else "Help"
+    fun menuCheckForUpdates(lang: AppLanguage) = if (lang == AppLanguage.KO) "업데이트 확인..." else "Check for Updates..."
     fun menuAbout(lang: AppLanguage) = if (lang == AppLanguage.KO) "unwrapMedia 정보" else "About unwrapMedia"
     fun menuVersionInfo(lang: AppLanguage) = if (lang == AppLanguage.KO) "버전: v$APP_VERSION" else "Version: v$APP_VERSION"
     fun titleAboutWindow(lang: AppLanguage) = if (lang == AppLanguage.KO) "unwrapMedia 정보" else "About unwrapMedia"
+    fun titleUpdateWindow(lang: AppLanguage) = if (lang == AppLanguage.KO) "소프트웨어 업데이트" else "Software Update"
+    fun updateChecking(lang: AppLanguage) = if (lang == AppLanguage.KO) "최신 버전을 확인하는 중입니다..." else "Checking for updates..."
+    fun updateUpToDate(lang: AppLanguage) = if (lang == AppLanguage.KO) "현재 최신 버전(v$APP_VERSION)을 사용하고 있습니다." else "You're up to date! (v$APP_VERSION)"
+    fun updateAvailableHeader(lang: AppLanguage, newVer: String) = if (lang == AppLanguage.KO) "새로운 버전이 출시되었습니다! (v$APP_VERSION → v$newVer)" else "A new version is available! (v$APP_VERSION → v$newVer)"
+    fun updateReleaseNotesTitle(lang: AppLanguage) = if (lang == AppLanguage.KO) "주요 업데이트 내용" else "Release Notes"
+    fun updateBtnDownload(lang: AppLanguage) = if (lang == AppLanguage.KO) "지금 업데이트" else "Update Now"
+    fun updateBtnInstallAndRestart(lang: AppLanguage) = if (lang == AppLanguage.KO) "지금 재시작 및 설치" else "Restart & Install"
+    fun updateBtnLater(lang: AppLanguage) = if (lang == AppLanguage.KO) "나중에" else "Later"
+    fun updateBtnViewOnWeb(lang: AppLanguage) = if (lang == AppLanguage.KO) "웹사이트에서 보기" else "View on Web"
+    fun updateBtnRetry(lang: AppLanguage) = if (lang == AppLanguage.KO) "다시 시도" else "Retry"
+    fun updateBtnClose(lang: AppLanguage) = if (lang == AppLanguage.KO) "닫기" else "Close"
+    fun updateDownloading(lang: AppLanguage, percent: Int) = if (lang == AppLanguage.KO) "업데이트 다운로드 중... ($percent%)" else "Downloading update... ($percent%)"
+    fun updateDownloadComplete(lang: AppLanguage) = if (lang == AppLanguage.KO) "다운로드가 완료되었습니다. 앱을 재시작하여 업데이트를 설치합니다." else "Download complete. Restarting app to apply the update."
 }

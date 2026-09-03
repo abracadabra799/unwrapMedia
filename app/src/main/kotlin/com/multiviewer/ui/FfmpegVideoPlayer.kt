@@ -184,7 +184,7 @@ fun probeVideo(file: File): VideoInfo? {
     return try {
         val process = ProcessBuilder(
             FfmpegLocator.ffprobePath(), "-v", "error", "-select_streams", "v:0",
-            "-show_entries", "stream=width,height,avg_frame_rate,r_frame_rate,duration:stream_side_data=rotation",
+            "-show_entries", "stream=width,height,avg_frame_rate,r_frame_rate,duration:stream_side_data=rotation:format=duration",
             // -of csv=p=0 does NOT preserve the field order given in -show_entries -- ffprobe
             // emits fields in the stream struct's internal order regardless of request order
             // (same quirk already worked around in FrameTypeAnalyzer.kt). On a real device video
@@ -204,10 +204,20 @@ fun probeVideo(file: File): VideoInfo? {
             ?: return null
 
         val values = mutableMapOf<String, String>()
+        val validDurations = mutableListOf<Double>()
         for (line in lines) {
             val eq = line.indexOf('=')
             if (eq < 0) continue
-            values[line.substring(0, eq)] = line.substring(eq + 1)
+            val key = line.substring(0, eq)
+            val value = line.substring(eq + 1)
+            if (key == "duration") {
+                val d = value.toDoubleOrNull()
+                if (d != null && d > 0.0) {
+                    validDurations.add(d)
+                }
+            } else {
+                values[key] = value
+            }
         }
 
         var width = values["width"]?.toIntOrNull() ?: return null
@@ -215,7 +225,7 @@ fun probeVideo(file: File): VideoInfo? {
         val fps = values["avg_frame_rate"]?.let(::parseFrameRate)
             ?: values["r_frame_rate"]?.let(::parseFrameRate)
             ?: 30.0
-        val duration = values["duration"]?.toDoubleOrNull() ?: 0.0
+        val duration = validDurations.firstOrNull() ?: 0.0
         // ffmpeg auto-applies rotation side-data when transcoding to rawvideo, so the
         // actual piped frame dimensions are swapped from ffprobe's raw stream dimensions
         // whenever the stream is rotated a quarter turn.
@@ -340,7 +350,17 @@ fun FfmpegVideoPlayer(
         probedInfo = info
         probing = false
         if (info != null) {
-            frameTimestamps = withContext(Dispatchers.IO) { probeFrameTimestamps(file) }
+            val timestamps = withContext(Dispatchers.IO) { probeFrameTimestamps(file) }
+            frameTimestamps = timestamps
+            if ((probedInfo?.duration ?: 0.0) <= 0.0 && !timestamps.isNullOrEmpty()) {
+                val lastPts = timestamps.last()
+                val inferredDuration = if (timestamps.size > 1) {
+                    lastPts + (lastPts - timestamps[timestamps.size - 2]).coerceAtLeast(0.001)
+                } else {
+                    lastPts + (1.0 / info.fps)
+                }
+                probedInfo = info.copy(duration = inferredDuration)
+            }
         }
         onProbeComplete()
     }
@@ -595,6 +615,8 @@ fun FfmpegVideoPlayer(
 
                 if (info.duration > 0) {
                     PreviewCaption("${formatMmSsMs(elapsedSeconds)} / ${formatMmSsMs(info.duration)}")
+                } else {
+                    PreviewCaption(formatMmSsMs(elapsedSeconds))
                 }
             }
 
