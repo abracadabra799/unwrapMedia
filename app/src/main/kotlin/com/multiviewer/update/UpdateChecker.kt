@@ -4,11 +4,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
+import java.net.HttpURLConnection
 import java.net.URI
-import java.net.http.HttpClient
-import java.net.http.HttpRequest
-import java.net.http.HttpResponse
-import java.time.Duration
 import kotlin.system.exitProcess
 
 data class UpdateInfo(
@@ -22,16 +19,8 @@ data class UpdateInfo(
     val downloadFileName: String?,
 )
 
-
 object UpdateChecker {
     const val GITHUB_RELEASES_WEB_URL = "${UpdateConfig.DEFAULT_REPO_URL}/releases/latest"
-
-    private val httpClient: HttpClient by lazy {
-        HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(5))
-            .followRedirects(HttpClient.Redirect.NORMAL)
-            .build()
-    }
 
     /**
      * Compares semantic version strings like "1.10.0" and "1.11.0".
@@ -124,21 +113,15 @@ object UpdateChecker {
                 "$scheme://$host$portSuffix/api/v3/repos/$owner/$repo/releases/latest"
             }
 
-            val reqBuilder = HttpRequest.newBuilder()
-                .uri(URI.create(apiUrl))
-                .header("Accept", "application/vnd.github.v3+json")
-                .header("User-Agent", "unwrapMedia-Desktop-App")
-                .timeout(Duration.ofSeconds(5))
-                .GET()
-
+            val headers = mutableMapOf(
+                "Accept" to "application/vnd.github.v3+json",
+                "User-Agent" to "unwrapMedia-Desktop-App",
+            )
             if (config.apiToken.isNotBlank()) {
-                reqBuilder.header("Authorization", "Bearer ${config.apiToken}")
+                headers["Authorization"] = "Bearer ${config.apiToken}"
             }
 
-            val response = httpClient.send(reqBuilder.build(), HttpResponse.BodyHandlers.ofString())
-            if (response.statusCode() !in 200..299) return null
-
-            val body = response.body() ?: return null
+            val body = httpGet(apiUrl, headers) ?: return null
             val tagName = extractJsonString(body, "tag_name") ?: return null
             val latestVer = tagName.removePrefix("v").removePrefix("V")
             val releaseNotes = extractJsonString(body, "body") ?: ""
@@ -180,22 +163,16 @@ object UpdateChecker {
 
             val apiUrl = "$scheme://$host$portSuffix/api/v4/projects/$encodedProjectPath/releases/permalink/latest"
 
-            val reqBuilder = HttpRequest.newBuilder()
-                .uri(URI.create(apiUrl))
-                .header("Accept", "application/json")
-                .header("User-Agent", "unwrapMedia-Desktop-App")
-                .timeout(Duration.ofSeconds(5))
-                .GET()
-
+            val headers = mutableMapOf(
+                "Accept" to "application/json",
+                "User-Agent" to "unwrapMedia-Desktop-App",
+            )
             if (config.apiToken.isNotBlank()) {
-                reqBuilder.header("PRIVATE-TOKEN", config.apiToken)
-                reqBuilder.header("Authorization", "Bearer ${config.apiToken}")
+                headers["PRIVATE-TOKEN"] = config.apiToken
+                headers["Authorization"] = "Bearer ${config.apiToken}"
             }
 
-            val response = httpClient.send(reqBuilder.build(), HttpResponse.BodyHandlers.ofString())
-            if (response.statusCode() !in 200..299) return null
-
-            val body = response.body() ?: return null
+            val body = httpGet(apiUrl, headers) ?: return null
             val tagName = extractJsonString(body, "tag_name") ?: return null
             val latestVer = tagName.removePrefix("v").removePrefix("V")
             val releaseNotes = extractJsonString(body, "description") ?: ""
@@ -256,16 +233,7 @@ object UpdateChecker {
 
     private fun tryFetchVersionJsonFromUrl(url: String, currentVersion: String, config: UpdateConfig): UpdateInfo? {
         return try {
-            val request = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .timeout(Duration.ofSeconds(5))
-                .GET()
-                .build()
-
-            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
-            if (response.statusCode() !in 200..299) return null
-
-            val body = response.body() ?: return null
+            val body = httpGet(url) ?: return null
             val latestVer = extractJsonString(body, "version") ?: return null
             val releaseDate = extractJsonString(body, "releaseDate") ?: ""
             val releaseNotes = extractJsonString(body, "releaseNotes") ?: ""
@@ -314,7 +282,50 @@ object UpdateChecker {
     }
 
     /**
+     * Safe HTTP GET using java.net.HttpURLConnection (available in all JVMs and java.base module).
+     */
+    private fun httpGet(urlStr: String, headers: Map<String, String> = emptyMap(), timeoutMs: Int = 6000): String? {
+        return try {
+            val conn = openConnectionWithRedirects(urlStr, headers, timeoutMs) ?: return null
+            conn.inputStream.bufferedReader().use { it.readText() }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun openConnectionWithRedirects(urlStr: String, headers: Map<String, String>, timeoutMs: Int = 8000): HttpURLConnection? {
+        var currentUrl = urlStr
+        var redirects = 0
+        while (redirects < 5) {
+            val url = URI.create(currentUrl).toURL()
+            val conn = url.openConnection() as HttpURLConnection
+            conn.instanceFollowRedirects = true
+            conn.requestMethod = "GET"
+            conn.connectTimeout = timeoutMs
+            conn.readTimeout = timeoutMs
+            conn.setRequestProperty("User-Agent", "unwrapMedia-Desktop-App")
+            headers.forEach { (k, v) -> conn.setRequestProperty(k, v) }
+            conn.connect()
+            val code = conn.responseCode
+            if (code == HttpURLConnection.HTTP_MOVED_PERM || code == HttpURLConnection.HTTP_MOVED_TEMP || code == 307 || code == 308) {
+                val newLoc = conn.getHeaderField("Location") ?: return null
+                currentUrl = newLoc
+                conn.disconnect()
+                redirects++
+                continue
+            }
+            if (code !in 200..299) {
+                conn.disconnect()
+                return null
+            }
+            return conn
+        }
+        return null
+    }
+
+    /**
      * Downloads the installer file with progress callback (0.0 to 1.0, bytesRead, totalBytes).
+     * Uses standard java.net.HttpURLConnection from java.base without external module dependencies.
      */
     suspend fun downloadInstaller(
         downloadUrl: String,
@@ -324,25 +335,20 @@ object UpdateChecker {
         isCanceled: () -> Boolean,
     ): Result<File> = withContext(Dispatchers.IO) {
         runCatching {
-            val reqBuilder = HttpRequest.newBuilder()
-                .uri(URI.create(downloadUrl))
-                .header("User-Agent", "unwrapMedia-Desktop-App")
-                .timeout(Duration.ofSeconds(30))
-                .GET()
-
+            val headers = mutableMapOf(
+                "User-Agent" to "unwrapMedia-Desktop-App",
+            )
             if (config.apiToken.isNotBlank()) {
-                reqBuilder.header("Authorization", "Bearer ${config.apiToken}")
+                headers["Authorization"] = "Bearer ${config.apiToken}"
             }
 
-            val response = httpClient.send(reqBuilder.build(), HttpResponse.BodyHandlers.ofInputStream())
-            if (response.statusCode() !in 200..299) {
-                throw IllegalStateException("Download failed with HTTP ${response.statusCode()}")
-            }
+            val conn = openConnectionWithRedirects(downloadUrl, headers, timeoutMs = 30000)
+                ?: throw IllegalStateException("Failed to connect to download URL")
 
-            val totalBytes = response.headers().firstValueAsLong("Content-Length").orElse(-1L)
+            val totalBytes = conn.contentLengthLong
             targetFile.parentFile?.mkdirs()
 
-            response.body().use { input ->
+            conn.inputStream.use { input ->
                 FileOutputStream(targetFile).use { output ->
                     val buffer = ByteArray(32768)
                     var bytesReadSoFar = 0L
