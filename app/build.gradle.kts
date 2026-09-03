@@ -26,7 +26,6 @@ compose.desktop {
         mainClass = "com.multiviewer.MainKt"
         jvmArgs += listOf("-Dapple.awt.application.name=unwrapMedia")
         nativeDistributions {
-            modules("java.base", "java.desktop", "java.net.http", "java.logging", "jdk.unsupported")
             targetFormats(TargetFormat.Dmg, TargetFormat.Deb)
             packageName = "unwrapMedia"
             packageVersion = "1.11.0"
