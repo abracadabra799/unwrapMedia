@@ -405,7 +405,7 @@ object GainmapParser {
                 val offset = extent?.fields?.find { it.name == "offset" }?.value?.toLongOrNull()
                 val length = extent?.fields?.find { it.name == "length" }?.value?.toLongOrNull()
 
-                val xmpText = findHeicXmp(file, meta)
+                val xmpText = findHeicXmp(file, meta, gainmapItemId)
                 val params = xmpText?.let { parseGainmapParametersFromXmp(it) }
 
                 val formatType = if (auxType.contains("21496")) GainmapFormatType.ISO_21496_1_HEIC else GainmapFormatType.APPLE_HEIC
@@ -488,19 +488,31 @@ object GainmapParser {
         return null
     }
 
-    private fun findHeicXmp(file: File, meta: BoxNode): String? {
-        val allXmp = mutableListOf<String>()
-        fun search(node: BoxNode) {
-            for (f in node.fields) {
-                if (f.name == "xmp") allXmp.add(f.value)
-            }
-            for (child in node.children) search(child)
-        }
-        search(meta)
-        if (allXmp.isNotEmpty()) return allXmp.joinToString("\n\n")
-
+    private fun findHeicXmp(file: File, meta: BoxNode, gainmapItemId: Long? = null): String? {
         val iinf = findFirst(meta) { it.type == "iinf" } ?: return null
         val iloc = findFirst(meta) { it.type == "iloc" } ?: return null
+        val iref = findFirst(meta) { it.type == "iref" }
+        val idat = findFirst(meta) { it.type == "idat" }
+        val idatBase = idat?.let { it.offset + it.headerSize } ?: 0L
+
+        // 1. If gainmapItemId is provided, look for a cdsc (content description) reference pointing to it
+        if (gainmapItemId != null && iref != null) {
+            val cdscNode = iref.children.find { it.type == "cdsc" && it.fields.any { f -> f.name.startsWith("to_item_ID") && f.value.toLongOrNull() == gainmapItemId } }
+            val xmpItemId = cdscNode?.fields?.find { it.name == "from_item_ID" }?.value?.toLongOrNull()
+            if (xmpItemId != null) {
+                try {
+                    ByteReader.open(file).use { reader ->
+                        val bytes = extractItemBytes(reader, iloc, xmpItemId, idatBase)
+                        if (bytes != null && bytes.isNotEmpty()) {
+                            return String(bytes, Charsets.UTF_8).trimEnd(' ', Char(0))
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
+        // 2. Scan all mime / xmp items, collecting candidates
+        val xmpCandidates = mutableListOf<String>()
         for (infe in iinf.children) {
             val itemType = infe.fields.find { it.name == "item_type" }?.value ?: ""
             val contentType = infe.fields.find { it.name == "content_type" }?.value ?: ""
@@ -513,16 +525,34 @@ object GainmapParser {
                 if (length in 1..2_000_000) {
                     try {
                         ByteReader.open(file).use { reader ->
-                            if (offset + length <= reader.length) {
-                                val bytes = reader.readBytes(offset, length.toInt())
-                                return String(bytes, Charsets.UTF_8).trimEnd(' ', Char(0))
+                            val bytes = extractItemBytes(reader, iloc, itemId, idatBase)
+                            if (bytes != null && bytes.isNotEmpty()) {
+                                val text = String(bytes, Charsets.UTF_8).trimEnd(' ', Char(0))
+                                xmpCandidates.add(text)
                             }
                         }
-                    } catch (e: Exception) {}
+                    } catch (_: Exception) {}
                 }
             }
         }
-        return null
+
+        // Prefer candidate with gainmap markers
+        val gainmapCandidate = xmpCandidates.find {
+            it.contains("HDRGainMap", ignoreCase = true) ||
+            it.contains("hdrgm", ignoreCase = true) ||
+            it.contains("GainMap", ignoreCase = true) ||
+            it.contains("21496", ignoreCase = true)
+        }
+        if (gainmapCandidate != null) return gainmapCandidate
+
+        // Prefer candidate that is NOT a semantic segmentation or portrait matte
+        val primaryCandidate = xmpCandidates.find {
+            !it.contains("semanticSegmentationMatte", ignoreCase = true) &&
+            !it.contains("portraitEffectsMatte", ignoreCase = true)
+        }
+        if (primaryCandidate != null) return primaryCandidate
+
+        return xmpCandidates.firstOrNull()
     }
 
     private fun readJpegHeaderAndXmp(file: File, offset: Long, length: Long): Triple<String?, Int?, Int?> {

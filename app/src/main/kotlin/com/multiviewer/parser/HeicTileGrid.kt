@@ -133,8 +133,43 @@ fun stitchHeicGridTiles(
             }
         }
 
-        skiaBitmap.asComposeImageBitmap()
+        val finalBitmap = if (gridInfo.rotationQuarterTurns != 0) {
+            rotateSkiaBitmap(skiaBitmap, gridInfo.rotationQuarterTurns)
+        } else {
+            skiaBitmap
+        }
+
+        finalBitmap.asComposeImageBitmap()
     } catch (_: Exception) {
         null
     }
+}
+
+private fun rotateSkiaBitmap(src: Bitmap, quarterTurns: Int): Bitmap {
+    val turns = ((quarterTurns % 4) + 4) % 4
+    if (turns == 0) return src
+
+    val dstW = if (turns % 2 == 1) src.height else src.width
+    val dstH = if (turns % 2 == 1) src.width else src.height
+    val dst = Bitmap()
+    dst.allocN32Pixels(dstW, dstH)
+    val canvas = Canvas(dst)
+
+    when (turns) {
+        1 -> { // 90 CCW = 270 CW
+            canvas.translate(0f, dstH.toFloat())
+            canvas.rotate(270f)
+        }
+        2 -> { // 180
+            canvas.translate(dstW.toFloat(), dstH.toFloat())
+            canvas.rotate(180f)
+        }
+        3 -> { // 270 CCW = 90 CW
+            canvas.translate(dstW.toFloat(), 0f)
+            canvas.rotate(90f)
+        }
+    }
+    val img = Image.makeFromBitmap(src)
+    canvas.drawImage(img, 0f, 0f)
+    return dst
 }
