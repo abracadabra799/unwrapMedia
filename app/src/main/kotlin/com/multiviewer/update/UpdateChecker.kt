@@ -367,24 +367,46 @@ object UpdateChecker {
      * Launches the downloaded installer and terminates the current process to allow seamless update.
      */
     fun launchInstallerAndExit(installerFile: File) {
+        var launchSuccess = false
         try {
             val os = System.getProperty("os.name", "").lowercase()
             if (os.contains("win")) {
-                // Windows: Run installer (it will kill current process via taskkill /F /T in installer.iss and overwrite)
-                ProcessBuilder(installerFile.absolutePath).start()
+                // Windows: Run installer via cmd.exe start to support UAC elevation prompt and detached execution
+                try {
+                    ProcessBuilder("cmd.exe", "/c", "start", "", installerFile.absolutePath).start()
+                    launchSuccess = true
+                } catch (_: Exception) {
+                    try {
+                        if (java.awt.Desktop.isDesktopSupported()) {
+                            java.awt.Desktop.getDesktop().open(installerFile)
+                            launchSuccess = true
+                        }
+                    } catch (_: Exception) {}
+                }
+                if (!launchSuccess) {
+                    ProcessBuilder(installerFile.absolutePath).start()
+                    launchSuccess = true
+                }
+                Thread.sleep(1000)
             } else if (os.contains("mac")) {
                 // macOS: Open the downloaded DMG
                 ProcessBuilder("open", installerFile.absolutePath).start()
+                launchSuccess = true
+                Thread.sleep(500)
             } else {
                 // Linux / other
                 if (java.awt.Desktop.isDesktopSupported()) {
                     java.awt.Desktop.getDesktop().open(installerFile)
+                    launchSuccess = true
                 }
+                Thread.sleep(500)
             }
         } catch (e: Exception) {
             System.err.println("Failed to launch installer: $e")
         } finally {
-            exitProcess(0)
+            if (launchSuccess) {
+                exitProcess(0)
+            }
         }
     }
 }

@@ -9,7 +9,7 @@ DisableProgramGroupPage=yes
 CloseApplications=force
 RestartApplications=no
 OutputDir=Output
-OutputBaseFilename=unwrapMedia
+OutputBaseFilename=unwrapMedia-Setup
 Compression=lzma2
 SolidCompression=yes
 SetupIconFile=..\..\app\icons\app.ico
@@ -32,14 +32,25 @@ Name: "{autodesktop}\unwrapMedia"; Filename: "{app}\unwrapMedia.exe"; Tasks: des
 Filename: "{app}\unwrapMedia.exe"; Description: "{cm:LaunchProgram,unwrapMedia}"; Flags: nowait postinstall skipifsilent
 
 [Code]
-// Safely terminate previous running unwrapMedia process and its child processes tree (/T)
+// Safely terminate previous running unwrapMedia app processes without killing the installer itself
 procedure KillPreviousProcess();
 var
   ResultCode: Integer;
+  InstallerExe: String;
 begin
-  // /F: Force kill, /T: Kill child process tree (ffmpeg/ffprobe spawned by unwrapMedia)
-  // Targeting only unwrapMedia.exe ensures other third-party ffmpeg processes are never touched.
-  Exec('taskkill.exe', '/F /T /IM unwrapMedia.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  InstallerExe := ExtractFileName(ExpandConstant('{srcexe}'));
+  // If the installer itself is named unwrapMedia.exe, we must NOT use naive taskkill /IM unwrapMedia.exe
+  // because that would terminate the installer itself!
+  if CompareText(InstallerExe, 'unwrapMedia.exe') = 0 then
+  begin
+    // Filter out the installer process by comparing file path in PowerShell
+    Exec('powershell.exe', '-NoProfile -NonInteractive -Command "$inst = ''' + ExpandConstant('{srcexe}') + '''; Get-Process -Name unwrapMedia -ErrorAction SilentlyContinue | Where-Object { $_.Path -ne $inst } | Stop-Process -Force"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  end
+  else
+  begin
+    // Installer has a different name (unwrapMedia-Setup.exe), safe to kill unwrapMedia.exe
+    Exec('taskkill.exe', '/F /T /IM unwrapMedia.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  end;
 end;
 
 function InitializeSetup(): Boolean;
