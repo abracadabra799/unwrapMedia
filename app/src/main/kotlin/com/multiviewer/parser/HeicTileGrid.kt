@@ -1,5 +1,11 @@
 package com.multiviewer.parser
 
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asComposeImageBitmap
+import androidx.compose.ui.graphics.asSkiaBitmap
+import org.jetbrains.skia.Bitmap
+import org.jetbrains.skia.Canvas
+import org.jetbrains.skia.Image
 import java.io.File
 
 // HEIF "ImageGrid" item payload (ISO/IEC 23008-12 §6.6.3): a grid-derived image's own item data
@@ -38,21 +44,13 @@ fun decodeGridItemPayload(bytes: ByteArray): GridLayout? {
 // amount first (see TileGridOverlay.kt's rotateRect).
 data class TileGridInfo(val layout: GridLayout, val tileItemIds: List<Long>, val tileWidth: Int, val tileHeight: Int, val rotationQuarterTurns: Int = 0)
 
-// Combines three already-parsed pieces into one lookup: which item is the grid, what its own
-// row/column/output-size payload says (decodeGridItemPayload above), and which tile items it
-// references (iref's "dimg", in row-major order per the HEIF spec) -- plus each tile's pixel size
-// from the first tile's own ispe property (HEIF requires uniform tile size except naturally-
-// cropped right/bottom edge tiles, so the first tile is representative). Returns null at any
-// missing piece, mirroring extractHevcThumbnailAnnexB's own all-or-nothing style.
-fun findHeicTileGrid(file: File, root: BoxNode): TileGridInfo? {
+/**
+ * Finds TileGridInfo for an arbitrary grid item ID (e.g. primary image grid or auxiliary gain map grid).
+ */
+fun findHeicTileGridForItem(file: File, root: BoxNode, gridItemId: Long): TileGridInfo? {
     val meta = findFirst(root) { it.type == "meta" } ?: return null
     val iloc = findFirst(meta) { it.type == "iloc" } ?: return null
-    val iinf = findFirst(meta) { it.type == "iinf" } ?: return null
     val iref = findFirst(meta) { it.type == "iref" } ?: return null
-
-    val gridItemId = iinf.children
-        .find { it.type == "infe" && it.fields.find { f -> f.name == "item_type" }?.value == "grid" }
-        ?.fields?.find { it.name == "item_ID" }?.value?.toLongOrNull() ?: return null
 
     val tileItemIds = iref.children
         .find { it.type == "dimg" && it.fields.find { f -> f.name == "from_item_ID" }?.value?.toLongOrNull() == gridItemId }
@@ -66,17 +64,77 @@ fun findHeicTileGrid(file: File, root: BoxNode): TileGridInfo? {
             val gridBytes = extractItemBytes(reader, iloc, gridItemId, idatBase) ?: return@use null
             decodeGridItemPayload(gridBytes)
         }
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         null
     } ?: return null
 
     val firstTileId = tileItemIds.first()
-    val ispe = findItemProperty(meta, firstTileId, "ispe") ?: return null
-    val tileWidth = ispe.fields.find { it.name == "image_width" }?.value?.toIntOrNull() ?: return null
-    val tileHeight = ispe.fields.find { it.name == "image_height" }?.value?.toIntOrNull() ?: return null
+    val ispe = findItemProperty(meta, firstTileId, "ispe")
+    val tileWidth = ispe?.fields?.find { it.name == "image_width" }?.value?.toIntOrNull()
+        ?: if (layout.columns > 0) layout.outputWidth / layout.columns else 512
+    val tileHeight = ispe?.fields?.find { it.name == "image_height" }?.value?.toIntOrNull()
+        ?: if (layout.rows > 0) layout.outputHeight / layout.rows else 512
 
     val rotationQuarterTurns = findItemProperty(meta, gridItemId, "irot")
         ?.fields?.find { it.name == "angle" }?.value?.toIntOrNull() ?: 0
 
     return TileGridInfo(layout, tileItemIds, tileWidth, tileHeight, rotationQuarterTurns)
+}
+
+/**
+ * Finds TileGridInfo for the primary grid image in a HEIC file.
+ */
+fun findHeicTileGrid(file: File, root: BoxNode): TileGridInfo? {
+    val meta = findFirst(root) { it.type == "meta" } ?: return null
+    val iinf = findFirst(meta) { it.type == "iinf" } ?: return null
+
+    val gridItemId = iinf.children
+        .find { it.type == "infe" && it.fields.find { f -> f.name == "item_type" }?.value == "grid" }
+        ?.fields?.find { it.name == "item_ID" }?.value?.toLongOrNull() ?: return null
+
+    return findHeicTileGridForItem(file, root, gridItemId)
+}
+
+/**
+ * Stitches HEIC grid tiles into a single combined ImageBitmap.
+ */
+fun stitchHeicGridTiles(
+    file: File,
+    root: BoxNode,
+    gridInfo: TileGridInfo,
+    decodeTile: (ByteArray) -> ImageBitmap?,
+): ImageBitmap? {
+    val layout = gridInfo.layout
+    if (layout.outputWidth <= 0 || layout.outputHeight <= 0 || layout.rows <= 0 || layout.columns <= 0) return null
+    val expectedTiles = layout.rows * layout.columns
+    if (gridInfo.tileItemIds.size < expectedTiles) return null
+
+    val decodedTiles = mutableMapOf<Int, ImageBitmap>()
+    for ((index, tileId) in gridInfo.tileItemIds.take(expectedTiles).withIndex()) {
+        val annexB = extractHevcItemAnnexB(file, root, tileId) ?: continue
+        val tileBitmap = decodeTile(annexB) ?: continue
+        decodedTiles[index] = tileBitmap
+    }
+    if (decodedTiles.isEmpty()) return null
+
+    return try {
+        val skiaBitmap = Bitmap()
+        skiaBitmap.allocN32Pixels(layout.outputWidth, layout.outputHeight)
+        val canvas = Canvas(skiaBitmap)
+
+        for (r in 0 until layout.rows) {
+            for (c in 0 until layout.columns) {
+                val idx = r * layout.columns + c
+                val tile = decodedTiles[idx] ?: continue
+                val skiaImage = Image.makeFromBitmap(tile.asSkiaBitmap())
+                val x = (c * gridInfo.tileWidth).toFloat()
+                val y = (r * gridInfo.tileHeight).toFloat()
+                canvas.drawImage(skiaImage, x, y)
+            }
+        }
+
+        skiaBitmap.asComposeImageBitmap()
+    } catch (_: Exception) {
+        null
+    }
 }

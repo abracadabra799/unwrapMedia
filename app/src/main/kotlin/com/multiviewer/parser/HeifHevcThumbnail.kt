@@ -49,7 +49,11 @@ fun extractHevcThumbnailAnnexB(file: File, root: BoxNode): ByteArray? {
 fun extractHevcItemAnnexB(file: File, root: BoxNode, itemId: Long): ByteArray? {
     val meta = findFirst(root) { it.type == "meta" } ?: return null
     val iloc = findFirst(meta) { it.type == "iloc" } ?: return null
-    val hvcC = findItemProperty(meta, itemId, "hvcC") ?: return null
+    val hvcC = findItemProperty(meta, itemId, "hvcC")
+        ?: findItemProperty(meta, itemId, "lhvC")
+        ?: findFirst(meta) { it.type == "hvcC" }
+        ?: findFirst(root) { it.type == "hvcC" }
+        ?: return null
     val idatBase = findFirst(root) { it.type == "idat" }?.let { it.offset + it.headerSize } ?: 0L
 
     return try {

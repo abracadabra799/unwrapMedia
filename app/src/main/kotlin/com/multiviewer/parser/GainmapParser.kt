@@ -40,6 +40,7 @@ data class GainmapParsedParameters(
 
 data class GainmapInfo(
     val hasGainmap: Boolean,
+    val hasGainmapImage: Boolean = false,
     val formatType: GainmapFormatType,
     val rawXmp: String?,
     val secondaryXmp: String? = null,
@@ -237,6 +238,7 @@ object GainmapParser {
 
                 return GainmapInfo(
                     hasGainmap = true,
+                    hasGainmapImage = true,
                     formatType = if (primaryXmp.contains("21496", ignoreCase = true)) GainmapFormatType.ISO_21496_1_JPEG else GainmapFormatType.ULTRA_HDR_JPEG,
                     rawXmp = secondaryXmp ?: primaryXmp,
                     secondaryXmp = secondaryXmp,
@@ -276,6 +278,7 @@ object GainmapParser {
                                     if (isGainmap) {
                                         return GainmapInfo(
                                             hasGainmap = true,
+                                            hasGainmapImage = true,
                                             formatType = GainmapFormatType.APPLE_MPF_JPEG,
                                             rawXmp = secXmp ?: primaryXmp,
                                             secondaryXmp = secXmp,
@@ -295,20 +298,21 @@ object GainmapParser {
                     }
                 }
             }
-        } catch (e: Exception) {}
+        } catch (_: Exception) {}
 
-        // 3. Fallback: primary XMP containing standalone gainmap metadata
+        // 3. Fallback: primary XMP containing standalone gainmap metadata (NO separate image data)
         if (primaryXmp != null) {
             val params = parseGainmapParametersFromXmp(primaryXmp)
             if (params?.gainMapMax != null || primaryXmp.contains("hdrgm", ignoreCase = true)) {
                 return GainmapInfo(
                     hasGainmap = true,
+                    hasGainmapImage = false,
                     formatType = GainmapFormatType.ADOBE_GAINMAP_JPEG,
                     rawXmp = primaryXmp,
                     primaryXmp = primaryXmp,
                     parameters = params,
                     imageFormat = "JPEG",
-                    summaryDescription = "Adobe Gain Map metadata in primary XMP",
+                    summaryDescription = "Adobe Gain Map metadata in primary XMP (No separate image)",
                 )
             }
         }
@@ -381,6 +385,7 @@ object GainmapParser {
 
                 return GainmapInfo(
                     hasGainmap = true,
+                    hasGainmapImage = true,
                     formatType = formatType,
                     rawXmp = xmpText,
                     primaryXmp = xmpText,
@@ -391,6 +396,7 @@ object GainmapParser {
                         "hvc1" -> "HEVC (hvc1)"
                         "jpeg" -> "JPEG"
                         "av01" -> "AV1 (av01)"
+                        "grid" -> "HEVC Tile Grid (grid)"
                         else -> itemType
                     },
                     byteOffset = offset,
@@ -411,12 +417,13 @@ object GainmapParser {
         if (params?.gainMapMax != null || xmpText?.contains("21496") == true) {
             return GainmapInfo(
                 hasGainmap = true,
+                hasGainmapImage = false,
                 formatType = GainmapFormatType.AVIF_GAINMAP,
                 rawXmp = xmpText,
                 primaryXmp = xmpText,
                 parameters = params,
                 imageFormat = "AV1",
-                summaryDescription = "AVIF Tone Map / Gain Map",
+                summaryDescription = "AVIF Tone Map / Gain Map in XMP (No separate image)",
             )
         }
         return null
@@ -443,11 +450,12 @@ object GainmapParser {
         if (params?.gainMapMax != null || xmp.contains("GainMap", ignoreCase = true) || xmp.contains("hdrgm", ignoreCase = true)) {
             return GainmapInfo(
                 hasGainmap = true,
+                hasGainmapImage = false,
                 formatType = GainmapFormatType.GENERIC_GAINMAP,
                 rawXmp = xmp,
                 primaryXmp = xmp,
                 parameters = params,
-                summaryDescription = "Gain Map metadata in XMP",
+                summaryDescription = "Gain Map metadata in XMP (No separate image)",
             )
         }
         return null
@@ -563,27 +571,34 @@ object GainmapParser {
     ) {
         Thread {
             val bitmap: ImageBitmap? = try {
-                val bytes = extractGainmapBytes(file, root, info)
-                if (bytes != null && bytes.size >= 4) {
-                    if (bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte()) {
-                        Image.makeFromEncoded(bytes)?.toComposeImageBitmap()
-                    } else if (info.imageFormat?.contains("hvc", ignoreCase = true) == true && info.itemId != null && root != null) {
+                if (!info.hasGainmapImage) {
+                    null
+                } else if (info.itemId != null && root != null) {
+                    // 1. Check if this gainmap item is a HEIC Tile Grid (common in high-res Samsung/Apple HEIC photos)
+                    val tileGrid = findHeicTileGridForItem(file, root, info.itemId)
+                    if (tileGrid != null) {
+                        stitchHeicGridTiles(file, root, tileGrid) { annexB ->
+                            decodeHevcBytesViaFfmpeg(annexB)
+                        }
+                    } else {
+                        // 2. Single HEVC item
                         val annexB = extractHevcItemAnnexB(file, root, info.itemId)
                         if (annexB != null) {
                             decodeHevcBytesViaFfmpeg(annexB)
                         } else {
-                            Image.makeFromEncoded(bytes)?.toComposeImageBitmap()
+                            val bytes = extractGainmapBytes(file, root, info)
+                            if (bytes != null && bytes.size >= 4 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte()) {
+                                Image.makeFromEncoded(bytes)?.toComposeImageBitmap()
+                            } else null
                         }
-                    } else {
-                        Image.makeFromEncoded(bytes)?.toComposeImageBitmap()
                     }
-                } else if (info.itemId != null && root != null && info.imageFormat?.contains("hvc", ignoreCase = true) == true) {
-                    val annexB = extractHevcItemAnnexB(file, root, info.itemId)
-                    if (annexB != null) {
-                        decodeHevcBytesViaFfmpeg(annexB)
+                } else {
+                    val bytes = extractGainmapBytes(file, root, info)
+                    if (bytes != null && bytes.size >= 4 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte()) {
+                        Image.makeFromEncoded(bytes)?.toComposeImageBitmap()
                     } else null
-                } else null
-            } catch (e: Exception) {
+                }
+            } catch (_: Exception) {
                 null
             }
             EventQueue.invokeLater { onResult(bitmap) }
@@ -593,13 +608,15 @@ object GainmapParser {
     private fun decodeHevcBytesViaFfmpeg(annexB: ByteArray): ImageBitmap? {
         val tempH265 = try {
             File.createTempFile("gainmap-hevc-", ".h265")
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             return null
         }
         return try {
             tempH265.writeBytes(annexB)
+            // Explicitly specify -pix_fmt rgb24 so Grayscale/Monochrome HEVC tiles are decoded
+            // as standard 24-bit sRGB PNG, preventing black/transparent rendering issues in Skia.
             FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap(
-                listOf(FfmpegLocator.ffmpegPath(), "-y", "-f", "hevc", "-i", tempH265.absolutePath, "-frames:v", "1", "-update", "1"),
+                listOf(FfmpegLocator.ffmpegPath(), "-y", "-f", "hevc", "-i", tempH265.absolutePath, "-pix_fmt", "rgb24", "-frames:v", "1", "-update", "1"),
             )
         } finally {
             tempH265.delete()
@@ -612,27 +629,36 @@ object GainmapParser {
         info: GainmapInfo,
         destination: File,
     ): Boolean {
+        if (!info.hasGainmapImage) return false
+
+        // 1. JPEG byte payload (Ultra HDR secondary JPEG or MPF entry)
         val bytes = extractGainmapBytes(file, root, info)
         if (bytes != null && bytes.size >= 4 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte()) {
             destination.writeBytes(bytes)
             return true
         }
-        if (info.itemId != null && root != null && info.imageFormat?.contains("hvc", ignoreCase = true) == true) {
-            val annexB = extractHevcItemAnnexB(file, root, info.itemId)
-            if (annexB != null) {
-                val bitmap = decodeHevcBytesViaFfmpeg(annexB)
-                if (bitmap != null) {
-                    val skia = bitmap.asSkiaBitmap()
-                    val image = Image.makeFromBitmap(skia)
-                    val pngData = image.encodeToData(org.jetbrains.skia.EncodedImageFormat.PNG)
-                    if (pngData != null) {
-                        destination.writeBytes(pngData.bytes)
-                        return true
-                    }
+
+        // 2. HEIC tile grid or single HEVC
+        if (info.itemId != null && root != null) {
+            val tileGrid = findHeicTileGridForItem(file, root, info.itemId)
+            val bitmap = if (tileGrid != null) {
+                stitchHeicGridTiles(file, root, tileGrid) { annexB -> decodeHevcBytesViaFfmpeg(annexB) }
+            } else {
+                val annexB = extractHevcItemAnnexB(file, root, info.itemId)
+                annexB?.let { decodeHevcBytesViaFfmpeg(it) }
+            }
+            if (bitmap != null) {
+                val skia = bitmap.asSkiaBitmap()
+                val image = Image.makeFromBitmap(skia)
+                val pngData = image.encodeToData(org.jetbrains.skia.EncodedImageFormat.PNG)
+                if (pngData != null) {
+                    destination.writeBytes(pngData.bytes)
+                    return true
                 }
             }
         }
-        if (bytes != null) {
+
+        if (bytes != null && bytes.isNotEmpty()) {
             destination.writeBytes(bytes)
             return true
         }

@@ -15,6 +15,9 @@ import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -625,19 +628,67 @@ fun GainmapImagePopupWindow(
                 }
             } else if (isDecoding) {
                 DecodingIndicator("게인맵 이미지 디코딩 중...", modifier = Modifier.align(Alignment.Center))
-            } else {
+            } else if (!gainmap.hasGainmapImage) {
+                // CASE 1: 게인맵 이미지 데이터가 아예 존재하지 않는 경우 (XMP 파라미터만 있는 경우)
                 Column(
-                    modifier = Modifier.align(Alignment.Center),
+                    modifier = Modifier.align(Alignment.Center).padding(32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    Icon(
+                        Icons.Default.Info,
+                        contentDescription = "No Gainmap Image",
+                        tint = AppColors.NeonBlue,
+                        modifier = Modifier.size(48.dp),
+                    )
+                    Spacer(Modifier.height(14.dp))
                     Text(
-                        "게인맵 이미지를 디코딩할 수 없습니다.",
-                        style = AppTypography.bodyLarge.copy(color = AppColors.NeonRed, fontSize = 14.sp),
+                        I18n.msgNoGainmapImage(language),
+                        style = AppTypography.titleMedium.copy(color = AppColors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold),
                     )
                     Spacer(Modifier.height(8.dp))
+                    Text(
+                        I18n.descNoGainmapImage(language),
+                        style = AppTypography.bodySmall.copy(color = AppColors.TextSecondary, fontSize = 12.sp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Button(
+                        onClick = onOpenXmp,
+                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.NeonOrange),
+                        modifier = Modifier.border(1.dp, AppColors.NeonOrange.copy(alpha = 0.5f), RoundedCornerShape(4.dp)),
+                        shape = RoundedCornerShape(4.dp),
+                    ) {
+                        Text(I18n.btnViewXmp(language), fontSize = 12.sp)
+                    }
+                }
+            } else {
+                // CASE 2: 게인맵 이미지 데이터는 존재하지만 디코딩에 실패한 경우
+                Column(
+                    modifier = Modifier.align(Alignment.Center).padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Icon(
+                        Icons.Default.Warning,
+                        contentDescription = "Cannot Decode Gainmap",
+                        tint = AppColors.NeonRed,
+                        modifier = Modifier.size(48.dp),
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    Text(
+                        I18n.msgCannotDecodeGainmap(language),
+                        style = AppTypography.titleMedium.copy(color = AppColors.NeonRed, fontSize = 16.sp, fontWeight = FontWeight.SemiBold),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        I18n.descCannotDecodeGainmap(language, gainmap.imageFormat ?: "HEVC/JPEG"),
+                        style = AppTypography.bodySmall.copy(color = AppColors.TextSecondary, fontSize = 12.sp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(16.dp))
                     Button(
                         onClick = onOpenXmp,
                         colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.TextPrimary),
+                        modifier = Modifier.border(1.dp, AppColors.Border, RoundedCornerShape(4.dp)),
                         shape = RoundedCornerShape(4.dp),
                     ) {
                         Text(I18n.btnViewXmp(language), fontSize = 12.sp)

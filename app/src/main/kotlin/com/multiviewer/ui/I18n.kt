@@ -74,6 +74,10 @@ object I18n {
     fun btnSaveGainmapImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 저장" else "Save Gain Map Image"
     fun btnViewXmp(lang: AppLanguage) = if (lang == AppLanguage.KO) "XMP 메타데이터 보기" else "View XMP Metadata"
     fun saveGainmapDialogTitle(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 저장" else "Save Gain Map Image"
+    fun msgNoGainmapImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 데이터가 없습니다" else "No Gain Map Image Data"
+    fun descNoGainmapImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "이 파일에는 HDR 게인맵 메타데이터(XMP 파라미터)만 포함되어 있으며, 별도의 게인맵 보조 이미지 데이터(바이너리)는 존재하지 않습니다." else "This file only contains HDR gain map metadata (XMP parameters). No separate gain map image data exists."
+    fun msgCannotDecodeGainmap(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지를 디코딩할 수 없습니다" else "Cannot Decode Gain Map Image"
+    fun descCannotDecodeGainmap(lang: AppLanguage, format: String) = if (lang == AppLanguage.KO) "게인맵 이미지 데이터($format)가 존재하지만, 지원하지 않는 형식이거나 손상되어 디코딩하지 못했습니다." else "Gain map image data ($format) exists, but could not be decoded due to unsupported format or corruption."
 
     // Menu: Bitstream
     fun menuBitstream(lang: AppLanguage) = if (lang == AppLanguage.KO) "비트스트림 추출" else "Extract Bitstream"

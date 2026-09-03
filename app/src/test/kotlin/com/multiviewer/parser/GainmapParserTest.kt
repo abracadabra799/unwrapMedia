@@ -234,6 +234,7 @@ class GainmapParserTest {
         val info = GainmapParser.findGainmapInfo(file, root)
         assertNotNull(info)
         assertTrue(info?.hasGainmap == true)
+        assertTrue(info?.hasGainmapImage == true)
         assertEquals(GainmapFormatType.APPLE_HEIC, info?.formatType)
         assertEquals(2L, info?.itemId)
         assertEquals("HEVC (hvc1)", info?.imageFormat)
@@ -273,9 +274,37 @@ class GainmapParserTest {
         val info = GainmapParser.findGainmapInfo(file, root)
         assertNotNull(info)
         assertTrue(info?.hasGainmap == true)
+        assertTrue(info?.hasGainmapImage == true)
         assertEquals(GainmapFormatType.ISO_21496_1_HEIC, info?.formatType)
         assertEquals(3L, info?.itemId)
         assertEquals("JPEG", info?.imageFormat)
+    }
+
+    @Test
+    fun `sets hasGainmapImage false when only XMP metadata exists`(@TempDir tempDir: File) {
+        val file = File(tempDir, "meta_only.jpg")
+        file.writeBytes(ByteArray(100))
+
+        val xmpXml = """
+            <x:xmpmeta xmlns:x="adobe:ns:meta/">
+              <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+                <rdf:Description rdf:about=""
+                    xmlns:hdrgm="http://ns.adobe.com/hdr-gain-map/1.0/"
+                    hdrgm:Version="1.0"
+                    hdrgm:GainMapMax="2.0" />
+              </rdf:RDF>
+            </x:xmpmeta>
+        """.trimIndent()
+
+        val root = BoxNode(
+            type = "root", offset = 0, headerSize = 0, size = 100,
+            fields = listOf(BoxField("xmp", xmpXml, 0L, xmpXml.length.toLong())),
+        )
+
+        val info = GainmapParser.findGainmapInfo(file, root)
+        assertNotNull(info)
+        assertTrue(info?.hasGainmap == true)
+        assertFalse(info?.hasGainmapImage == true)
     }
 
     @Test

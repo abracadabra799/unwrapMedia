@@ -437,16 +437,17 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
             Menu(I18n.menuGainmap(language)) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val hasGainmap = currentTab != null && !currentTab.isLoading && currentTab.gainmapInfo?.hasGainmap == true
+                val hasGainmapImage = hasGainmap && currentTab?.gainmapInfo?.hasGainmapImage == true
 
                 Item(
                     I18n.menuViewGainmapImage(language),
-                    enabled = hasGainmap,
+                    enabled = hasGainmapImage,
                     shortcut = KeyShortcut(Key.G, meta = true),
                     onClick = { currentTab?.isGainmapImagePopupOpen = true },
                 )
                 Item(
                     I18n.menuExtractGainmapImage(language),
-                    enabled = hasGainmap,
+                    enabled = hasGainmapImage,
                     onClick = { currentTab?.let { extractGainmapImage(appState, it, language) } },
                 )
                 Item(
