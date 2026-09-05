@@ -102,12 +102,31 @@ object AiCliDetector {
                 val process = ProcessBuilder("osascript", "-e", appleScript).start()
                 process.waitFor() == 0
             } else if (osName.contains("win")) {
-                val promptContentEscaped = tempPromptFile.readText().replace("\"", "`\"")
-                val cmdArg = when (type) {
-                    AiCliType.AGY -> "& '$binPath' -i '$promptContentEscaped'"
-                    else -> "& '$binPath' '$promptContentEscaped'"
+                // To prevent PowerShell "TerminatorExpectedAtEndOfString" syntax error caused by
+                // multiline newlines, backticks, quotes, and special characters in promptText,
+                // generate a standalone UTF-8 runner .ps1 script file and execute it.
+                val runnerScript = File.createTempFile("ai_runner_", ".ps1")
+                val cmdInvocation = when (type) {
+                    AiCliType.AGY -> "& \"$binPath\" -i \$promptText"
+                    else -> "& \"$binPath\" \$promptText"
                 }
-                ProcessBuilder("cmd.exe", "/c", "start", "powershell", "-NoExit", "-Command", "cd '$dirPath'; $cmdArg").start()
+
+                // Read the prompt from the temp file safely inside PowerShell
+                val scriptContent = """
+                    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+                    Set-Location -LiteralPath "$dirPath"
+                    ${'$'}promptText = Get-Content -LiteralPath "${tempPromptFile.absolutePath}" -Raw -Encoding UTF8
+                    $cmdInvocation
+                """.trimIndent() + "\r\n"
+
+                runnerScript.writeText(scriptContent, Charsets.UTF_8)
+
+                // Launch PowerShell in a new window running the script with -ExecutionPolicy Bypass -NoExit
+                ProcessBuilder(
+                    "cmd.exe", "/c", "start", "powershell",
+                    "-NoExit", "-ExecutionPolicy", "Bypass",
+                    "-File", runnerScript.absolutePath
+                ).start()
                 true
             } else {
                 val runnerScript = File.createTempFile("ai_runner_", ".sh")
