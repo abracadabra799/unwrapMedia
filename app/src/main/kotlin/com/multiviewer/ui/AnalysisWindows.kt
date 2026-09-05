@@ -89,6 +89,9 @@ fun StructureDumpWindow(
         }
     }
 
+    var editingService by remember { mutableStateOf<WebAiService?>(null) }
+    var customUrlInput by remember { mutableStateOf("") }
+
     Window(
         onCloseRequest = onCloseRequest,
         title = "Structure Dump - ${tab.file.name}",
@@ -260,6 +263,9 @@ fun StructureCheckWindow(
             copied = false
         }
     }
+
+    var editingService by remember { mutableStateOf<WebAiService?>(null) }
+    var customUrlInput by remember { mutableStateOf("") }
 
     Window(
         onCloseRequest = onCloseRequest,
@@ -612,6 +618,9 @@ fun AiPromptPreviewWindow(
         }
     }
 
+    var editingService by remember { mutableStateOf<WebAiService?>(null) }
+    var customUrlInput by remember { mutableStateOf("") }
+
     Window(
         onCloseRequest = onCloseRequest,
         title = "AI Analysis Prompt - ${tab.file.name}",
@@ -805,43 +814,107 @@ fun AiPromptPreviewWindow(
                                     // Web AI Links (copies to clipboard and opens Chrome/browser with company login)
                                     Text("Open Web (Chrome):", style = AppTypography.labelSmall.copy(fontSize = 11.sp, color = AppColors.TextSecondary))
                                     Spacer(Modifier.width(4.dp))
-                                    OutlinedButton(
-                                        onClick = {
-                                            ClipboardUtil.copyToClipboard(promptText)
-                                            com.multiviewer.util.AiCliDetector.openWebAi("https://chatgpt.com")
-                                            statusMessage = "복사됨 & ChatGPT (Chrome) 열림"
-                                        },
-                                        modifier = Modifier.height(30.dp),
-                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                        shape = RoundedCornerShape(4.dp),
-                                    ) {
-                                        Text("ChatGPT", fontSize = 11.sp)
+                                    WebAiService.entries.forEach { service ->
+                                        OutlinedButton(
+                                            onClick = {
+                                                if (editingService == service) {
+                                                    editingService = null
+                                                } else {
+                                                    editingService = service
+                                                    customUrlInput = AiWebPreferences.getUrl(service)
+                                                }
+                                            },
+                                            colors = ButtonDefaults.outlinedButtonColors(
+                                                containerColor = if (editingService == service) AppColors.NeonPurple.copy(alpha = 0.25f) else Color.Transparent,
+                                            ),
+                                            border = androidx.compose.foundation.BorderStroke(
+                                                1.dp,
+                                                if (editingService == service) AppColors.NeonPurple else AppColors.Border
+                                            ),
+                                            modifier = Modifier.height(30.dp),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                            shape = RoundedCornerShape(4.dp),
+                                        ) {
+                                            Text(
+                                                service.displayName + if (editingService == service) " ▾" else "",
+                                                fontSize = 11.sp,
+                                                color = if (editingService == service) AppColors.NeonPurple else AppColors.TextPrimary,
+                                            )
+                                        }
+                                        Spacer(Modifier.width(4.dp))
                                     }
-                                    Spacer(Modifier.width(4.dp))
-                                    OutlinedButton(
+                                }
+                            }
+
+                            if (editingService != null) {
+                                val currentService = editingService!!
+                                Spacer(Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(AppColors.Panel, RoundedCornerShape(6.dp))
+                                        .border(1.dp, AppColors.NeonPurple.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Text(
+                                        "${currentService.displayName} 웹 주소:",
+                                        style = AppTypography.labelSmall.copy(fontSize = 11.sp, color = AppColors.NeonPurple, fontWeight = FontWeight.Bold),
+                                    )
+                                    OutlinedTextField(
+                                        value = customUrlInput,
+                                        onValueChange = { customUrlInput = it },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f).height(48.dp),
+                                        textStyle = AppTypography.bodyMedium.copy(fontSize = 11.sp, color = AppColors.TextPrimary),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = AppColors.NeonPurple,
+                                            unfocusedBorderColor = AppColors.Border,
+                                            focusedContainerColor = AppColors.Background,
+                                            unfocusedContainerColor = AppColors.Background,
+                                        ),
+                                        placeholder = { Text(currentService.defaultUrl, fontSize = 11.sp, color = AppColors.TextSecondary) },
+                                    )
+                                    Button(
                                         onClick = {
+                                            val targetUrl = customUrlInput.trim().ifBlank { currentService.defaultUrl }
+                                            AiWebPreferences.setUrl(currentService, targetUrl)
                                             ClipboardUtil.copyToClipboard(promptText)
-                                            com.multiviewer.util.AiCliDetector.openWebAi("https://claude.ai/new")
-                                            statusMessage = "복사됨 & Claude (Chrome) 열림"
+                                            com.multiviewer.util.AiCliDetector.openWebAi(targetUrl)
+                                            statusMessage = "복사됨 & ${currentService.displayName} (Chrome) 열림"
+                                            editingService = null
                                         },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = AppColors.NeonPurple,
+                                            contentColor = Color.White,
+                                        ),
                                         modifier = Modifier.height(30.dp),
-                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                                         shape = RoundedCornerShape(4.dp),
                                     ) {
-                                        Text("Claude", fontSize = 11.sp)
+                                        Text("연결 (Open)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                     }
-                                    Spacer(Modifier.width(4.dp))
+                                    if (customUrlInput.trim() != currentService.defaultUrl && customUrlInput.isNotBlank()) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                AiWebPreferences.resetUrl(currentService)
+                                                customUrlInput = currentService.defaultUrl
+                                            },
+                                            modifier = Modifier.height(30.dp),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                            shape = RoundedCornerShape(4.dp),
+                                        ) {
+                                            Text("기본값", fontSize = 10.sp, color = AppColors.TextSecondary)
+                                        }
+                                    }
                                     OutlinedButton(
-                                        onClick = {
-                                            ClipboardUtil.copyToClipboard(promptText)
-                                            com.multiviewer.util.AiCliDetector.openWebAi("https://gemini.google.com/app")
-                                            statusMessage = "복사됨 & Gemini (Chrome) 열림"
-                                        },
+                                        onClick = { editingService = null },
                                         modifier = Modifier.height(30.dp),
                                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                                         shape = RoundedCornerShape(4.dp),
                                     ) {
-                                        Text("Gemini", fontSize = 11.sp)
+                                        Text("닫기", fontSize = 10.sp, color = AppColors.TextSecondary)
                                     }
                                 }
                             }
