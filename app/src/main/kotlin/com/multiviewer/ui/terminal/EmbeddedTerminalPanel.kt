@@ -84,6 +84,9 @@ fun EmbeddedTerminalPanel(
         SwingPanel(
             background = Color(0xFF13161A),
             modifier = Modifier.fillMaxWidth().weight(1f),
+            // factory runs once; a CLI switch fully unmounts this composable
+            // (Task 5 sets activeCliSession = null before starting the next), so
+            // the widget is always recreated with the correct session connector.
             factory = {
                 JediTermWidget(120, 30, CliTerminalSettings()).also { w ->
                     w.ttyConnector = session.ttyConnector
@@ -91,7 +94,7 @@ fun EmbeddedTerminalPanel(
                     widget = w
                 }
             },
-            update = { w ->
+            update = { _ ->
                 // size is driven by JediTermWidget's own component listener
             },
         )

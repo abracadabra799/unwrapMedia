@@ -85,6 +85,12 @@ class WindowsPtyCliSession(
         }
     }
 
+    /**
+     * Explicitly push a terminal size to the PTY. Currently unused: JediTerm's
+     * `JediTermWidget` drives sizing itself via a component listener that calls
+     * [PtyCliTtyConnector.resize] on the connector directly. Kept for a future
+     * manual "fit" control or a resize path that does not go through the widget.
+     */
     fun resize(columns: Int, rows: Int) {
         runCatching { _ttyConnector?.resize(TermSize(columns, rows)) }
     }
