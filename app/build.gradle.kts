@@ -13,8 +13,32 @@ kotlin {
 dependencies {
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
+    implementation(libs.jediterm.core)
+    implementation(libs.jediterm.ui)
+    implementation(libs.pty4j)
     testImplementation(kotlin("test-junit5"))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+// jediterm-core's POM declares a spurious kotlin-stdlib:2.4.0 compile dep that the
+// pure-Java lib never uses; pin it back to the toolchain version so the runtime
+// classpath stdlib stays consistent with Kotlin 2.0.21 and the version-skew warning
+// is silenced. (The compile failure itself is handled by the flag below.)
+configurations.all {
+    resolutionStrategy {
+        force("org.jetbrains.kotlin:kotlin-stdlib:2.0.21")
+    }
+}
+
+// jediterm-core / jediterm-ui 3.74 ship a stray META-INF/*.kotlin_module stamped with
+// Kotlin metadata version 2.4.0 (the jars are pure Java otherwise: 0 Kotlin classes,
+// 0 kotlin/ bytecode refs). The 2.0.21 compiler rejects the newer metadata on the
+// classpath scan, so skip the check. Safe today; REMOVE this when the Kotlin toolchain
+// is upgraded, or it could mask a real metadata incompatibility in a future dependency.
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions {
+        freeCompilerArgs.add("-Xskip-metadata-version-check")
+    }
 }
 
 tasks.test {
