@@ -33,6 +33,7 @@
 </p>
 
 * **Modern Codecs**: In-depth header and parameter parsing for **APV**, **AV1**, **HEVC (H.265)**, **AVC (H.264)**, and **Dolby Vision**.
+* **A/V Sync & Drift Analysis**: Exact Video/Audio PTS alignment, initial lip-sync skew, duration mismatch root-cause diagnosis, and one-click fix commands.
 * **Visual Overlays**: Macroblock **Motion Vectors** and **QP Heatmap** rendered directly over video playback.
 * **Frame Drop Analysis**: Scatter plot detecting timestamp jitter across 200,000+ frames with 120 FPS LOD rendering.
 

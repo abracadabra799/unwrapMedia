@@ -1,40 +1,55 @@
 package com.multiviewer.ui
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.*
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.onPointerEvent
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPosition
+import androidx.compose.ui.window.rememberWindowState
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
 
-// Opened by clicking a thumbnail in FrameThumbnailFilmstrip -- the filmstrip's own thumbnails are
-// small (FrameThumbnailDecoder's THUMBNAIL_DECODE_WIDTH_PX), so this decodes and shows that same
-// frame at full native resolution instead, via FrameFullSizeDecoder (plain accurate-seek, no
-// scale/filter, works for any codec unlike the H.264-only CodecViewFrameDecoder). Always tracks
-// tab.selectedFrame LIVE rather than freezing whichever frame was clicked to open it -- stepping
-// frames with arrow keys or mouse wheel while this window is open re-decodes and updates it too,
-// keeping the popup in sync with wherever the filmstrip's focus currently is.
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun FrameFullSizePreviewWindow(tab: TabState, onCloseRequest: () -> Unit) {
+fun CodecViewPreviewWindow(
+    tab: TabState,
+    mode: CodecViewMode,
+    onCloseRequest: () -> Unit,
+) {
     val frame = tab.selectedFrame
     val frames = tab.gopFrames ?: emptyList()
     var scrollAccumulator by remember { mutableStateOf(0f) }
+
+    LaunchedEffect(Unit) {
+        if (tab.selectedFrame == null && !frames.isEmpty()) {
+            tab.selectedFrame = frames.firstOrNull()
+        }
+    }
 
     fun selectFrame(targetFrame: FrameInfo) {
         tab.selectedFrame = targetFrame
@@ -53,26 +68,43 @@ fun FrameFullSizePreviewWindow(tab: TabState, onCloseRequest: () -> Unit) {
         }
     }
 
-    LaunchedEffect(tab.file, frame) {
-        tab.fullSizeFrameBitmap = null
-        if (frame == null) return@LaunchedEffect
-        // 40ms debounce: rapidly stepping through frames (holding arrow keys or fast scrolling)
-        // avoids flooding the worker thread pool with obsolete intermediate frame decodes.
+    LaunchedEffect(tab.selectedFrame, mode) {
+        val f = tab.selectedFrame
+        if (f == null) {
+            tab.codecViewFrameBitmap = null
+            tab.isDecodingCodecViewFrame = false
+            return@LaunchedEffect
+        }
+        tab.isDecodingCodecViewFrame = true
         kotlinx.coroutines.delay(40)
-        val bitmap = suspendCancellableCoroutine<androidx.compose.ui.graphics.ImageBitmap?> { cont ->
-            val future = FrameFullSizeDecoder.decodeFrameAsync(tab.file, frame.ptsSeconds) { result ->
+        val bitmap = suspendCancellableCoroutine { cont ->
+            CodecViewFrameDecoder.decodeFrameAsync(tab.file, f.ptsSeconds, mode) { result ->
                 if (cont.isActive) cont.resume(result)
             }
-            cont.invokeOnCancellation {
-                future?.cancel(true)
-            }
         }
-        tab.fullSizeFrameBitmap = bitmap
+        tab.codecViewFrameBitmap = bitmap
+        tab.isDecodingCodecViewFrame = false
     }
+
+    val modeTitle = when (mode) {
+        CodecViewMode.MOTION_VECTORS -> "모션 벡터 (Motion Vectors)"
+        CodecViewMode.QP_HEATMAP -> "QP 히트맵 (QP Heatmap)"
+    }
+    val windowTitle = if (frame != null) {
+        "$modeTitle - Frame #${frame.index} (${frame.type}) - ${tab.file.name}"
+    } else {
+        "$modeTitle - ${tab.file.name}"
+    }
+
+    val windowState = rememberWindowState(
+        position = WindowPosition(Alignment.Center),
+        size = DpSize(1000.dp, 750.dp),
+    )
 
     Window(
         onCloseRequest = onCloseRequest,
-        title = if (frame != null) "Frame #${frame.index} (${frame.type}) - ${tab.file.name}" else tab.file.name,
+        title = windowTitle,
+        state = windowState,
         onKeyEvent = { keyEvent ->
             if (keyEvent.type == KeyEventType.KeyDown) {
                 when (keyEvent.key) {
@@ -113,20 +145,27 @@ fun FrameFullSizePreviewWindow(tab: TabState, onCloseRequest: () -> Unit) {
                     }
                 },
         ) {
-            val bitmap = tab.fullSizeFrameBitmap
+            val bitmap = tab.codecViewFrameBitmap
             when {
                 frame == null -> Text(
                     "프레임을 선택하세요",
                     modifier = Modifier.align(Alignment.Center),
                     style = AppTypography.bodyLarge.copy(color = AppColors.TextSecondary, fontSize = 13.sp),
                 )
-                bitmap != null -> Image(
-                    bitmap = bitmap,
-                    contentDescription = "Frame #${frame.index}",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit,
+                tab.isDecodingCodecViewFrame -> DecodingIndicator("추출 중...", modifier = Modifier.align(Alignment.Center))
+                bitmap != null -> {
+                    PixelInspectorPreview(
+                        bitmap = bitmap,
+                        modifier = Modifier.fillMaxSize(),
+                        resetKey = frame,
+                    )
+                }
+                else -> Text(
+                    "추출 실패",
+                    modifier = Modifier.align(Alignment.Center),
+                    color = AppColors.NeonRed,
+                    fontSize = 14.sp,
                 )
-                else -> DecodingIndicator("프레임 디코딩 중...", modifier = Modifier.align(Alignment.Center))
             }
 
             // Left / Right Navigation buttons
@@ -156,16 +195,10 @@ fun FrameFullSizePreviewWindow(tab: TabState, onCloseRequest: () -> Unit) {
                 val frameIndex = frames.indexOfFirst { it.index == frame.index }
                 val totalStr = if (frames.isNotEmpty()) " / ${frames.size}" else ""
                 val currentNum = if (frameIndex >= 0) "${frameIndex + 1}" else "${frame.index}"
-                val sizeFormatted = when {
-                    frame.sizeBytes >= 1024 * 1024 -> String.format(java.util.Locale.US, "%.2f MB", frame.sizeBytes / (1024.0 * 1024.0))
-                    frame.sizeBytes >= 1024 -> String.format(java.util.Locale.US, "%.1f KB", frame.sizeBytes / 1024.0)
-                    else -> "${frame.sizeBytes} B"
-                }
                 PreviewCaption(
                     "Frame #$currentNum$totalStr (${frame.type}) · ${"%.3f".format(frame.ptsSeconds)}s" +
                         (bitmap?.let { " · ${it.width}x${it.height}" } ?: "") +
-                        " · $sizeFormatted (${frame.sizeBytes} bytes)" +
-                        "  (◀/▶ 방향키 또는 마우스 휠로 프레임 이동)",
+                        "  (◀/▶ 방향키 또는 마우스 휠로 프레임 이동, 스크롤/드래그로 줌/팬)",
                     modifier = Modifier.align(Alignment.BottomStart).padding(6.dp),
                 )
             }

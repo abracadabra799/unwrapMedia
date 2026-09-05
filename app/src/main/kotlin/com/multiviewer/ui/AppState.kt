@@ -293,6 +293,12 @@ class TabState(val file: File) {
     // opened via the raw-audio path. FfmpegAudioPlayer uses this to supply ffmpeg the input-side
     // format hints raw PCM can't self-describe.
     var rawAudioParams: RawAudioParams? by mutableStateOf(null)
+
+    // Cached A/V Sync report for this tab
+    var avSyncReport: AvSyncReport? by mutableStateOf(null)
+
+    // Cached Bitstream corruption scan report for this tab
+    var bitstreamCorruptionReport: BitstreamCorruptionReport? by mutableStateOf(null)
 }
 
 enum class LeftPanelMode {
@@ -319,6 +325,9 @@ class AppState {
             lastOpenedDirectory = dir
         }
     }
+
+    var aiPromptWindowOpen: Boolean by mutableStateOf(false)
+    var aiPromptTargetWarning: com.multiviewer.parser.WarningEntry? by mutableStateOf(null)
 
     // Set when openFile() refuses a file outright (unsupported extension, or a declared
     // resolution above HARD_LIMIT_PIXELS) -- shown as a blocking popup in Main.kt so a bad file

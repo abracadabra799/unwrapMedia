@@ -132,6 +132,21 @@ fun VideoInspectorUI(
                             seekRequestSeconds = tab.seekTargetSeconds,
                             seekRequestTick = tab.seekRequestTick,
                             onProbeComplete = { tab.videoReadyForAnalysis = true },
+                            onStepFrame = if (!tab.gopFrames.isNullOrEmpty()) {
+                                { delta ->
+                                    val frames = tab.gopFrames
+                                    if (!frames.isNullOrEmpty()) {
+                                        val currentIdx = tab.selectedFrame?.let { sf -> frames.indexOfFirst { it.index == sf.index } }
+                                            ?: frames.indexOfLast { it.ptsSeconds <= tab.playbackElapsedSeconds + 0.001 }.coerceAtLeast(0)
+                                        val nextIdx = (currentIdx + delta).coerceIn(0, frames.size - 1)
+                                        val nextFrame = frames[nextIdx]
+                                        tab.selectedFrame = nextFrame
+                                        tab.selected = null
+                                        tab.seekTargetSeconds = nextFrame.ptsSeconds
+                                        tab.seekRequestTick++
+                                    }
+                                }
+                            } else null
                         )
 
                         Text("LIVE PLAYER",

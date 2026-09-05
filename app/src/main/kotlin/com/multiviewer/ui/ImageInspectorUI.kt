@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -372,6 +373,7 @@ fun DetailedPropertiesPanel(appState: AppState, tab: TabState) {
             DetailPanelTab.OVERVIEW -> OverviewTabContent(appState, tab)
             DetailPanelTab.DETAIL -> DetailPropertiesTabContent(tab)
             DetailPanelTab.WARNINGS -> WarningsTabContent(
+                appState = appState,
                 tab = tab,
                 warnings = warnings,
                 onSelectNode = { node ->
@@ -486,6 +488,7 @@ private fun DetailPanelTabChip(
 // selected in the tree -- which is the whole reason it was split out.
 @Composable
 private fun WarningsTabContent(
+    appState: AppState,
     tab: TabState,
     warnings: List<com.multiviewer.parser.WarningEntry>,
     onSelectNode: (com.multiviewer.parser.BoxNode) -> Unit,
@@ -508,23 +511,19 @@ private fun WarningsTabContent(
                             "⚠ ${warnings.size}개의 구조적 이상 징후",
                             style = AppTypography.labelLarge.copy(color = AppColors.NeonRed),
                         )
-                        var copied by remember(warnings) { mutableStateOf(false) }
                         Row(
                             modifier = Modifier
                                 .clickable {
-                                    val prompt = AiDiagnosticPromptBuilder.buildPrompt(tab.file, tab.root, warnings)
-                                    if (ClipboardUtil.copyToClipboard(prompt)) {
-                                        copied = true
-                                    }
+                                    appState.aiPromptWindowOpen = true
                                 }
-                                .background(AppColors.NeonGreen.copy(alpha = 0.15f), shape = RoundedCornerShape(4.dp))
-                                .border(0.5.dp, AppColors.NeonGreen.copy(alpha = 0.5f), shape = RoundedCornerShape(4.dp))
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                                .background(AppColors.NeonPurple.copy(alpha = 0.2f), shape = RoundedCornerShape(4.dp))
+                                .border(1.dp, AppColors.NeonPurple.copy(alpha = 0.7f), shape = RoundedCornerShape(4.dp))
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                if (copied) "✓ AI 프롬프트 복사됨" else "📋 AI 진단 프롬프트 복사",
-                                style = AppTypography.labelMedium.copy(fontSize = 10.sp, color = AppColors.NeonGreen),
+                                "🤖 AI 진단 실행",
+                                style = AppTypography.labelMedium.copy(fontSize = 11.sp, color = AppColors.NeonPurple, fontWeight = FontWeight.Bold),
                             )
                         }
                     }
@@ -538,10 +537,17 @@ private fun WarningsTabContent(
                             .clickable { onSelectNode(entry.node) },
                     ) {
                         Column {
-                            Text(
-                                "${entry.node.type} — 0x${entry.node.offset.toString(16).uppercase()}",
-                                style = AppTypography.labelLarge.copy(color = AppColors.TextPrimary, fontSize = 12.sp),
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "${entry.node.type} — 0x${entry.node.offset.toString(16).uppercase()}",
+                                    style = AppTypography.labelLarge.copy(color = AppColors.TextPrimary, fontSize = 12.sp),
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    "(${entry.node.size}B)",
+                                    style = AppTypography.labelSmall.copy(color = AppColors.TextSecondary, fontSize = 10.sp),
+                                )
+                            }
                             Text(
                                 entry.warning,
                                 style = AppTypography.bodyLarge.copy(color = AppColors.NeonRed, fontSize = 12.sp),

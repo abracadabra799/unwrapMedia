@@ -75,37 +75,64 @@ fun scanXmpPackets(
     }
 }
 
-// Namespace/property markers that identify what a packet is *for*. Order is the display order in
-// a tab label. Matched as plain substrings because they appear both as namespace prefixes
-// (xmlns:hdrgm=…) and as element names (<GCamera:MotionPhoto>), and either is enough to identify
-// the packet.
-private val XMP_TOPIC_MARKERS = listOf(
-    "GainMap" to "GainMap",
-    "hdrgm" to "hdrgm",
-    "Container" to "Container",
-    "MotionPhoto" to "MotionPhoto",
-    "GCamera" to "GCamera",
-    "GDepth" to "GDepth",
-    "GImage" to "GImage",
-    "photoshop" to "photoshop",
-    "tiff" to "tiff",
-    "exif" to "exif",
-    "dc:" to "dc",
-    "crs:" to "crs",
-)
-
 /**
- * The schemas a packet carries, for telling one packet apart from another at a glance.
+ * The schemas or role a packet carries, for telling one packet apart from another at a glance.
  *
- * On the gain map files this was built against, the primary packet reports Container/MotionPhoto/
- * GCamera while the packet inside the embedded gain map image reports GainMap/hdrgm -- which is
- * exactly the distinction a tab label needs to make. Returns an empty list for a packet with
- * nothing recognizable; callers fall back to the packet's index.
+ * Distinguishes primary container packets (which may reference Container:Directory, MotionPhoto,
+ * or Primary semantic) from dedicated secondary packets (such as GainMap / hdrgm parameter blocks).
  */
-fun xmpPacketTopics(text: String): List<String> =
-    XMP_TOPIC_MARKERS.filter { (marker, _) -> text.contains(marker, ignoreCase = true) }
-        .map { (_, label) -> label }
-        .distinct()
+fun xmpPacketTopics(text: String): List<String> {
+    val topics = mutableListOf<String>()
+
+    val hasContainer = text.contains("Container:Directory", ignoreCase = true) ||
+        text.contains("Item:Semantic=\"Primary\"", ignoreCase = true) ||
+        text.contains("xmlns:Container=", ignoreCase = true)
+
+    val hasMotionPhoto = text.contains("MotionPhoto", ignoreCase = true)
+    val hasGainMapParams = text.contains("GainMapMin", ignoreCase = true) ||
+        text.contains("GainMapMax", ignoreCase = true) ||
+        text.contains("HDRCapacityMin", ignoreCase = true)
+
+    if (hasContainer) {
+        topics.add("Primary")
+        if (text.contains("Container", ignoreCase = true) && !topics.contains("Container")) {
+            topics.add("Container")
+        }
+        if (hasMotionPhoto && !topics.contains("MotionPhoto")) {
+            topics.add("MotionPhoto")
+        }
+        if (text.contains("GCamera", ignoreCase = true) && !topics.contains("GCamera")) {
+            topics.add("GCamera")
+        }
+        if (text.contains("GDepth", ignoreCase = true) && !topics.contains("Depth")) {
+            topics.add("Depth")
+        }
+    } else if (hasGainMapParams) {
+        topics.add("GainMap")
+        if (text.contains("hdrgm", ignoreCase = true)) {
+            topics.add("hdrgm")
+        }
+    } else {
+        // General metadata schemas
+        val generalMarkers = listOf(
+            "MotionPhoto" to "MotionPhoto",
+            "GCamera" to "GCamera",
+            "GDepth" to "Depth",
+            "photoshop" to "photoshop",
+            "tiff" to "tiff",
+            "exif" to "exif",
+            "dc:" to "dc",
+            "crs:" to "crs",
+        )
+        for ((marker, label) in generalMarkers) {
+            if (text.contains(marker, ignoreCase = true) && !topics.contains(label)) {
+                topics.add(label)
+            }
+        }
+    }
+
+    return topics
+}
 
 // Chunked search so a multi-gigabyte video never lands in memory at once. Each read keeps the last
 // (pattern.size - 1) bytes of the previous chunk in front of the new data, so a match straddling a

@@ -42,29 +42,61 @@ enum class MediaFilterCategory {
 }
 
 fun showOpenFolderDialog(appState: AppState) {
-    val dialog = FileDialog(null as Frame?, "폴더 선택 (Select Folder)", FileDialog.LOAD)
-    appState.lastOpenedDirectory?.let { dir ->
-        if (dir.exists() && dir.isDirectory) dialog.directory = dir.absolutePath
-    }
-    System.setProperty("apple.awt.fileDialogForDirectories", "true")
-    try {
-        dialog.isVisible = true
-        val dir = dialog.directory
-        val name = dialog.file
-        if (dir != null) {
-            val folder = if (name != null) File(dir, name) else File(dir)
-            if (folder.exists() && folder.isDirectory) {
-                appState.openFolder(folder)
-            } else if (folder.exists() && folder.isFile) {
-                // Open the file the user actually picked. Passing only its parent here used to make
-                // openFolder fall back to "first file in the folder", so choosing any file but the
-                // alphabetically first one silently opened the wrong one.
-                val parent = folder.parentFile
-                if (parent != null) appState.openFolder(parent, fileToOpen = folder)
+    val isMac = System.getProperty("os.name").lowercase(Locale.US).contains("mac")
+    if (isMac) {
+        val dialog = FileDialog(null as Frame?, "폴더 선택 (Select Folder)", FileDialog.LOAD)
+        // Open at parent directory so the current directory and sibling directories are selectable items!
+        val initialDir = appState.selectedFolder?.parentFile ?: appState.lastOpenedDirectory?.parentFile ?: appState.selectedFolder ?: appState.lastOpenedDirectory
+        initialDir?.let { dir ->
+            if (dir.exists() && dir.isDirectory) dialog.directory = dir.absolutePath
+        }
+        System.setProperty("apple.awt.fileDialogForDirectories", "true")
+        try {
+            dialog.isVisible = true
+            val dir = dialog.directory
+            val name = dialog.file
+            if (dir != null) {
+                val chosen = if (name != null) File(dir, name) else File(dir)
+                if (chosen.exists() && chosen.isDirectory) {
+                    appState.openFolder(chosen)
+                } else if (chosen.exists() && chosen.isFile) {
+                    val parent = chosen.parentFile
+                    if (parent != null) appState.openFolder(parent, fileToOpen = chosen)
+                } else {
+                    val fallback = File(dir)
+                    if (fallback.exists() && fallback.isDirectory) {
+                        appState.openFolder(fallback)
+                    }
+                }
+            }
+        } finally {
+            System.setProperty("apple.awt.fileDialogForDirectories", "false")
+        }
+    } else {
+        // On Windows and Linux, JFileChooser with FILES_AND_DIRECTORIES mode allows selecting both folders AND files without greying out files!
+        try {
+            javax.swing.UIManager.setLookAndFeel(javax.swing.UIManager.getSystemLookAndFeelClassName())
+        } catch (_: Throwable) {}
+        val chooser = javax.swing.JFileChooser().apply {
+            dialogTitle = "폴더 선택 (Select Folder)"
+            fileSelectionMode = javax.swing.JFileChooser.FILES_AND_DIRECTORIES
+            val initialDir = appState.selectedFolder?.parentFile ?: appState.lastOpenedDirectory?.parentFile ?: appState.selectedFolder ?: appState.lastOpenedDirectory
+            initialDir?.let { dir ->
+                if (dir.exists()) currentDirectory = if (dir.isDirectory) dir else dir.parentFile
             }
         }
-    } finally {
-        System.setProperty("apple.awt.fileDialogForDirectories", "false")
+        val result = chooser.showOpenDialog(null)
+        if (result == javax.swing.JFileChooser.APPROVE_OPTION) {
+            val selected = chooser.selectedFile ?: return
+            if (selected.isDirectory) {
+                appState.openFolder(selected)
+            } else if (selected.isFile) {
+                val parent = selected.parentFile
+                if (parent != null) {
+                    appState.openFolder(parent, fileToOpen = selected)
+                }
+            }
+        }
     }
 }
 
@@ -223,12 +255,6 @@ fun FolderExplorerView(
                             modifier = Modifier.size(24.dp),
                         ) {
                             Text("🔄", fontSize = 11.sp)
-                        }
-                        IconButton(
-                            onClick = { showOpenFolderDialog(appState) },
-                            modifier = Modifier.size(24.dp),
-                        ) {
-                            Text("📂", fontSize = 11.sp)
                         }
                     }
 

@@ -1,7 +1,7 @@
 {
-  "version": "1.11.0",
-  "releaseDate": "2026-09-04",
-  "releaseNotes": "• .avi, .flv, .wmv, .aac 포맷 파싱 및 재생 지원 추가\n• WebM 등 스트림 duration 누락 동영상 프로그래스 바 표시 버그 수정\n• 사내 Git 릴리즈 서버 연동 및 업데이트 저장소 설정 기능 추가\n• AI 진단 프롬프트 고도화 (미디어 프로필, 박스 경로, 상세 필드, 연관 테이블 비교, 헥사 덤프 포함)",
+  "version": "1.12.0",
+  "releaseDate": "2026-09-05",
+  "releaseNotes": "• A/V 싱크 및 타임스탬프 드리프트 정밀 분석 창 추가 (듀얼 레일 타임라인 & 편차 곡선 시각화)\n• 비트스트림 결함 & 손상 프레임 정밀 분석 창 추가 (매크로블록/픽셀 좌표 역추적 및 Hex 바이트 점프 연동)\n• 코덱뷰(Motion Vectors / QP Heatmap) 독립 팝업 창 분리 및 재생 연동\n• 백그라운드 프로세스 및 메모리 라이프사이클 누수 방지 강화",
   "windowsUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest",
   "macUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest"
 }

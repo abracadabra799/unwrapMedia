@@ -35,7 +35,9 @@ object I18n {
     fun menuAnalyze(lang: AppLanguage) = if (lang == AppLanguage.KO) "분석" else "Analyze"
     fun menuDumpStructure(lang: AppLanguage) = if (lang == AppLanguage.KO) "구조 덤프" else "Dump Structure"
     fun menuCheckStructure(lang: AppLanguage) = if (lang == AppLanguage.KO) "구조 정합성 검사" else "Validate Structure"
-    fun menuGenerateAiPrompt(lang: AppLanguage) = if (lang == AppLanguage.KO) "AI 진단 프롬프트 생성" else "Generate AI Prompt"
+    fun menuGenerateAiPrompt(lang: AppLanguage) = if (lang == AppLanguage.KO) "AI 진단 실행" else "Run AI Diagnosis"
+    fun menuAvSyncAnalysis(lang: AppLanguage) = if (lang == AppLanguage.KO) "A/V 싱크 및 드리프트 정밀 분석" else "A/V Sync & Drift Analysis"
+    fun menuBitstreamCorruption(lang: AppLanguage) = if (lang == AppLanguage.KO) "비트스트림 결함 및 손상 프레임 정밀 분석" else "Bitstream Corruption & Damage Analysis"
 
     // Menu: Motion Photo
     fun menuMotionPhoto(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토" else "Motion Photo"
@@ -140,7 +142,7 @@ object I18n {
     // Empty state
     fun placeholderEmptyState(lang: AppLanguage) = if (lang == AppLanguage.KO) "📂 파일들을 끌어다 놓거나 클릭하여 열기 (다중 파일 지원)" else "📂 Drag & Drop or Click to Open (Multiple Files Supported)"
 
-    const val APP_VERSION = "1.11.0"
+    const val APP_VERSION = "1.12.0"
     fun menuHelp(lang: AppLanguage) = if (lang == AppLanguage.KO) "도움말" else "Help"
     fun menuCheckForUpdates(lang: AppLanguage) = if (lang == AppLanguage.KO) "업데이트 확인..." else "Check for Updates..."
     fun menuAbout(lang: AppLanguage) = if (lang == AppLanguage.KO) "unwrapMedia 정보" else "About unwrapMedia"

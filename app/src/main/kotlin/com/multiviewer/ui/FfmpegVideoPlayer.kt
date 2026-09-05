@@ -4,9 +4,11 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,9 +37,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.layout.ContentScale
@@ -290,6 +299,7 @@ fun FfmpegVideoPlayer(
     seekRequestSeconds: Double = 0.0,
     seekRequestTick: Int = 0,
     onProbeComplete: () -> Unit = {},
+    onStepFrame: ((delta: Int) -> Unit)? = null,
 ) {
     var videoBitmap by remember(file) { mutableStateOf<ImageBitmap?>(null, neverEqualPolicy()) }
     var isPlaying by remember(file) { mutableStateOf(false) }
@@ -545,11 +555,79 @@ fun FfmpegVideoPlayer(
             LaunchedEffect(elapsedSeconds) { onElapsedChanged(elapsedSeconds) }
         }
 
-        // Clickable video area for play/pause toggle without obscuring the frame
+        val playerFocusRequester = remember { FocusRequester() }
+        LaunchedEffect(Unit) {
+            try {
+                playerFocusRequester.requestFocus()
+            } catch (_: Exception) {}
+        }
+
+        fun stepSingleFrame(delta: Int) {
+            if (onStepFrame != null) {
+                isPlaying = false
+                onStepFrame(delta)
+            } else {
+                isPlaying = false
+                hasEnded = false
+                val fps = if (info.fps > 0) info.fps else 30.0
+                val timestamps = frameTimestamps
+                val targetPts = if (!timestamps.isNullOrEmpty()) {
+                    val currentPts = (startFromSeconds + playedSeconds).coerceIn(0.0, maxOf(info.duration, 0.001))
+                    // Proximity search or binary/last-le search
+                    val currentIdx = if (delta > 0) {
+                        timestamps.indexOfLast { it <= currentPts + 0.0001 }.coerceAtLeast(0)
+                    } else {
+                        val idx = timestamps.indexOfFirst { it >= currentPts - 0.0001 }
+                        if (idx < 0) timestamps.size - 1 else idx
+                    }
+                    val nextIdx = (currentIdx + delta).coerceIn(0, timestamps.size - 1)
+                    timestamps[nextIdx]
+                } else {
+                    val frameDelta = 1.0 / fps
+                    ((startFromSeconds + playedSeconds) + delta * frameDelta).coerceIn(0.0, maxOf(info.duration, 0.0))
+                }
+                startFromSeconds = targetPts
+                playedSeconds = 0.0
+                onElapsedChanged(targetPts)
+                restartTrigger++
+            }
+        }
+
+        // Clickable video area for play/pause toggle without obscuring the frame, with keyboard focus for frame stepping
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .focusRequester(playerFocusRequester)
+                .focusable()
+                .onKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                    when (event.key) {
+                        Key.DirectionLeft -> {
+                            stepSingleFrame(-1)
+                            true
+                        }
+                        Key.DirectionRight -> {
+                            stepSingleFrame(1)
+                            true
+                        }
+                        Key.Spacebar -> {
+                            if (!isPlaying) {
+                                if (hasEnded) {
+                                    hasEnded = false
+                                    startFromSeconds = 0.0
+                                    restartTrigger++
+                                }
+                                isPlaying = true
+                            } else {
+                                isPlaying = false
+                            }
+                            true
+                        }
+                        else -> false
+                    }
+                }
                 .clickable {
+                    playerFocusRequester.requestFocus()
                     if (!isPlaying) {
                         if (hasEnded) {
                             hasEnded = false

@@ -393,14 +393,14 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var dumpStructureWindowOpen by remember { mutableStateOf(false) }
         var checkStructureWindowOpen by remember { mutableStateOf(false) }
         var aiPromptWindowOpen by remember { mutableStateOf(false) }
+        var avSyncWindowOpen by remember { mutableStateOf(false) }
+        var bitstreamCorruptionWindowOpen by remember { mutableStateOf(false) }
         var aboutWindowOpen by remember { mutableStateOf(false) }
         var updateWindowOpen by remember { mutableStateOf(false) }
         var hasUpdateAvailable by remember { mutableStateOf(false) }
         var latestUpdateVersion by remember { mutableStateOf("") }
-        // App-level, not per-tab -- matches showPixelGrid's own precedent (switching tabs keeps
-        // whichever mode is checked; unlike a per-panel button, this is a "lens" the user turns on
-        // rather than a per-video setting). null = neither mode active.
-        var codecViewMode by remember { mutableStateOf<CodecViewMode?>(null) }
+        // Codec view popup window mode (Motion Vectors / QP Heatmap). null = popup closed.
+        var codecViewPopupWindowMode by remember { mutableStateOf<CodecViewMode?>(null) }
         MenuBar {
             Menu(I18n.menuFile(language)) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
@@ -488,9 +488,21 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     I18n.menuGenerateAiPrompt(language),
                     enabled = hasActiveFile,
                     shortcut = KeyShortcut(Key.P, meta = true, shift = true),
-                    onClick = { aiPromptWindowOpen = true },
+                    onClick = { appState.aiPromptWindowOpen = true },
                 )
                 Separator()
+                Item(
+                    I18n.menuAvSyncAnalysis(language),
+                    enabled = isVideo,
+                    shortcut = KeyShortcut(Key.S, meta = true, shift = true),
+                    onClick = { avSyncWindowOpen = true },
+                )
+                Item(
+                    I18n.menuBitstreamCorruption(language),
+                    enabled = isVideo,
+                    shortcut = KeyShortcut(Key.B, meta = true, shift = true),
+                    onClick = { bitstreamCorruptionWindowOpen = true },
+                )
                 Item(
                     I18n.menuViewFrameIntervals(language),
                     enabled = hasVideoTrack,
@@ -570,19 +582,17 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     },
                 )
                 val codecViewCurrentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
-                CheckboxItem(
+                Item(
                     I18n.menuMotionVectors(language),
-                    checked = codecViewMode == CodecViewMode.MOTION_VECTORS,
                     enabled = codecViewCurrentTab?.type == MediaType.VIDEO &&
                         codecViewSupportedFor(CodecViewMode.MOTION_VECTORS, codecViewCurrentTab.videoCodecName),
-                    onCheckedChange = { codecViewMode = if (it) CodecViewMode.MOTION_VECTORS else null },
+                    onClick = { codecViewPopupWindowMode = CodecViewMode.MOTION_VECTORS },
                 )
-                CheckboxItem(
+                Item(
                     I18n.menuQpHeatmap(language),
-                    checked = codecViewMode == CodecViewMode.QP_HEATMAP,
                     enabled = codecViewCurrentTab?.type == MediaType.VIDEO &&
                         codecViewSupportedFor(CodecViewMode.QP_HEATMAP, codecViewCurrentTab.videoCodecName),
-                    onCheckedChange = { codecViewMode = if (it) CodecViewMode.QP_HEATMAP else null },
+                    onClick = { codecViewPopupWindowMode = CodecViewMode.QP_HEATMAP },
                 )
                 Separator()
                 CheckboxItem(
@@ -774,12 +784,44 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     checkStructureWindowOpen = false
                 }
             }
-            if (aiPromptWindowOpen) {
+            if (appState.aiPromptWindowOpen) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 if (currentTab != null) {
-                    AiPromptPreviewWindow(tab = currentTab, themeMode = themeMode, onCloseRequest = { aiPromptWindowOpen = false })
+                    AiPromptPreviewWindow(
+                        tab = currentTab,
+                        initialTargetWarning = appState.aiPromptTargetWarning,
+                        themeMode = themeMode,
+                        onCloseRequest = {
+                            appState.aiPromptWindowOpen = false
+                            appState.aiPromptTargetWarning = null
+                        },
+                    )
                 } else {
-                    aiPromptWindowOpen = false
+                    appState.aiPromptWindowOpen = false
+                    appState.aiPromptTargetWarning = null
+                }
+            }
+            if (avSyncWindowOpen) {
+                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                if (currentTab != null) {
+                    AvSyncAnalysisWindow(tab = currentTab, themeMode = themeMode, onCloseRequest = { avSyncWindowOpen = false })
+                } else {
+                    avSyncWindowOpen = false
+                }
+            }
+            if (bitstreamCorruptionWindowOpen) {
+                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                if (currentTab != null) {
+                    BitstreamCorruptionWindow(
+                        tab = currentTab,
+                        themeMode = themeMode,
+                        onCloseRequest = { bitstreamCorruptionWindowOpen = false },
+                        onJumpToHex = { range ->
+                            currentTab.parameterSetHighlightRange = range
+                        }
+                    )
+                } else {
+                    bitstreamCorruptionWindowOpen = false
                 }
             }
             if (aboutWindowOpen) {
@@ -794,6 +836,19 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
             }
             if (updateWindowOpen) {
                 UpdateWindow(language = language, onCloseRequest = { updateWindowOpen = false })
+            }
+            val popupMode = codecViewPopupWindowMode
+            if (popupMode != null) {
+                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                if (currentTab != null) {
+                    CodecViewPreviewWindow(
+                        tab = currentTab,
+                        mode = popupMode,
+                        onCloseRequest = { codecViewPopupWindowMode = null },
+                    )
+                } else {
+                    codecViewPopupWindowMode = null
+                }
             }
 
             LaunchedEffect(Unit) {
@@ -1057,32 +1112,8 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                             }
                         }
 
-                        // Codec-view preview (motion vectors / QP heatmap) sits beside the hex
-                        // grid rather than in the GOP column (see VideoInspectorUI.kt) -- the hex
-                        // grid's own row width is fixed by its byte-per-row count, so on any
-                        // window wider than that it already leaves empty space in this panel to
-                        // reuse, and this panel is also taller than the GOP column, where the same
-                        // content was too small to make the overlays legible even zoomed in. Only
-                        // shown when the "보기" menu's codecViewMode is explicitly turned on for a
-                        // supported (H.264) video tab -- unlike v1's always-visible-when-supported
-                        // buttons, this panel takes real estate away from the hex grid, so it stays
-                        // out of the way until the user opts in via the menu.
-                        var hexCodecViewSplit by remember(currentTab) { mutableStateOf(0.6f) }
-                        var hexRowWidthPx by remember(currentTab) { mutableStateOf(0) }
                         val bottomPanel: @Composable ColumnScope.() -> Unit = {
                             PanelHeader("Hex & Raw Data Viewer", color = AppColors.NeonGreen)
-                            // Local val, not the outer by-delegate property directly -- codecViewMode
-                            // is a `by remember { mutableStateOf(...) }` property with a custom
-                            // getter, so Kotlin can't smart-cast it to non-null across this check.
-                            val activeCodecViewMode = codecViewMode
-                            val codecViewAvailable = currentTab.type == MediaType.VIDEO && activeCodecViewMode != null &&
-                                codecViewSupportedFor(activeCodecViewMode, currentTab.videoCodecName)
-                            // Shared by both HexView call sites below (codec-view-panel and plain)
-                            // instead of duplicating the same fallback chain twice. selectedFrame's
-                            // own byteOffset (ffprobe's pkt_pos) is the last fallback -- lets
-                            // selecting a frame in the GOP timeline/filmstrip jump the hex viewer to
-                            // that frame's actual bytes, the same way tile/tree-node selection
-                            // already does.
                             val hexHighlightRange = currentTab.parameterSetHighlightRange
                                 ?: currentTab.tileHighlightRange
                                 ?: activeField?.let { it.offset until (it.offset + it.length) }
@@ -1090,42 +1121,12 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                                 ?: currentTab.selectedFrame?.let { frame ->
                                     frame.byteOffset?.let { offset -> offset until (offset + frame.sizeBytes) }
                                 }
-                            if (codecViewAvailable) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .onGloballyPositioned { hexRowWidthPx = it.size.width },
-                                ) {
-                                    Box(modifier = Modifier.weight(hexCodecViewSplit).fillMaxHeight()) {
-                                        HexView(
-                                            file = currentTab.file,
-                                            highlightRange = hexHighlightRange,
-                                            listState = hexListState,
-                                            onSelectionChanged = selectNodeAtHexOffset,
-                                        )
-                                    }
-
-                                    DraggableDivider(
-                                        orientation = Orientation.Vertical,
-                                        containerSizePx = hexRowWidthPx,
-                                        getSplit = { hexCodecViewSplit },
-                                        setSplit = { hexCodecViewSplit = it },
-                                    )
-
-                                    CodecViewPreview(
-                                        currentTab,
-                                        mode = activeCodecViewMode,
-                                        modifier = Modifier.weight(1f - hexCodecViewSplit).fillMaxHeight(),
-                                    )
-                                }
-                            } else {
-                                HexView(
-                                    file = currentTab.file,
-                                    highlightRange = hexHighlightRange,
-                                    listState = hexListState,
-                                    onSelectionChanged = selectNodeAtHexOffset,
-                                )
-                            }
+                            HexView(
+                                file = currentTab.file,
+                                highlightRange = hexHighlightRange,
+                                listState = hexListState,
+                                onSelectionChanged = selectNodeAtHexOffset,
+                            )
                         }
 
                         if (currentTab.isLoading) {

@@ -109,7 +109,13 @@ object FfmpegImageSnapshotDecoder {
                 .start()
                 .also { com.multiviewer.util.ProcessManager.register(it) }
 
-            val finished = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
+            val finished = try {
+                process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
+            } catch (ie: InterruptedException) {
+                com.multiviewer.util.ProcessManager.terminate(process)
+                Thread.currentThread().interrupt()
+                false
+            }
             if (!finished) {
                 com.multiviewer.util.ProcessManager.terminate(process)
                 null

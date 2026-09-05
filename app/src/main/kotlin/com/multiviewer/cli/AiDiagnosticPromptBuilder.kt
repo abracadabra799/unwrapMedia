@@ -23,7 +23,13 @@ object AiDiagnosticPromptBuilder {
         }
     }
 
-    fun buildPrompt(file: File, root: BoxNode?, warnings: List<WarningEntry>): String {
+    fun buildPrompt(
+        file: File,
+        root: BoxNode?,
+        warnings: List<WarningEntry>,
+        avSyncReport: com.multiviewer.ui.AvSyncReport? = null,
+        targetWarning: WarningEntry? = null,
+    ): String {
         val fileSizeStr = formatFileSize(file.length())
         val extension = file.extension.lowercase(Locale.US)
         val ftyp = root?.let { findFirst(it) { node -> node.type == "ftyp" } }
@@ -82,6 +88,20 @@ object AiDiagnosticPromptBuilder {
                 }
             }
         }
+        // A/V Sync & Duration Profile if available
+        if (avSyncReport != null) {
+            sb.appendLine("- [A/V 동기화 및 타임라인 프로필]")
+            sb.appendLine("  • 비디오 길이: ${String.format(Locale.US, "%.3f", avSyncReport.videoDurationSec)}s | 오디오 길이: ${String.format(Locale.US, "%.3f", avSyncReport.audioDurationSec)}s (길이 차이: ${String.format(Locale.US, "%+.3f", avSyncReport.durationDeltaSec)}s)")
+            sb.appendLine("  • 초기 립싱크 오프셋 (Initial Skew): ${String.format(Locale.US, "%+.1f", avSyncReport.initialSkewMs)} ms (${if (avSyncReport.initialSkewMs > 0) "Audio Leads" else "Video Leads"})")
+            sb.appendLine("  • 최대 편차: ${String.format(Locale.US, "%.1f", avSyncReport.maxSkewMs)} ms | 평균 편차: ${String.format(Locale.US, "%.1f", avSyncReport.avgSkewMs)} ms")
+            sb.appendLine("  • 점진적 드리프트율: ${String.format(Locale.US, "%+.2f", avSyncReport.driftRateMsPerMin)} ms/분")
+            if (avSyncReport.diagnoses.isNotEmpty()) {
+                sb.appendLine("  • A/V 진단 항목:")
+                avSyncReport.diagnoses.forEach { d ->
+                    sb.appendLine("    - [${d.severity}] ${d.category}: ${d.summary}")
+                }
+            }
+        }
         sb.appendLine()
 
         if (warnings.isEmpty()) {
@@ -99,77 +119,100 @@ object AiDiagnosticPromptBuilder {
         }
 
         // 2. 구조적 결함 및 경고 상세 데이터 (Facts & Detailed Context)
-        sb.appendLine("### [2. 감지된 구조적 결함 및 경고 (Facts Detected by UnwrapMedia)]")
-        sb.appendLine("총 ${warnings.size}건의 결함 또는 스펙 위반이 감지되었습니다.")
-        sb.appendLine()
-        sb.appendLine("```json")
-        sb.appendLine("[")
-        warnings.forEachIndexed { index, w ->
-            val severity = determineSeverity(w.node.type, w.warning)
-            val comma = if (index < warnings.size - 1) "," else ""
-            val pathStr = root?.let { findNodePath(it, w.node) }?.joinToString(" > ") ?: w.node.type
-            sb.appendLine("  {")
-            sb.appendLine("    \"box\": \"${w.node.type}\",")
-            sb.appendLine("    \"path\": \"$pathStr\",")
-            sb.appendLine("    \"offset\": ${w.node.offset},")
-            sb.appendLine("    \"size\": ${w.node.size},")
-            sb.appendLine("    \"severity\": \"$severity\",")
-            sb.appendLine("    \"warning\": \"${escapeJson(w.warning)}\"")
-            sb.appendLine("  }$comma")
-        }
-        sb.appendLine("]")
-        sb.appendLine("```")
-        sb.appendLine()
+        if (targetWarning != null) {
+            val targetSeverity = determineSeverity(targetWarning.node.type, targetWarning.warning)
+            val targetPath = root?.let { findNodePath(it, targetWarning.node) }?.joinToString(" > ") ?: targetWarning.node.type
+            val hexOffset = "0x" + targetWarning.node.offset.toString(16).uppercase()
 
-        sb.appendLine("#### [결함별 상세 내부 필드 및 바이너리 컨텍스트]")
-        warnings.forEachIndexed { index, w ->
-            val severity = determineSeverity(w.node.type, w.warning)
-            val pathStr = root?.let { findNodePath(it, w.node) }?.joinToString(" > ") ?: w.node.type
-            val hexOffset = "0x" + w.node.offset.toString(16).uppercase()
+            sb.appendLine("### [2. 중점 분석 대상 특정 결함 (Focused Defect Diagnosis)]")
+            sb.appendLine("이 파일에서 다음 특정 결함 1건에 대해 정밀 원인 규명 및 해결 가이드를 집중 요청합니다.")
+            sb.appendLine()
+            sb.appendLine("- **대상 박스/노드**: `${targetWarning.node.type}` (Severity: $targetSeverity)")
+            sb.appendLine("- **경로(Path)**: `$targetPath`")
+            sb.appendLine("- **파일 오프셋 / 크기**: $hexOffset (${targetWarning.node.offset} bytes) | 크기: ${targetWarning.node.size}B (헤더: ${targetWarning.node.headerSize}B)")
+            sb.appendLine("- **결함 경고 내용**: `${targetWarning.warning}`")
+            sb.appendLine()
 
-            sb.appendLine("• **결함 #${index + 1}: [${w.node.type}]** (Severity: $severity)")
-            sb.appendLine("  - **경로(Path)**: `$pathStr`")
-            sb.appendLine("  - **오프셋 / 크기**: $hexOffset (${w.node.offset} bytes) | 박스 크기: ${w.node.size} bytes (헤더: ${w.node.headerSize}B)")
-            sb.appendLine("  - **경고 내용**: `${w.warning}`")
-
-            // 해당 노드의 파싱된 필드 데이터 (Box Fields)
-            if (w.node.fields.isNotEmpty()) {
-                sb.appendLine("  - **파싱된 내부 필드 데이터**:")
-                sb.appendLine("    ```")
-                w.node.fields.forEach { f ->
-                    sb.appendLine("    ${f.name} = ${f.value}  (offset: 0x${f.offset.toString(16).uppercase()}, len: ${f.length}B)")
+            if (targetWarning.node.fields.isNotEmpty()) {
+                sb.appendLine("- **파싱된 내부 필드 데이터**:")
+                sb.appendLine("  ```")
+                targetWarning.node.fields.forEach { f ->
+                    sb.appendLine("  ${f.name} = ${f.value}  (offset: 0x${f.offset.toString(16).uppercase()}, len: ${f.length}B)")
                 }
-                sb.appendLine("    ```")
+                sb.appendLine("  ```")
             }
 
-            // 테이블 데이터가 존재하는 경우
-            w.node.table?.let { tbl ->
-                sb.appendLine("  - **테이블 정보**: 컬럼 [${tbl.columns.joinToString(", ")}], 등록된 엔트리 수: ${tbl.entryCount}")
-            }
-
-            // 부모 트랙이 있는 경우 샘플 테이블 간 교차 검증 정보 (Correlated Sample Table Context)
-            if (root != null) {
-                val parentTrak = findParentTrack(root, w.node)
-                if (parentTrak != null) {
-                    val trackContext = buildTrackSampleTableContext(parentTrak)
-                    if (trackContext.isNotEmpty()) {
-                        sb.appendLine("  - **동일 트랙 내 연관 샘플 테이블 교차 검증 데이터**:")
-                        trackContext.forEach { (key, value) ->
-                            sb.appendLine("    • $key: $value")
-                        }
-                    }
-                }
-            }
-
-            // 실제 바이너리 헥사 덤프 스니펫 (Hex Dump Snippet)
-            val hexDump = readHexDumpSnippet(file, w.node.offset, minOf(32, w.node.size.coerceAtLeast(16).toInt()))
+            val hexDump = readHexDumpSnippet(file, targetWarning.node.offset, minOf(48, targetWarning.node.size.coerceAtLeast(16).toInt()))
             if (hexDump != null) {
-                sb.appendLine("  - **원본 바이트 헥사 덤프**:")
-                sb.appendLine("    ```")
-                sb.appendLine("    $hexDump")
-                sb.appendLine("    ```")
+                sb.appendLine("- **해당 결함 위치 원본 바이트 헥사 덤프**:")
+                sb.appendLine("  ```")
+                sb.appendLine("  $hexDump")
+                sb.appendLine("  ```")
             }
             sb.appendLine()
+
+            val otherWarnings = warnings.filter { it !== targetWarning }
+            if (otherWarnings.isNotEmpty()) {
+                sb.appendLine("- **(참고) 파일 내 함께 감지된 기타 결함 목록**:")
+                otherWarnings.forEach { ow ->
+                    sb.appendLine("  • [${ow.node.type} @ 0x${ow.node.offset.toString(16).uppercase()}] ${ow.warning}")
+                }
+                sb.appendLine()
+            }
+        } else {
+            sb.appendLine("### [2. 감지된 구조적 결함 및 경고 (Facts Detected by UnwrapMedia)]")
+            sb.appendLine("총 ${warnings.size}건의 결함 또는 스펙 위반이 감지되었습니다.")
+            sb.appendLine()
+            sb.appendLine("```json")
+            sb.appendLine("[")
+            warnings.forEachIndexed { index, w ->
+                val severity = determineSeverity(w.node.type, w.warning)
+                val comma = if (index < warnings.size - 1) "," else ""
+                val pathStr = root?.let { findNodePath(it, w.node) }?.joinToString(" > ") ?: w.node.type
+                sb.appendLine("  {")
+                sb.appendLine("    \"box\": \"${w.node.type}\",")
+                sb.appendLine("    \"path\": \"$pathStr\",")
+                sb.appendLine("    \"offset\": ${w.node.offset},")
+                sb.appendLine("    \"size\": ${w.node.size},")
+                sb.appendLine("    \"severity\": \"$severity\",")
+                sb.appendLine("    \"warning\": \"${escapeJson(w.warning)}\"")
+                sb.appendLine("  }$comma")
+            }
+            sb.appendLine("]")
+            sb.appendLine("```")
+            sb.appendLine()
+
+            sb.appendLine("#### [결함별 상세 내부 필드 및 바이너리 컨텍스트]")
+            warnings.forEachIndexed { index, w ->
+                val severity = determineSeverity(w.node.type, w.warning)
+                val pathStr = root?.let { findNodePath(it, w.node) }?.joinToString(" > ") ?: w.node.type
+                val hexOffset = "0x" + w.node.offset.toString(16).uppercase()
+
+                sb.appendLine("• **결함 #${index + 1}: [${w.node.type}]** (Severity: $severity)")
+                sb.appendLine("  - **경로(Path)**: `$pathStr`")
+                sb.appendLine("  - **오프셋 / 크기**: $hexOffset (${w.node.offset} bytes) | 박스 크기: ${w.node.size} bytes (헤더: ${w.node.headerSize}B)")
+                sb.appendLine("  - **경고 내용**: `${w.warning}`")
+
+                // 해당 노드의 파싱된 필드 데이터 (Box Fields)
+                if (w.node.fields.isNotEmpty()) {
+                    sb.appendLine("  - **파싱된 내부 필드 데이터**:")
+                    sb.appendLine("    ```")
+                    w.node.fields.forEach { f ->
+                        sb.appendLine("    ${f.name} = ${f.value}  (offset: 0x${f.offset.toString(16).uppercase()}, len: ${f.length}B)")
+                    }
+                    sb.appendLine("    ```")
+                }
+
+                // 실제 바이너리 헥사 덤프 스니펫 (Hex Dump Snippet)
+                val hexDump = readHexDumpSnippet(file, w.node.offset, minOf(32, w.node.size.coerceAtLeast(16).toInt()))
+                if (hexDump != null) {
+                    sb.appendLine("  - **원본 바이트 헥사 덤프**:")
+                    sb.appendLine("    ```")
+                    sb.appendLine("    $hexDump")
+                    sb.appendLine("    ```")
+                }
+                sb.appendLine()
+            }
         }
 
         // 3. 표준 규격 및 프레임워크 컨텍스트
@@ -180,20 +223,27 @@ object AiDiagnosticPromptBuilder {
 
         // 4. 구체적 AI 분석 요청 사항
         sb.appendLine("### [4. 요청 사항 (Analysis Requested from AI)]")
-        sb.appendLine("위의 상세 메타데이터, 파싱된 필드 값, 연관 테이블 교차 검증 수치, 원본 바이트 덤프를 바탕으로 다음 사항들을 전문적으로 분석해 주세요:")
-        sb.appendLine()
-        sb.appendLine("1. **근본 원인 및 규격 위반 메커니즘 분석 (Root Cause)**:")
-        sb.appendLine("   - 제공된 필드 값과 수치 불일치(예: sample_count, chunk_count, time_to_sample 등)를 근거로, 파일 생성/인코딩/먹싱(Muxing) 과정 중 어느 단계에서 왜 이 결함이 발생했는지 추론해 주세요.")
-        sb.appendLine("   - 녹화 중 비정상 종료(Crash/Power off), 불완전한 헤더 Finalize, 인코더 소프트웨어 버그, 비표준 확장 쓰기 등 가능성이 높은 원인을 짚어주세요.")
-        sb.appendLine()
-        sb.appendLine("2. **플랫폼별 파서/디코더 영향도 (Platform Impact)**:")
-        sb.appendLine("   - 이 결함이 $targetEnvironments 환경(Android Stagefright/MediaCodec, Apple AVFoundation/ImageIO, Chromium, FFmpeg 등)에서 재생될 때 발생할 구체적인 문제(재생 불가 크래시, Seeking 불가, A/V 싱크 불일치, 프레임 드랍, 또는 무시하고 재생 등)를 기술해 주세요.")
-        sb.appendLine()
-        sb.appendLine("3. **무손실 복구 가이드 (Lossless Quick Fix)**:")
-        sb.appendLine("   - 원본 비디오/오디오 스트림을 재인코딩하지 않고 화질 손실 없이 컨테이너만 복구할 수 있는 **구체적인 FFmpeg 리먹싱 커맨드**(`-c copy`, `-movflags`, `-fflags` 등) 또는 바이너리 패치 방안을 제시해 주세요.")
-        sb.appendLine()
-        sb.appendLine("4. **소프트웨어 파이프라인 수정 가이드 (Prevention)**:")
-        sb.appendLine("   - 이 미디어 파일을 생성하는 인코더/먹서 소프트웨어 개발자가 동일한 결함을 방지하기 위해 준수해야 할 표준 스펙 조항과 파이프라인 방어 로직을 제안해 주세요.")
+        if (targetWarning != null) {
+            sb.appendLine("위의 특정 결함 [${targetWarning.node.type}: ${targetWarning.warning}]을 중심으로 다음 항목을 정밀 분석해 주세요:")
+            sb.appendLine("1. **이 특정 결함의 근본 발생 원인 (Root Cause)**: 어느 인코딩/먹싱 파이프라인 단계에서 이 필드/테이블 수치가 손상되었는지.")
+            sb.appendLine("2. **주요 플랫폼/플레이어 영향 (Impact)**: Android MediaCodec, Apple AVFoundation, FFmpeg 등에서 재생 시 어떤 이상(Seeking 실패, 크래시, A/V 싱크 틀어짐 등)이 유발되는지.")
+            sb.appendLine("3. **정밀 복구 커맨드 및 바이너리 수정법 (Solution)**: 무손실 FFmpeg 복구 커맨드 또는 Hex 수정 가이드.")
+        } else {
+            sb.appendLine("위의 상세 메타데이터, 파싱된 필드 값, 연관 테이블 교차 검증 수치, 원본 바이트 덤프를 바탕으로 다음 사항들을 전문적으로 분석해 주세요:")
+            sb.appendLine()
+            sb.appendLine("1. **근본 원인 및 규격 위반 메커니즘 분석 (Root Cause)**:")
+            sb.appendLine("   - 제공된 필드 값과 수치 불일치(예: sample_count, chunk_count, time_to_sample 등)를 근거로, 파일 생성/인코딩/먹싱(Muxing) 과정 중 어느 단계에서 왜 이 결함이 발생했는지 추론해 주세요.")
+            sb.appendLine("   - 녹화 중 비정상 종료(Crash/Power off), 불완전한 헤더 Finalize, 인코더 소프트웨어 버그, 비표준 확장 쓰기 등 가능성이 높은 원인을 짚어주세요.")
+            sb.appendLine()
+            sb.appendLine("2. **플랫폼별 파서/디코더 영향도 (Platform Impact)**:")
+            sb.appendLine("   - 이 결함이 $targetEnvironments 환경(Android Stagefright/MediaCodec, Apple AVFoundation/ImageIO, Chromium, FFmpeg 등)에서 재생될 때 발생할 구체적인 문제(재생 불가 크래시, Seeking 불가, A/V 싱크 불일치, 프레임 드랍, 또는 무시하고 재생 등)를 기술해 주세요.")
+            sb.appendLine()
+            sb.appendLine("3. **무손실 복구 가이드 (Lossless Quick Fix)**:")
+            sb.appendLine("   - 원본 비디오/오디오 스트림을 재인코딩하지 않고 화질 손실 없이 컨테이너만 복구할 수 있는 **구체적인 FFmpeg 리먹싱 커맨드**(`-c copy`, `-movflags`, `-fflags` 등) 또는 바이너리 패치 방안을 제시해 주세요.")
+            sb.appendLine()
+            sb.appendLine("4. **소프트웨어 파이프라인 수정 가이드 (Prevention)**:")
+            sb.appendLine("   - 이 미디어 파일을 생성하는 인코더/먹서 소프트웨어 개발자가 동일한 결함을 방지하기 위해 준수해야 할 표준 스펙 조항과 파이프라인 방어 로직을 제안해 주세요.")
+        }
 
         return sb.toString()
     }

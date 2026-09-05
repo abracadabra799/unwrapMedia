@@ -21,8 +21,8 @@ class I18nTest {
         assertEquals("Dump Structure", I18n.menuDumpStructure(AppLanguage.EN))
         assertEquals("구조 정합성 검사", I18n.menuCheckStructure(AppLanguage.KO))
         assertEquals("Validate Structure", I18n.menuCheckStructure(AppLanguage.EN))
-        assertEquals("AI 진단 프롬프트 생성", I18n.menuGenerateAiPrompt(AppLanguage.KO))
-        assertEquals("Generate AI Prompt", I18n.menuGenerateAiPrompt(AppLanguage.EN))
+        assertEquals("AI 진단 실행", I18n.menuGenerateAiPrompt(AppLanguage.KO))
+        assertEquals("Run AI Diagnosis", I18n.menuGenerateAiPrompt(AppLanguage.EN))
 
         // Motion Photo
         assertEquals("모션포토", I18n.menuMotionPhoto(AppLanguage.KO))

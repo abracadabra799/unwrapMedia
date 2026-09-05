@@ -581,6 +581,7 @@ private fun buildCheckTextReport(file: java.io.File, warnings: List<WarningEntry
 @Composable
 fun AiPromptPreviewWindow(
     tab: TabState,
+    initialTargetWarning: com.multiviewer.parser.WarningEntry? = null,
     themeMode: ThemeMode = ThemeMode.DARK,
     onCloseRequest: () -> Unit,
 ) {
@@ -589,10 +590,18 @@ fun AiPromptPreviewWindow(
         position = WindowPosition(Alignment.Center),
     )
 
-    val promptText = remember(tab.file, tab.root) {
-        val root = tab.root
-        val warnings = root?.let { collectWarnings(it) } ?: emptyList()
-        AiDiagnosticPromptBuilder.buildPrompt(tab.file, root, warnings)
+    val root = tab.root
+    val allWarnings = remember(root) { root?.let { collectWarnings(it) } ?: emptyList() }
+    var selectedWarning by remember(initialTargetWarning) { mutableStateOf(initialTargetWarning) }
+
+    val promptText = remember(tab.file, tab.root, tab.avSyncReport, selectedWarning) {
+        AiDiagnosticPromptBuilder.buildPrompt(
+            file = tab.file,
+            root = root,
+            warnings = allWarnings,
+            avSyncReport = tab.avSyncReport,
+            targetWarning = selectedWarning,
+        )
     }
 
     var copied by remember { mutableStateOf(false) }
@@ -655,7 +664,68 @@ fun AiPromptPreviewWindow(
                             }
                         }
 
-                        Spacer(Modifier.height(12.dp))
+                        // Scope Selector (All vs specific warning)
+                        if (allWarnings.isNotEmpty()) {
+                            Spacer(Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text(
+                                    "진단 범위:",
+                                    style = AppTypography.labelSmall.copy(fontSize = 11.sp, color = AppColors.TextSecondary),
+                                )
+                                // All Warnings chip
+                                FilterChip(
+                                    selected = selectedWarning == null,
+                                    onClick = { selectedWarning = null },
+                                    label = { Text("전체 결함 종합 진단 (${allWarnings.size}건)", fontSize = 11.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = AppColors.NeonPurple.copy(alpha = 0.25f),
+                                        selectedLabelColor = AppColors.NeonPurple,
+                                    ),
+                                    border = FilterChipDefaults.filterChipBorder(
+                                        enabled = true,
+                                        selected = selectedWarning == null,
+                                        borderColor = AppColors.Border,
+                                        selectedBorderColor = AppColors.NeonPurple,
+                                    ),
+                                )
+                                allWarnings.take(4).forEachIndexed { idx, w ->
+                                    val isSelected = selectedWarning === w
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = { selectedWarning = w },
+                                        label = { Text("#${idx + 1} ${w.node.type}", fontSize = 11.sp) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = AppColors.NeonPurple.copy(alpha = 0.25f),
+                                            selectedLabelColor = AppColors.NeonPurple,
+                                        ),
+                                        border = FilterChipDefaults.filterChipBorder(
+                                            enabled = true,
+                                            selected = isSelected,
+                                            borderColor = AppColors.Border,
+                                            selectedBorderColor = AppColors.NeonPurple,
+                                        ),
+                                    )
+                                }
+                                if (allWarnings.size > 4 && selectedWarning != null && allWarnings.indexOf(selectedWarning) >= 4) {
+                                    val idx = allWarnings.indexOf(selectedWarning)
+                                    FilterChip(
+                                        selected = true,
+                                        onClick = {},
+                                        label = { Text("#${idx + 1} ${selectedWarning?.node?.type}", fontSize = 11.sp) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = AppColors.NeonPurple.copy(alpha = 0.25f),
+                                            selectedLabelColor = AppColors.NeonPurple,
+                                        ),
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.height(10.dp))
 
                         // Code Viewer Area
                         val vScroll = rememberScrollState()
@@ -700,40 +770,153 @@ fun AiPromptPreviewWindow(
                         Spacer(Modifier.height(12.dp))
 
                         // Bottom Action Bar
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Text(
-                                "Prompt size: ${formatBytes(promptText.length.toLong())} (${promptText.length} chars)",
-                                style = AppTypography.bodyMedium.copy(fontSize = 11.sp, color = AppColors.TextSecondary),
-                            )
+                        val availableClis = remember {
+                            com.multiviewer.util.AiCliType.entries.filter { it.isAvailable }
+                        }
+                        var statusMessage by remember { mutableStateOf<String?>(null) }
+                        LaunchedEffect(statusMessage) {
+                            if (statusMessage != null) {
+                                delay(3000)
+                                statusMessage = null
+                            }
+                        }
 
-                            Row {
-                                Button(
-                                    onClick = {
-                                        if (ClipboardUtil.copyToClipboard(promptText)) {
-                                            copied = true
-                                        }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (copied) AppColors.NeonGreen.copy(alpha = 0.8f) else AppColors.NeonPurple.copy(alpha = 0.8f),
-                                        contentColor = if (copied) Color.Black else Color.White,
-                                    ),
-                                    modifier = Modifier.border(1.dp, if (copied) AppColors.NeonGreen else AppColors.NeonPurple, RoundedCornerShape(4.dp)),
-                                    shape = RoundedCornerShape(4.dp),
-                                ) {
-                                    Text(if (copied) "✓ Copied to Clipboard" else "Copy Prompt", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        "Prompt size: ${formatBytes(promptText.length.toLong())} (${promptText.length} chars)",
+                                        style = AppTypography.bodyMedium.copy(fontSize = 11.sp, color = AppColors.TextSecondary),
+                                    )
+                                    if (statusMessage != null) {
+                                        Spacer(Modifier.width(12.dp))
+                                        Text(
+                                            statusMessage ?: "",
+                                            style = AppTypography.bodyMedium.copy(fontSize = 11.sp, color = AppColors.NeonGreen, fontWeight = FontWeight.Bold),
+                                        )
+                                    }
                                 }
-                                Spacer(Modifier.width(8.dp))
-                                Button(
-                                    onClick = onCloseRequest,
-                                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.TextPrimary),
-                                    modifier = Modifier.border(1.dp, AppColors.Border, RoundedCornerShape(4.dp)),
-                                    shape = RoundedCornerShape(4.dp),
-                                ) {
-                                    Text("Close", fontSize = 12.sp)
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    // Web AI Links (copies to clipboard and opens browser)
+                                    Text("Open Web:", style = AppTypography.labelSmall.copy(fontSize = 11.sp, color = AppColors.TextSecondary))
+                                    Spacer(Modifier.width(4.dp))
+                                    OutlinedButton(
+                                        onClick = {
+                                            ClipboardUtil.copyToClipboard(promptText)
+                                            com.multiviewer.util.AiCliDetector.openWebAi("https://chatgpt.com")
+                                            statusMessage = "복사됨 & ChatGPT 웹 열림"
+                                        },
+                                        modifier = Modifier.height(30.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                        shape = RoundedCornerShape(4.dp),
+                                    ) {
+                                        Text("ChatGPT", fontSize = 11.sp)
+                                    }
+                                    Spacer(Modifier.width(4.dp))
+                                    OutlinedButton(
+                                        onClick = {
+                                            ClipboardUtil.copyToClipboard(promptText)
+                                            com.multiviewer.util.AiCliDetector.openWebAi("https://claude.ai/new")
+                                            statusMessage = "복사됨 & Claude 웹 열림"
+                                        },
+                                        modifier = Modifier.height(30.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                        shape = RoundedCornerShape(4.dp),
+                                    ) {
+                                        Text("Claude", fontSize = 11.sp)
+                                    }
+                                    Spacer(Modifier.width(4.dp))
+                                    OutlinedButton(
+                                        onClick = {
+                                            ClipboardUtil.copyToClipboard(promptText)
+                                            com.multiviewer.util.AiCliDetector.openWebAi("https://gemini.google.com/app")
+                                            statusMessage = "복사됨 & Gemini 웹 열림"
+                                        },
+                                        modifier = Modifier.height(30.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                        shape = RoundedCornerShape(4.dp),
+                                    ) {
+                                        Text("Gemini", fontSize = 11.sp)
+                                    }
+                                }
+                            }
+
+                            Spacer(Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                // Local CLI Buttons (only if detected on current machine)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (availableClis.isNotEmpty()) {
+                                        Text("Local CLI:", style = AppTypography.labelSmall.copy(fontSize = 11.sp, color = AppColors.NeonPurple, fontWeight = FontWeight.Bold))
+                                        Spacer(Modifier.width(6.dp))
+                                        availableClis.forEach { cli ->
+                                            Button(
+                                                onClick = {
+                                                    ClipboardUtil.copyToClipboard(promptText)
+                                                    val success = com.multiviewer.util.AiCliDetector.launchInteractiveCli(
+                                                        cli,
+                                                        promptText,
+                                                        tab.file.parentFile,
+                                                    )
+                                                    statusMessage = if (success) {
+                                                        "${cli.displayName} 터미널 실행됨"
+                                                    } else {
+                                                        "${cli.displayName} 실행 실패"
+                                                    }
+                                                },
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = AppColors.NeonPurple.copy(alpha = 0.2f),
+                                                    contentColor = AppColors.NeonPurple,
+                                                ),
+                                                border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.NeonPurple),
+                                                modifier = Modifier.height(30.dp),
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                                shape = RoundedCornerShape(4.dp),
+                                            ) {
+                                                Text("▶ ${cli.displayName}", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                            Spacer(Modifier.width(6.dp))
+                                        }
+                                    }
+                                }
+
+                                // Copy and Close Buttons
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Button(
+                                        onClick = {
+                                            if (ClipboardUtil.copyToClipboard(promptText)) {
+                                                copied = true
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (copied) AppColors.NeonGreen.copy(alpha = 0.8f) else AppColors.NeonPurple.copy(alpha = 0.8f),
+                                            contentColor = if (copied) Color.Black else Color.White,
+                                        ),
+                                        modifier = Modifier.height(32.dp).border(1.dp, if (copied) AppColors.NeonGreen else AppColors.NeonPurple, RoundedCornerShape(4.dp)),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                        shape = RoundedCornerShape(4.dp),
+                                    ) {
+                                        Text(if (copied) "✓ Copied to Clipboard" else "Copy Prompt", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    Spacer(Modifier.width(8.dp))
+                                    Button(
+                                        onClick = onCloseRequest,
+                                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.TextPrimary),
+                                        modifier = Modifier.height(32.dp).border(1.dp, AppColors.Border, RoundedCornerShape(4.dp)),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                        shape = RoundedCornerShape(4.dp),
+                                    ) {
+                                        Text("Close", fontSize = 12.sp)
+                                    }
                                 }
                             }
                         }

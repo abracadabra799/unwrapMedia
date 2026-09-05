@@ -39,8 +39,16 @@ import java.util.Locale
 // which packet this is than a bare number does -- on a real gain map file the two packets read
 // "Container, MotionPhoto" and "GainMap, hdrgm" respectively.
 internal fun xmpTabLabel(packet: XmpPacket): String {
-    val topics = xmpPacketTopics(packet.text).take(2)
-    val suffix = if (topics.isEmpty()) "" else " · ${topics.joinToString(", ")}"
+    val topics = xmpPacketTopics(packet.text)
+    val displayTopics = when {
+        topics.contains("Primary") && topics.contains("MotionPhoto") -> listOf("Primary", "MotionPhoto")
+        topics.contains("Primary") && topics.contains("Depth") -> listOf("Primary", "Depth")
+        topics.contains("Primary") -> listOf("Primary", "Container")
+        topics.contains("GainMap") && topics.contains("hdrgm") -> listOf("GainMap", "hdrgm")
+        topics.contains("GainMap") -> listOf("GainMap")
+        else -> topics.take(2)
+    }
+    val suffix = if (displayTopics.isEmpty()) "" else " · ${displayTopics.joinToString(", ")}"
     return "XMP ${packet.index + 1}$suffix"
 }
 
