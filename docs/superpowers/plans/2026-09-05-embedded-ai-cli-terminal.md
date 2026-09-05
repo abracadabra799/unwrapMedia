@@ -100,14 +100,33 @@ dependencies {
     testImplementation(kotlin("test-junit5"))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
+
+// jediterm-core's POM spuriously pulls kotlin-stdlib 2.4.0 (it is pure Java and
+// never uses the stdlib); pin it to the toolchain version so the 2.0.21 compiler
+// can read it.
+configurations.all {
+    resolutionStrategy {
+        force("org.jetbrains.kotlin:kotlin-stdlib:2.0.21")
+    }
+}
+
+// jediterm-core / jediterm-ui 3.74 also ship a stray META-INF/*.kotlin_module stamped
+// with Kotlin metadata version 2.4.0 (jars are pure Java otherwise). The 2.0.21 compiler
+// rejects the newer metadata on the classpath scan regardless of the stdlib version, so
+// skip the check — safe because these jars contain no real Kotlin classes.
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions {
+        freeCompilerArgs.add("-Xskip-metadata-version-check")
+    }
+}
 ```
 
 - [ ] **Step 4: Verify dependency resolution**
 
 Run: `./gradlew :app:dependencies --configuration runtimeClasspath`
-Expected: output lists `org.jetbrains.jediterm:jediterm-core:3.74`, `org.jetbrains.jediterm:jediterm-ui:3.74`, `org.jetbrains.pty4j:pty4j:0.13.12`, and transitively `net.java.dev.jna:jna:5.14.0` + `net.java.dev.jna:jna-platform:5.14.0`. No `FAILED` markers.
+Expected: output lists `org.jetbrains.jediterm:jediterm-core:3.74`, `org.jetbrains.jediterm:jediterm-ui:3.74`, `org.jetbrains.pty4j:pty4j:0.13.12`, and transitively `net.java.dev.jna:jna:5.14.0` + `net.java.dev.jna:jna-platform:5.14.0`. No `FAILED` markers. `kotlin-stdlib` must show `-> 2.0.21` (forced, see Step 3).
 
-Note: `jediterm-core:3.74` declares `kotlin-stdlib:2.4.0`; Gradle will resolve `kotlin-stdlib` to `2.4.0` (highest wins). This is safe — a newer stdlib at runtime than the 2.0.21 compiler is forward-compatible. Gradle may print an informational "Runtime JAR files in the classpath should have the same version" warning; that is expected and not an error. If the build *fails* on the stdlib mismatch (it should not), add `force("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")` inside `configurations.all { resolutionStrategy { ... } }` in `app/build.gradle.kts` and re-run.
+**Required (not optional):** `jediterm-core:3.74`'s POM spuriously declares `kotlin-stdlib:2.4.0` as a `compile` dependency. jediterm-core, jediterm-ui and pty4j are all pure Java (verified: zero Kotlin-compiled classes, zero `kotlin/` bytecode references) so they never touch the stdlib — but if Gradle resolves `kotlin-stdlib` to `2.4.0` the Kotlin 2.0.21 compiler fails with *"Module was compiled with an incompatible version of Kotlin. The binary version of its metadata is 2.4.0, expected version is 2.0.0"*. The Step 3 `resolutionStrategy` force pins the stdlib back down, and the Step 3 `-Xskip-metadata-version-check` compiler arg handles a second layer: the jediterm jars themselves carry a stray `META-INF/*.kotlin_module` stamped 2.4.0 that the compiler rejects on classpath scan regardless of stdlib version. Both are needed. Do NOT change `kotlin = "2.0.21"` in `libs.versions.toml` — Compose Multiplatform 1.7.3 is version-locked to Kotlin 2.0.x and a toolchain upgrade is out of scope for this feature.
 
 - [ ] **Step 5: Verify the project still compiles**
 
@@ -994,4 +1013,4 @@ git commit -m "fix: address embedded AI CLI terminal issues from manual testing"
 - **Inject delay:** spec said 1200 ms as a starting value; plan uses `PROMPT_INJECT_DELAY_MS = 1400` as a single named constant, tune during Task 6.
 - **Deviation from spec:** `state` is a Compose `mutableStateOf` (not `StateFlow`) since `WindowsPtyCliSession` lives in a UI package and only the Compose layer observes it — avoids adding a coroutines-test dependency and keeps the session's watcher thread able to publish state directly.
 - **Deviation from spec:** `PtyProcessTtyConnector` is not in the published jediterm artifacts, so `PtyCliTtyConnector` reimplements its ~15 lines (noted in Task 3).
-- **Known non-fatal:** Gradle may warn about `kotlin-stdlib` 2.4.0 vs Kotlin plugin 2.0.21 (Task 1 Step 4). SLF4J may print "No providers were found" at runtime — harmless; do not add a binding unless it proves noisy.
+- **Known non-fatal:** SLF4J may print "No providers were found" at runtime — harmless; do not add a binding unless it proves noisy. The `kotlin-stdlib` force in Task 1 is required (jediterm-core's POM pulls 2.4.0); without it the Kotlin 2.0.21 compiler cannot read the stdlib metadata.
