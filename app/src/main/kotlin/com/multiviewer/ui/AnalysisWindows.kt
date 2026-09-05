@@ -802,14 +802,14 @@ fun AiPromptPreviewWindow(
                                 }
 
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    // Web AI Links (copies to clipboard and opens browser)
-                                    Text("Open Web:", style = AppTypography.labelSmall.copy(fontSize = 11.sp, color = AppColors.TextSecondary))
+                                    // Web AI Links (copies to clipboard and opens Chrome/browser with company login)
+                                    Text("Open Web (Chrome):", style = AppTypography.labelSmall.copy(fontSize = 11.sp, color = AppColors.TextSecondary))
                                     Spacer(Modifier.width(4.dp))
                                     OutlinedButton(
                                         onClick = {
                                             ClipboardUtil.copyToClipboard(promptText)
                                             com.multiviewer.util.AiCliDetector.openWebAi("https://chatgpt.com")
-                                            statusMessage = "복사됨 & ChatGPT 웹 열림"
+                                            statusMessage = "복사됨 & ChatGPT (Chrome) 열림"
                                         },
                                         modifier = Modifier.height(30.dp),
                                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
@@ -822,7 +822,7 @@ fun AiPromptPreviewWindow(
                                         onClick = {
                                             ClipboardUtil.copyToClipboard(promptText)
                                             com.multiviewer.util.AiCliDetector.openWebAi("https://claude.ai/new")
-                                            statusMessage = "복사됨 & Claude 웹 열림"
+                                            statusMessage = "복사됨 & Claude (Chrome) 열림"
                                         },
                                         modifier = Modifier.height(30.dp),
                                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
@@ -835,7 +835,7 @@ fun AiPromptPreviewWindow(
                                         onClick = {
                                             ClipboardUtil.copyToClipboard(promptText)
                                             com.multiviewer.util.AiCliDetector.openWebAi("https://gemini.google.com/app")
-                                            statusMessage = "복사됨 & Gemini 웹 열림"
+                                            statusMessage = "복사됨 & Gemini (Chrome) 열림"
                                         },
                                         modifier = Modifier.height(30.dp),
                                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),

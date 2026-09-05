@@ -165,9 +165,49 @@ object AiCliDetector {
     }
 
     /**
-     * Opens a web AI chat service in the default browser.
+     * Opens a web AI chat service in Google Chrome (where company accounts are logged in)
+     * or falls back to the system default browser.
      */
     fun openWebAi(url: String): Boolean {
+        val osName = System.getProperty("os.name").lowercase()
+        try {
+            if (osName.contains("win")) {
+                // Windows: Check common Chrome install paths or chrome.exe
+                val chromePaths = listOf(
+                    "${System.getenv("ProgramFiles")}\\Google\\Chrome\\Application\\chrome.exe",
+                    "${System.getenv("ProgramFiles(x86)")}\\Google\\Chrome\\Application\\chrome.exe",
+                    "${System.getenv("LOCALAPPDATA")}\\Google\\Chrome\\Application\\chrome.exe",
+                )
+                val chromeBin = chromePaths.firstOrNull { File(it).exists() }
+                if (chromeBin != null) {
+                    ProcessBuilder(chromeBin, url).start()
+                    return true
+                }
+                // Try launching via cmd start chrome
+                try {
+                    val p = ProcessBuilder("cmd.exe", "/c", "start", "chrome", url).start()
+                    if (p.waitFor() == 0) return true
+                } catch (_: Throwable) {}
+            } else if (osName.contains("mac")) {
+                // macOS: Open via Google Chrome application bundle
+                val chromeApp = File("/Applications/Google Chrome.app")
+                if (chromeApp.exists()) {
+                    val p = ProcessBuilder("open", "-a", "Google Chrome", url).start()
+                    if (p.waitFor() == 0) return true
+                }
+            } else {
+                // Linux: Try google-chrome or google-chrome-stable
+                val linuxChromium = listOf("google-chrome", "google-chrome-stable", "chromium-browser", "chromium")
+                for (b in linuxChromium) {
+                    try {
+                        ProcessBuilder(b, url).start()
+                        return true
+                    } catch (_: Throwable) {}
+                }
+            }
+        } catch (_: Throwable) {}
+
+        // Fallback to default browser
         return try {
             Desktop.getDesktop().browse(URI.create(url))
             true
