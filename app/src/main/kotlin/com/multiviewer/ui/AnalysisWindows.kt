@@ -868,7 +868,7 @@ fun AiPromptPreviewWindow(
                                                         tab.file.parentFile,
                                                     )
                                                     statusMessage = if (success) {
-                                                        "${cli.displayName} 터미널 실행됨"
+                                                        "${cli.displayName} 터미널 실행됨 (전체 프롬프트 클립보드 복사 완료: 붙여넣기 가능)"
                                                     } else {
                                                         "${cli.displayName} 실행 실패"
                                                     }

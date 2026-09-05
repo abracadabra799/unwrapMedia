@@ -102,21 +102,36 @@ object AiCliDetector {
                 val process = ProcessBuilder("osascript", "-e", appleScript).start()
                 process.waitFor() == 0
             } else if (osName.contains("win")) {
-                // To prevent PowerShell "TerminatorExpectedAtEndOfString" syntax error caused by
-                // multiline newlines, backticks, quotes, and special characters in promptText,
-                // generate a standalone UTF-8 runner .ps1 script file and execute it.
+                // On Windows, AI CLIs like claude or agy are often installed as npm batch files (.cmd),
+                // or the Win32 CreateProcess command-line parsing cuts multiline text at the first newline (\r or \n).
+                // To solve this:
+                // 1. Ensure prompt is in Windows clipboard (already done by caller, also written to file).
+                // 2. In PowerShell, create an interactive runner script that sets UTF-8 encoding.
+                // 3. Instead of passing massive multiline strings via .cmd argv (which batch files clip after %1 or \r\n),
+                //    we can either pass the temp file / summary or launch the CLI with a concise entry prompt and
+                //    guide the user with a clean helper message, or use Windows SendKeys / direct node invocation.
+                // Even better: Check if the binary is a .cmd wrapper. If passing to CLI directly,
+                // we can pass an initial prompt referencing the file or prompt, or launch the interactive CLI.
                 val runnerScript = File.createTempFile("ai_runner_", ".ps1")
-                val cmdInvocation = when (type) {
-                    AiCliType.AGY -> "& \"$binPath\" -i \$promptText"
-                    else -> "& \"$binPath\" \$promptText"
-                }
+                val promptPath = tempPromptFile.absolutePath.replace("\\", "/")
 
-                // Read the prompt from the temp file safely inside PowerShell
+                // Build invocation command depending on CLI type
+                // For agy: agy --add-dir or -i
+                // If we pass multiline to cmd/node, npm's batch file truncates at newline.
+                // To pass the entire prompt cleanly into CLI:
+                // We provide the command to run, and write instructions.
                 val scriptContent = """
                     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
                     Set-Location -LiteralPath "$dirPath"
-                    ${'$'}promptText = Get-Content -LiteralPath "${tempPromptFile.absolutePath}" -Raw -Encoding UTF8
-                    $cmdInvocation
+                    Write-Host "=================================================================" -ForegroundColor Cyan
+                    Write-Host " [unwrapMedia] AI Diagnostic Session (${type.displayName})" -ForegroundColor Green
+                    Write-Host " 전체 정밀 진단 프롬프트(수백 줄)가 클립보드에 이미 복사되어 있습니다!" -ForegroundColor Yellow
+                    Write-Host " 임시 프롬프트 파일: $promptPath" -ForegroundColor DarkGray
+                    Write-Host "=================================================================" -ForegroundColor Cyan
+                    Write-Host ""
+                    
+                    # Run CLI
+                    & "$binPath"
                 """.trimIndent() + "\r\n"
 
                 runnerScript.writeText(scriptContent, Charsets.UTF_8)
