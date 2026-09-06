@@ -86,6 +86,15 @@ internal fun avSyncErrorModel(
     return initialSkewMs + slopeMsPerSec * elapsedSec
 }
 
+/**
+ * Whether to flag "progressive clock drift". A high per-minute rate alone is
+ * misleading on a short clip — a few ms of AAC encoder padding extrapolated over
+ * a 15 s file reads as hundreds of ms/min. Require the drift to actually
+ * accumulate past the ITU "clearly noticeable" level before flagging it.
+ */
+internal fun avSyncIsProgressiveDrift(driftRateMsPerMin: Double, totalAccumulatedDriftMs: Double): Boolean =
+    abs(driftRateMsPerMin) > 20.0 && abs(totalAccumulatedDriftMs) > 100.0
+
 internal fun computeSyncPoints(
     videoPackets: List<StreamPacket>,
     audioPackets: List<StreamPacket>,
@@ -100,6 +109,15 @@ internal fun computeSyncPoints(
     val aFirst = audioPackets.first().ptsSeconds
     val aLast = audioPackets.last().ptsSeconds
 
+    // The nearest audio packet to a video frame's elapsed position is always up to
+    // half an audio-packet away — with video fps != audio packet rate that phase
+    // beats back and forth, producing a ±(halfframe) sawtooth that is pure grid
+    // quantization, not sync error. Deadband the residual by ~1.5 audio packets so
+    // a clean file reads as the flat baseline; a real PTS gap/jump still spikes far
+    // past it.
+    val avgAudioGapSec = if (audioPackets.size > 1) (aLast - aFirst) / (audioPackets.size - 1) else 0.033
+    val residualDeadbandMs = (avgAudioGapSec * 1000.0 * 1.5).coerceIn(15.0, 60.0)
+
     val step = (videoPackets.size / targetSampleCount).coerceAtLeast(1)
     val points = ArrayList<SyncPoint>(targetSampleCount + 2)
 
@@ -110,7 +128,7 @@ internal fun computeSyncPoints(
     // value) so drift and offset actually register, plus a local residual
     // that spikes on PTS discontinuities. The residual is clamped off once
     // aTarget runs past the audio (truncation) so the linear term doesn't
-    // double-count the tail.
+    // double-count the tail, and deadbanded so grid-quantization sawtooth is 0.
     fun pointAt(vIdx: Int): SyncPoint {
         val vPts = videoPackets[vIdx].ptsSeconds
         val elapsed = vPts - vFirst
@@ -121,7 +139,8 @@ internal fun computeSyncPoints(
             audioSearchIdx++
         }
         val aPts = audioPackets[audioSearchIdx].ptsSeconds
-        val localResidual = if (aTarget <= aLast) (elapsed - (aPts - aFirst)) * 1000.0 else 0.0
+        val rawResidualMs = if (aTarget <= aLast) (elapsed - (aPts - aFirst)) * 1000.0 else 0.0
+        val localResidual = if (abs(rawResidualMs) <= residualDeadbandMs) 0.0 else rawResidualMs
         val deltaMs = avSyncErrorModel(initialSkewMs, durationDeltaSec, totalDurationSec, elapsed) + localResidual
         return SyncPoint(
             timeSeconds = vPts,
@@ -264,8 +283,9 @@ object AvSyncAnalyzer {
                 )
             }
 
-            // 3. Progressive Drift Check
-            if (abs(driftRateMsPerMin) > 20.0) {
+            // 3. Progressive Drift Check — a high rate must also accumulate to a
+            // perceptible total (short clips inflate the per-minute figure).
+            if (avSyncIsProgressiveDrift(driftRateMsPerMin, durationDeltaSec * 1000.0)) {
                 diagnoses.add(
                     SyncDiagnosis(
                         category = "점진적 타임스탬프 드리프트 (Clock / Timestamp Drift)",

@@ -44,6 +44,34 @@ class AvSyncAnalyzerTest {
         assertEquals(50.0, avSyncErrorModel(50.0, 0.2, 0.0, 10.0), 1e-9)
     }
 
+    // ---- avSyncIsProgressiveDrift ----
+
+    @Test
+    fun progressiveDrift_shortClipHighRateButTinyTotal_isNotFlagged() {
+        // A perfectly-synced 15 s clip: ~55 ms of AAC encoder padding extrapolates
+        // to ~-218 ms/min, but only 55 ms ever accumulates. Not real drift.
+        assertFalse(avSyncIsProgressiveDrift(driftRateMsPerMin = -218.0, totalAccumulatedDriftMs = -55.0))
+    }
+
+    @Test
+    fun progressiveDrift_genuineDrift_isFlagged() {
+        // 169 ms accumulated at 169 ms/min over a real minute.
+        assertTrue(avSyncIsProgressiveDrift(169.0, 169.0))
+    }
+
+    @Test
+    fun progressiveDrift_bigOffsetButFlatRate_isNotFlagged() {
+        // constant offset, no slope — belongs to the initial-skew check, not drift.
+        assertFalse(avSyncIsProgressiveDrift(2.0, 400.0))
+    }
+
+    @Test
+    fun progressiveDrift_thresholdsAreStrictlyGreaterThan() {
+        assertFalse(avSyncIsProgressiveDrift(25.0, 100.0)) // exactly 100 ms total
+        assertFalse(avSyncIsProgressiveDrift(20.0, 150.0)) // exactly 20 ms/min
+        assertTrue(avSyncIsProgressiveDrift(21.0, 101.0))
+    }
+
     // ---- computeSyncPoints ----
 
     @Test
@@ -109,5 +137,19 @@ class AvSyncAnalyzerTest {
     fun syncPoints_emptyInput_returnsEmpty() {
         assertTrue(computeSyncPoints(emptyList(), run("audio", 0.0, 0.021, 10), 0.0, 0.0, 1.0).isEmpty())
         assertTrue(computeSyncPoints(run("video", 0.0, 0.033, 10), emptyList(), 0.0, 0.0, 1.0).isEmpty())
+    }
+
+    @Test
+    fun syncPoints_videoFpsNotDividingAudioRate_noGridSawtoothOnACleanFile() {
+        // 30 fps video vs ~46.9 packet/s audio (48 kHz AAC): the grids beat, so
+        // nearest-packet matching would zigzag +-10 ms end to end. The deadband
+        // must flatten that to the baseline (here a constant +21 ms skew).
+        val v = run("video", 0.0, 1.0 / 30, 450)              // 15 s
+        val a = run("audio", 0.0, 1024.0 / 48000, 703)        // ~15 s
+        val pts = computeSyncPoints(v, a, initialSkewMs = 21.0, durationDeltaSec = 0.0, totalDurationSec = 15.0)
+        assertTrue(
+            pts.all { abs(it.deltaMs - 21.0) < 5.0 },
+            "sawtooth not suppressed: ${pts.map { it.deltaMs.toInt() }.distinct().sorted()}",
+        )
     }
 }
