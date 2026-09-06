@@ -218,12 +218,12 @@ internal fun AvSyncGraph(
         listOf(100.0, 40.0, 0.0, -40.0, -100.0).forEach { v ->
             val ty = toY(v)
             if (ty in padY..(h - padY)) {
-                val label = if (v == 0.0) "0" else "%+.0f".format(v)
+                val label = if (v == 0.0) "0 (이상)" else "%+.0f".format(java.util.Locale.US, v)
                 drawText(textMeasurer, label, topLeft = Offset(2f, ty - 6f), style = axisStyle)
             }
         }
-        drawText(textMeasurer, "오디오 선행 ▲", topLeft = Offset(2f, padY - 14f), style = axisStyle)
-        drawText(textMeasurer, "비디오 선행 ▼", topLeft = Offset(2f, h - padY + 2f), style = axisStyle)
+        drawText(textMeasurer, "오디오 선행 ▲", topLeft = Offset(2f, padY + 2f), style = axisStyle)
+        drawText(textMeasurer, "비디오 선행 ▼", topLeft = Offset(2f, h - padY - 12f), style = axisStyle)
 
         // X-axis time ticks (4)
         for (i in 0..3) {
@@ -237,13 +237,6 @@ internal fun AvSyncGraph(
                 style = axisStyle,
             )
         }
-
-        // Ideal-line label (the 0 ms baseline is already drawn above)
-        drawText(
-            textMeasurer, "이상 (0ms)",
-            topLeft = Offset(w - padX - 52f, yZero - 12f),
-            style = axisStyle,
-        )
 
         // Plot Curve
         val path = Path()
@@ -275,19 +268,21 @@ internal fun AvSyncGraph(
         if (worst != null && kotlin.math.abs(worst.deltaMs) > 40.0) {
             val wx = toX(worst.timeSeconds)
             val wy = toY(worst.deltaMs)
-            val text = "%+.0fms @ %s".format(worst.deltaMs, formatMinSec(worst.timeSeconds))
+            val text = "%+.0fms @ %s".format(java.util.Locale.US, worst.deltaMs, formatMinSec(worst.timeSeconds))
             val layout = textMeasurer.measure(text, axisStyle.copy(fontSize = 10.sp, color = Color(0xFFFFF176)))
             val boxW = layout.size.width + 8f
-            val above = wy - 20f > padY
-            val bx = (wx - boxW / 2f).coerceIn(padX, w - padX - boxW)
-            val by = if (above) wy - 20f else wy + 8f
-            drawRoundRect(
-                color = Color(0xCC1E1E1E),
-                topLeft = Offset(bx, by),
-                size = Size(boxW, layout.size.height + 4f),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(3f, 3f),
-            )
-            drawText(layout, topLeft = Offset(bx + 4f, by + 2f))
+            if (w > 2 * padX + boxW) {
+                val above = wy - 20f > padY
+                val bx = (wx - boxW / 2f).coerceIn(padX, w - padX - boxW)
+                val by = if (above) wy - 20f else wy + 8f
+                drawRoundRect(
+                    color = Color(0xCC1E1E1E),
+                    topLeft = Offset(bx, by),
+                    size = Size(boxW, layout.size.height + 4f),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(3f, 3f),
+                )
+                drawText(layout, topLeft = Offset(bx + 4f, by + 2f))
+            }
         }
 
         // Selected Point Marker
