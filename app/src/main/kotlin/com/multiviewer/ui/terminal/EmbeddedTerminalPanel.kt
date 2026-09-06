@@ -42,10 +42,13 @@ import javax.swing.JPanel
  */
 internal const val PROMPT_INJECT_MAX_WAIT_MS: Long = 20_000
 
-/** Flipped by [ReadySignalTerminalPanel] when the CLI turns on bracketed-paste mode. */
+/**
+ * Flipped by [ReadySignalTerminalPanel] when the CLI turns on bracketed-paste
+ * mode. Compose snapshot state so the "프롬프트 재주입" button can enable itself
+ * (written from JediTerm's reader thread — safe, same as [SessionState]).
+ */
 private class BracketedPasteSignal {
-    @Volatile
-    var isReady = false
+    var isReady by mutableStateOf(false)
         private set
 
     fun markReady() { isReady = true }
@@ -97,8 +100,9 @@ private class ReadyAwareJediTermWidget(
 
 /**
  * Bottom panel of the AI prompt popup: a live VT100 terminal running the CLI.
- * Auto-injects the diagnostic prompt once the CLI is ready (or after
- * [PROMPT_INJECT_MAX_WAIT_MS] as a fallback).
+ * Auto-injects the diagnostic prompt once the CLI enables bracketed-paste mode.
+ * If it never does within [PROMPT_INJECT_MAX_WAIT_MS] the prompt is left on the
+ * clipboard for the user to paste, and the "프롬프트 재주입" button stays disabled.
  */
 @Composable
 internal fun EmbeddedTerminalPanel(
@@ -160,7 +164,7 @@ internal fun EmbeddedTerminalPanel(
                 color = AppColors.TextSecondary,
             )
             Spacer(Modifier.width(10.dp))
-            TextButton(onClick = { injectPrompt() }) {
+            TextButton(onClick = { injectPrompt() }, enabled = readySignal.isReady) {
                 Text("프롬프트 재주입", fontSize = 11.sp, color = AppColors.NeonPurple)
             }
             TextButton(onClick = onEndSession) {
@@ -178,8 +182,9 @@ internal fun EmbeddedTerminalPanel(
                 runCatching {
                     ReadyAwareJediTermWidget(120, 30, CliTerminalSettings(readySignal)).also { w ->
                         w.ttyConnector = session.ttyConnector
-                        w.start()
+                        // publish before start() so a fast markReady() can't beat it
                         widget = w
+                        w.start()
                     } as Component
                 }.getOrElse {
                     // Spec: JediTermWidget init failure → tear the session down

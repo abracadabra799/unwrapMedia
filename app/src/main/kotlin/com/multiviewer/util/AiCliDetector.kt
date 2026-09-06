@@ -29,8 +29,9 @@ object AiCliDetector {
     /** Extensions a bare `powershell &` / ProcessBuilder can actually run on Windows. */
     private val WINDOWS_RUNNABLE_EXTS = listOf(".cmd", ".bat", ".exe", ".ps1")
 
-    private val isWindows: Boolean
-        get() = System.getProperty("os.name").lowercase().contains("win")
+    private val isWindows: Boolean by lazy {
+        System.getProperty("os.name").lowercase().contains("win")
+    }
 
     /**
      * Candidate file names for [name] in a PATH dir, most-preferred first. On
@@ -53,8 +54,9 @@ object AiCliDetector {
 
     fun findBinary(name: String): String? {
         val dirs = candidatePaths + (System.getenv("PATH") ?: "").split(File.pathSeparator)
+        val fileNames = candidateFileNames(name)
         for (dir in dirs) {
-            for (fileName in candidateFileNames(name)) {
+            for (fileName in fileNames) {
                 val file = File(dir, fileName)
                 if (file.isFile && (isWindows || file.canExecute())) {
                     return file.absolutePath

@@ -93,9 +93,12 @@ internal class WindowsPtyCliSession(
             // Kill the CLI (node.exe etc.) too. pty4j's WinConPtyProcess.destroy()
             // only terminates the PowerShell handle, and it doesn't override
             // toHandle(), so p.descendants() throws — go via ProcessHandle.of(pid).
-            runCatching {
-                java.lang.ProcessHandle.of(p.pid()).ifPresent { h ->
-                    h.descendants().forEach { it.destroyForcibly() }
+            // Guard on isAlive so a recycled PID can't point us at a stranger.
+            if (p.isAlive) {
+                runCatching {
+                    java.lang.ProcessHandle.of(p.pid()).ifPresent { h ->
+                        h.descendants().forEach { it.destroyForcibly() }
+                    }
                 }
             }
             runCatching { p.destroyForcibly() }

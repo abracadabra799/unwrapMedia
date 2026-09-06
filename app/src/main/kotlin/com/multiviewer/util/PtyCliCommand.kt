@@ -27,7 +27,7 @@ internal object PtyCliCommand {
             else -> "& $quoted"
         }
         return "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $invoke; " +
-            "\$ec=\$LASTEXITCODE; exit \$(if (\$? -and \$null -ne \$ec) {\$ec} else {1})"
+            "\$ok=\$?; \$ec=\$LASTEXITCODE; exit \$(if (\$ok -and \$null -ne \$ec) {\$ec} else {1})"
     }
 
     /**
@@ -40,6 +40,7 @@ internal object PtyCliCommand {
      */
     fun pastePayload(text: String, bracketed: Boolean): String {
         val body = text
+            .replace("\u001B[200~", "")
             .replace("\u001B[201~", "")
             .replace("\r\n", "\n")
             .replace('\n', '\r')

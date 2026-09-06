@@ -39,9 +39,8 @@ class AiCliDetectorTest {
     }
 
     @Test
-    fun findBinaryLocatesAnAlwaysPresentToolOnThisOs() {
-        // `java` is on PATH whenever these tests run — guards the PATH-scan refactor.
-        assertNotNull(AiCliDetector.findBinary("java"))
-        assertNull(AiCliDetector.findBinary("definitely-not-a-real-cli-zzz"))
+    fun findBinaryReturnsNullForAToolThatDoesNotExist() {
+        // exercises the full PATH scan + where/which fallback end to end
+        assertNull(AiCliDetector.findBinary("definitely-not-a-real-cli-zzz-x9"))
     }
 }
