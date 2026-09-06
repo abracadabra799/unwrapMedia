@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
@@ -56,12 +57,14 @@ import javax.swing.JPanel
  * terminal's own Ctrl/Cmd+V) once they are actually at the CLI prompt.
  */
 internal class BracketedPasteSignal {
-    // "has it ever been on" — once a CLI reaches an interactive prompt it stays a
-    // sensible paste target even if it briefly toggles the mode (e.g. redraw).
+    // Follows the running program's current bracketed-paste mode. A readline/Ink
+    // CLI turns it on at its prompt and off on exit, so this is true exactly while
+    // a paste would land in a CLI rather than the bare `PS>` prompt. Ink apps
+    // don't toggle it on redraw, so no flicker.
     var isReady by mutableStateOf(false)
         private set
 
-    fun onBracketedPasteMode(enabled: Boolean) { if (enabled) isReady = true }
+    fun onBracketedPasteMode(enabled: Boolean) { isReady = enabled }
 }
 
 /**
@@ -211,6 +214,13 @@ internal fun EmbeddedTerminalPanel(
         starter.sendString(PtyCliCommand.pastePayload(session.promptText, bracketed = true), false)
     }
 
+    // Chip click: type "<cmd>" and submit it at the shell. `true` = user typing.
+    fun sendCommand(cmd: String) {
+        if (state != SessionState.Running) return
+        val starter = widget?.terminalStarter ?: return
+        starter.sendString("$cmd\r", true)
+    }
+
     LaunchedEffect(widget) {
         // requestFocusInWindow() is a no-op until the peer is realized.
         if (widget != null) {
@@ -258,7 +268,7 @@ internal fun EmbeddedTerminalPanel(
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                 ) {
                     Text(
-                        if (readySignal.isReady) "프롬프트 붙여넣기" else "붙여넣기(준비 중…)",
+                        if (readySignal.isReady) "프롬프트 붙여넣기" else "붙여넣기(CLI 진입 후)",
                         fontSize = 11.sp,
                         color = AppColors.NeonPurple,
                         maxLines = 1,
@@ -273,19 +283,40 @@ internal fun EmbeddedTerminalPanel(
             }
         }
 
+        if (state == SessionState.Running) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 6.dp).padding(bottom = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                com.multiviewer.util.AiCliType.entries.forEach { cli ->
+                    TextButton(
+                        onClick = { sendCommand(cli.command) },
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                        modifier = Modifier.height(22.dp),
+                    ) {
+                        Text(cli.displayName, fontSize = 10.sp, color = AppColors.NeonBlue, maxLines = 1)
+                    }
+                }
+                Text(
+                    "또는 원하는 명령을 직접 입력",
+                    fontSize = 10.sp,
+                    color = AppColors.TextSecondary,
+                    maxLines = 1,
+                )
+            }
+        }
+
         val guidance: String? = when (val s = state) {
-            SessionState.Starting ->
-                "CLI를 실행하는 중입니다…"
+            SessionState.Starting -> "PowerShell을 여는 중입니다…"
             SessionState.Running ->
-                "① 로그인 필요 시 진행하세요 (브라우저가 안 열리면 터미널에 출력된 URL을 클릭). " +
-                    "② CLI 입력 프롬프트가 보이면 위 '프롬프트 붙여넣기' 버튼 또는 Ctrl+V, 그다음 Enter."
+                "① 위 칩을 누르거나 직접 명령을 입력해 AI CLI를 실행하세요. " +
+                    "② 로그인이 필요하면 진행하세요 (브라우저가 안 열리면 출력된 URL 클릭). " +
+                    "③ CLI 프롬프트에서 '프롬프트 붙여넣기' 후 Enter."
             is SessionState.Exited ->
-                "CLI 세션이 종료되었습니다. (CLI를 업데이트했거나 exit 했다면 정상입니다.) " +
-                    "다시 사용하려면 위 '↻ PowerShell 다시 시작' 버튼을 누르세요 — " +
-                    "새 세션이 시작되고 프롬프트가 다시 클립보드에 복사됩니다. 로그인 상태는 유지됩니다."
+                "PowerShell이 종료되었습니다 (exit ${s.code}). " +
+                    "'↻ PowerShell 다시 시작'을 누르면 새 셸이 열리고 프롬프트가 다시 클립보드에 복사됩니다."
             is SessionState.Failed ->
-                "CLI를 시작하지 못했습니다: ${s.reason}. " +
-                    "'↻ PowerShell 다시 시작'으로 재시도하거나, PowerShell에서 직접 실행해 보세요."
+                "PowerShell을 시작하지 못했습니다: ${s.reason}. '↻ PowerShell 다시 시작'으로 재시도하세요."
         }
         if (guidance != null) {
             Text(
