@@ -282,7 +282,7 @@ internal fun AvSyncGraph(
         if (worst != null && kotlin.math.abs(worst.deltaMs) > 40.0) {
             val wx = toX(worst.timeSeconds)
             val wy = toY(worst.deltaMs)
-            val text = "%+.0fms @ %s".format(java.util.Locale.US, worst.deltaMs, formatMinSec(worst.timeSeconds))
+            val text = "%+.0fms @ %s".format(java.util.Locale.US, worst.deltaMs, formatMinSec(worst.timeSeconds - t0))
             val layout = textMeasurer.measure(text, axisStyle.copy(fontSize = 10.sp, color = Color(0xFFFFF176)))
             val boxW = layout.size.width + 8f
             if (w > 2 * padX + boxW) {
