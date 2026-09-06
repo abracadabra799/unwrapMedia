@@ -18,9 +18,12 @@ internal object PtyCliCommand {
      * what lets the session report `Exited` instead of dropping to `PS C:\>`).
      */
     fun launchLine(cli: AiCliType, binPath: String): String {
+        // Single-quote the path so a '$' in a user profile name isn't interpolated
+        // by PowerShell; '' escapes a literal quote.
+        val quoted = "'" + binPath.replace("'", "''") + "'"
         val invoke = when (cli) {
-            AiCliType.AGY -> "& \"$binPath\" -i"
-            else -> "& \"$binPath\""
+            AiCliType.AGY -> "& $quoted -i"
+            else -> "& $quoted"
         }
         return "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $invoke; exit \$LASTEXITCODE"
     }

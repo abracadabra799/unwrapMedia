@@ -21,16 +21,33 @@ import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jediterm.terminal.model.StyleState
+import com.jediterm.terminal.model.TerminalTextBuffer
 import com.jediterm.terminal.ui.JediTermWidget
+import com.jediterm.terminal.ui.TerminalPanel
 import com.jediterm.terminal.ui.settings.DefaultSettingsProvider
+import com.jediterm.terminal.ui.settings.SettingsProvider
 import com.multiviewer.ui.AppColors
 import kotlinx.coroutines.delay
 import java.awt.Font
 
-/** Fallback deadline for prompt injection when readiness can't be detected. */
-internal const val PROMPT_INJECT_DELAY_MS: Long = 1400
+/**
+ * Fallback deadline for prompt injection. Normally injection fires as soon as the
+ * CLI enables bracketed-paste mode (see [BracketedPasteSignal]); this is the cap
+ * for a CLI that is slow or never enables it.
+ */
+internal const val PROMPT_INJECT_MAX_WAIT_MS: Long = 8000
 
-private class CliTerminalSettings : DefaultSettingsProvider() {
+/** Flipped by [ReadySignalTerminalPanel] when the CLI turns on bracketed-paste mode. */
+private class BracketedPasteSignal {
+    @Volatile
+    var isReady = false
+        private set
+
+    fun markReady() { isReady = true }
+}
+
+private class CliTerminalSettings(val readySignal: BracketedPasteSignal) : DefaultSettingsProvider() {
     // Consolas ships on Windows and renders TUI box-drawing far better than the
     // generic MONOSPACED logical font (Courier New).
     override fun getTerminalFont(): Font = Font("Consolas", Font.PLAIN, 13)
@@ -38,9 +55,46 @@ private class CliTerminalSettings : DefaultSettingsProvider() {
     override fun audibleBell(): Boolean = false
 }
 
+private class ReadySignalTerminalPanel(
+    settings: SettingsProvider,
+    textBuffer: TerminalTextBuffer,
+    styleState: StyleState,
+    private val signal: BracketedPasteSignal,
+) : TerminalPanel(settings, textBuffer, styleState) {
+    override fun setBracketedPasteMode(enabled: Boolean) {
+        super.setBracketedPasteMode(enabled)
+        if (enabled) signal.markReady()
+    }
+}
+
+/**
+ * `JediTermWidget` whose terminal panel reports when the running program enables
+ * bracketed-paste mode — the moment a readline-based CLI (Claude Code, Gemini,
+ * Codex, agy) is actually ready to receive a pasted prompt.
+ *
+ * The signal is threaded through the [SettingsProvider] because
+ * `createTerminalPanel` is invoked from the `JediTermWidget` constructor, before
+ * this subclass's own fields are initialized.
+ */
+private class ReadyAwareJediTermWidget(
+    columns: Int,
+    rows: Int,
+    settings: CliTerminalSettings,
+) : JediTermWidget(columns, rows, settings) {
+    override fun createTerminalPanel(
+        settingsProvider: SettingsProvider,
+        styleState: StyleState,
+        textBuffer: TerminalTextBuffer,
+    ): TerminalPanel {
+        val signal = (settingsProvider as CliTerminalSettings).readySignal
+        return ReadySignalTerminalPanel(settingsProvider, textBuffer, styleState, signal)
+    }
+}
+
 /**
  * Bottom panel of the AI prompt popup: a live VT100 terminal running the CLI.
- * Auto-injects the diagnostic prompt once, [PROMPT_INJECT_DELAY_MS] after mount.
+ * Auto-injects the diagnostic prompt once the CLI is ready (or after
+ * [PROMPT_INJECT_MAX_WAIT_MS] as a fallback).
  */
 @Composable
 internal fun EmbeddedTerminalPanel(
@@ -49,6 +103,7 @@ internal fun EmbeddedTerminalPanel(
     modifier: Modifier = Modifier,
 ) {
     val state = session.state
+    val readySignal = remember(session) { BracketedPasteSignal() }
     var widget by remember(session) { mutableStateOf<JediTermWidget?>(null) }
 
     // Send the prompt through JediTerm's own writer thread (never the caller /
@@ -64,7 +119,10 @@ internal fun EmbeddedTerminalPanel(
     }
 
     LaunchedEffect(session) {
-        delay(PROMPT_INJECT_DELAY_MS)
+        val deadline = System.currentTimeMillis() + PROMPT_INJECT_MAX_WAIT_MS
+        while (!readySignal.isReady && System.currentTimeMillis() < deadline) {
+            delay(50)
+        }
         injectPrompt()
     }
     DisposableEffect(session) {
@@ -105,7 +163,7 @@ internal fun EmbeddedTerminalPanel(
             // connector. Do not rely on recomposition to rebind the connector.
             factory = {
                 runCatching {
-                    JediTermWidget(120, 30, CliTerminalSettings()).also { w ->
+                    ReadyAwareJediTermWidget(120, 30, CliTerminalSettings(readySignal)).also { w ->
                         w.ttyConnector = session.ttyConnector
                         w.start()
                         w.requestFocusInWindow()
@@ -115,7 +173,7 @@ internal fun EmbeddedTerminalPanel(
                     // Spec: JediTermWidget init failure → tear the session down
                     // rather than crash the popup composition.
                     onEndSession()
-                    JediTermWidget(1, 1, CliTerminalSettings()).also { widget = it }
+                    JediTermWidget(1, 1, CliTerminalSettings(readySignal)).also { widget = it }
                 }
             },
             update = { _ ->

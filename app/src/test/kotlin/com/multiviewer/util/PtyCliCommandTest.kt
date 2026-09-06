@@ -21,7 +21,7 @@ class PtyCliCommandTest {
     fun launchLineForClaudeInvokesBinaryWithUtf8AndExitsWithCliCode() {
         val line = PtyCliCommand.launchLine(AiCliType.CLAUDE, "C:\\tools\\claude.cmd")
         assertTrue(line.contains("OutputEncoding"))
-        assertTrue(line.contains("& \"C:\\tools\\claude.cmd\""))
+        assertTrue(line.contains("& 'C:\\tools\\claude.cmd'"))
         assertFalse(line.contains(" -i"))
         assertTrue(line.trimEnd().endsWith("exit \$LASTEXITCODE"))
     }
@@ -29,7 +29,13 @@ class PtyCliCommandTest {
     @Test
     fun launchLineForAgyAddsInteractiveFlag() {
         val line = PtyCliCommand.launchLine(AiCliType.AGY, "C:\\tools\\agy.cmd")
-        assertTrue(line.contains("& \"C:\\tools\\agy.cmd\" -i"))
+        assertTrue(line.contains("& 'C:\\tools\\agy.cmd' -i"))
         assertTrue(line.trimEnd().endsWith("exit \$LASTEXITCODE"))
+    }
+
+    @Test
+    fun launchLineEscapesSingleQuoteInPath() {
+        val line = PtyCliCommand.launchLine(AiCliType.CLAUDE, "C:\\us'er\\claude.cmd")
+        assertTrue(line.contains("& 'C:\\us''er\\claude.cmd'"))
     }
 }

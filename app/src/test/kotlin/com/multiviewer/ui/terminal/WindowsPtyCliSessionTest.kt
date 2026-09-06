@@ -62,7 +62,7 @@ class WindowsPtyCliSessionTest {
         val s = session(fake)
         s.start()
         // launch line is written on the "ai-cli-launch" daemon thread, not synchronously
-        await { fake.out.toString("UTF-8").contains("& \"C:\\tools\\claude.cmd\"") }
+        await { fake.out.toString("UTF-8").contains("& 'C:\\tools\\claude.cmd'") }
         val written = fake.out.toString("UTF-8")
         assertTrue(written.contains("exit \$LASTEXITCODE"))
         assertTrue(written.endsWith("\r"))

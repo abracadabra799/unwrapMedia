@@ -27,6 +27,8 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
@@ -695,7 +697,9 @@ fun AiPromptPreviewWindow(
     var terminalHeight by remember { mutableStateOf(320.dp) }
     var pendingSwitchCli by remember { mutableStateOf<com.multiviewer.util.AiCliType?>(null) }
     var confirmCloseWhileRunning by remember { mutableStateOf(false) }
-    val baseWindowHeight = remember { windowState.size.height }
+    // How much the window was grown for the terminal, so the exact amount can be
+    // subtracted back on end — preserving any manual resize done in between.
+    var windowGrowth by remember { mutableStateOf(0.dp) }
     // Grown window must stay inside the usable screen (1366x768 laptops are a target).
     val maxWindowHeight = remember {
         (java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment()
@@ -714,16 +718,20 @@ fun AiPromptPreviewWindow(
         // tear down any prior session (e.g. one that already exited) before replacing it
         activeCliSession?.destroy()
         activeCliSession = s
-        windowState.size = windowState.size.copy(
-            height = (baseWindowHeight + terminalHeight + 48.dp).coerceAtMost(maxWindowHeight),
-        )
+        val current = windowState.size.height
+        val target = (current + terminalHeight + 48.dp).coerceAtMost(maxWindowHeight)
+        windowGrowth = target - current
+        windowState.size = windowState.size.copy(height = target)
         return "${cli.displayName} 임베드 세션 시작 (프롬프트 자동 입력 예정)"
     }
 
     fun endCliSession() {
         activeCliSession?.destroy()
         activeCliSession = null
-        windowState.size = windowState.size.copy(height = baseWindowHeight)
+        windowState.size = windowState.size.copy(
+            height = (windowState.size.height - windowGrowth).coerceAtLeast(400.dp),
+        )
+        windowGrowth = 0.dp
     }
 
     val requestClose: () -> Unit = {
@@ -1122,7 +1130,10 @@ fun AiPromptPreviewWindow(
                                     .fillMaxWidth()
                                     .height(6.dp)
                                     .background(AppColors.Border, RoundedCornerShape(3.dp))
-                                    .pointerInput(Unit) {
+                                    .pointerHoverIcon(
+                                        PointerIcon(java.awt.Cursor(java.awt.Cursor.N_RESIZE_CURSOR)),
+                                    )
+                                    .pointerInput(density) {
                                         detectDragGestures { change, dragAmount ->
                                             change.consume()
                                             val deltaDp = with(density) { dragAmount.y.toDp() }
