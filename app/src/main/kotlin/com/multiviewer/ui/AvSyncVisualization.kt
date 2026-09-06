@@ -1,5 +1,28 @@
 package com.multiviewer.ui
 
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.material3.Text
 import kotlin.math.abs
 
 /** Seconds → "m:ss". Negative input clamps to 0. */
@@ -81,4 +104,204 @@ internal fun avSyncSegments(report: AvSyncReport, segmentCount: Int): List<SyncS
         if (a > worstAbs[idx]) worstAbs[idx] = a
     }
     return worstAbs.map { if (it < 0.0) null else severityOf(it) }
+}
+
+@Composable
+internal fun LegendBadge(label: String, color: Color) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .background(color, RoundedCornerShape(4.dp))
+        )
+        Text(label, style = AppTypography.bodySmall.copy(color = AppColors.TextSecondary, fontSize = 11.sp))
+    }
+}
+
+@Composable
+internal fun AvSyncGraph(
+    points: List<SyncPoint>,
+    selectedPoint: SyncPoint?,
+    onSelectPoint: (SyncPoint?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val textMeasurer = rememberTextMeasurer()
+    val axisStyle = TextStyle(color = Color(0xFF9AA0A6), fontSize = 9.sp)
+
+    if (points.isEmpty()) return
+
+    val maxAbsDelta = points.maxOf { abs(it.deltaMs) }.coerceAtLeast(120.0)
+    val yCeiling = (maxAbsDelta * 1.25)
+    val maxTime = points.maxOf { it.timeSeconds }.coerceAtLeast(0.01)
+
+    Canvas(
+        modifier = modifier
+            .pointerInput(points) {
+                detectTapGestures { offset ->
+                    val w = size.width
+                    val paddingX = 40f
+                    val graphW = w - paddingX * 2
+                    val clickFraction = ((offset.x - paddingX) / graphW).coerceIn(0f, 1f)
+                    val targetTime = clickFraction * maxTime
+                    val nearest = points.minByOrNull { abs(it.timeSeconds - targetTime) }
+                    onSelectPoint(nearest)
+                }
+            }
+    ) {
+        val w = size.width
+        val h = size.height
+        val padX = 40f
+        val padY = 24f
+        val graphW = w - padX * 2
+        val graphH = h - padY * 2
+
+        fun toY(deltaMs: Double): Float {
+            val fraction = (deltaMs / yCeiling).toFloat()
+            return padY + (graphH / 2f) - (fraction * (graphH / 2f))
+        }
+
+        fun toX(timeSec: Double): Float {
+            return padX + ((timeSec / maxTime).toFloat() * graphW)
+        }
+
+        val yPos100 = toY(100.0)
+        val yPos40 = toY(40.0)
+        val yNeg40 = toY(-40.0)
+        val yNeg100 = toY(-100.0)
+        val yZero = toY(0.0)
+
+        // Orange Bands (40ms ~ 100ms)
+        drawRect(
+            color = Color(0x1AF57F17),
+            topLeft = Offset(padX, yPos100),
+            size = Size(graphW, yPos40 - yPos100)
+        )
+        drawRect(
+            color = Color(0x1AF57F17),
+            topLeft = Offset(padX, yNeg40),
+            size = Size(graphW, yNeg100 - yNeg40)
+        )
+
+        // Green Band (-40ms ~ +40ms)
+        drawRect(
+            color = Color(0x1A2E7D32),
+            topLeft = Offset(padX, yPos40),
+            size = Size(graphW, yNeg40 - yPos40)
+        )
+
+        // Center Baseline (0ms)
+        drawLine(
+            color = Color(0x80FFFFFF),
+            start = Offset(padX, yZero),
+            end = Offset(w - padX, yZero),
+            strokeWidth = 1.5f
+        )
+
+        // Threshold Dotted Lines
+        drawLine(
+            color = Color(0x40F57F17),
+            start = Offset(padX, yPos40),
+            end = Offset(w - padX, yPos40),
+            strokeWidth = 1f
+        )
+        drawLine(
+            color = Color(0x40F57F17),
+            start = Offset(padX, yNeg40),
+            end = Offset(w - padX, yNeg40),
+            strokeWidth = 1f
+        )
+
+        // Y-axis tick labels (only those inside the plotted range)
+        listOf(100.0, 40.0, 0.0, -40.0, -100.0).forEach { v ->
+            val ty = toY(v)
+            if (ty in padY..(h - padY)) {
+                val label = if (v == 0.0) "0" else "%+.0f".format(v)
+                drawText(textMeasurer, label, topLeft = Offset(2f, ty - 6f), style = axisStyle)
+            }
+        }
+        drawText(textMeasurer, "오디오 선행 ▲", topLeft = Offset(2f, padY - 14f), style = axisStyle)
+        drawText(textMeasurer, "비디오 선행 ▼", topLeft = Offset(2f, h - padY + 2f), style = axisStyle)
+
+        // X-axis time ticks (4)
+        for (i in 0..3) {
+            val frac = i / 3f
+            val tx = padX + frac * graphW
+            drawLine(Color(0x40FFFFFF), Offset(tx, h - padY), Offset(tx, h - padY + 4f), strokeWidth = 1f)
+            drawText(
+                textMeasurer,
+                formatMinSec(frac.toDouble() * maxTime),
+                topLeft = Offset(tx - 12f, h - padY + 5f),
+                style = axisStyle,
+            )
+        }
+
+        // Ideal-line label (the 0 ms baseline is already drawn above)
+        drawText(
+            textMeasurer, "이상 (0ms)",
+            topLeft = Offset(w - padX - 52f, yZero - 12f),
+            style = axisStyle,
+        )
+
+        // Plot Curve
+        val path = Path()
+        points.forEachIndexed { index, p ->
+            val x = toX(p.timeSeconds)
+            val y = toY(p.deltaMs)
+            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        drawPath(
+            path = path,
+            color = Color(0xFF64B5F6),
+            style = Stroke(width = 2.5f)
+        )
+
+        // Plot Points
+        points.forEach { p ->
+            val x = toX(p.timeSeconds)
+            val y = toY(p.deltaMs)
+            val ptColor = when {
+                abs(p.deltaMs) > 100 -> Color(0xFFE57373)
+                abs(p.deltaMs) > 40 -> Color(0xFFFFB74D)
+                else -> Color(0xFF81C784)
+            }
+            drawCircle(color = ptColor, radius = 3.5f, center = Offset(x, y))
+        }
+
+        // Worst-point callout
+        val worst = points.maxByOrNull { kotlin.math.abs(it.deltaMs) }
+        if (worst != null && kotlin.math.abs(worst.deltaMs) > 40.0) {
+            val wx = toX(worst.timeSeconds)
+            val wy = toY(worst.deltaMs)
+            val text = "%+.0fms @ %s".format(worst.deltaMs, formatMinSec(worst.timeSeconds))
+            val layout = textMeasurer.measure(text, axisStyle.copy(fontSize = 10.sp, color = Color(0xFFFFF176)))
+            val boxW = layout.size.width + 8f
+            val above = wy - 20f > padY
+            val bx = (wx - boxW / 2f).coerceIn(padX, w - padX - boxW)
+            val by = if (above) wy - 20f else wy + 8f
+            drawRoundRect(
+                color = Color(0xCC1E1E1E),
+                topLeft = Offset(bx, by),
+                size = Size(boxW, layout.size.height + 4f),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(3f, 3f),
+            )
+            drawText(layout, topLeft = Offset(bx + 4f, by + 2f))
+        }
+
+        // Selected Point Marker
+        if (selectedPoint != null) {
+            val x = toX(selectedPoint.timeSeconds)
+            val y = toY(selectedPoint.deltaMs)
+            drawLine(
+                color = Color(0xFFFFEB3B),
+                start = Offset(x, padY),
+                end = Offset(x, h - padY),
+                strokeWidth = 1.5f
+            )
+            drawCircle(color = Color(0xFFFFEB3B), radius = 7f, center = Offset(x, y))
+            drawCircle(color = Color(0xFF1E1E1E), radius = 3f, center = Offset(x, y))
+        }
+    }
 }
