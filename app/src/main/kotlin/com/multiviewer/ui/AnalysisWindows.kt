@@ -47,7 +47,7 @@ import com.multiviewer.parser.WarningEntry
 import com.multiviewer.parser.collectWarnings
 import com.multiviewer.ui.terminal.EmbeddedTerminalPanel
 import com.multiviewer.ui.terminal.SessionState
-import com.multiviewer.ui.terminal.WindowsPtyCliSession
+import com.multiviewer.ui.terminal.WindowsShellSession
 import com.multiviewer.util.ClipboardUtil
 import kotlinx.coroutines.delay
 import java.util.Locale
@@ -692,11 +692,10 @@ fun AiPromptPreviewWindow(
     }
 
     val isWindows = remember { System.getProperty("os.name").lowercase().contains("win") }
-    var activeCliSession by remember { mutableStateOf<WindowsPtyCliSession?>(null) }
+    var activeCliSession by remember { mutableStateOf<WindowsShellSession?>(null) }
     // The embedded terminal sits to the RIGHT of the prompt view; this is its
     // column width, drag-resizable via the vertical splitter.
     var terminalWidth by remember { mutableStateOf(480.dp) }
-    var pendingSwitchCli by remember { mutableStateOf<com.multiviewer.util.AiCliType?>(null) }
     var confirmCloseWhileRunning by remember { mutableStateOf(false) }
     // How much the window was grown (in width) for the terminal, so the exact
     // amount can be subtracted back on end — preserving any manual resize done in
@@ -709,30 +708,24 @@ fun AiPromptPreviewWindow(
         java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().maximumWindowBounds.width.dp
     }
 
-    fun startCliSession(cli: com.multiviewer.util.AiCliType): String? {
-        val bin = com.multiviewer.util.AiCliDetector.findBinary(cli.binaryName)
-            ?: return "${cli.binaryName} 실행 파일을 찾을 수 없습니다"
-        val s = WindowsPtyCliSession(cli, bin, tab.file.parentFile, promptText)
+    fun startShellSession(): String? {
+        val s = WindowsShellSession(tab.file.parentFile, promptText)
         s.start()
-        if (s.state is SessionState.Failed) {
-            com.multiviewer.util.AiCliDetector.launchInteractiveCli(cli, promptText, tab.file.parentFile)
-            return "임베드 터미널 실패 — 외부 창으로 실행"
+        (s.state as? SessionState.Failed)?.let {
+            return "PowerShell을 시작하지 못했습니다: ${it.reason}"
         }
-        // tear down any prior session (e.g. one that already exited) before replacing it
         val hadPanelVisible = activeCliSession != null
         activeCliSession?.destroy()
         activeCliSession = s
-        // Only grow the window when the terminal panel first appears — a restart
-        // of an already-visible panel must not stack another growth on top.
+        // Only grow the window when the panel first appears — a restart of an
+        // already-visible panel must not stack another growth on top.
         if (!hadPanelVisible) {
             val current = windowState.size.width
-            // never below `current` — on a narrow screen the cap can be < current,
-            // and a negative growth would shrink the window as the terminal appears.
             val target = (current + terminalWidth + 24.dp).coerceIn(current, maxOf(maxWindowWidth, current))
             windowGrowth = target - current
             windowState.size = windowState.size.copy(width = target)
         }
-        return "${cli.displayName} 임베드 세션 시작 (프롬프트는 클립보드에 복사됨 — 준비되면 붙여넣기)"
+        return "PowerShell 세션 시작 (프롬프트는 클립보드에 복사됨 — CLI 진입 후 붙여넣기)"
     }
 
     fun endCliSession() {
@@ -917,14 +910,10 @@ fun AiPromptPreviewWindow(
 
                         Spacer(Modifier.height(12.dp))
 
-                        // Bottom Action Bar. Every CLI gets a launch button in the
-                        // enum's declaration order (agy before gemini) even when its
-                        // binary isn't detected on PATH -- detection is best-effort on
-                        // Windows and the user may still have it installed; an
-                        // undetected one is dimmed and reports a clear error on click.
-                        val cliButtons = remember {
-                            com.multiviewer.util.AiCliType.entries.map { it to it.isAvailable }
-                        }
+                        // Bottom Action Bar. One button per CLI in the enum's
+                        // declaration order (agy before gemini). Task 2 collapses
+                        // these to a single "open a shell" action.
+                        val cliButtons = remember { com.multiviewer.util.AiCliType.entries.toList() }
 
                         Column(modifier = Modifier.fillMaxWidth()) {
                             Row(
@@ -1071,41 +1060,30 @@ fun AiPromptPreviewWindow(
                                 ) {
                                     Text("Local CLI:", style = AppTypography.labelSmall.copy(fontSize = 11.sp, color = AppColors.NeonPurple, fontWeight = FontWeight.Bold))
                                     Spacer(Modifier.width(6.dp))
-                                    cliButtons.forEach { (cli, detected) ->
-                                        val accent = if (detected) AppColors.NeonPurple else AppColors.TextSecondary
+                                    cliButtons.forEach { cli ->
+                                        val accent = AppColors.NeonPurple
                                         Button(
                                             onClick = {
                                                 ClipboardUtil.copyToClipboard(promptText)
-                                                if (isWindows) {
-                                                    if (activeCliSession?.isAlive == true) {
-                                                        pendingSwitchCli = cli
-                                                    } else {
-                                                        statusMessage = startCliSession(cli)
-                                                    }
+                                                statusMessage = if (isWindows) {
+                                                    startShellSession()
+                                                } else if (com.multiviewer.util.AiCliDetector.openShellAt(tab.file.parentFile)) {
+                                                    "터미널을 열었습니다 (프롬프트 클립보드 복사 완료)"
                                                 } else {
-                                                    val success = com.multiviewer.util.AiCliDetector.launchInteractiveCli(
-                                                        cli,
-                                                        promptText,
-                                                        tab.file.parentFile,
-                                                    )
-                                                    statusMessage = if (success) {
-                                                        "${cli.displayName} 터미널 실행됨 (전체 프롬프트 클립보드 복사 완료: 붙여넣기 가능)"
-                                                    } else {
-                                                        "${cli.displayName} 실행 실패"
-                                                    }
+                                                    "터미널 실행 실패"
                                                 }
                                             },
                                             colors = ButtonDefaults.buttonColors(
-                                                containerColor = accent.copy(alpha = if (detected) 0.2f else 0.08f),
+                                                containerColor = accent.copy(alpha = 0.2f),
                                                 contentColor = accent,
                                             ),
-                                            border = androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = if (detected) 1f else 0.5f)),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, accent),
                                             modifier = Modifier.height(30.dp),
                                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                                             shape = RoundedCornerShape(4.dp),
                                         ) {
                                             Text(
-                                                "▶ ${cli.displayName}" + if (detected) "" else " (미검출)",
+                                                "▶ ${cli.displayName}",
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold,
                                             )
@@ -1189,13 +1167,12 @@ fun AiPromptPreviewWindow(
                         // remounts the panel (its SwingPanel factory binds the
                         // connector once and is not re-invoked on recomposition)
                         key(activeCliSession) {
-                            val restartCli = activeCliSession!!.cli
                             EmbeddedTerminalPanel(
                                 session = activeCliSession!!,
                                 onEndSession = { endCliSession() },
                                 onRestart = {
                                     ClipboardUtil.copyToClipboard(promptText)
-                                    statusMessage = startCliSession(restartCli)
+                                    statusMessage = startShellSession()
                                 },
                                 modifier = Modifier.width(terminalWidth).fillMaxHeight().padding(vertical = 16.dp).padding(end = 16.dp),
                             )
@@ -1206,21 +1183,6 @@ fun AiPromptPreviewWindow(
                     // Real OS dialog windows, not in-window Compose layers: the
                     // SwingPanel terminal always paints on top of Compose content,
                     // so an AlertDialog overlapping it would be invisible.
-                    pendingSwitchCli?.let { next ->
-                        CliConfirmDialog(
-                            title = "세션 전환",
-                            message = "현재 실행 중인 ${activeCliSession?.displayName ?: ""} 세션을 종료하고 ${next.displayName}(으)로 전환할까요?",
-                            confirmLabel = "전환",
-                            themeMode = themeMode,
-                            onConfirm = {
-                                pendingSwitchCli = null
-                                endCliSession()
-                                ClipboardUtil.copyToClipboard(promptText)
-                                statusMessage = startCliSession(next)
-                            },
-                            onDismiss = { pendingSwitchCli = null },
-                        )
-                    }
                     if (confirmCloseWhileRunning) {
                         CliConfirmDialog(
                             title = "세션 종료",

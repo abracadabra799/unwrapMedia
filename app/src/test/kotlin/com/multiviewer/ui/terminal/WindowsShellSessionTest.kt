@@ -1,6 +1,5 @@
 package com.multiviewer.ui.terminal
 
-import com.multiviewer.util.AiCliType
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import java.io.ByteArrayInputStream
@@ -8,7 +7,7 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.concurrent.CountDownLatch
 
-class WindowsPtyCliSessionTest {
+class WindowsShellSessionTest {
 
     /** Minimal fake so tests never touch a native PTY. */
     private class FakeProcess : Process() {
@@ -29,9 +28,7 @@ class WindowsPtyCliSessionTest {
         override fun isAlive(): Boolean = alive
     }
 
-    private fun session(fake: FakeProcess, prompt: String = "diag prompt") = WindowsPtyCliSession(
-        cli = AiCliType.CLAUDE,
-        binPath = "C:\\tools\\claude.cmd",
+    private fun session(fake: FakeProcess, prompt: String = "diag prompt") = WindowsShellSession(
         workingDir = null,
         promptText = prompt,
         startProcess = { fake },
@@ -54,18 +51,17 @@ class WindowsPtyCliSessionTest {
         assertEquals(SessionState.Running, s.state)
         assertTrue(s.isAlive)
         assertEquals("diag prompt", s.promptText)
-        s.destroy() // don't leave the fake registered / the watcher thread parked
+        s.destroy()
     }
 
     @Test
-    fun startWritesLaunchLineToThePtyOffTheCallerThread() {
+    fun startWritesUtf8PreludeToThePtyOffTheCallerThread() {
         val fake = FakeProcess()
         val s = session(fake)
         s.start()
-        // launch line is written on the "ai-cli-launch" daemon thread, not synchronously
-        await { fake.out.toString("UTF-8").contains("& 'C:\\tools\\claude.cmd'") }
+        await { fake.out.toString("UTF-8").contains("chcp 65001") }
         val written = fake.out.toString("UTF-8")
-        assertTrue(written.contains("\$LASTEXITCODE"))
+        assertTrue(written.contains("[Console]::InputEncoding"))
         assertTrue(written.endsWith("\r"))
         s.destroy()
     }
@@ -82,9 +78,7 @@ class WindowsPtyCliSessionTest {
 
     @Test
     fun startFailureMovesStateToFailed() {
-        val s = WindowsPtyCliSession(
-            cli = AiCliType.CLAUDE,
-            binPath = "x",
+        val s = WindowsShellSession(
             workingDir = null,
             promptText = "p",
             startProcess = { throw IOException("boom") },
@@ -107,10 +101,10 @@ class WindowsPtyCliSessionTest {
     fun destroyIsSafeBeforeStartAndWhenRepeated() {
         val fake = FakeProcess()
         val s = session(fake)
-        s.destroy() // never started
+        s.destroy()
         s.start()
         s.destroy()
-        s.destroy() // idempotent
+        s.destroy()
         assertTrue(fake.destroyed)
     }
 }

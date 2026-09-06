@@ -12,32 +12,20 @@ internal object PtyCliCommand {
     )
 
     /**
-     * The PowerShell line written into the PTY to start the CLI. Forces the
-     * console to UTF-8 first — `chcp 65001` plus both `[Console]` encodings — so
-     * the multibyte (e.g. Korean) diagnostic prompt survives both directions:
-     * output rendering AND the bracketed-paste injection, which the console
-     * otherwise decodes with the legacy OEM code page (cp949 → mojibake). The
-     * `[Console]` assignments are wrapped in `try/catch` because setting them can
-     * throw on a host whose stdin/stdout isn't a real console; `chcp` alone still
-     * covers that case. Then exits the host with the CLI's exit code (or 1 if it
-     * never ran) so the shell dies when the CLI does — this is what lets the
-     * session report `Exited` instead of dropping to `PS C:\>`.
+     * One PowerShell statement chain written into the PTY right after the shell
+     * starts. Forces the console to UTF-8 in both directions — `chcp 65001` plus
+     * both `[Console]` encodings (wrapped in `try/catch` in case stdin/stdout
+     * isn't a real console) plus `$OutputEncoding` — so Korean text survives
+     * rendering AND bracketed-paste, which the console otherwise decodes with the
+     * legacy OEM code page (cp949 → mojibake). No CLI is launched and the shell is
+     * NOT exited: the user runs whichever AI CLI they want and the `PS>` prompt
+     * stays available afterwards.
      */
-    fun launchLine(cli: AiCliType, binPath: String): String {
-        // Single-quote the path so a '$' in a user profile name isn't interpolated
-        // by PowerShell; '' escapes a literal quote.
-        val quoted = "'" + binPath.replace("'", "''") + "'"
-        val invoke = when (cli) {
-            AiCliType.AGY -> "& $quoted -i"
-            else -> "& $quoted"
-        }
-        val utf8Prelude = "chcp 65001 > \$null; " +
+    fun utf8Prelude(): String =
+        "chcp 65001 > \$null; " +
             "try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}; " +
             "try { [Console]::InputEncoding = [System.Text.Encoding]::UTF8 } catch {}; " +
-            "\$OutputEncoding = [System.Text.Encoding]::UTF8; "
-        return utf8Prelude + "$invoke; " +
-            "\$ok=\$?; \$ec=\$LASTEXITCODE; exit \$(if (\$ok -and \$null -ne \$ec) {\$ec} else {1})"
-    }
+            "\$OutputEncoding = [System.Text.Encoding]::UTF8"
 
     /**
      * The bytes to feed the terminal to paste [text] into the CLI's input. When

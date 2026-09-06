@@ -190,7 +190,7 @@ private class ReadyAwareJediTermWidget(
  */
 @Composable
 internal fun EmbeddedTerminalPanel(
-    session: WindowsPtyCliSession,
+    session: WindowsShellSession,
     onEndSession: () -> Unit,
     onRestart: () -> Unit,
     modifier: Modifier = Modifier,
@@ -229,7 +229,7 @@ internal fun EmbeddedTerminalPanel(
             Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("● ${session.displayName}", fontSize = 11.sp, color = AppColors.NeonPurple, maxLines = 1)
+            Text("● PowerShell", fontSize = 11.sp, color = AppColors.NeonPurple, maxLines = 1)
             Spacer(Modifier.width(8.dp))
             Text(
                 when (val s = state) {
@@ -249,7 +249,7 @@ internal fun EmbeddedTerminalPanel(
                     onClick = onRestart,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                 ) {
-                    Text("↻ ${session.displayName} 다시 시작", fontSize = 11.sp, color = AppColors.NeonGreen, maxLines = 1)
+                    Text("↻ PowerShell 다시 시작", fontSize = 11.sp, color = AppColors.NeonGreen, maxLines = 1)
                 }
             } else {
                 TextButton(
@@ -281,11 +281,11 @@ internal fun EmbeddedTerminalPanel(
                     "② CLI 입력 프롬프트가 보이면 위 '프롬프트 붙여넣기' 버튼 또는 Ctrl+V, 그다음 Enter."
             is SessionState.Exited ->
                 "CLI 세션이 종료되었습니다. (CLI를 업데이트했거나 exit 했다면 정상입니다.) " +
-                    "다시 사용하려면 위 '↻ ${session.displayName} 다시 시작' 버튼을 누르세요 — " +
+                    "다시 사용하려면 위 '↻ PowerShell 다시 시작' 버튼을 누르세요 — " +
                     "새 세션이 시작되고 프롬프트가 다시 클립보드에 복사됩니다. 로그인 상태는 유지됩니다."
             is SessionState.Failed ->
                 "CLI를 시작하지 못했습니다: ${s.reason}. " +
-                    "'↻ ${session.displayName} 다시 시작'으로 재시도하거나, PowerShell에서 직접 실행해 보세요."
+                    "'↻ PowerShell 다시 시작'으로 재시도하거나, PowerShell에서 직접 실행해 보세요."
         }
         if (guidance != null) {
             Text(

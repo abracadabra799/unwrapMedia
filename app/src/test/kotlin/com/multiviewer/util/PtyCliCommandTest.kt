@@ -18,40 +18,14 @@ class PtyCliCommandTest {
     }
 
     @Test
-    fun launchLineForClaudeInvokesBinaryWithUtf8AndExitsWithCliCode() {
-        val line = PtyCliCommand.launchLine(AiCliType.CLAUDE, "C:\\tools\\claude.cmd")
-        assertTrue(line.contains("OutputEncoding"))
-        assertTrue(line.contains("& 'C:\\tools\\claude.cmd'"))
-        assertFalse(line.contains(" -i"))
-        assertTrue(line.contains("\$LASTEXITCODE"))
-        assertTrue(line.trimEnd().endsWith("})"))
-    }
-
-    @Test
-    fun launchLineForcesConsoleInputEncodingToUtf8SoPastedPromptIsNotMojibake() {
-        val line = PtyCliCommand.launchLine(AiCliType.CLAUDE, "C:\\tools\\claude.cmd")
-        // Output-only was the bug: the bracketed-paste prompt injection is decoded
-        // by the console's *input* code page, which defaults to the OEM page.
-        assertTrue(line.contains("chcp 65001"), "should set the console code page to UTF-8")
-        assertTrue(line.contains("[Console]::InputEncoding"), "should set console input encoding")
-        assertTrue(line.contains("[Console]::OutputEncoding"), "should still set console output encoding")
-        // The encoding prelude must run before the CLI is invoked.
-        assertTrue(
-            line.indexOf("chcp 65001") < line.indexOf("& 'C:\\tools\\claude.cmd'"),
-            "encoding must be forced before the CLI starts",
-        )
-    }
-
-    @Test
-    fun launchLineForAgyAddsInteractiveFlag() {
-        val line = PtyCliCommand.launchLine(AiCliType.AGY, "C:\\tools\\agy.cmd")
-        assertTrue(line.contains("& 'C:\\tools\\agy.cmd' -i"))
-    }
-
-    @Test
-    fun launchLineEscapesSingleQuoteInPath() {
-        val line = PtyCliCommand.launchLine(AiCliType.CLAUDE, "C:\\us'er\\claude.cmd")
-        assertTrue(line.contains("& 'C:\\us''er\\claude.cmd'"))
+    fun utf8PreludeForcesConsoleToUtf8WithNoCliInvocationAndNoExit() {
+        val p = PtyCliCommand.utf8Prelude()
+        assertTrue(p.contains("chcp 65001"), "sets the console code page")
+        assertTrue(p.contains("[Console]::InputEncoding"), "sets console input encoding")
+        assertTrue(p.contains("[Console]::OutputEncoding"), "sets console output encoding")
+        // A plain interactive shell -- it must not launch a CLI or kill itself.
+        assertFalse(p.contains("&"), "no CLI invocation")
+        assertFalse(p.contains("exit"), "no exit -- the shell stays alive")
     }
 
     @Test
