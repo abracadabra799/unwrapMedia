@@ -71,6 +71,78 @@ data class AvSyncReport(
     val overallSeverity: SyncSeverity,
 )
 
+/**
+ * Modelled A/V sync error at a given elapsed position, in ms (positive = audio
+ * leads). A constant start offset plus a linear drift derived from the total
+ * length mismatch — the two things container PTS analysis can determine.
+ */
+internal fun avSyncErrorModel(
+    initialSkewMs: Double,
+    durationDeltaSec: Double,
+    totalDurationSec: Double,
+    elapsedSec: Double,
+): Double {
+    val slopeMsPerSec = if (totalDurationSec > 0.0) durationDeltaSec * 1000.0 / totalDurationSec else 0.0
+    return initialSkewMs + slopeMsPerSec * elapsedSec
+}
+
+internal fun computeSyncPoints(
+    videoPackets: List<StreamPacket>,
+    audioPackets: List<StreamPacket>,
+    initialSkewMs: Double,
+    durationDeltaSec: Double,
+    totalDurationSec: Double,
+    targetSampleCount: Int = 120,
+): List<SyncPoint> {
+    if (videoPackets.isEmpty() || audioPackets.isEmpty()) return emptyList()
+
+    val vFirst = videoPackets.first().ptsSeconds
+    val aFirst = audioPackets.first().ptsSeconds
+    val aLast = audioPackets.last().ptsSeconds
+
+    val step = (videoPackets.size / targetSampleCount).coerceAtLeast(1)
+    val points = ArrayList<SyncPoint>(targetSampleCount + 2)
+
+    var audioSearchIdx = 0
+    val audioCount = audioPackets.size
+
+    // Modelled error at [vIdx], matching audio by ELAPSED position (not PTS
+    // value) so drift and offset actually register, plus a local residual
+    // that spikes on PTS discontinuities. The residual is clamped off once
+    // aTarget runs past the audio (truncation) so the linear term doesn't
+    // double-count the tail.
+    fun pointAt(vIdx: Int): SyncPoint {
+        val vPts = videoPackets[vIdx].ptsSeconds
+        val elapsed = vPts - vFirst
+        val aTarget = aFirst + elapsed
+        while (audioSearchIdx + 1 < audioCount &&
+            abs(audioPackets[audioSearchIdx + 1].ptsSeconds - aTarget) <= abs(audioPackets[audioSearchIdx].ptsSeconds - aTarget)
+        ) {
+            audioSearchIdx++
+        }
+        val aPts = audioPackets[audioSearchIdx].ptsSeconds
+        val localResidual = if (aTarget <= aLast) (elapsed - (aPts - aFirst)) * 1000.0 else 0.0
+        val deltaMs = avSyncErrorModel(initialSkewMs, durationDeltaSec, totalDurationSec, elapsed) + localResidual
+        return SyncPoint(
+            timeSeconds = vPts,
+            videoPts = vPts,
+            audioPts = aPts,
+            deltaMs = deltaMs,
+            videoFrameIndex = vIdx,
+            audioPacketIndex = audioSearchIdx,
+        )
+    }
+
+    for (vIdx in videoPackets.indices step step) {
+        points.add(pointAt(vIdx))
+    }
+    if (videoPackets.size > 1 && (videoPackets.size - 1) % step != 0) {
+        points.add(pointAt(videoPackets.size - 1))
+    }
+
+    return points
+}
+
 object AvSyncAnalyzer {
 
     suspend fun analyze(file: File): AvSyncReport? = withContext(Dispatchers.IO) {
@@ -96,19 +168,21 @@ object AvSyncAnalyzer {
             val videoDurationSec = (vLast - vFirst).coerceAtLeast(0.0)
             val audioDurationSec = (aLast - aFirst).coerceAtLeast(0.0)
             val durationDeltaSec = videoDurationSec - audioDurationSec
+            val totalDurationSec = maxOf(videoDurationSec, audioDurationSec)
 
             // Generate Sync Points by matching closest audio packet for sample video frames
-            val syncPoints = computeSyncPoints(videoPackets, audioPackets)
+            val syncPoints = computeSyncPoints(videoPackets, audioPackets, initialSkewMs, durationDeltaSec, totalDurationSec)
 
             val maxSkewMs = if (syncPoints.isNotEmpty()) syncPoints.maxOf { it.deltaMs } else initialSkewMs
             val minSkewMs = if (syncPoints.isNotEmpty()) syncPoints.minOf { it.deltaMs } else initialSkewMs
             val avgSkewMs = if (syncPoints.isNotEmpty()) syncPoints.map { it.deltaMs }.average() else initialSkewMs
 
-            // Drift rate calculation (change in delta over duration)
-            val effectiveDurationMin = (videoDurationSec.coerceAtLeast(audioDurationSec) / 60.0).coerceAtLeast(0.01)
+            // Drift rate: the linear-model slope, per minute (durationDeltaSec is
+            // the only reliable drift signal from container PTS).
             val firstDelta = syncPoints.firstOrNull()?.deltaMs ?: initialSkewMs
             val lastDelta = syncPoints.lastOrNull()?.deltaMs ?: initialSkewMs
-            val driftRateMsPerMin = (lastDelta - firstDelta) / effectiveDurationMin
+            val driftRateMsPerMin =
+                if (totalDurationSec > 0.0) durationDeltaSec * 1000.0 / (totalDurationSec / 60.0) else 0.0
 
             // Diagnoses
             val diagnoses = mutableListOf<SyncDiagnosis>()
@@ -255,70 +329,6 @@ object AvSyncAnalyzer {
             e.printStackTrace()
             null
         }
-    }
-
-    private fun computeSyncPoints(
-        videoPackets: List<StreamPacket>,
-        audioPackets: List<StreamPacket>,
-        targetSampleCount: Int = 120
-    ): List<SyncPoint> {
-        if (videoPackets.isEmpty() || audioPackets.isEmpty()) return emptyList()
-
-        val step = (videoPackets.size / targetSampleCount).coerceAtLeast(1)
-        val points = ArrayList<SyncPoint>(targetSampleCount + 2)
-
-        var audioSearchIdx = 0
-        val audioCount = audioPackets.size
-
-        for (vIdx in videoPackets.indices step step) {
-            val vPkt = videoPackets[vIdx]
-            val vPts = vPkt.ptsSeconds
-
-            while (audioSearchIdx + 1 < audioCount &&
-                abs(audioPackets[audioSearchIdx + 1].ptsSeconds - vPts) <= abs(audioPackets[audioSearchIdx].ptsSeconds - vPts)
-            ) {
-                audioSearchIdx++
-            }
-
-            val aPkt = audioPackets[audioSearchIdx]
-            val aPts = aPkt.ptsSeconds
-            val deltaMs = (vPts - aPts) * 1000.0
-
-            points.add(
-                SyncPoint(
-                    timeSeconds = vPts,
-                    videoPts = vPts,
-                    audioPts = aPts,
-                    deltaMs = deltaMs,
-                    videoFrameIndex = vIdx,
-                    audioPacketIndex = audioSearchIdx
-                )
-            )
-        }
-
-        if (videoPackets.size > 1 && (videoPackets.size - 1) % step != 0) {
-            val vIdx = videoPackets.size - 1
-            val vPkt = videoPackets[vIdx]
-            val vPts = vPkt.ptsSeconds
-            while (audioSearchIdx + 1 < audioCount &&
-                abs(audioPackets[audioSearchIdx + 1].ptsSeconds - vPts) <= abs(audioPackets[audioSearchIdx].ptsSeconds - vPts)
-            ) {
-                audioSearchIdx++
-            }
-            val aPkt = audioPackets[audioSearchIdx]
-            points.add(
-                SyncPoint(
-                    timeSeconds = vPts,
-                    videoPts = vPts,
-                    audioPts = aPkt.ptsSeconds,
-                    deltaMs = (vPts - aPkt.ptsSeconds) * 1000.0,
-                    videoFrameIndex = vIdx,
-                    audioPacketIndex = audioSearchIdx
-                )
-            )
-        }
-
-        return points
     }
 
     private fun probePackets(file: File): List<StreamPacket>? {
