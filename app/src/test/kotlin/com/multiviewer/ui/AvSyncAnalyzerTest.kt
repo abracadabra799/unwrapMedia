@@ -152,4 +152,109 @@ class AvSyncAnalyzerTest {
             "sawtooth not suppressed: ${pts.map { it.deltaMs.toInt() }.distinct().sorted()}",
         )
     }
+
+    // ---- parseStreamInfoBlocks ----
+
+    private val realShowStreamsOutput = """
+        index=0
+        codec_type=video
+        start_time=0.000000
+        duration=15.000000
+        index=1
+        codec_type=audio
+        start_time=0.000000
+        duration=15.000000
+    """.trimIndent()
+
+    @Test
+    fun parseStreamInfo_realTwoStreamOutput() {
+        val streams = parseStreamInfoBlocks(realShowStreamsOutput)
+        assertEquals(2, streams.size)
+        assertEquals("video", streams[0].codecType)
+        assertEquals(0.0, streams[0].startTimeSec!!, 1e-9)
+        assertEquals(15.0, streams[0].durationSec!!, 1e-9)
+        assertEquals("audio", streams[1].codecType)
+    }
+
+    @Test
+    fun parseStreamInfo_naFieldsBecomeNull() {
+        val out = "index=0\ncodec_type=audio\nstart_time=N/A\nduration=N/A\n"
+        val s = parseStreamInfoBlocks(out).single()
+        assertEquals("audio", s.codecType)
+        assertNull(s.startTimeSec)
+        assertNull(s.durationSec)
+    }
+
+    @Test
+    fun parseStreamInfo_blockMissingCodecTypeIsSkipped() {
+        val out = "index=0\nstart_time=1.0\nduration=2.0\nindex=1\ncodec_type=video\nstart_time=0.0\nduration=10.0\n"
+        val streams = parseStreamInfoBlocks(out)
+        assertEquals(1, streams.size)
+        assertEquals("video", streams[0].codecType)
+    }
+
+    @Test
+    fun parseStreamInfo_emptyOrGarbage() {
+        assertTrue(parseStreamInfoBlocks("").isEmpty())
+        assertTrue(parseStreamInfoBlocks("no equals signs here\njust text").isEmpty())
+    }
+
+    @Test
+    fun parseStreamInfo_multiAudioKeepsBoth() {
+        val out = "index=0\ncodec_type=video\nstart_time=0.0\nduration=10.0\n" +
+            "index=1\ncodec_type=audio\nstart_time=0.0\nduration=10.0\n" +
+            "index=2\ncodec_type=audio\nstart_time=0.0\nduration=10.0\n"
+        assertEquals(2, parseStreamInfoBlocks(out).count { it.codecType == "audio" })
+    }
+
+    // ---- resolveSkewAndDurations ----
+
+    @Test
+    fun resolveTiming_primingCase_streamStartWins_editListFlagged() {
+        val v = StreamInfo("video", startTimeSec = 0.0, durationSec = 15.0)
+        val a = StreamInfo("audio", startTimeSec = 0.0, durationSec = 15.0)
+        val t = resolveSkewAndDurations(v, a, packetVideoFirstPts = 0.0, packetAudioFirstPts = -0.021333,
+            packetVideoDurationSec = 15.0, packetAudioDurationSec = 15.021)
+        assertEquals(0.0, t.initialSkewMs, 1e-6)
+        assertEquals(0.0, t.videoStartSec, 1e-9)
+        assertEquals(15.0, t.audioDurationSec, 1e-9)
+        assertTrue(t.editListAdjusted, "21ms delta between packet PTS and start_time is an edit list")
+    }
+
+    @Test
+    fun resolveTiming_noAudioStream_fallsBackToPackets() {
+        val t = resolveSkewAndDurations(
+            videoStream = StreamInfo("video", 0.0, 15.0), audioStream = null,
+            packetVideoFirstPts = 0.0, packetAudioFirstPts = -0.05,
+            packetVideoDurationSec = 15.0, packetAudioDurationSec = 15.05,
+        )
+        assertEquals(50.0, t.initialSkewMs, 1e-6)     // (0.0 - (-0.05)) * 1000
+        assertEquals(15.05, t.audioDurationSec, 1e-9)
+        assertFalse(t.editListAdjusted)
+    }
+
+    @Test
+    fun resolveTiming_durationNaButStartPresent_usesPacketDurationKeepsStartSkew() {
+        val v = StreamInfo("video", startTimeSec = 0.0, durationSec = null)
+        val a = StreamInfo("audio", startTimeSec = 0.0, durationSec = 12.0)
+        val t = resolveSkewAndDurations(v, a, 0.0, 0.0, packetVideoDurationSec = 11.7, packetAudioDurationSec = 12.0)
+        assertEquals(11.7, t.videoDurationSec, 1e-9)
+        assertEquals(0.0, t.initialSkewMs, 1e-9)
+    }
+
+    @Test
+    fun resolveTiming_genuineOffset() {
+        val v = StreamInfo("video", startTimeSec = 0.14, durationSec = 60.0)
+        val a = StreamInfo("audio", startTimeSec = 0.0, durationSec = 60.0)
+        val t = resolveSkewAndDurations(v, a, 0.14, 0.0, 60.0, 60.0)
+        assertEquals(140.0, t.initialSkewMs, 1e-6)
+        assertTrue(t.editListAdjusted)
+    }
+
+    @Test
+    fun resolveTiming_negativeResolvedDurationCoercedToZero() {
+        val v = StreamInfo("video", 5.0, -3.0)
+        val t = resolveSkewAndDurations(v, null, 5.0, 0.0, -3.0, 0.0)
+        assertEquals(0.0, t.videoDurationSec, 1e-9)
+    }
 }

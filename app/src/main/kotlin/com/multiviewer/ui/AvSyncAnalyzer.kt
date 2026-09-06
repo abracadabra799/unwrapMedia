@@ -69,6 +69,7 @@ data class AvSyncReport(
     val syncPoints: List<SyncPoint>,
     val diagnoses: List<SyncDiagnosis>,
     val overallSeverity: SyncSeverity,
+    val editListAdjusted: Boolean = false,
 )
 
 /**
@@ -94,6 +95,91 @@ internal fun avSyncErrorModel(
  */
 internal fun avSyncIsProgressiveDrift(driftRateMsPerMin: Double, totalAccumulatedDriftMs: Double): Boolean =
     abs(driftRateMsPerMin) > 20.0 && abs(totalAccumulatedDriftMs) > 100.0
+
+/** One stream's edit-list-aware timing from `ffprobe -show_streams`. */
+internal data class StreamInfo(
+    val codecType: String,
+    val startTimeSec: Double?,
+    val durationSec: Double?,
+)
+
+internal data class AvSyncTiming(
+    val videoStartSec: Double,
+    val audioStartSec: Double,
+    val initialSkewMs: Double,
+    val videoDurationSec: Double,
+    val audioDurationSec: Double,
+    val editListAdjusted: Boolean,
+)
+
+/**
+ * Parses `key=value` blocks from `ffprobe -show_entries stream=... -of
+ * default=noprint_wrappers=1`. Each `index=` line starts a new stream block.
+ * `N/A` / missing / unparseable numeric fields become null.
+ */
+internal fun parseStreamInfoBlocks(ffprobeOutput: String): List<StreamInfo> {
+    val result = ArrayList<StreamInfo>()
+    var codecType: String? = null
+    var startTime: Double? = null
+    var duration: Double? = null
+
+    fun flush() {
+        val ct = codecType
+        if (ct != null) result.add(StreamInfo(ct, startTime, duration))
+        codecType = null; startTime = null; duration = null
+    }
+
+    for (raw in ffprobeOutput.lineSequence()) {
+        val line = raw.trim()
+        val eq = line.indexOf('=')
+        if (eq <= 0) continue
+        val key = line.substring(0, eq)
+        val value = line.substring(eq + 1)
+        when (key) {
+            "index" -> flush()
+            "codec_type" -> codecType = value
+            "start_time" -> startTime = value.toDoubleOrNull()
+            "duration" -> duration = value.toDoubleOrNull()
+        }
+    }
+    flush()
+    return result
+}
+
+/**
+ * Prefer the container's edit-list-aware `start_time` / `duration`; fall back to
+ * the packet-derived values per field when a stream field is absent. Flags when
+ * `start_time` and the first packet PTS disagree by > 5 ms (an edit list or
+ * codec delay is trimming/shifting the stream), or when the container reports a
+ * relative start offset between the video and audio streams.
+ */
+internal fun resolveSkewAndDurations(
+    videoStream: StreamInfo?,
+    audioStream: StreamInfo?,
+    packetVideoFirstPts: Double,
+    packetAudioFirstPts: Double,
+    packetVideoDurationSec: Double,
+    packetAudioDurationSec: Double,
+): AvSyncTiming {
+    val vStreamStart = videoStream?.startTimeSec
+    val aStreamStart = audioStream?.startTimeSec
+    val vStart = vStreamStart ?: packetVideoFirstPts
+    val aStart = aStreamStart ?: packetAudioFirstPts
+    val vDur = videoStream?.durationSec ?: packetVideoDurationSec
+    val aDur = audioStream?.durationSec ?: packetAudioDurationSec
+    val editListAdjusted =
+        (vStreamStart?.let { abs(it - packetVideoFirstPts) > 0.005 } ?: false) ||
+        (aStreamStart?.let { abs(it - packetAudioFirstPts) > 0.005 } ?: false) ||
+        (vStreamStart != null && aStreamStart != null && abs(vStreamStart - aStreamStart) > 0.005)
+    return AvSyncTiming(
+        videoStartSec = vStart,
+        audioStartSec = aStart,
+        initialSkewMs = (vStart - aStart) * 1000.0,
+        videoDurationSec = vDur.coerceAtLeast(0.0),
+        audioDurationSec = aDur.coerceAtLeast(0.0),
+        editListAdjusted = editListAdjusted,
+    )
+}
 
 internal fun computeSyncPoints(
     videoPackets: List<StreamPacket>,
@@ -179,13 +265,23 @@ object AvSyncAnalyzer {
 
             val vFirst = videoPackets.first().ptsSeconds
             val aFirst = audioPackets.first().ptsSeconds
-            val initialSkewMs = (vFirst - aFirst) * 1000.0
-
             val vLast = videoPackets.last().let { it.ptsSeconds + (it.durationSeconds ?: 0.0) }
             val aLast = audioPackets.last().let { it.ptsSeconds + (it.durationSeconds ?: 0.0) }
 
-            val videoDurationSec = (vLast - vFirst).coerceAtLeast(0.0)
-            val audioDurationSec = (aLast - aFirst).coerceAtLeast(0.0)
+            // Prefer edit-list-aware start_time / duration (what a player sees);
+            // fall back to packet PTS per field when the stream fields are N/A.
+            val streams = probeStreams(file)
+            val timing = resolveSkewAndDurations(
+                videoStream = streams.firstOrNull { it.codecType == "video" },
+                audioStream = streams.firstOrNull { it.codecType == "audio" },
+                packetVideoFirstPts = vFirst,
+                packetAudioFirstPts = aFirst,
+                packetVideoDurationSec = (vLast - vFirst).coerceAtLeast(0.0),
+                packetAudioDurationSec = (aLast - aFirst).coerceAtLeast(0.0),
+            )
+            val initialSkewMs = timing.initialSkewMs
+            val videoDurationSec = timing.videoDurationSec
+            val audioDurationSec = timing.audioDurationSec
             val durationDeltaSec = videoDurationSec - audioDurationSec
             val totalDurationSec = maxOf(videoDurationSec, audioDurationSec)
 
@@ -214,8 +310,8 @@ object AvSyncAnalyzer {
                         severity = SyncSeverity.CRITICAL,
                         summary = String.format(Locale.US, "시작 지점에서 %.1f ms의 심각한 오프셋이 감지되었습니다.", initialSkewMs),
                         technicalDetails = listOf(
-                            "비디오 시작 PTS: ${String.format(Locale.US, "%.3f", vFirst)} s",
-                            "오디오 시작 PTS: ${String.format(Locale.US, "%.3f", aFirst)} s",
+                            "비디오 시작 PTS: ${String.format(Locale.US, "%.3f", timing.videoStartSec)} s",
+                            "오디오 시작 PTS: ${String.format(Locale.US, "%.3f", timing.audioStartSec)} s",
                             if (initialSkewMs > 0) "오디오가 비디오보다 먼저 재생 시작됨 (Audio Leads Video)"
                             else "비디오가 오디오보다 먼저 재생 시작됨 (Video Leads Audio)"
                         ),
@@ -232,8 +328,8 @@ object AvSyncAnalyzer {
                         severity = SyncSeverity.WARNING,
                         summary = String.format(Locale.US, "시작 시점에 %.1f ms의 편차가 있습니다. (ITU-R BT.1359 권고 임계치)", initialSkewMs),
                         technicalDetails = listOf(
-                            "비디오 시작 PTS: ${String.format(Locale.US, "%.3f", vFirst)} s",
-                            "오디오 시작 PTS: ${String.format(Locale.US, "%.3f", aFirst)} s"
+                            "비디오 시작 PTS: ${String.format(Locale.US, "%.3f", timing.videoStartSec)} s",
+                            "오디오 시작 PTS: ${String.format(Locale.US, "%.3f", timing.audioStartSec)} s"
                         ),
                         androidImpact = "인간의 인지 범위(-90ms ~ +45ms)에 근접하거나 약간 초과하여 대화 장면에서 입모양 불일치(Lip-sync mismatch)가 느껴질 수 있습니다.",
                         recommendedFix = "오디오 및 비디오의 인코딩 시작 오프셋 보정 필터를 적용하세요.",
@@ -344,6 +440,7 @@ object AvSyncAnalyzer {
                 syncPoints = syncPoints,
                 diagnoses = diagnoses,
                 overallSeverity = overallSeverity,
+                editListAdjusted = timing.editListAdjusted,
             )
         } catch (e: Exception) {
             e.printStackTrace()
@@ -392,6 +489,30 @@ object AvSyncAnalyzer {
             packets
         } catch (e: Exception) {
             null
+        } finally {
+            process?.let {
+                ProcessManager.terminate(it)
+                ProcessManager.unregister(it)
+            }
+        }
+    }
+
+    private fun probeStreams(file: File): List<StreamInfo> {
+        var process: Process? = null
+        return try {
+            process = ProcessManager.register(
+                ProcessBuilder(
+                    FfmpegLocator.ffprobePath(), "-v", "error",
+                    "-show_entries", "stream=index,codec_type,start_time,duration",
+                    "-of", "default=noprint_wrappers=1", file.absolutePath
+                ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD)
+                    .also { FfmpegLocator.configureEnvironment(it) }.start()
+            )
+            val text = process.inputStream.bufferedReader().readText()
+            process.waitFor()
+            parseStreamInfoBlocks(text)
+        } catch (e: Exception) {
+            emptyList()
         } finally {
             process?.let {
                 ProcessManager.terminate(it)

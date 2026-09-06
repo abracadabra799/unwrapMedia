@@ -174,6 +174,13 @@ private fun AvSyncReportContent(
             )
         }
 
+        if (report.editListAdjusted) {
+            Text(
+                "ℹ 편집 리스트/코덱 딜레이가 적용된 파일 — 시작 오프셋은 플레이어 기준(edit list 반영)으로 계산했습니다.",
+                style = AppTypography.bodySmall.copy(color = AppColors.TextSecondary),
+            )
+        }
+
         // 2. At-a-glance sync bar + verdict, then the annotated skew curve
         Card(
             modifier = Modifier.fillMaxWidth(),
