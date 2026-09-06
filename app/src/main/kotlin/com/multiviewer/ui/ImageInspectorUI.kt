@@ -57,37 +57,78 @@ fun ImageInspectorUI(
     // onSelect for any node) rather than a gesture on the image itself: whenever the selected node
     // is one of tileGrid's own tile items (an iloc "item_<ID>" node whose ID appears in
     // tileGrid.tileItemIds), resolve that tile's real pixel-data byte range and its row-major
-    // index -- both null otherwise, which is what hides the single-tile overlay (PixelInspectorPreview
-    // below) and falls the Hex viewer highlight back to its normal tree-selection behavior
-    // (Main.kt's tileHighlightRange ?: activeField ?: selected chain).
+    // Reacts to the Media Structure tree selection (tab.selected, set generically by BoxTreeView's
+    // onSelect for any node):
+    // 1. If selected node is a tile item, update selectedTileIndex for the tile overlay preview.
+    // 2. If selected node is any iloc item (e.g. item_50 referencing XMP/Exif/image data in mdat/idat)
+    //    or an extent child under an item, resolve its actual payload byte range in the file so the
+    //    Hex & Raw Data Viewer highlights and navigates to the actual mdat/idat data rather than the
+    //    small header table entry!
     LaunchedEffect(tab.selected, tab.tileGrid) {
         val root = tab.root
         val tileGrid = tab.tileGrid
         val selected = tab.selected
-        val itemId = selected?.type?.takeIf { it.startsWith("item_") }?.removePrefix("item_")?.toLongOrNull()
-        val tileIndex = if (root != null && tileGrid != null && itemId != null) tileGrid.tileItemIds.indexOf(itemId).takeIf { it >= 0 } else null
-        if (root == null || tileIndex == null) {
+        if (root == null || selected == null) {
             tab.tileHighlightRange = null
             tab.selectedTileIndex = null
             return@LaunchedEffect
         }
+
+        val itemId = selected.type.takeIf { it.startsWith("item_") }?.removePrefix("item_")?.toLongOrNull()
+        val tileIndex = if (tileGrid != null && itemId != null) tileGrid.tileItemIds.indexOf(itemId).takeIf { it >= 0 } else null
+        tab.selectedTileIndex = tileIndex
+
         val iloc = com.multiviewer.parser.findFirst(root) { it.type == "meta" }
             ?.let { meta -> com.multiviewer.parser.findFirst(meta) { it.type == "iloc" } }
-        val extent = iloc?.children?.find { it.type == "item_$itemId" }?.children?.firstOrNull()
-        val absoluteOffset = extent?.fields?.find { it.name == "offset" }?.value?.toLongOrNull()
-        val idatRelativeOffset = extent?.fields?.find { it.name == "idat_relative_offset" }?.value?.toLongOrNull()
-        val offset = if (absoluteOffset != null) {
-            absoluteOffset
-        } else if (idatRelativeOffset != null) {
-            val idatBase = com.multiviewer.parser.findFirst(root) { it.type == "idat" }
-                ?.let { it.offset + it.headerSize } ?: 0L
-            idatBase + idatRelativeOffset
-        } else {
-            null
+
+        // Case A: Selected an iloc item node (item_<ID>)
+        if (itemId != null) {
+            val itemNode = iloc?.children?.find { it.type == "item_$itemId" } ?: selected
+            // First check if it has an enriched field like "xmp" with extent offset/length
+            val xmpField = itemNode.fields.find { it.name == "xmp" }
+            if (xmpField != null && xmpField.length > 0) {
+                tab.tileHighlightRange = xmpField.offset until (xmpField.offset + xmpField.length)
+                return@LaunchedEffect
+            }
+
+            val extent = itemNode.children.firstOrNull { it.type == "extent" }
+            val absoluteOffset = extent?.fields?.find { it.name == "offset" }?.value?.toLongOrNull()
+            val idatRelativeOffset = extent?.fields?.find { it.name == "idat_relative_offset" }?.value?.toLongOrNull()
+            val offset = if (absoluteOffset != null) {
+                absoluteOffset
+            } else if (idatRelativeOffset != null) {
+                val idatBase = com.multiviewer.parser.findFirst(root) { it.type == "idat" }
+                    ?.let { it.offset + it.headerSize } ?: 0L
+                idatBase + idatRelativeOffset
+            } else {
+                null
+            }
+            val length = extent?.fields?.find { it.name == "length" }?.value?.toLongOrNull()
+            tab.tileHighlightRange = if (offset != null && length != null && length > 0) offset until (offset + length) else null
+            return@LaunchedEffect
         }
-        val length = extent?.fields?.find { it.name == "length" }?.value?.toLongOrNull()
-        tab.tileHighlightRange = if (offset != null && length != null) offset until (offset + length) else null
-        tab.selectedTileIndex = tileIndex
+
+        // Case B: Selected an extent node directly
+        if (selected.type == "extent") {
+            val absoluteOffset = selected.fields.find { it.name == "offset" }?.value?.toLongOrNull()
+            val idatRelativeOffset = selected.fields.find { it.name == "idat_relative_offset" }?.value?.toLongOrNull()
+            val offset = if (absoluteOffset != null) {
+                absoluteOffset
+            } else if (idatRelativeOffset != null) {
+                val idatBase = com.multiviewer.parser.findFirst(root) { it.type == "idat" }
+                    ?.let { it.offset + it.headerSize } ?: 0L
+                idatBase + idatRelativeOffset
+            } else {
+                null
+            }
+            val length = selected.fields.find { it.name == "length" }?.value?.toLongOrNull()
+            if (offset != null && length != null && length > 0) {
+                tab.tileHighlightRange = offset until (offset + length)
+                return@LaunchedEffect
+            }
+        }
+
+        tab.tileHighlightRange = null
     }
 
     DashboardLayout(
@@ -371,7 +412,7 @@ fun DetailedPropertiesPanel(appState: AppState, tab: TabState) {
 
         when (activeTab) {
             DetailPanelTab.OVERVIEW -> OverviewTabContent(appState, tab)
-            DetailPanelTab.DETAIL -> DetailPropertiesTabContent(tab)
+            DetailPanelTab.DETAIL -> DetailPropertiesTabContent(appState, tab)
             DetailPanelTab.WARNINGS -> WarningsTabContent(
                 appState = appState,
                 tab = tab,
@@ -565,7 +606,7 @@ private fun WarningsTabContent(
 }
 
 @Composable
-private fun DetailPropertiesTabContent(tab: TabState) {
+private fun DetailPropertiesTabContent(appState: AppState, tab: TabState) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         // A single LazyColumn (with a visible scrollbar) for all three cases below, instead of a
         // plain non-scrolling Column for the frame case and two separately-scrollable LazyColumns
@@ -636,7 +677,8 @@ private fun DetailPropertiesTabContent(tab: TabState) {
         }
         LaunchedEffect(tab.selectedFrame) { tab.parameterSetHighlightRange = null }
         Box(modifier = Modifier.fillMaxSize()) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+            androidx.compose.foundation.text.selection.SelectionContainer(modifier = Modifier.fillMaxSize()) {
+                LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                 when {
                     selectedFrame != null -> {
                         item {
@@ -645,7 +687,15 @@ private fun DetailPropertiesTabContent(tab: TabState) {
                             PropertyRow("Size", "${selectedFrame.sizeBytes} bytes")
                             PropertyRow("PTS", "${selectedFrame.ptsSeconds}s")
                             selectedFrame.byteOffset?.let { offset ->
-                                PropertyRow("Byte Offset", "0x${offset.toString(16).uppercase()} (${offset})")
+                                val hexOffset = "0x${offset.toString(16).uppercase()}"
+                                PropertyRow(
+                                    label = "Byte Offset",
+                                    value = "$hexOffset ($offset)",
+                                    onCopy = {
+                                        ClipboardUtil.copyToClipboard(hexOffset)
+                                        appState.statusMessage = "Offset 복사됨: $hexOffset"
+                                    }
+                                )
                             }
                             tab.gopFrames?.let { frames -> gopPositionOf(frames, selectedFrame.index) }?.let { gop ->
                                 PropertyRow(
@@ -797,13 +847,25 @@ private fun DetailPropertiesTabContent(tab: TabState) {
                     selectedNode != null -> {
                         item {
                             PropertyRow("Type", selectedNode.type)
-                            PropertyRow("Offset", "0x${selectedNode.offset.toString(16).uppercase()}")
+                            val hexOffset = "0x${selectedNode.offset.toString(16).uppercase()}"
+                            PropertyRow(
+                                label = "Offset",
+                                value = hexOffset,
+                                onCopy = {
+                                    ClipboardUtil.copyToClipboard(hexOffset)
+                                    appState.statusMessage = "Offset 복사됨: $hexOffset"
+                                }
+                            )
                             PropertyRow("Size", "${selectedNode.size} bytes")
                             Spacer(Modifier.height(8.dp))
                         }
                         items(selectedNode.fields) { field ->
                             if (field.name == "xmp") {
-                                XmpFieldDisplay(field.value)
+                                XmpFieldDisplay(
+                                    raw = field.value,
+                                    isSelected = tab.selectedField == field,
+                                    onClick = { tab.selectedField = field },
+                                )
                             } else {
                                 Box(
                                     modifier = Modifier
@@ -846,6 +908,7 @@ private fun DetailPropertiesTabContent(tab: TabState) {
                         }
                     }
                 }
+            }
             }
             VerticalScrollbar(
                 adapter = rememberScrollbarAdapter(listState),

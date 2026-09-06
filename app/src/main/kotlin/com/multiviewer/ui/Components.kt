@@ -145,22 +145,49 @@ fun SummaryBox(
 // A hairline divider below each row -- with many fields stacked in a plain LazyColumn (only
 // vertical padding between them) it was hard to tell where one field ended and the next began.
 @Composable
-fun PropertyRow(label: String, value: String, onClick: (() -> Unit)? = null) {
+fun PropertyRow(
+    label: String,
+    value: String,
+    onClick: (() -> Unit)? = null,
+    onCopy: (() -> Unit)? = null,
+) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth()
                 .let { if (onClick != null) it.clickable(onClick = onClick) else it }
                 .padding(vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(label, style = AppTypography.labelLarge, modifier = Modifier.weight(1f))
-            Text(
-                value,
-                style = AppTypography.bodyLarge,
-                color = if (onClick != null) AppColors.NeonBlue else Color.Unspecified,
+            Row(
                 modifier = Modifier.weight(1f),
-                textAlign = TextAlign.End
-            )
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    value,
+                    style = AppTypography.bodyLarge,
+                    color = if (onClick != null) AppColors.NeonBlue else Color.Unspecified,
+                    textAlign = TextAlign.End
+                )
+                if (onCopy != null) {
+                    Spacer(Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clickable(onClick = onCopy)
+                            .pointerHoverIcon(PointerIcon(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR))),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "📋",
+                            fontSize = 11.sp,
+                            color = AppColors.NeonBlue
+                        )
+                    }
+                }
+            }
         }
         Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AppColors.Border.copy(alpha = 0.5f)))
     }
@@ -171,10 +198,41 @@ fun PropertyRow(label: String, value: String, onClick: (() -> Unit)? = null) {
 // flush against the right side, or start mid-column with no indentation. Pretty-printing it and
 // giving it its own full-width, left-aligned block lets it read naturally.
 @Composable
-fun XmpFieldDisplay(raw: String) {
+fun XmpFieldDisplay(
+    raw: String,
+    isSelected: Boolean = false,
+    onClick: (() -> Unit)? = null,
+) {
     val formatted = remember(raw) { prettyPrintXmlOrRaw(raw) }
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Text("xmp:", style = AppTypography.labelLarge)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(if (isSelected) AppColors.Selection else Color.Transparent)
+            .then(
+                if (onClick != null) {
+                    Modifier
+                        .clickable(onClick = onClick)
+                        .pointerHoverIcon(PointerIcon(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)))
+                } else {
+                    Modifier
+                }
+            )
+            .padding(vertical = 4.dp, horizontal = 4.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "xmp:",
+                style = AppTypography.labelLarge,
+                color = if (isSelected) AppColors.NeonBlue else AppColors.TextPrimary,
+            )
+            if (onClick != null) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "🔍 Hex 보기",
+                    style = AppTypography.bodySmall.copy(fontSize = 10.sp, color = AppColors.NeonBlue),
+                )
+            }
+        }
         Text(
             formatted,
             style = AppTypography.bodyLarge.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp),

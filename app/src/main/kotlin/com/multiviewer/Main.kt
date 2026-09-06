@@ -613,16 +613,26 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 )
             }
             Menu(I18n.menuHelp(language)) {
+                if (hasUpdateAvailable) {
+                    Item(
+                        "🔔 ${if (language == AppLanguage.KO) "새 버전 v$latestUpdateVersion 업데이트..." else "Update to v$latestUpdateVersion..."}",
+                        onClick = { updateWindowOpen = true },
+                    )
+                } else {
+                    Item(
+                        I18n.menuCheckForUpdates(language),
+                        onClick = { updateWindowOpen = true },
+                    )
+                }
+                Separator()
                 Item(
-                    I18n.menuCheckForUpdates(language),
-                    onClick = { updateWindowOpen = true },
-                )
-                Item(
-                    if (hasUpdateAvailable) "🔔 ${if (language == AppLanguage.KO) "새 버전 v$latestUpdateVersion 사용 가능" else "New version v$latestUpdateVersion available"}"
-                    else I18n.menuVersionInfo(language),
+                    I18n.menuOnlineRepo(language),
                     onClick = {
-                        if (hasUpdateAvailable) updateWindowOpen = true
-                        else aboutWindowOpen = true
+                        try {
+                            val config = com.multiviewer.update.UpdateConfig.load()
+                            val uri = java.net.URI(config.repoUrl.ifBlank { com.multiviewer.update.UpdateConfig.DEFAULT_REPO_URL })
+                            java.awt.Desktop.getDesktop().browse(uri)
+                        } catch (_: Exception) {}
                     },
                 )
                 Separator()

@@ -145,6 +145,7 @@ object I18n {
     const val APP_VERSION = "1.12.0"
     fun menuHelp(lang: AppLanguage) = if (lang == AppLanguage.KO) "도움말" else "Help"
     fun menuCheckForUpdates(lang: AppLanguage) = if (lang == AppLanguage.KO) "업데이트 확인..." else "Check for Updates..."
+    fun menuOnlineRepo(lang: AppLanguage) = if (lang == AppLanguage.KO) "GitHub 저장소 및 릴리즈" else "GitHub Repository & Releases"
     fun menuAbout(lang: AppLanguage) = if (lang == AppLanguage.KO) "unwrapMedia 정보" else "About unwrapMedia"
     fun menuVersionInfo(lang: AppLanguage) = if (lang == AppLanguage.KO) "버전: v$APP_VERSION" else "Version: v$APP_VERSION"
     fun titleAboutWindow(lang: AppLanguage) = if (lang == AppLanguage.KO) "unwrapMedia 정보" else "About unwrapMedia"
