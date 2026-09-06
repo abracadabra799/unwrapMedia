@@ -6,6 +6,7 @@ import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -26,6 +27,8 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.DpSize
@@ -39,6 +42,9 @@ import com.multiviewer.cli.buildCheckJson
 import com.multiviewer.cli.buildDumpJson
 import com.multiviewer.parser.WarningEntry
 import com.multiviewer.parser.collectWarnings
+import com.multiviewer.ui.terminal.EmbeddedTerminalPanel
+import com.multiviewer.ui.terminal.SessionState
+import com.multiviewer.ui.terminal.WindowsPtyCliSession
 import com.multiviewer.util.ClipboardUtil
 import kotlinx.coroutines.delay
 import java.util.Locale
@@ -621,13 +627,64 @@ fun AiPromptPreviewWindow(
     var editingService by remember { mutableStateOf<WebAiService?>(null) }
     var customUrlInput by remember { mutableStateOf("") }
 
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(statusMessage) {
+        if (statusMessage != null) {
+            delay(3000)
+            statusMessage = null
+        }
+    }
+
+    val isWindows = remember { System.getProperty("os.name").lowercase().contains("win") }
+    var activeCliSession by remember { mutableStateOf<WindowsPtyCliSession?>(null) }
+    var terminalHeight by remember { mutableStateOf(320.dp) }
+    var pendingSwitchCli by remember { mutableStateOf<com.multiviewer.util.AiCliType?>(null) }
+    var confirmCloseWhileRunning by remember { mutableStateOf(false) }
+    val baseWindowHeight = remember { windowState.size.height }
+
+    fun startCliSession(cli: com.multiviewer.util.AiCliType): String? {
+        val bin = com.multiviewer.util.AiCliDetector.findBinary(cli.binaryName)
+            ?: return "${cli.binaryName} 실행 파일을 찾을 수 없습니다"
+        ClipboardUtil.copyToClipboard(promptText)
+        val s = WindowsPtyCliSession(cli, bin, tab.file.parentFile, promptText)
+        s.start()
+        if (s.state is SessionState.Failed) {
+            com.multiviewer.util.AiCliDetector.launchInteractiveCli(cli, promptText, tab.file.parentFile)
+            return "임베드 터미널 실패 — 외부 창으로 실행"
+        }
+        activeCliSession = s
+        windowState.size = windowState.size.copy(
+            height = (baseWindowHeight + terminalHeight + 48.dp).coerceAtMost(1200.dp),
+        )
+        return "${cli.displayName} 임베드 세션 시작 (프롬프트 자동 입력 예정)"
+    }
+
+    fun endCliSession() {
+        activeCliSession?.destroy()
+        activeCliSession = null
+        windowState.size = windowState.size.copy(height = baseWindowHeight)
+    }
+
+    val requestClose: () -> Unit = {
+        if (activeCliSession?.isAlive == true) {
+            confirmCloseWhileRunning = true
+        } else {
+            activeCliSession?.destroy()
+            onCloseRequest()
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { activeCliSession?.destroy() }
+    }
+
     Window(
-        onCloseRequest = onCloseRequest,
+        onCloseRequest = requestClose,
         title = "AI Analysis Prompt - ${tab.file.name}",
         state = windowState,
         onKeyEvent = { event ->
             if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
-                onCloseRequest()
+                requestClose()
                 true
             } else {
                 false
@@ -637,6 +694,7 @@ fun AiPromptPreviewWindow(
         AppTheme(mode = themeMode, showPixelGrid = false) {
             CompositionLocalProvider(LocalScrollbarStyle provides AppScrollbarStyle) {
                 Surface(modifier = Modifier.fillMaxSize(), color = AppColors.Background) {
+                  Box(Modifier.fillMaxSize()) {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -781,13 +839,6 @@ fun AiPromptPreviewWindow(
                         // Bottom Action Bar
                         val availableClis = remember {
                             com.multiviewer.util.AiCliType.entries.filter { it.isAvailable }
-                        }
-                        var statusMessage by remember { mutableStateOf<String?>(null) }
-                        LaunchedEffect(statusMessage) {
-                            if (statusMessage != null) {
-                                delay(3000)
-                                statusMessage = null
-                            }
                         }
 
                         Column(modifier = Modifier.fillMaxWidth()) {
@@ -935,15 +986,23 @@ fun AiPromptPreviewWindow(
                                             Button(
                                                 onClick = {
                                                     ClipboardUtil.copyToClipboard(promptText)
-                                                    val success = com.multiviewer.util.AiCliDetector.launchInteractiveCli(
-                                                        cli,
-                                                        promptText,
-                                                        tab.file.parentFile,
-                                                    )
-                                                    statusMessage = if (success) {
-                                                        "${cli.displayName} 터미널 실행됨 (전체 프롬프트 클립보드 복사 완료: 붙여넣기 가능)"
+                                                    if (isWindows) {
+                                                        if (activeCliSession?.isAlive == true) {
+                                                            pendingSwitchCli = cli
+                                                        } else {
+                                                            statusMessage = startCliSession(cli)
+                                                        }
                                                     } else {
-                                                        "${cli.displayName} 실행 실패"
+                                                        val success = com.multiviewer.util.AiCliDetector.launchInteractiveCli(
+                                                            cli,
+                                                            promptText,
+                                                            tab.file.parentFile,
+                                                        )
+                                                        statusMessage = if (success) {
+                                                            "${cli.displayName} 터미널 실행됨 (전체 프롬프트 클립보드 복사 완료: 붙여넣기 가능)"
+                                                        } else {
+                                                            "${cli.displayName} 실행 실패"
+                                                        }
                                                     }
                                                 },
                                                 colors = ButtonDefaults.buttonColors(
@@ -993,7 +1052,70 @@ fun AiPromptPreviewWindow(
                                 }
                             }
                         }
+
+                        if (isWindows && activeCliSession != null) {
+                            Spacer(Modifier.height(6.dp))
+                            val density = LocalDensity.current
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .background(AppColors.Border, RoundedCornerShape(3.dp))
+                                    .pointerInput(Unit) {
+                                        detectDragGestures { change, dragAmount ->
+                                            change.consume()
+                                            val deltaDp = with(density) { dragAmount.y.toDp() }
+                                            terminalHeight = (terminalHeight - deltaDp).coerceIn(180.dp, 640.dp)
+                                        }
+                                    },
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            EmbeddedTerminalPanel(
+                                session = activeCliSession!!,
+                                onEndSession = { endCliSession() },
+                                modifier = Modifier.fillMaxWidth().height(terminalHeight),
+                            )
+                        }
                     }
+
+                    pendingSwitchCli?.let { next ->
+                        AlertDialog(
+                            onDismissRequest = { pendingSwitchCli = null },
+                            title = { Text("세션 전환") },
+                            text = {
+                                Text("현재 실행 중인 ${activeCliSession?.displayName ?: ""} 세션을 종료하고 ${next.displayName}(으)로 전환할까요?")
+                            },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    pendingSwitchCli = null
+                                    endCliSession()
+                                    statusMessage = startCliSession(next)
+                                }) { Text("전환") }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { pendingSwitchCli = null }) { Text("취소") }
+                            },
+                        )
+                    }
+                    if (confirmCloseWhileRunning) {
+                        AlertDialog(
+                            onDismissRequest = { confirmCloseWhileRunning = false },
+                            title = { Text("세션 종료") },
+                            text = { Text("실행 중인 CLI 세션을 종료하고 창을 닫습니다.") },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    confirmCloseWhileRunning = false
+                                    activeCliSession?.destroy()
+                                    activeCliSession = null
+                                    onCloseRequest()
+                                }) { Text("종료 후 닫기") }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { confirmCloseWhileRunning = false }) { Text("취소") }
+                            },
+                        )
+                    }
+                  }
                 }
             }
         }
