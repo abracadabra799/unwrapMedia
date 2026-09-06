@@ -3,14 +3,14 @@ package com.multiviewer.ui.terminal
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import com.jediterm.core.util.TermSize
 import com.jediterm.terminal.TtyConnector
 import com.multiviewer.util.AiCliType
 import com.multiviewer.util.PtyCliCommand
+import com.multiviewer.util.ProcessManager
 import com.pty4j.PtyProcessBuilder
 import java.io.File
 
-sealed interface SessionState {
+internal sealed interface SessionState {
     data object Starting : SessionState
     data object Running : SessionState
     data class Exited(val code: Int) : SessionState
@@ -21,11 +21,11 @@ sealed interface SessionState {
  * Owns exactly one AI CLI process running inside a PowerShell ConPTY session.
  * Windows only. One session at a time is enforced by the caller.
  */
-class WindowsPtyCliSession(
+internal class WindowsPtyCliSession(
     private val cli: AiCliType,
     private val binPath: String,
     private val workingDir: File?,
-    private val promptText: String,
+    val promptText: String,
     private val startProcess: () -> Process = {
         val dir = workingDir?.takeIf { it.isDirectory } ?: File(System.getProperty("user.home"))
         PtyProcessBuilder()
@@ -56,15 +56,22 @@ class WindowsPtyCliSession(
     fun start() {
         try {
             val p = startProcess()
-            process = p
+            // Tracked so the JVM shutdown hook / Main's destroyAll() kill it on app
+            // quit even when Compose disposal is preempted by exitProcess().
+            process = ProcessManager.register(p)
             _ttyConnector = PtyCliTtyConnector(p)
             // Running is set before the watcher Thread object exists, so Exited can
             // only ever follow Running — no start()-vs-watcher ordering race.
             state = SessionState.Running
-            runCatching { _ttyConnector!!.write(PtyCliCommand.launchLine(cli, binPath) + "\r") }
+            // Off the caller thread (the EDT): even this small write goes to a PTY
+            // pipe that may not be drained yet.
+            Thread {
+                runCatching { _ttyConnector?.write(PtyCliCommand.launchLine(cli, binPath) + "\r") }
+            }.apply { isDaemon = true; name = "ai-cli-launch" }.start()
             Thread {
                 try {
                     val code = p.waitFor()
+                    ProcessManager.unregister(p)
                     // Deliberate off-thread write: Compose snapshot state is safe to
                     // write from any thread and schedules recomposition on its own.
                     // After destroy() this still fires with the forced exit code.
@@ -75,27 +82,14 @@ class WindowsPtyCliSession(
                 }
             }.apply { isDaemon = true; name = "ai-cli-watch" }.start()
         } catch (t: Throwable) {
+            runCatching { process?.destroyForcibly() }
+            process?.let { ProcessManager.unregister(it) }
             state = SessionState.Failed(t.message ?: t.javaClass.simpleName)
         }
     }
 
-    fun injectPrompt() {
-        if (isAlive) {
-            runCatching { ttyConnector.write(PtyCliCommand.bracketedPaste(promptText)) }
-        }
-    }
-
-    /**
-     * Explicitly push a terminal size to the PTY. Currently unused: JediTerm's
-     * `JediTermWidget` drives sizing itself via a component listener that calls
-     * [PtyCliTtyConnector.resize] on the connector directly. Kept for a future
-     * manual "fit" control or a resize path that does not go through the widget.
-     */
-    fun resize(columns: Int, rows: Int) {
-        runCatching { _ttyConnector?.resize(TermSize(columns, rows)) }
-    }
-
     fun destroy() {
+        process?.let { ProcessManager.unregister(it) }
         runCatching { process?.destroyForcibly() }
         runCatching { _ttyConnector?.close() }
     }

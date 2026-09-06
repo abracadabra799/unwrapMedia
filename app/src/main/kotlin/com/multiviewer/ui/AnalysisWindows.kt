@@ -34,8 +34,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogWindow
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
+import androidx.compose.ui.window.rememberDialogState
 import androidx.compose.ui.window.rememberWindowState
 import com.multiviewer.cli.AiDiagnosticPromptBuilder
 import com.multiviewer.cli.buildCheckJson
@@ -587,6 +589,59 @@ private fun buildCheckTextReport(file: java.io.File, warnings: List<WarningEntry
 }
 
 /**
+ * A small confirm/cancel prompt rendered as a real OS dialog window. Used by the
+ * embedded-terminal flow because a `SwingPanel` always paints above Compose
+ * content, so an in-window Compose dialog overlapping the terminal is invisible.
+ */
+@Composable
+private fun CliConfirmDialog(
+    title: String,
+    message: String,
+    confirmLabel: String,
+    themeMode: ThemeMode,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    DialogWindow(
+        onCloseRequest = onDismiss,
+        state = rememberDialogState(size = DpSize(430.dp, 190.dp), position = WindowPosition(Alignment.Center)),
+        title = title,
+    ) {
+        AppTheme(mode = themeMode, showPixelGrid = false) {
+            Surface(modifier = Modifier.fillMaxSize(), color = AppColors.Background) {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(20.dp),
+                    verticalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        message,
+                        style = AppTypography.bodyMedium.copy(fontSize = 13.sp, color = AppColors.TextPrimary),
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(onClick = onDismiss) {
+                            Text("취소", fontSize = 12.sp, color = AppColors.TextSecondary)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Button(
+                            onClick = onConfirm,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = AppColors.NeonPurple,
+                                contentColor = Color.White,
+                            ),
+                            shape = RoundedCornerShape(4.dp),
+                        ) { Text(confirmLabel, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
  * Window dialog for "Generate AI Prompt..."
  * Displays the AI diagnostic prompt ready to be sent to Claude / ChatGPT / Gemini.
  */
@@ -641,6 +696,11 @@ fun AiPromptPreviewWindow(
     var pendingSwitchCli by remember { mutableStateOf<com.multiviewer.util.AiCliType?>(null) }
     var confirmCloseWhileRunning by remember { mutableStateOf(false) }
     val baseWindowHeight = remember { windowState.size.height }
+    // Grown window must stay inside the usable screen (1366x768 laptops are a target).
+    val maxWindowHeight = remember {
+        (java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment()
+            .maximumWindowBounds.height).dp
+    }
 
     fun startCliSession(cli: com.multiviewer.util.AiCliType): String? {
         val bin = com.multiviewer.util.AiCliDetector.findBinary(cli.binaryName)
@@ -655,7 +715,7 @@ fun AiPromptPreviewWindow(
         activeCliSession?.destroy()
         activeCliSession = s
         windowState.size = windowState.size.copy(
-            height = (baseWindowHeight + terminalHeight + 48.dp).coerceAtMost(1200.dp),
+            height = (baseWindowHeight + terminalHeight + 48.dp).coerceAtMost(maxWindowHeight),
         )
         return "${cli.displayName} 임베드 세션 시작 (프롬프트 자동 입력 예정)"
     }
@@ -1084,42 +1144,37 @@ fun AiPromptPreviewWindow(
                         }
                     }
 
+                    // Real OS dialog windows, not in-window Compose layers: the
+                    // SwingPanel terminal always paints on top of Compose content,
+                    // so an AlertDialog overlapping it would be invisible.
                     pendingSwitchCli?.let { next ->
-                        AlertDialog(
-                            onDismissRequest = { pendingSwitchCli = null },
-                            title = { Text("세션 전환") },
-                            text = {
-                                Text("현재 실행 중인 ${activeCliSession?.displayName ?: ""} 세션을 종료하고 ${next.displayName}(으)로 전환할까요?")
+                        CliConfirmDialog(
+                            title = "세션 전환",
+                            message = "현재 실행 중인 ${activeCliSession?.displayName ?: ""} 세션을 종료하고 ${next.displayName}(으)로 전환할까요?",
+                            confirmLabel = "전환",
+                            themeMode = themeMode,
+                            onConfirm = {
+                                pendingSwitchCli = null
+                                endCliSession()
+                                ClipboardUtil.copyToClipboard(promptText)
+                                statusMessage = startCliSession(next)
                             },
-                            confirmButton = {
-                                TextButton(onClick = {
-                                    pendingSwitchCli = null
-                                    endCliSession()
-                                    ClipboardUtil.copyToClipboard(promptText)
-                                    statusMessage = startCliSession(next)
-                                }) { Text("전환") }
-                            },
-                            dismissButton = {
-                                TextButton(onClick = { pendingSwitchCli = null }) { Text("취소") }
-                            },
+                            onDismiss = { pendingSwitchCli = null },
                         )
                     }
                     if (confirmCloseWhileRunning) {
-                        AlertDialog(
-                            onDismissRequest = { confirmCloseWhileRunning = false },
-                            title = { Text("세션 종료") },
-                            text = { Text("실행 중인 CLI 세션을 종료하고 창을 닫습니다.") },
-                            confirmButton = {
-                                TextButton(onClick = {
-                                    confirmCloseWhileRunning = false
-                                    activeCliSession?.destroy()
-                                    activeCliSession = null
-                                    onCloseRequest()
-                                }) { Text("종료 후 닫기") }
+                        CliConfirmDialog(
+                            title = "세션 종료",
+                            message = "실행 중인 CLI 세션을 종료하고 창을 닫습니다.",
+                            confirmLabel = "종료 후 닫기",
+                            themeMode = themeMode,
+                            onConfirm = {
+                                confirmCloseWhileRunning = false
+                                activeCliSession?.destroy()
+                                activeCliSession = null
+                                onCloseRequest()
                             },
-                            dismissButton = {
-                                TextButton(onClick = { confirmCloseWhileRunning = false }) { Text("취소") }
-                            },
+                            onDismiss = { confirmCloseWhileRunning = false },
                         )
                     }
                   }

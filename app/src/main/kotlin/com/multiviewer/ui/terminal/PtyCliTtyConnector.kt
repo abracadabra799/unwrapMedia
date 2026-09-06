@@ -11,7 +11,7 @@ import java.nio.charset.StandardCharsets
  * `PtyProcessTtyConnector` is not shipped in the published jediterm-core /
  * jediterm-ui artifacts, so this small subclass reimplements it.
  */
-class PtyCliTtyConnector(
+internal class PtyCliTtyConnector(
     private val process: Process,
 ) : ProcessTtyConnector(process, StandardCharsets.UTF_8, null) {
 

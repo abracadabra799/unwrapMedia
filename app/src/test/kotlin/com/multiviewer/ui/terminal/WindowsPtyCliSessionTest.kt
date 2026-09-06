@@ -7,7 +7,6 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 class WindowsPtyCliSessionTest {
 
@@ -38,38 +37,35 @@ class WindowsPtyCliSessionTest {
         startProcess = { fake },
     )
 
-    private fun awaitState(s: WindowsPtyCliSession, predicate: (SessionState) -> Boolean) {
-        val deadline = System.currentTimeMillis() + 2000
+    private fun await(timeoutMs: Long = 2000, predicate: () -> Boolean) {
+        val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
-            if (predicate(s.state)) return
+            if (predicate()) return
             Thread.sleep(10)
         }
-        fail<Unit>("state never satisfied predicate; last = ${s.state}")
+        fail<Unit>("condition never satisfied within ${timeoutMs}ms")
     }
 
     @Test
-    fun startTransitionsToRunningAndWritesLaunchLine() {
+    fun startTransitionsToRunningImmediately() {
         val fake = FakeProcess()
         val s = session(fake)
         s.start()
         assertEquals(SessionState.Running, s.state)
         assertTrue(s.isAlive)
-        val written = fake.out.toString("UTF-8")
-        assertTrue(written.contains("& \"C:\\tools\\claude.cmd\""))
-        assertTrue(written.endsWith("\r"))
+        assertEquals("diag prompt", s.promptText)
     }
 
     @Test
-    fun injectPromptWritesBracketedPasteBurst() {
+    fun startWritesLaunchLineToThePtyOffTheCallerThread() {
         val fake = FakeProcess()
-        val s = session(fake, prompt = "hello world")
+        val s = session(fake)
         s.start()
-        fake.out.reset()
-        s.injectPrompt()
+        // launch line is written on the "ai-cli-launch" daemon thread, not synchronously
+        await { fake.out.toString("UTF-8").contains("& \"C:\\tools\\claude.cmd\"") }
         val written = fake.out.toString("UTF-8")
-        assertTrue(written.startsWith("\u001B[200~"))
-        assertTrue(written.contains("hello world"))
-        assertTrue(written.endsWith("\u001B[201~\r"))
+        assertTrue(written.contains("exit \$LASTEXITCODE"))
+        assertTrue(written.endsWith("\r"))
     }
 
     @Test
@@ -78,7 +74,7 @@ class WindowsPtyCliSessionTest {
         val s = session(fake)
         s.start()
         fake.simulateExit(3)
-        awaitState(s) { it == SessionState.Exited(3) }
+        await { s.state == SessionState.Exited(3) }
         assertFalse(s.isAlive)
     }
 
@@ -106,14 +102,13 @@ class WindowsPtyCliSessionTest {
     }
 
     @Test
-    fun injectPromptAfterExitIsNoOp() {
+    fun destroyIsSafeBeforeStartAndWhenRepeated() {
         val fake = FakeProcess()
         val s = session(fake)
+        s.destroy() // never started
         s.start()
-        fake.simulateExit(0)
-        awaitState(s) { it is SessionState.Exited }
-        fake.out.reset()
-        s.injectPrompt()
-        assertEquals(0, fake.out.size())
+        s.destroy()
+        s.destroy() // idempotent
+        assertTrue(fake.destroyed)
     }
 }

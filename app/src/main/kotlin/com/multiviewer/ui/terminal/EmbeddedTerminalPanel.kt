@@ -27,10 +27,13 @@ import com.multiviewer.ui.AppColors
 import kotlinx.coroutines.delay
 import java.awt.Font
 
-const val PROMPT_INJECT_DELAY_MS: Long = 1400
+/** Fallback deadline for prompt injection when readiness can't be detected. */
+internal const val PROMPT_INJECT_DELAY_MS: Long = 1400
 
 private class CliTerminalSettings : DefaultSettingsProvider() {
-    override fun getTerminalFont(): Font = Font(Font.MONOSPACED, Font.PLAIN, 13)
+    // Consolas ships on Windows and renders TUI box-drawing far better than the
+    // generic MONOSPACED logical font (Courier New).
+    override fun getTerminalFont(): Font = Font("Consolas", Font.PLAIN, 13)
     override fun getTerminalFontSize(): Float = 13f
     override fun audibleBell(): Boolean = false
 }
@@ -40,7 +43,7 @@ private class CliTerminalSettings : DefaultSettingsProvider() {
  * Auto-injects the diagnostic prompt once, [PROMPT_INJECT_DELAY_MS] after mount.
  */
 @Composable
-fun EmbeddedTerminalPanel(
+internal fun EmbeddedTerminalPanel(
     session: WindowsPtyCliSession,
     onEndSession: () -> Unit,
     modifier: Modifier = Modifier,
@@ -48,9 +51,21 @@ fun EmbeddedTerminalPanel(
     val state = session.state
     var widget by remember(session) { mutableStateOf<JediTermWidget?>(null) }
 
+    // Send the prompt through JediTerm's own writer thread (never the caller /
+    // EDT): sendString queues on TerminalStarter's single-thread executor, so a
+    // multi-KB write can't block the UI, and it can't interleave with the user's
+    // keystrokes. The `true` flag lets JediTerm wrap it in bracketed-paste
+    // markers only if the CLI actually enabled that mode.
+    fun injectPrompt() {
+        widget?.terminalStarter?.let { starter ->
+            starter.sendString(session.promptText, true)
+            starter.sendString("\r", false)
+        }
+    }
+
     LaunchedEffect(session) {
         delay(PROMPT_INJECT_DELAY_MS)
-        session.injectPrompt()
+        injectPrompt()
     }
     DisposableEffect(session) {
         onDispose { widget?.close() }
@@ -74,7 +89,7 @@ fun EmbeddedTerminalPanel(
                 color = AppColors.TextSecondary,
             )
             Spacer(Modifier.width(10.dp))
-            TextButton(onClick = { session.injectPrompt() }) {
+            TextButton(onClick = { injectPrompt() }) {
                 Text("프롬프트 재주입", fontSize = 11.sp, color = AppColors.NeonPurple)
             }
             TextButton(onClick = onEndSession) {
@@ -89,10 +104,18 @@ fun EmbeddedTerminalPanel(
             // whole composable remounts and the widget is recreated with the new
             // connector. Do not rely on recomposition to rebind the connector.
             factory = {
-                JediTermWidget(120, 30, CliTerminalSettings()).also { w ->
-                    w.ttyConnector = session.ttyConnector
-                    w.start()
-                    widget = w
+                runCatching {
+                    JediTermWidget(120, 30, CliTerminalSettings()).also { w ->
+                        w.ttyConnector = session.ttyConnector
+                        w.start()
+                        w.requestFocusInWindow()
+                        widget = w
+                    }
+                }.getOrElse {
+                    // Spec: JediTermWidget init failure → tear the session down
+                    // rather than crash the popup composition.
+                    onEndSession()
+                    JediTermWidget(1, 1, CliTerminalSettings()).also { widget = it }
                 }
             },
             update = { _ ->
