@@ -1092,30 +1092,48 @@ fun AiPromptPreviewWindow(
                                     }
                                 }
 
-                                // Copy and Close Buttons
+                                // Copy and Close Buttons -- restrained, dev-tool styling:
+                                // a faint accent wash on the primary action, a plain
+                                // ghost button for Close. No saturated fills.
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Button(
+                                    OutlinedButton(
                                         onClick = {
                                             if (ClipboardUtil.copyToClipboard(promptText)) {
                                                 copied = true
                                             }
                                         },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (copied) AppColors.NeonGreen.copy(alpha = 0.8f) else AppColors.NeonPurple.copy(alpha = 0.8f),
-                                            contentColor = if (copied) Color.Black else Color.White,
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            containerColor = if (copied) {
+                                                AppColors.NeonGreen.copy(alpha = 0.12f)
+                                            } else {
+                                                AppColors.NeonBlue.copy(alpha = 0.10f)
+                                            },
+                                            contentColor = if (copied) AppColors.NeonGreen else AppColors.NeonBlue,
                                         ),
-                                        modifier = Modifier.height(32.dp).border(1.dp, if (copied) AppColors.NeonGreen else AppColors.NeonPurple, RoundedCornerShape(4.dp)),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            1.dp,
+                                            (if (copied) AppColors.NeonGreen else AppColors.NeonBlue).copy(alpha = 0.45f),
+                                        ),
+                                        modifier = Modifier.height(32.dp),
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
                                         shape = RoundedCornerShape(4.dp),
                                     ) {
-                                        Text(if (copied) "✓ Copied to Clipboard" else "Copy Prompt", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Text(
+                                            if (copied) "✓ Copied to clipboard" else "Copy prompt",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium,
+                                        )
                                     }
                                     Spacer(Modifier.width(8.dp))
-                                    Button(
+                                    OutlinedButton(
                                         onClick = requestClose,
-                                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.TextPrimary),
-                                        modifier = Modifier.height(32.dp).border(1.dp, AppColors.Border, RoundedCornerShape(4.dp)),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            containerColor = Color.Transparent,
+                                            contentColor = AppColors.TextSecondary,
+                                        ),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.Border),
+                                        modifier = Modifier.height(32.dp),
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
                                         shape = RoundedCornerShape(4.dp),
                                     ) {
                                         Text("Close", fontSize = 12.sp)

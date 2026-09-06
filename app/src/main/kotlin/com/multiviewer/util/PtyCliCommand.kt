@@ -12,11 +12,16 @@ internal object PtyCliCommand {
     )
 
     /**
-     * The PowerShell line written into the PTY to start the CLI. Sets UTF-8
-     * output first so multibyte prompt text renders correctly, then exits the
-     * host with the CLI's exit code (or 1 if it never ran) so the shell dies when
-     * the CLI does — this is what lets the session report `Exited` instead of
-     * dropping to `PS C:\>`.
+     * The PowerShell line written into the PTY to start the CLI. Forces the
+     * console to UTF-8 first — `chcp 65001` plus both `[Console]` encodings — so
+     * the multibyte (e.g. Korean) diagnostic prompt survives both directions:
+     * output rendering AND the bracketed-paste injection, which the console
+     * otherwise decodes with the legacy OEM code page (cp949 → mojibake). The
+     * `[Console]` assignments are wrapped in `try/catch` because setting them can
+     * throw on a host whose stdin/stdout isn't a real console; `chcp` alone still
+     * covers that case. Then exits the host with the CLI's exit code (or 1 if it
+     * never ran) so the shell dies when the CLI does — this is what lets the
+     * session report `Exited` instead of dropping to `PS C:\>`.
      */
     fun launchLine(cli: AiCliType, binPath: String): String {
         // Single-quote the path so a '$' in a user profile name isn't interpolated
@@ -26,7 +31,11 @@ internal object PtyCliCommand {
             AiCliType.AGY -> "& $quoted -i"
             else -> "& $quoted"
         }
-        return "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $invoke; " +
+        val utf8Prelude = "chcp 65001 > \$null; " +
+            "try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}; " +
+            "try { [Console]::InputEncoding = [System.Text.Encoding]::UTF8 } catch {}; " +
+            "\$OutputEncoding = [System.Text.Encoding]::UTF8; "
+        return utf8Prelude + "$invoke; " +
             "\$ok=\$?; \$ec=\$LASTEXITCODE; exit \$(if (\$ok -and \$null -ne \$ec) {\$ec} else {1})"
     }
 

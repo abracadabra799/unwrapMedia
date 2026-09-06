@@ -21,6 +21,8 @@ import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jediterm.terminal.TerminalColor
+import com.jediterm.terminal.TextStyle
 import com.jediterm.terminal.model.StyleState
 import com.jediterm.terminal.model.TerminalTextBuffer
 import com.jediterm.terminal.ui.JediTermWidget
@@ -47,19 +49,37 @@ internal const val PROMPT_INJECT_MAX_WAIT_MS: Long = 20_000
  * mode. Compose snapshot state so the "프롬프트 재주입" button can enable itself
  * (written from JediTerm's reader thread — safe, same as [SessionState]).
  */
-private class BracketedPasteSignal {
+internal class BracketedPasteSignal {
     var isReady by mutableStateOf(false)
         private set
 
     fun markReady() { isReady = true }
 }
 
-private class CliTerminalSettings(val readySignal: BracketedPasteSignal) : DefaultSettingsProvider() {
+/**
+ * JediTerm 3.74's [DefaultSettingsProvider] defaults to black-on-white
+ * (`UserSettingsProvider.getDefaultStyle()` → `TextStyle(BLACK, WHITE)`), which
+ * looks nothing like a dev-tool console and clashes with the app's dark panel.
+ * Override the default style so the terminal is light-on-dark, matching the
+ * [SwingPanel] background used below. `getDefaultForeground`/`getDefaultBackground`
+ * both delegate to `getDefaultStyle()`, so this one override is enough.
+ */
+internal val CLI_TERMINAL_FOREGROUND: TerminalColor = TerminalColor.rgb(0xC9, 0xD1, 0xD9)
+internal val CLI_TERMINAL_BACKGROUND: TerminalColor = TerminalColor.rgb(0x13, 0x16, 0x1A)
+
+internal class CliTerminalSettings(val readySignal: BracketedPasteSignal) : DefaultSettingsProvider() {
     // Consolas ships on Windows and renders TUI box-drawing far better than the
     // generic MONOSPACED logical font (Courier New).
     override fun getTerminalFont(): Font = Font("Consolas", Font.PLAIN, 13)
     override fun getTerminalFontSize(): Float = 13f
     override fun audibleBell(): Boolean = false
+
+    // getDefaultStyle() is @Deprecated in jediterm 3.74's UserSettingsProvider, but
+    // TerminalPanel / StyleState still resolve the console's base colours through it
+    // (getDefaultForeground/Background delegate here). No non-deprecated replacement
+    // exists in this pinned version.
+    @Suppress("OVERRIDE_DEPRECATION")
+    override fun getDefaultStyle(): TextStyle = TextStyle(CLI_TERMINAL_FOREGROUND, CLI_TERMINAL_BACKGROUND)
 }
 
 private class ReadySignalTerminalPanel(
