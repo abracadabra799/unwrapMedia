@@ -917,9 +917,13 @@ fun AiPromptPreviewWindow(
 
                         Spacer(Modifier.height(12.dp))
 
-                        // Bottom Action Bar
-                        val availableClis = remember {
-                            com.multiviewer.util.AiCliType.entries.filter { it.isAvailable }
+                        // Bottom Action Bar. Every CLI gets a launch button in the
+                        // enum's declaration order (agy before gemini) even when its
+                        // binary isn't detected on PATH -- detection is best-effort on
+                        // Windows and the user may still have it installed; an
+                        // undetected one is dimmed and reports a clear error on click.
+                        val cliButtons = remember {
+                            com.multiviewer.util.AiCliType.entries.map { it to it.isAvailable }
                         }
 
                         Column(modifier = Modifier.fillMaxWidth()) {
@@ -1058,47 +1062,55 @@ fun AiPromptPreviewWindow(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
-                                // Local CLI Buttons (only if detected on current machine)
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    if (availableClis.isNotEmpty()) {
-                                        Text("Local CLI:", style = AppTypography.labelSmall.copy(fontSize = 11.sp, color = AppColors.NeonPurple, fontWeight = FontWeight.Bold))
-                                        Spacer(Modifier.width(6.dp))
-                                        availableClis.forEach { cli ->
-                                            Button(
-                                                onClick = {
-                                                    ClipboardUtil.copyToClipboard(promptText)
-                                                    if (isWindows) {
-                                                        if (activeCliSession?.isAlive == true) {
-                                                            pendingSwitchCli = cli
-                                                        } else {
-                                                            statusMessage = startCliSession(cli)
-                                                        }
+                                // Local CLI Buttons -- always shown, one per CLI.
+                                // weight+scroll so 4 buttons never push the Copy/Close
+                                // pair off the row (esp. once the terminal docks right).
+                                Row(
+                                    modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text("Local CLI:", style = AppTypography.labelSmall.copy(fontSize = 11.sp, color = AppColors.NeonPurple, fontWeight = FontWeight.Bold))
+                                    Spacer(Modifier.width(6.dp))
+                                    cliButtons.forEach { (cli, detected) ->
+                                        val accent = if (detected) AppColors.NeonPurple else AppColors.TextSecondary
+                                        Button(
+                                            onClick = {
+                                                ClipboardUtil.copyToClipboard(promptText)
+                                                if (isWindows) {
+                                                    if (activeCliSession?.isAlive == true) {
+                                                        pendingSwitchCli = cli
                                                     } else {
-                                                        val success = com.multiviewer.util.AiCliDetector.launchInteractiveCli(
-                                                            cli,
-                                                            promptText,
-                                                            tab.file.parentFile,
-                                                        )
-                                                        statusMessage = if (success) {
-                                                            "${cli.displayName} 터미널 실행됨 (전체 프롬프트 클립보드 복사 완료: 붙여넣기 가능)"
-                                                        } else {
-                                                            "${cli.displayName} 실행 실패"
-                                                        }
+                                                        statusMessage = startCliSession(cli)
                                                     }
-                                                },
-                                                colors = ButtonDefaults.buttonColors(
-                                                    containerColor = AppColors.NeonPurple.copy(alpha = 0.2f),
-                                                    contentColor = AppColors.NeonPurple,
-                                                ),
-                                                border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.NeonPurple),
-                                                modifier = Modifier.height(30.dp),
-                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                                shape = RoundedCornerShape(4.dp),
-                                            ) {
-                                                Text("▶ ${cli.displayName}", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                            }
-                                            Spacer(Modifier.width(6.dp))
+                                                } else {
+                                                    val success = com.multiviewer.util.AiCliDetector.launchInteractiveCli(
+                                                        cli,
+                                                        promptText,
+                                                        tab.file.parentFile,
+                                                    )
+                                                    statusMessage = if (success) {
+                                                        "${cli.displayName} 터미널 실행됨 (전체 프롬프트 클립보드 복사 완료: 붙여넣기 가능)"
+                                                    } else {
+                                                        "${cli.displayName} 실행 실패"
+                                                    }
+                                                }
+                                            },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = accent.copy(alpha = if (detected) 0.2f else 0.08f),
+                                                contentColor = accent,
+                                            ),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = if (detected) 1f else 0.5f)),
+                                            modifier = Modifier.height(30.dp),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                            shape = RoundedCornerShape(4.dp),
+                                        ) {
+                                            Text(
+                                                "▶ ${cli.displayName}" + if (detected) "" else " (미검출)",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                            )
                                         }
+                                        Spacer(Modifier.width(6.dp))
                                     }
                                 }
 

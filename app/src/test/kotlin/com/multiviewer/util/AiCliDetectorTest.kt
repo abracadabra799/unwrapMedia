@@ -43,4 +43,13 @@ class AiCliDetectorTest {
         // exercises the full PATH scan + where/which fallback end to end
         assertNull(AiCliDetector.findBinary("definitely-not-a-real-cli-zzz-x9"))
     }
+
+    @Test
+    fun cliButtonOrderPutsAgyBeforeGemini() {
+        // Enterprise accounts can't use agy yet -> gemini is the fallback and both
+        // need a launch button; agy is listed first.
+        val order = AiCliType.entries.map { it.name }
+        assertTrue(order.indexOf("AGY") < order.indexOf("GEMINI"), "order was $order")
+        assertEquals(listOf("CLAUDE", "CODEX", "AGY", "GEMINI"), order)
+    }
 }

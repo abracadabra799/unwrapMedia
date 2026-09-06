@@ -4,11 +4,14 @@ import java.awt.Desktop
 import java.io.File
 import java.net.URI
 
+// Declaration order is also the button order in the AI prompt window. agy before
+// gemini: enterprise accounts can't use agy yet, so gemini stays the fallback and
+// both need a launch button regardless of what's detected on PATH.
 enum class AiCliType(val displayName: String, val binaryName: String) {
     CLAUDE("Claude Code", "claude"),
     CODEX("Codex", "codex"),
-    GEMINI("Gemini CLI", "gemini"),
-    AGY("Antigravity (agy)", "agy");
+    AGY("Antigravity (agy)", "agy"),
+    GEMINI("Gemini CLI", "gemini");
 
     val isAvailable: Boolean
         get() = AiCliDetector.findBinary(binaryName) != null
@@ -34,6 +37,31 @@ object AiCliDetector {
     }
 
     /**
+     * Common Windows install dirs for npm/volta/fnm-managed CLIs. The JVM's `PATH`
+     * can miss user-level additions (e.g. `%APPDATA%\npm`) when the app is launched
+     * from a shortcut or installer, so scan these explicitly before falling back to
+     * `where`.
+     */
+    private val windowsExtraPaths: List<String> by lazy {
+        if (!isWindows) return@lazy emptyList()
+        val appData = System.getenv("APPDATA")
+        val localAppData = System.getenv("LOCALAPPDATA")
+        val userProfile = System.getenv("USERPROFILE") ?: System.getProperty("user.home")
+        val programFiles = System.getenv("ProgramFiles")
+        listOfNotNull(
+            appData?.let { "$it\\npm" },
+            localAppData?.let { "$it\\npm" },
+            localAppData?.let { "$it\\Volta\\bin" },
+            localAppData?.let { "$it\\fnm_multishells" },
+            "$userProfile\\AppData\\Roaming\\npm",
+            "$userProfile\\.volta\\bin",
+            "$userProfile\\.bun\\bin",
+            "$userProfile\\scoop\\shims",
+            programFiles?.let { "$it\\nodejs" },
+        )
+    }
+
+    /**
      * Candidate file names for [name] in a PATH dir, most-preferred first. On
      * Windows the extensionless name is a POSIX shell script (npm ships one next
      * to `<name>.cmd`) that neither PowerShell nor ProcessBuilder can launch, so
@@ -53,7 +81,7 @@ object AiCliDetector {
     }
 
     fun findBinary(name: String): String? {
-        val dirs = candidatePaths + (System.getenv("PATH") ?: "").split(File.pathSeparator)
+        val dirs = candidatePaths + windowsExtraPaths + (System.getenv("PATH") ?: "").split(File.pathSeparator)
         val fileNames = candidateFileNames(name)
         for (dir in dirs) {
             for (fileName in fileNames) {
