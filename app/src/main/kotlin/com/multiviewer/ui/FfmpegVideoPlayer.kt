@@ -336,6 +336,11 @@ fun FfmpegVideoPlayer(
         audioPlayingAtomic.set(play)
     }
 
+    fun setMuted(muted: Boolean) {
+        isMuted = muted
+        audioMutedAtomic.set(muted)
+    }
+
     LaunchedEffect(seekRequestTick) {
         if (seekRequestTick != lastHandledSeekTick) {
             lastHandledSeekTick = seekRequestTick
@@ -586,7 +591,7 @@ fun FfmpegVideoPlayer(
         if (audioInfo == null) return@LaunchedEffect
         while (true) {
             audioTrackRef?.let { track ->
-                if (!track.failed) playedSeconds = track.clockSeconds
+                if (!track.failed && !track.ended) playedSeconds = track.clockSeconds
             }
             delay(50)
         }
@@ -747,6 +752,20 @@ fun FfmpegVideoPlayer(
                     }
                 }
 
+                if (audioInfo != null) {
+                    Spacer(Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.25f))
+                            .clickable { setMuted(!isMuted) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        SpeakerIcon(muted = isMuted, modifier = Modifier.size(14.dp), color = Color.White)
+                    }
+                }
+
                 Spacer(Modifier.width(6.dp))
 
                 PreviewCaption("${info.width}x${info.height}$rotationSuffix")
@@ -802,5 +821,39 @@ private fun VideoPauseIcon(modifier: Modifier = Modifier, color: Color = Color.W
         val left2 = left1 + barWidth + gap
         drawRect(color, Offset(left1, top), Size(barWidth, barHeight))
         drawRect(color, Offset(left2, top), Size(barWidth, barHeight))
+    }
+}
+
+@Composable
+private fun SpeakerIcon(muted: Boolean, modifier: Modifier = Modifier, color: Color = Color.White) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        // Speaker body: a small rectangle + triangular cone on the left third.
+        val bodyLeft = w * 0.05f
+        val bodyTop = h * 0.35f
+        val bodyW = w * 0.22f
+        val bodyH = h * 0.30f
+        drawRect(color, topLeft = Offset(bodyLeft, bodyTop), size = Size(bodyW, bodyH))
+        val cone = androidx.compose.ui.graphics.Path().apply {
+            moveTo(bodyLeft + bodyW, bodyTop)
+            lineTo(w * 0.5f, h * 0.15f)
+            lineTo(w * 0.5f, h * 0.85f)
+            lineTo(bodyLeft + bodyW, bodyTop + bodyH)
+            close()
+        }
+        drawPath(cone, color)
+        if (muted) {
+            // Slash through the whole glyph.
+            drawLine(color, Offset(w * 0.15f, h * 0.15f), Offset(w * 0.9f, h * 0.9f), strokeWidth = h * 0.09f)
+        } else {
+            // Two sound-wave arcs on the right.
+            drawArc(color, startAngle = -50f, sweepAngle = 100f, useCenter = false,
+                topLeft = Offset(w * 0.35f, h * 0.2f), size = Size(w * 0.4f, h * 0.6f),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = h * 0.07f))
+            drawArc(color, startAngle = -50f, sweepAngle = 100f, useCenter = false,
+                topLeft = Offset(w * 0.2f, h * 0.05f), size = Size(w * 0.7f, h * 0.9f),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = h * 0.07f))
+        }
     }
 }
