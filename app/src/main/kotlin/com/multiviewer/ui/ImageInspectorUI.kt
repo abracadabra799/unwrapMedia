@@ -523,6 +523,24 @@ private fun DetailPanelTabChip(
     }
 }
 
+/** Small purple pill that opens the AI prompt window. Shown with/without defects. */
+@Composable
+private fun AiRunChip(label: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .background(AppColors.NeonPurple.copy(alpha = 0.2f), shape = RoundedCornerShape(4.dp))
+            .border(1.dp, AppColors.NeonPurple.copy(alpha = 0.7f), shape = RoundedCornerShape(4.dp))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = AppTypography.labelMedium.copy(fontSize = 11.sp, color = AppColors.NeonPurple, fontWeight = FontWeight.Bold),
+        )
+    }
+}
+
 // The file's structural defects, as their own destination rather than a fallback inside Detailed
 // Properties. Its content depends only on the parsed structure, so it stays put no matter what is
 // selected in the tree -- which is the whole reason it was split out.
@@ -535,7 +553,21 @@ private fun WarningsTabContent(
 ) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         if (warnings.isEmpty()) {
-            Text("✓ 구조적 이상 없음", style = AppTypography.bodyLarge.copy(color = AppColors.NeonGreen))
+            // No defects -- the AI run still adds value: Android/web playback
+            // compatibility + encode/mux optimization advice for a clean file.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("✓ 구조적 이상 없음", style = AppTypography.bodyLarge.copy(color = AppColors.NeonGreen))
+                AiRunChip(label = "🤖 AI 최적화 검토") { appState.aiPromptWindowOpen = true }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "결함은 없습니다. Android/웹 재생 호환성과 인코딩·먹싱 최적화 제안을 AI에게 받을 수 있습니다.",
+                style = AppTypography.bodyMedium.copy(color = AppColors.TextSecondary, fontSize = 12.sp),
+            )
             return@Column
         }
         val listState = rememberLazyListState()
@@ -551,21 +583,7 @@ private fun WarningsTabContent(
                             "⚠ ${warnings.size}개의 구조적 이상 징후",
                             style = AppTypography.labelLarge.copy(color = AppColors.NeonRed),
                         )
-                        Row(
-                            modifier = Modifier
-                                .clickable {
-                                    appState.aiPromptWindowOpen = true
-                                }
-                                .background(AppColors.NeonPurple.copy(alpha = 0.2f), shape = RoundedCornerShape(4.dp))
-                                .border(1.dp, AppColors.NeonPurple.copy(alpha = 0.7f), shape = RoundedCornerShape(4.dp))
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                "🤖 AI 진단 실행",
-                                style = AppTypography.labelMedium.copy(fontSize = 11.sp, color = AppColors.NeonPurple, fontWeight = FontWeight.Bold),
-                            )
-                        }
+                        AiRunChip(label = "🤖 AI 진단 실행") { appState.aiPromptWindowOpen = true }
                     }
                     Spacer(Modifier.height(8.dp))
                 }

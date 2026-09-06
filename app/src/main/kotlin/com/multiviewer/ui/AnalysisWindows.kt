@@ -780,10 +780,11 @@ fun AiPromptPreviewWindow(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
+                            val noDefects = allWarnings.isEmpty()
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        "AI Diagnostic Prompt",
+                                        if (noDefects) "AI 최적화 검토 프롬프트" else "AI 진단 프롬프트",
                                         style = AppTypography.headlineSmall.copy(fontSize = 18.sp, fontWeight = FontWeight.Bold),
                                         color = AppColors.NeonPurple,
                                     )
@@ -799,7 +800,8 @@ fun AiPromptPreviewWindow(
                                 }
                                 Spacer(Modifier.height(2.dp))
                                 Text(
-                                    "${tab.file.name} · Domain context and detected evidence included",
+                                    if (noDefects) "${tab.file.name} · 결함 없음 — 최적화·호환성 개선 제안 요청"
+                                    else "${tab.file.name} · Domain context and detected evidence included",
                                     style = AppTypography.bodyMedium.copy(fontSize = 12.sp, color = AppColors.TextSecondary),
                                 )
                             }
