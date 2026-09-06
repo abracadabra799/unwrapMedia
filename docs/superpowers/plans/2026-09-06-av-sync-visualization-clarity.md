@@ -116,9 +116,11 @@ class AvSyncVisualizationTest {
 
     @Test
     fun segments_allGreen_allPass() {
-        val s = avSyncSegments(report(pts(0.0 to 10.0, 5.0 to 10.0, 10.0 to 10.0), videoDurationSec = 10.0), 10)
+        // 30 points over a 10s file so every one of the 10 buckets is covered.
+        val comfort = (0 until 30).map { it * (10.0 / 30) to 10.0 }.toTypedArray()
+        val s = avSyncSegments(report(pts(*comfort), videoDurationSec = 10.0), 10)
         assertEquals(10, s.size)
-        assertTrue(s.all { it == SyncSeverity.PASS })
+        assertTrue(s.all { it == SyncSeverity.PASS }, s.toString())
     }
 
     @Test
