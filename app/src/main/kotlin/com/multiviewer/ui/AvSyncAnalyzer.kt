@@ -508,7 +508,7 @@ object AvSyncAnalyzer {
                 ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD)
                     .also { FfmpegLocator.configureEnvironment(it) }.start()
             )
-            val text = process.inputStream.bufferedReader().readText()
+            val text = process.inputStream.bufferedReader().use { it.readText() }
             process.waitFor()
             parseStreamInfoBlocks(text)
         } catch (e: Exception) {

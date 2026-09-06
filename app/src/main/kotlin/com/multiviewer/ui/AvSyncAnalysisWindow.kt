@@ -176,7 +176,7 @@ private fun AvSyncReportContent(
 
         if (report.editListAdjusted) {
             Text(
-                "ℹ 편집 리스트/코덱 딜레이가 적용된 파일 — 시작 오프셋은 플레이어 기준(edit list 반영)으로 계산했습니다.",
+                "ⓘ 시작 오프셋·트랙 길이는 컨테이너 start_time(편집 리스트 반영) 기준으로 계산했습니다 — 원시 패킷 PTS 값과 다를 수 있습니다.",
                 style = AppTypography.bodySmall.copy(color = AppColors.TextSecondary),
             )
         }
