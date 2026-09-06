@@ -27,7 +27,7 @@ internal object PtyCliCommand {
             else -> "& $quoted"
         }
         return "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $invoke; " +
-            "exit \$(if (\$null -eq \$LASTEXITCODE) {1} else {\$LASTEXITCODE})"
+            "\$ec=\$LASTEXITCODE; exit \$(if (\$? -and \$null -ne \$ec) {\$ec} else {1})"
     }
 
     /**
@@ -35,10 +35,15 @@ internal object PtyCliCommand {
      * [bracketed], wraps in xterm bracketed-paste markers so a readline/Ink CLI
      * inserts the whole block at once instead of submitting each line; otherwise
      * raw. Embedded newlines are normalized to CR (terminal paste convention),
-     * trailing newlines trimmed. Does NOT include the final submit CR.
+     * trailing newlines trimmed, and any stray paste-end marker in the text
+     * is stripped so it cannot end the burst early. No trailing submit CR.
      */
     fun pastePayload(text: String, bracketed: Boolean): String {
-        val body = text.replace("\r\n", "\n").replace('\n', '\r').trimEnd('\r')
+        val body = text
+            .replace("\u001B[201~", "")
+            .replace("\r\n", "\n")
+            .replace('\n', '\r')
+            .trimEnd('\r')
         return if (bracketed) "\u001B[200~" + body + "\u001B[201~" else body
     }
 }

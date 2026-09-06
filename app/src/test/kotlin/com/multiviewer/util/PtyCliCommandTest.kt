@@ -56,4 +56,15 @@ class PtyCliCommandTest {
         assertEquals("\u001B[200~\u001B[201~", PtyCliCommand.pastePayload("", bracketed = true))
         assertEquals("", PtyCliCommand.pastePayload("", bracketed = false))
     }
+
+    @Test
+    fun pastePayloadKeepsInternalBlankLinesAsCarriageReturns() {
+        assertEquals("a\r\rb", PtyCliCommand.pastePayload("a\n\nb", bracketed = false))
+    }
+
+    @Test
+    fun pastePayloadStripsStrayPasteEndMarker() {
+        val out = PtyCliCommand.pastePayload("before\u001B[201~after", bracketed = true)
+        assertEquals("\u001B[200~beforeafter\u001B[201~", out)
+    }
 }

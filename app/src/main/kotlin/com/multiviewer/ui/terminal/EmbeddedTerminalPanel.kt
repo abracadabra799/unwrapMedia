@@ -35,11 +35,12 @@ import java.awt.Font
 import javax.swing.JPanel
 
 /**
- * Fallback deadline for prompt injection. Normally injection fires as soon as the
- * CLI enables bracketed-paste mode (see [BracketedPasteSignal]); this is the cap
- * for a CLI that is slow or never enables it.
+ * How long to wait for the CLI to enable bracketed-paste mode before giving up on
+ * auto-injection. If it never does, the prompt is left on the clipboard and the
+ * user pastes it themselves (JediTerm's own paste also wraps it) — we never blast
+ * a multi-line prompt at a terminal that would submit each line.
  */
-internal const val PROMPT_INJECT_MAX_WAIT_MS: Long = 8000
+internal const val PROMPT_INJECT_MAX_WAIT_MS: Long = 20_000
 
 /** Flipped by [ReadySignalTerminalPanel] when the CLI turns on bracketed-paste mode. */
 private class BracketedPasteSignal {
@@ -112,12 +113,13 @@ internal fun EmbeddedTerminalPanel(
     // Send the prompt through JediTerm's own writer thread (never the caller /
     // EDT): sendString bottoms out in an executor.execute(), so a multi-KB write
     // can't block the UI and can't interleave with the user's keystrokes.
-    // PtyCliCommand builds the payload — bracketed-paste-wrapped once the CLI has
-    // enabled that mode, raw (but newline-normalized) before then. The `false`
-    // flag = "not user typing", which only skips the typeahead predictor.
+    // Only ever inject once the CLI is in bracketed-paste mode — otherwise every
+    // embedded newline would submit a separate turn. sendString's `false` = "not
+    // user typing", which only skips the typeahead predictor.
     fun injectPrompt() {
+        if (!readySignal.isReady) return
         val starter = widget?.terminalStarter ?: return
-        starter.sendString(PtyCliCommand.pastePayload(session.promptText, readySignal.isReady), false)
+        starter.sendString(PtyCliCommand.pastePayload(session.promptText, bracketed = true), false)
         starter.sendString("\r", false)
     }
 
@@ -126,8 +128,7 @@ internal fun EmbeddedTerminalPanel(
         while (!readySignal.isReady && System.currentTimeMillis() < deadline) {
             delay(50)
         }
-        // Don't paste into a shell that already dropped back to its own prompt
-        // (CLI never started / exited during the wait).
+        // no-op if the CLI never signalled ready or the shell already exited
         if (session.state == SessionState.Running) injectPrompt()
     }
     LaunchedEffect(widget) {

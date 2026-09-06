@@ -30,7 +30,6 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.DpSize
@@ -700,10 +699,11 @@ fun AiPromptPreviewWindow(
     // How much the window was grown for the terminal, so the exact amount can be
     // subtracted back on end — preserving any manual resize done in between.
     var windowGrowth by remember { mutableStateOf(0.dp) }
-    // Grown window must stay inside the usable screen (1366x768 laptops are a target).
-    val maxWindowHeight = with(LocalDensity.current) {
-        java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment()
-            .maximumWindowBounds.height.toDp()
+    // Grown window must stay inside the usable screen (1366x768 laptops are a
+    // target). Compose Desktop's WindowState.size Dp == raw AWT px, and
+    // maximumWindowBounds is in that same unit, so `.dp` is the right conversion.
+    val maxWindowHeight = remember {
+        java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().maximumWindowBounds.height.dp
     }
 
     fun startCliSession(cli: com.multiviewer.util.AiCliType): String? {

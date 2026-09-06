@@ -90,10 +90,14 @@ internal class WindowsPtyCliSession(
 
     fun destroy() {
         process?.let { p ->
-            // Kill the CLI (node.exe etc.) too — pty4j's WinConPtyProcess only
-            // terminates the PowerShell handle, and the ConPTY cleanup that would
-            // reap children can lose the race against app exit.
-            runCatching { p.descendants().forEach { it.destroyForcibly() } }
+            // Kill the CLI (node.exe etc.) too. pty4j's WinConPtyProcess.destroy()
+            // only terminates the PowerShell handle, and it doesn't override
+            // toHandle(), so p.descendants() throws — go via ProcessHandle.of(pid).
+            runCatching {
+                java.lang.ProcessHandle.of(p.pid()).ifPresent { h ->
+                    h.descendants().forEach { it.destroyForcibly() }
+                }
+            }
             runCatching { p.destroyForcibly() }
             ProcessManager.unregister(p)
         }

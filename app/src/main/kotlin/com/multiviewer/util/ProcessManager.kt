@@ -70,9 +70,14 @@ object ProcessManager {
             iterator.remove()
             try {
                 if (p.isAlive) {
-                    // Enumerate children while the parent is still alive, then kill
-                    // them first (a PTY shell's CLI child would otherwise survive).
-                    try { p.descendants().forEach { it.destroyForcibly() } } catch (_: Throwable) {}
+                    // Kill children first (a PTY shell's CLI child would otherwise
+                    // survive). Go via ProcessHandle.of(pid) because pty4j's
+                    // WinConPtyProcess doesn't implement toHandle()/descendants().
+                    try {
+                        ProcessHandle.of(p.pid()).ifPresent { h ->
+                            h.descendants().forEach { it.destroyForcibly() }
+                        }
+                    } catch (_: Throwable) {}
                     p.destroyForcibly()
                 }
             } catch (_: Throwable) {}

@@ -26,39 +26,49 @@ object AiCliDetector {
         "/bin",
     )
 
-    fun findBinary(name: String): String? {
-        for (dir in candidatePaths) {
-            val file = File(dir, name)
-            if (file.exists() && file.canExecute()) {
-                return file.absolutePath
-            }
-        }
+    /** Extensions a bare `powershell &` / ProcessBuilder can actually run on Windows. */
+    private val WINDOWS_RUNNABLE_EXTS = listOf(".cmd", ".bat", ".exe", ".ps1")
 
-        val envPath = System.getenv("PATH") ?: ""
-        for (dir in envPath.split(File.pathSeparator)) {
-            val file = File(dir, name)
-            if (file.exists() && file.canExecute()) {
-                return file.absolutePath
+    private val isWindows: Boolean
+        get() = System.getProperty("os.name").lowercase().contains("win")
+
+    /**
+     * Candidate file names for [name] in a PATH dir, most-preferred first. On
+     * Windows the extensionless name is a POSIX shell script (npm ships one next
+     * to `<name>.cmd`) that neither PowerShell nor ProcessBuilder can launch, so
+     * it is excluded.
+     */
+    private fun candidateFileNames(name: String): List<String> =
+        if (isWindows) WINDOWS_RUNNABLE_EXTS.map { "$name$it" } else listOf(name)
+
+    /** Picks the best runnable path from `where`/`which` output (may be multi-line). */
+    internal fun pickFromLookupOutput(output: String, windows: Boolean): String? {
+        val hits = output.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && File(it).isFile }
+            .toList()
+        if (!windows) return hits.firstOrNull()
+        return hits.firstOrNull { hit -> WINDOWS_RUNNABLE_EXTS.any { hit.lowercase().endsWith(it) } }
+    }
+
+    fun findBinary(name: String): String? {
+        val dirs = candidatePaths + (System.getenv("PATH") ?: "").split(File.pathSeparator)
+        for (dir in dirs) {
+            for (fileName in candidateFileNames(name)) {
+                val file = File(dir, fileName)
+                if (file.isFile && (isWindows || file.canExecute())) {
+                    return file.absolutePath
+                }
             }
         }
 
         return try {
-            val isWindows = System.getProperty("os.name").lowercase().contains("win")
             val cmd = if (isWindows) listOf("where", name) else listOf("which", name)
             val process = ProcessBuilder(cmd)
                 .redirectErrorStream(true)
                 .start()
             val output = process.inputStream.bufferedReader().readText()
-            if (process.waitFor() != 0) return null
-            // `where` can print several lines (e.g. npm's `claude` and `claude.cmd`);
-            // prefer a Windows-runnable extension, else the first existing path.
-            val hits = output.lineSequence()
-                .map { it.trim() }
-                .filter { it.isNotEmpty() && File(it).exists() }
-                .toList()
-            val runnableExts = listOf(".cmd", ".bat", ".exe", ".ps1")
-            hits.firstOrNull { hit -> runnableExts.any { hit.lowercase().endsWith(it) } }
-                ?: hits.firstOrNull()
+            if (process.waitFor() != 0) null else pickFromLookupOutput(output, isWindows)
         } catch (_: Throwable) {
             null
         }
