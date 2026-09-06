@@ -719,14 +719,19 @@ fun AiPromptPreviewWindow(
             return "임베드 터미널 실패 — 외부 창으로 실행"
         }
         // tear down any prior session (e.g. one that already exited) before replacing it
+        val hadPanelVisible = activeCliSession != null
         activeCliSession?.destroy()
         activeCliSession = s
-        val current = windowState.size.width
-        // never below `current` — on a narrow screen the cap can be < current,
-        // and a negative growth would shrink the window as the terminal appears.
-        val target = (current + terminalWidth + 24.dp).coerceIn(current, maxOf(maxWindowWidth, current))
-        windowGrowth = target - current
-        windowState.size = windowState.size.copy(width = target)
+        // Only grow the window when the terminal panel first appears — a restart
+        // of an already-visible panel must not stack another growth on top.
+        if (!hadPanelVisible) {
+            val current = windowState.size.width
+            // never below `current` — on a narrow screen the cap can be < current,
+            // and a negative growth would shrink the window as the terminal appears.
+            val target = (current + terminalWidth + 24.dp).coerceIn(current, maxOf(maxWindowWidth, current))
+            windowGrowth = target - current
+            windowState.size = windowState.size.copy(width = target)
+        }
         return "${cli.displayName} 임베드 세션 시작 (프롬프트는 클립보드에 복사됨 — 준비되면 붙여넣기)"
     }
 
@@ -1172,9 +1177,14 @@ fun AiPromptPreviewWindow(
                         // remounts the panel (its SwingPanel factory binds the
                         // connector once and is not re-invoked on recomposition)
                         key(activeCliSession) {
+                            val restartCli = activeCliSession!!.cli
                             EmbeddedTerminalPanel(
                                 session = activeCliSession!!,
                                 onEndSession = { endCliSession() },
+                                onRestart = {
+                                    ClipboardUtil.copyToClipboard(promptText)
+                                    statusMessage = startCliSession(restartCli)
+                                },
                                 modifier = Modifier.width(terminalWidth).fillMaxHeight().padding(vertical = 16.dp).padding(end = 16.dp),
                             )
                         }

@@ -26,15 +26,21 @@ import com.jediterm.terminal.TerminalColor
 import com.jediterm.terminal.TextStyle
 import com.jediterm.terminal.model.StyleState
 import com.jediterm.terminal.model.TerminalTextBuffer
+import com.jediterm.terminal.model.hyperlinks.HyperlinkFilter
+import com.jediterm.terminal.model.hyperlinks.LinkInfo
+import com.jediterm.terminal.model.hyperlinks.LinkResult
+import com.jediterm.terminal.model.hyperlinks.LinkResultItem
 import com.jediterm.terminal.ui.JediTermWidget
 import com.jediterm.terminal.ui.TerminalPanel
 import com.jediterm.terminal.ui.settings.DefaultSettingsProvider
 import com.jediterm.terminal.ui.settings.SettingsProvider
 import com.multiviewer.ui.AppColors
+import com.multiviewer.util.AiCliDetector
 import com.multiviewer.util.PtyCliCommand
 import kotlinx.coroutines.delay
 import java.awt.Component
 import java.awt.Font
+import java.awt.GraphicsEnvironment
 import javax.swing.JPanel
 
 /**
@@ -69,12 +75,65 @@ internal class BracketedPasteSignal {
 internal val CLI_TERMINAL_FOREGROUND: TerminalColor = TerminalColor.rgb(0xC9, 0xD1, 0xD9)
 internal val CLI_TERMINAL_BACKGROUND: TerminalColor = TerminalColor.rgb(0x13, 0x16, 0x1A)
 
+/**
+ * JediTerm's [TerminalPanel.getFontToDisplay] does no glyph-coverage fallback, so
+ * a font that can't draw Hangul (Consolas) renders every Korean character — which
+ * the AI CLIs and the diagnostic prompt are full of — as tofu boxes. Pick the
+ * first installed monospaced font that can actually draw Hangul + box-drawing;
+ * fall back to the logical `Monospaced` composite, whose JRE CJK fallback always
+ * can (just with plainer borders).
+ */
+internal fun pickCliTerminalFont(size: Int = 13): Font {
+    // 가 = Hangul syllable, ─ = box drawing, A = Latin.
+    val sample = "가─A"
+    val installed = runCatching {
+        GraphicsEnvironment.getLocalGraphicsEnvironment().availableFontFamilyNames.toHashSet()
+    }.getOrDefault(hashSetOf())
+    // All monospaced/fixed-pitch and Hangul-capable (Consolas et al. are skipped
+    // by the canDisplay check — they can't draw 가). GulimChe / DotumChe ship with
+    // Korean Windows; MS Gothic / NSimSun are on most installs.
+    val preferred = listOf(
+        "D2Coding", "NanumGothicCoding", "Nanum Gothic Coding",
+        "GulimChe", "DotumChe", "MS Gothic", "NSimSun",
+    )
+    for (name in preferred) {
+        if (name in installed) {
+            val f = Font(name, Font.PLAIN, size)
+            if (f.canDisplayUpTo(sample) == -1) return f
+        }
+    }
+    return Font(Font.MONOSPACED, Font.PLAIN, size)
+}
+
+/** Any `http(s)://…` printed by the CLI (e.g. Claude's login URL) becomes clickable. */
+internal class UrlHyperlinkFilter : HyperlinkFilter {
+    private val urlRegex = Regex("""https?://[^\s"'<>()\[\]{}]+""")
+
+    override fun apply(line: String?): LinkResult? {
+        if (line.isNullOrEmpty()) return null
+        val items = urlRegex.findAll(line).mapNotNull { m ->
+            val url = m.value.trimEnd('.', ',', ';', ':', '!', '?')
+            if (url.length < 8) return@mapNotNull null
+            LinkResultItem(m.range.first, m.range.first + url.length, LinkInfo { openInBrowser(url) })
+        }.toList()
+        return if (items.isEmpty()) null else LinkResult(items)
+    }
+
+    private fun openInBrowser(url: String) {
+        // openWebAi tries Chrome first (where the user's company account is signed
+        // in), then falls back to Desktop.browse (the system default browser).
+        runCatching { AiCliDetector.openWebAi(url) }
+    }
+}
+
 internal class CliTerminalSettings(val readySignal: BracketedPasteSignal) : DefaultSettingsProvider() {
-    // Consolas ships on Windows and renders TUI box-drawing far better than the
-    // generic MONOSPACED logical font (Courier New).
-    override fun getTerminalFont(): Font = Font("Consolas", Font.PLAIN, 13)
+    private val terminalFont = pickCliTerminalFont()
+    override fun getTerminalFont(): Font = terminalFont
     override fun getTerminalFontSize(): Float = 13f
     override fun audibleBell(): Boolean = false
+    // Claude / Codex enable mouse reporting; without this a click on the login
+    // URL would be swallowed by the CLI instead of following the hyperlink.
+    override fun forceActionOnMouseReporting(): Boolean = true
 
     // getDefaultStyle() is @Deprecated in jediterm 3.74's UserSettingsProvider, but
     // TerminalPanel / StyleState still resolve the console's base colours through it
@@ -133,6 +192,7 @@ private class ReadyAwareJediTermWidget(
 internal fun EmbeddedTerminalPanel(
     session: WindowsPtyCliSession,
     onEndSession: () -> Unit,
+    onRestart: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state = session.state
@@ -162,6 +222,8 @@ internal fun EmbeddedTerminalPanel(
         onDispose { widget?.close() }
     }
 
+    val ended = state is SessionState.Exited || state is SessionState.Failed
+
     Column(modifier) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
@@ -177,29 +239,61 @@ internal fun EmbeddedTerminalPanel(
                     is SessionState.Failed -> "실패: ${s.reason}"
                 },
                 fontSize = 11.sp,
-                color = AppColors.TextSecondary,
+                color = if (ended) AppColors.NeonOrange else AppColors.TextSecondary,
                 maxLines = 1,
                 modifier = Modifier.weight(1f, fill = false),
             )
             Spacer(Modifier.width(4.dp))
-            TextButton(
-                onClick = { pastePrompt() },
-                enabled = readySignal.isReady,
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-            ) {
-                Text(
-                    if (readySignal.isReady) "프롬프트 붙여넣기" else "붙여넣기(준비 중…)",
-                    fontSize = 11.sp,
-                    color = AppColors.NeonPurple,
-                    maxLines = 1,
-                )
+            if (ended) {
+                TextButton(
+                    onClick = onRestart,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                ) {
+                    Text("↻ ${session.displayName} 다시 시작", fontSize = 11.sp, color = AppColors.NeonGreen, maxLines = 1)
+                }
+            } else {
+                TextButton(
+                    onClick = { pastePrompt() },
+                    enabled = readySignal.isReady,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                ) {
+                    Text(
+                        if (readySignal.isReady) "프롬프트 붙여넣기" else "붙여넣기(준비 중…)",
+                        fontSize = 11.sp,
+                        color = AppColors.NeonPurple,
+                        maxLines = 1,
+                    )
+                }
             }
             TextButton(
                 onClick = onEndSession,
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
             ) {
-                Text("세션 종료", fontSize = 11.sp, color = AppColors.TextSecondary, maxLines = 1)
+                Text(if (ended) "닫기" else "세션 종료", fontSize = 11.sp, color = AppColors.TextSecondary, maxLines = 1)
             }
+        }
+
+        val guidance: String? = when (val s = state) {
+            SessionState.Starting ->
+                "CLI를 실행하는 중입니다…"
+            SessionState.Running ->
+                "① 로그인 필요 시 진행하세요 (브라우저가 안 열리면 터미널에 출력된 URL을 클릭). " +
+                    "② CLI 입력 프롬프트가 보이면 위 '프롬프트 붙여넣기' 버튼 또는 Ctrl+V, 그다음 Enter."
+            is SessionState.Exited ->
+                "CLI 세션이 종료되었습니다. (CLI를 업데이트했거나 exit 했다면 정상입니다.) " +
+                    "다시 사용하려면 위 '↻ ${session.displayName} 다시 시작' 버튼을 누르세요 — " +
+                    "새 세션이 시작되고 프롬프트가 다시 클립보드에 복사됩니다. 로그인 상태는 유지됩니다."
+            is SessionState.Failed ->
+                "CLI를 시작하지 못했습니다: ${s.reason}. " +
+                    "'↻ ${session.displayName} 다시 시작'으로 재시도하거나, PowerShell에서 직접 실행해 보세요."
+        }
+        if (guidance != null) {
+            Text(
+                guidance,
+                fontSize = 10.sp,
+                color = if (ended) AppColors.NeonOrange else AppColors.TextSecondary,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp).padding(bottom = 4.dp),
+            )
         }
         SwingPanel(
             background = Color(0xFF13161A),
@@ -212,6 +306,10 @@ internal fun EmbeddedTerminalPanel(
                 runCatching {
                     ReadyAwareJediTermWidget(120, 30, CliTerminalSettings(readySignal)).also { w ->
                         w.ttyConnector = session.ttyConnector
+                        // Claude's browser-open frequently fails on Windows ("browser
+                        // didn't open? use the url below") — make the printed login URL
+                        // clickable so the user can open it from here.
+                        w.addHyperlinkFilter(UrlHyperlinkFilter())
                         // publish before start() so a fast bracketed-paste signal can't beat it
                         widget = w
                         w.start()

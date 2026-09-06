@@ -22,7 +22,7 @@ internal sealed interface SessionState {
  * Windows only. One session at a time is enforced by the caller.
  */
 internal class WindowsPtyCliSession(
-    private val cli: AiCliType,
+    val cli: AiCliType,
     private val binPath: String,
     private val workingDir: File?,
     val promptText: String,
