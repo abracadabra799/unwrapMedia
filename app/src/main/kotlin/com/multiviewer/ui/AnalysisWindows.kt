@@ -693,17 +693,20 @@ fun AiPromptPreviewWindow(
 
     val isWindows = remember { System.getProperty("os.name").lowercase().contains("win") }
     var activeCliSession by remember { mutableStateOf<WindowsPtyCliSession?>(null) }
-    var terminalHeight by remember { mutableStateOf(320.dp) }
+    // The embedded terminal sits to the RIGHT of the prompt view; this is its
+    // column width, drag-resizable via the vertical splitter.
+    var terminalWidth by remember { mutableStateOf(480.dp) }
     var pendingSwitchCli by remember { mutableStateOf<com.multiviewer.util.AiCliType?>(null) }
     var confirmCloseWhileRunning by remember { mutableStateOf(false) }
-    // How much the window was grown for the terminal, so the exact amount can be
-    // subtracted back on end — preserving any manual resize done in between.
+    // How much the window was grown (in width) for the terminal, so the exact
+    // amount can be subtracted back on end — preserving any manual resize done in
+    // between.
     var windowGrowth by remember { mutableStateOf(0.dp) }
     // Grown window must stay inside the usable screen (1366x768 laptops are a
     // target). Compose Desktop's WindowState.size Dp == raw AWT px, and
     // maximumWindowBounds is in that same unit, so `.dp` is the right conversion.
-    val maxWindowHeight = remember {
-        java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().maximumWindowBounds.height.dp
+    val maxWindowWidth = remember {
+        java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().maximumWindowBounds.width.dp
     }
 
     fun startCliSession(cli: com.multiviewer.util.AiCliType): String? {
@@ -718,20 +721,20 @@ fun AiPromptPreviewWindow(
         // tear down any prior session (e.g. one that already exited) before replacing it
         activeCliSession?.destroy()
         activeCliSession = s
-        val current = windowState.size.height
-        // never below `current` — on a very short screen the cap can be < current,
+        val current = windowState.size.width
+        // never below `current` — on a narrow screen the cap can be < current,
         // and a negative growth would shrink the window as the terminal appears.
-        val target = (current + terminalHeight + 48.dp).coerceIn(current, maxOf(maxWindowHeight, current))
+        val target = (current + terminalWidth + 24.dp).coerceIn(current, maxOf(maxWindowWidth, current))
         windowGrowth = target - current
-        windowState.size = windowState.size.copy(height = target)
-        return "${cli.displayName} 임베드 세션 시작 (프롬프트 자동 입력 예정)"
+        windowState.size = windowState.size.copy(width = target)
+        return "${cli.displayName} 임베드 세션 시작 (프롬프트는 클립보드에 복사됨 — 준비되면 붙여넣기)"
     }
 
     fun endCliSession() {
         activeCliSession?.destroy()
         activeCliSession = null
         windowState.size = windowState.size.copy(
-            height = (windowState.size.height - windowGrowth).coerceAtLeast(400.dp),
+            width = (windowState.size.width - windowGrowth).coerceAtLeast(640.dp),
         )
         windowGrowth = 0.dp
     }
@@ -766,9 +769,11 @@ fun AiPromptPreviewWindow(
             CompositionLocalProvider(LocalScrollbarStyle provides AppScrollbarStyle) {
                 Surface(modifier = Modifier.fillMaxSize(), color = AppColors.Background) {
                   Box(Modifier.fillMaxSize()) {
+                   Row(Modifier.fillMaxSize()) {
                     Column(
                         modifier = Modifier
-                            .fillMaxSize()
+                            .weight(1f)
+                            .fillMaxHeight()
                             .padding(16.dp),
                     ) {
                         // Header
@@ -1142,38 +1147,39 @@ fun AiPromptPreviewWindow(
                             }
                         }
 
-                        if (isWindows && activeCliSession != null) {
-                            Spacer(Modifier.height(6.dp))
-                            Box(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .height(6.dp)
-                                    .background(AppColors.Border, RoundedCornerShape(3.dp))
-                                    .pointerHoverIcon(
-                                        PointerIcon(java.awt.Cursor(java.awt.Cursor.N_RESIZE_CURSOR)),
-                                    )
-                                    .pointerInput(Unit) {
-                                        detectDragGestures { change, dragAmount ->
-                                            change.consume()
-                                            // PointerInputScope implements Density
-                                            terminalHeight = (terminalHeight - dragAmount.y.toDp())
-                                                .coerceIn(180.dp, 640.dp)
-                                        }
-                                    },
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            // key on the session instance so a CLI switch fully
-                            // remounts the panel (its SwingPanel factory binds the
-                            // connector once and is not re-invoked on recomposition)
-                            key(activeCliSession) {
-                                EmbeddedTerminalPanel(
-                                    session = activeCliSession!!,
-                                    onEndSession = { endCliSession() },
-                                    modifier = Modifier.fillMaxWidth().height(terminalHeight),
+                    }
+
+                    if (isWindows && activeCliSession != null) {
+                        // Vertical splitter between the prompt view and the terminal.
+                        Box(
+                            Modifier
+                                .fillMaxHeight()
+                                .width(6.dp)
+                                .background(AppColors.Border)
+                                .pointerHoverIcon(
+                                    PointerIcon(java.awt.Cursor(java.awt.Cursor.E_RESIZE_CURSOR)),
                                 )
-                            }
+                                .pointerInput(Unit) {
+                                    detectDragGestures { change, dragAmount ->
+                                        change.consume()
+                                        // PointerInputScope implements Density
+                                        terminalWidth = (terminalWidth - dragAmount.x.toDp())
+                                            .coerceIn(320.dp, 900.dp)
+                                    }
+                                },
+                        )
+                        // key on the session instance so a CLI switch fully
+                        // remounts the panel (its SwingPanel factory binds the
+                        // connector once and is not re-invoked on recomposition)
+                        key(activeCliSession) {
+                            EmbeddedTerminalPanel(
+                                session = activeCliSession!!,
+                                onEndSession = { endCliSession() },
+                                modifier = Modifier.width(terminalWidth).fillMaxHeight().padding(vertical = 16.dp).padding(end = 16.dp),
+                            )
                         }
                     }
+                   }
 
                     // Real OS dialog windows, not in-window Compose layers: the
                     // SwingPanel terminal always paints on top of Compose content,

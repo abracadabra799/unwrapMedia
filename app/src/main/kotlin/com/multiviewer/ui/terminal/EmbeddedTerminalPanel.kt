@@ -1,6 +1,7 @@
 package com.multiviewer.ui.terminal
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,23 +38,24 @@ import java.awt.Font
 import javax.swing.JPanel
 
 /**
- * How long to wait for the CLI to enable bracketed-paste mode before giving up on
- * auto-injection. If it never does, the prompt is left on the clipboard and the
- * user pastes it themselves (JediTerm's own paste also wraps it) — we never blast
- * a multi-line prompt at a terminal that would submit each line.
- */
-internal const val PROMPT_INJECT_MAX_WAIT_MS: Long = 20_000
-
-/**
- * Flipped by [ReadySignalTerminalPanel] when the CLI turns on bracketed-paste
- * mode. Compose snapshot state so the "프롬프트 재주입" button can enable itself
- * (written from JediTerm's reader thread — safe, same as [SessionState]).
+ * Tracks whether the running CLI currently has bracketed-paste mode on — the
+ * signal that it is a readline/Ink prompt ready to receive a pasted block rather
+ * than, say, its login menu or a still-booting screen. Compose snapshot state so
+ * the "프롬프트 붙여넣기" button can enable itself (written from JediTerm's reader
+ * thread — safe, same as [SessionState]).
+ *
+ * The prompt is NEVER auto-injected: Claude Code / Codex turn bracketed-paste on
+ * at startup while still on their browser-login screen, so a blind paste there
+ * corrupts the login flow. The user pastes it themselves (this button, or the
+ * terminal's own Ctrl/Cmd+V) once they are actually at the CLI prompt.
  */
 internal class BracketedPasteSignal {
+    // "has it ever been on" — once a CLI reaches an interactive prompt it stays a
+    // sensible paste target even if it briefly toggles the mode (e.g. redraw).
     var isReady by mutableStateOf(false)
         private set
 
-    fun markReady() { isReady = true }
+    fun onBracketedPasteMode(enabled: Boolean) { if (enabled) isReady = true }
 }
 
 /**
@@ -90,7 +92,7 @@ private class ReadySignalTerminalPanel(
 ) : TerminalPanel(settings, textBuffer, styleState) {
     override fun setBracketedPasteMode(enabled: Boolean) {
         super.setBracketedPasteMode(enabled)
-        if (enabled) signal.markReady()
+        signal.onBracketedPasteMode(enabled)
     }
 }
 
@@ -119,10 +121,13 @@ private class ReadyAwareJediTermWidget(
 }
 
 /**
- * Bottom panel of the AI prompt popup: a live VT100 terminal running the CLI.
- * Auto-injects the diagnostic prompt once the CLI enables bracketed-paste mode.
- * If it never does within [PROMPT_INJECT_MAX_WAIT_MS] the prompt is left on the
- * clipboard for the user to paste, and the "프롬프트 재주입" button stays disabled.
+ * The AI prompt popup's live VT100 terminal running the CLI (docked to the right
+ * of the prompt view). The diagnostic prompt is NOT auto-injected — it is copied
+ * to the clipboard when the session starts, and the user pastes it (the
+ * "프롬프트 붙여넣기" button, or the terminal's own Ctrl/Cmd+V) once they have
+ * finished any browser login and are at the CLI's own prompt. Auto-injecting hit
+ * Claude Code / Codex mid-login (they enable bracketed-paste on their menu
+ * screens) and corrupted the flow.
  */
 @Composable
 internal fun EmbeddedTerminalPanel(
@@ -137,24 +142,15 @@ internal fun EmbeddedTerminalPanel(
     // Send the prompt through JediTerm's own writer thread (never the caller /
     // EDT): sendString bottoms out in an executor.execute(), so a multi-KB write
     // can't block the UI and can't interleave with the user's keystrokes.
-    // Only ever inject once the CLI is in bracketed-paste mode — otherwise every
-    // embedded newline would submit a separate turn. sendString's `false` = "not
-    // user typing", which only skips the typeahead predictor.
-    fun injectPrompt() {
+    // bracketed=true so an Ink/readline CLI inserts the whole block at once; and
+    // crucially NO trailing CR — the user reviews the pasted prompt and presses
+    // Enter themselves. sendString's `false` = "not user typing" (skips typeahead).
+    fun pastePrompt() {
         if (!readySignal.isReady) return
         val starter = widget?.terminalStarter ?: return
         starter.sendString(PtyCliCommand.pastePayload(session.promptText, bracketed = true), false)
-        starter.sendString("\r", false)
     }
 
-    LaunchedEffect(session) {
-        val deadline = System.currentTimeMillis() + PROMPT_INJECT_MAX_WAIT_MS
-        while (!readySignal.isReady && System.currentTimeMillis() < deadline) {
-            delay(50)
-        }
-        // no-op if the CLI never signalled ready or the shell already exited
-        if (session.state == SessionState.Running) injectPrompt()
-    }
     LaunchedEffect(widget) {
         // requestFocusInWindow() is a no-op until the peer is realized.
         if (widget != null) {
@@ -171,8 +167,8 @@ internal fun EmbeddedTerminalPanel(
             Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("● ${session.displayName}", fontSize = 11.sp, color = AppColors.NeonPurple)
-            Spacer(Modifier.width(10.dp))
+            Text("● ${session.displayName}", fontSize = 11.sp, color = AppColors.NeonPurple, maxLines = 1)
+            Spacer(Modifier.width(8.dp))
             Text(
                 when (val s = state) {
                     SessionState.Starting -> "기동 중…"
@@ -182,13 +178,27 @@ internal fun EmbeddedTerminalPanel(
                 },
                 fontSize = 11.sp,
                 color = AppColors.TextSecondary,
+                maxLines = 1,
+                modifier = Modifier.weight(1f, fill = false),
             )
-            Spacer(Modifier.width(10.dp))
-            TextButton(onClick = { injectPrompt() }, enabled = readySignal.isReady) {
-                Text("프롬프트 재주입", fontSize = 11.sp, color = AppColors.NeonPurple)
+            Spacer(Modifier.width(4.dp))
+            TextButton(
+                onClick = { pastePrompt() },
+                enabled = readySignal.isReady,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+            ) {
+                Text(
+                    if (readySignal.isReady) "프롬프트 붙여넣기" else "붙여넣기(준비 중…)",
+                    fontSize = 11.sp,
+                    color = AppColors.NeonPurple,
+                    maxLines = 1,
+                )
             }
-            TextButton(onClick = onEndSession) {
-                Text("세션 종료", fontSize = 11.sp, color = AppColors.TextSecondary)
+            TextButton(
+                onClick = onEndSession,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+            ) {
+                Text("세션 종료", fontSize = 11.sp, color = AppColors.TextSecondary, maxLines = 1)
             }
         }
         SwingPanel(
@@ -202,7 +212,7 @@ internal fun EmbeddedTerminalPanel(
                 runCatching {
                     ReadyAwareJediTermWidget(120, 30, CliTerminalSettings(readySignal)).also { w ->
                         w.ttyConnector = session.ttyConnector
-                        // publish before start() so a fast markReady() can't beat it
+                        // publish before start() so a fast bracketed-paste signal can't beat it
                         widget = w
                         w.start()
                     } as Component
