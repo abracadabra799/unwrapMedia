@@ -701,9 +701,9 @@ fun AiPromptPreviewWindow(
     // subtracted back on end — preserving any manual resize done in between.
     var windowGrowth by remember { mutableStateOf(0.dp) }
     // Grown window must stay inside the usable screen (1366x768 laptops are a target).
-    val maxWindowHeight = remember {
-        (java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment()
-            .maximumWindowBounds.height).dp
+    val maxWindowHeight = with(LocalDensity.current) {
+        java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment()
+            .maximumWindowBounds.height.toDp()
     }
 
     fun startCliSession(cli: com.multiviewer.util.AiCliType): String? {
@@ -719,7 +719,9 @@ fun AiPromptPreviewWindow(
         activeCliSession?.destroy()
         activeCliSession = s
         val current = windowState.size.height
-        val target = (current + terminalHeight + 48.dp).coerceAtMost(maxWindowHeight)
+        // never below `current` — on a very short screen the cap can be < current,
+        // and a negative growth would shrink the window as the terminal appears.
+        val target = (current + terminalHeight + 48.dp).coerceIn(current, maxOf(maxWindowHeight, current))
         windowGrowth = target - current
         windowState.size = windowState.size.copy(height = target)
         return "${cli.displayName} 임베드 세션 시작 (프롬프트 자동 입력 예정)"
@@ -1124,7 +1126,6 @@ fun AiPromptPreviewWindow(
 
                         if (isWindows && activeCliSession != null) {
                             Spacer(Modifier.height(6.dp))
-                            val density = LocalDensity.current
                             Box(
                                 Modifier
                                     .fillMaxWidth()
@@ -1133,11 +1134,12 @@ fun AiPromptPreviewWindow(
                                     .pointerHoverIcon(
                                         PointerIcon(java.awt.Cursor(java.awt.Cursor.N_RESIZE_CURSOR)),
                                     )
-                                    .pointerInput(density) {
+                                    .pointerInput(Unit) {
                                         detectDragGestures { change, dragAmount ->
                                             change.consume()
-                                            val deltaDp = with(density) { dragAmount.y.toDp() }
-                                            terminalHeight = (terminalHeight - deltaDp).coerceIn(180.dp, 640.dp)
+                                            // PointerInputScope implements Density
+                                            terminalHeight = (terminalHeight - dragAmount.y.toDp())
+                                                .coerceIn(180.dp, 640.dp)
                                         }
                                     },
                             )

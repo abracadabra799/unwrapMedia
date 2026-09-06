@@ -54,6 +54,7 @@ class WindowsPtyCliSessionTest {
         assertEquals(SessionState.Running, s.state)
         assertTrue(s.isAlive)
         assertEquals("diag prompt", s.promptText)
+        s.destroy() // don't leave the fake registered / the watcher thread parked
     }
 
     @Test
@@ -64,8 +65,9 @@ class WindowsPtyCliSessionTest {
         // launch line is written on the "ai-cli-launch" daemon thread, not synchronously
         await { fake.out.toString("UTF-8").contains("& 'C:\\tools\\claude.cmd'") }
         val written = fake.out.toString("UTF-8")
-        assertTrue(written.contains("exit \$LASTEXITCODE"))
+        assertTrue(written.contains("\$LASTEXITCODE"))
         assertTrue(written.endsWith("\r"))
+        s.destroy()
     }
 
     @Test

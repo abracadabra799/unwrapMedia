@@ -28,8 +28,11 @@ import com.jediterm.terminal.ui.TerminalPanel
 import com.jediterm.terminal.ui.settings.DefaultSettingsProvider
 import com.jediterm.terminal.ui.settings.SettingsProvider
 import com.multiviewer.ui.AppColors
+import com.multiviewer.util.PtyCliCommand
 import kotlinx.coroutines.delay
+import java.awt.Component
 import java.awt.Font
+import javax.swing.JPanel
 
 /**
  * Fallback deadline for prompt injection. Normally injection fires as soon as the
@@ -107,15 +110,15 @@ internal fun EmbeddedTerminalPanel(
     var widget by remember(session) { mutableStateOf<JediTermWidget?>(null) }
 
     // Send the prompt through JediTerm's own writer thread (never the caller /
-    // EDT): sendString queues on TerminalStarter's single-thread executor, so a
-    // multi-KB write can't block the UI, and it can't interleave with the user's
-    // keystrokes. The `true` flag lets JediTerm wrap it in bracketed-paste
-    // markers only if the CLI actually enabled that mode.
+    // EDT): sendString bottoms out in an executor.execute(), so a multi-KB write
+    // can't block the UI and can't interleave with the user's keystrokes.
+    // PtyCliCommand builds the payload — bracketed-paste-wrapped once the CLI has
+    // enabled that mode, raw (but newline-normalized) before then. The `false`
+    // flag = "not user typing", which only skips the typeahead predictor.
     fun injectPrompt() {
-        widget?.terminalStarter?.let { starter ->
-            starter.sendString(session.promptText, true)
-            starter.sendString("\r", false)
-        }
+        val starter = widget?.terminalStarter ?: return
+        starter.sendString(PtyCliCommand.pastePayload(session.promptText, readySignal.isReady), false)
+        starter.sendString("\r", false)
     }
 
     LaunchedEffect(session) {
@@ -123,7 +126,16 @@ internal fun EmbeddedTerminalPanel(
         while (!readySignal.isReady && System.currentTimeMillis() < deadline) {
             delay(50)
         }
-        injectPrompt()
+        // Don't paste into a shell that already dropped back to its own prompt
+        // (CLI never started / exited during the wait).
+        if (session.state == SessionState.Running) injectPrompt()
+    }
+    LaunchedEffect(widget) {
+        // requestFocusInWindow() is a no-op until the peer is realized.
+        if (widget != null) {
+            delay(120)
+            widget?.requestFocusInWindow()
+        }
     }
     DisposableEffect(session) {
         onDispose { widget?.close() }
@@ -166,14 +178,14 @@ internal fun EmbeddedTerminalPanel(
                     ReadyAwareJediTermWidget(120, 30, CliTerminalSettings(readySignal)).also { w ->
                         w.ttyConnector = session.ttyConnector
                         w.start()
-                        w.requestFocusInWindow()
                         widget = w
-                    }
+                    } as Component
                 }.getOrElse {
                     // Spec: JediTermWidget init failure → tear the session down
-                    // rather than crash the popup composition.
+                    // rather than crash the popup composition. Return an inert
+                    // component, not another widget that would throw identically.
                     onEndSession()
-                    JediTermWidget(1, 1, CliTerminalSettings(readySignal)).also { widget = it }
+                    JPanel()
                 }
             },
             update = { _ ->

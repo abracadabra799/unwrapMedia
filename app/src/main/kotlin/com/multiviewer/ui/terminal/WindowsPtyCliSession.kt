@@ -89,8 +89,14 @@ internal class WindowsPtyCliSession(
     }
 
     fun destroy() {
-        process?.let { ProcessManager.unregister(it) }
-        runCatching { process?.destroyForcibly() }
+        process?.let { p ->
+            // Kill the CLI (node.exe etc.) too — pty4j's WinConPtyProcess only
+            // terminates the PowerShell handle, and the ConPTY cleanup that would
+            // reap children can lose the race against app exit.
+            runCatching { p.descendants().forEach { it.destroyForcibly() } }
+            runCatching { p.destroyForcibly() }
+            ProcessManager.unregister(p)
+        }
         runCatching { _ttyConnector?.close() }
     }
 }

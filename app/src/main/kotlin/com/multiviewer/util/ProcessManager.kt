@@ -70,6 +70,9 @@ object ProcessManager {
             iterator.remove()
             try {
                 if (p.isAlive) {
+                    // Enumerate children while the parent is still alive, then kill
+                    // them first (a PTY shell's CLI child would otherwise survive).
+                    try { p.descendants().forEach { it.destroyForcibly() } } catch (_: Throwable) {}
                     p.destroyForcibly()
                 }
             } catch (_: Throwable) {}

@@ -48,12 +48,17 @@ object AiCliDetector {
             val process = ProcessBuilder(cmd)
                 .redirectErrorStream(true)
                 .start()
-            val output = process.inputStream.bufferedReader().readText().trim()
-            if (process.waitFor() == 0 && output.isNotEmpty() && File(output).exists()) {
-                output
-            } else {
-                null
-            }
+            val output = process.inputStream.bufferedReader().readText()
+            if (process.waitFor() != 0) return null
+            // `where` can print several lines (e.g. npm's `claude` and `claude.cmd`);
+            // prefer a Windows-runnable extension, else the first existing path.
+            val hits = output.lineSequence()
+                .map { it.trim() }
+                .filter { it.isNotEmpty() && File(it).exists() }
+                .toList()
+            val runnableExts = listOf(".cmd", ".bat", ".exe", ".ps1")
+            hits.firstOrNull { hit -> runnableExts.any { hit.lowercase().endsWith(it) } }
+                ?: hits.firstOrNull()
         } catch (_: Throwable) {
             null
         }

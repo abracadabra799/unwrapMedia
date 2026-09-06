@@ -23,19 +23,37 @@ class PtyCliCommandTest {
         assertTrue(line.contains("OutputEncoding"))
         assertTrue(line.contains("& 'C:\\tools\\claude.cmd'"))
         assertFalse(line.contains(" -i"))
-        assertTrue(line.trimEnd().endsWith("exit \$LASTEXITCODE"))
+        assertTrue(line.contains("\$LASTEXITCODE"))
+        assertTrue(line.trimEnd().endsWith("})"))
     }
 
     @Test
     fun launchLineForAgyAddsInteractiveFlag() {
         val line = PtyCliCommand.launchLine(AiCliType.AGY, "C:\\tools\\agy.cmd")
         assertTrue(line.contains("& 'C:\\tools\\agy.cmd' -i"))
-        assertTrue(line.trimEnd().endsWith("exit \$LASTEXITCODE"))
     }
 
     @Test
     fun launchLineEscapesSingleQuoteInPath() {
         val line = PtyCliCommand.launchLine(AiCliType.CLAUDE, "C:\\us'er\\claude.cmd")
         assertTrue(line.contains("& 'C:\\us''er\\claude.cmd'"))
+    }
+
+    @Test
+    fun pastePayloadBracketedWrapsAndNormalizes() {
+        val out = PtyCliCommand.pastePayload("line1\r\nline2\n\n", bracketed = true)
+        assertEquals("\u001B[200~line1\rline2\u001B[201~", out)
+    }
+
+    @Test
+    fun pastePayloadRawNormalizesWithoutMarkers() {
+        val out = PtyCliCommand.pastePayload("a\r\nb\n", bracketed = false)
+        assertEquals("a\rb", out)
+    }
+
+    @Test
+    fun pastePayloadHandlesEmptyString() {
+        assertEquals("\u001B[200~\u001B[201~", PtyCliCommand.pastePayload("", bracketed = true))
+        assertEquals("", PtyCliCommand.pastePayload("", bracketed = false))
     }
 }
