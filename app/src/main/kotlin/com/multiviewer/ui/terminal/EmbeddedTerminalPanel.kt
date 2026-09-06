@@ -79,27 +79,27 @@ internal class BracketedPasteSignal {
 internal val CLI_TERMINAL_FOREGROUND: TerminalColor = TerminalColor.rgb(0xC9, 0xD1, 0xD9)
 internal val CLI_TERMINAL_BACKGROUND: TerminalColor = TerminalColor.rgb(0x13, 0x16, 0x1A)
 
+internal const val CLI_TERMINAL_FONT_SIZE: Int = 14
+
 /**
  * JediTerm's [TerminalPanel.getFontToDisplay] does no glyph-coverage fallback, so
  * a font that can't draw Hangul (Consolas) renders every Korean character — which
- * the AI CLIs and the diagnostic prompt are full of — as tofu boxes. Pick the
- * first installed monospaced font that can actually draw Hangul + box-drawing;
- * fall back to the logical `Monospaced` composite, whose JRE CJK fallback always
- * can (just with plainer borders).
+ * the AI CLIs and the diagnostic prompt are full of — as tofu boxes.
+ *
+ * The old list also preferred `GulimChe` / `DotumChe` / `MS Gothic` / `NSimSun`,
+ * which DO cover Hangul but render as crunchy hinted bitmaps at terminal sizes —
+ * users found them hard to read. Now: only genuinely crisp Korean *coding* fonts
+ * as a preference, then straight to the logical `Monospaced` composite — the same
+ * face Compose's `FontFamily.Monospace` resolves to (so the terminal matches the
+ * prompt view beside it), and its JRE CJK fallback renders Hangul cleanly.
  */
-internal fun pickCliTerminalFont(size: Int = 13): Font {
+internal fun pickCliTerminalFont(size: Int = CLI_TERMINAL_FONT_SIZE): Font {
     // 가 = Hangul syllable, ─ = box drawing, A = Latin.
     val sample = "가─A"
     val installed = runCatching {
         GraphicsEnvironment.getLocalGraphicsEnvironment().availableFontFamilyNames.toHashSet()
     }.getOrDefault(hashSetOf())
-    // All monospaced/fixed-pitch and Hangul-capable (Consolas et al. are skipped
-    // by the canDisplay check — they can't draw 가). GulimChe / DotumChe ship with
-    // Korean Windows; MS Gothic / NSimSun are on most installs.
-    val preferred = listOf(
-        "D2Coding", "NanumGothicCoding", "Nanum Gothic Coding",
-        "GulimChe", "DotumChe", "MS Gothic", "NSimSun",
-    )
+    val preferred = listOf("D2Coding", "NanumGothicCoding", "Nanum Gothic Coding")
     for (name in preferred) {
         if (name in installed) {
             val f = Font(name, Font.PLAIN, size)
@@ -133,7 +133,7 @@ internal class UrlHyperlinkFilter : HyperlinkFilter {
 internal class CliTerminalSettings(val readySignal: BracketedPasteSignal) : DefaultSettingsProvider() {
     private val terminalFont = pickCliTerminalFont()
     override fun getTerminalFont(): Font = terminalFont
-    override fun getTerminalFontSize(): Float = 13f
+    override fun getTerminalFontSize(): Float = CLI_TERMINAL_FONT_SIZE.toFloat()
     override fun audibleBell(): Boolean = false
     // Claude / Codex enable mouse reporting; without this a click on the login
     // URL would be swallowed by the CLI instead of following the hyperlink.

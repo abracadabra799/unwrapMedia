@@ -29,7 +29,7 @@ class CliTerminalSettingsTest {
     @Test
     fun terminalFontCanRenderHangulOrIsTheLogicalMonospaceFallback() {
         val font = pickCliTerminalFont()
-        assertEquals(13, font.size)
+        assertEquals(CLI_TERMINAL_FONT_SIZE, font.size)
         // Either a picked font that can draw 가/─, or the "Monospaced" logical
         // composite (whose JRE fallback covers Hangul at render time even when
         // canDisplayUpTo on the base face is pessimistic).
