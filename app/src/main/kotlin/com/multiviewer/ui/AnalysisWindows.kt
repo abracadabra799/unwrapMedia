@@ -913,7 +913,6 @@ fun AiPromptPreviewWindow(
                         // Bottom Action Bar. One button per CLI in the enum's
                         // declaration order (agy before gemini). Task 2 collapses
                         // these to a single "open a shell" action.
-                        val cliButtons = remember { com.multiviewer.util.AiCliType.entries.toList() }
 
                         Column(modifier = Modifier.fillMaxWidth()) {
                             Row(
@@ -1051,44 +1050,32 @@ fun AiPromptPreviewWindow(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
-                                // Local CLI Buttons -- always shown, one per CLI.
-                                // weight+scroll so 4 buttons never push the Copy/Close
-                                // pair off the row (esp. once the terminal docks right).
                                 Row(
-                                    modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                                    modifier = Modifier.weight(1f),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Text("Local CLI:", style = AppTypography.labelSmall.copy(fontSize = 11.sp, color = AppColors.NeonPurple, fontWeight = FontWeight.Bold))
-                                    Spacer(Modifier.width(6.dp))
-                                    cliButtons.forEach { cli ->
-                                        val accent = AppColors.NeonPurple
-                                        Button(
-                                            onClick = {
-                                                ClipboardUtil.copyToClipboard(promptText)
-                                                statusMessage = if (isWindows) {
-                                                    startShellSession()
-                                                } else if (com.multiviewer.util.AiCliDetector.openShellAt(tab.file.parentFile)) {
+                                    Button(
+                                        onClick = {
+                                            ClipboardUtil.copyToClipboard(promptText)
+                                            statusMessage = when {
+                                                isWindows && activeCliSession != null ->
+                                                    "터미널이 이미 열려 있습니다"
+                                                isWindows -> startShellSession()
+                                                com.multiviewer.util.AiCliDetector.openShellAt(tab.file.parentFile) ->
                                                     "터미널을 열었습니다 (프롬프트 클립보드 복사 완료)"
-                                                } else {
-                                                    "터미널 실행 실패"
-                                                }
-                                            },
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = accent.copy(alpha = 0.2f),
-                                                contentColor = accent,
-                                            ),
-                                            border = androidx.compose.foundation.BorderStroke(1.dp, accent),
-                                            modifier = Modifier.height(30.dp),
-                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                            shape = RoundedCornerShape(4.dp),
-                                        ) {
-                                            Text(
-                                                "▶ ${cli.displayName}",
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                            )
-                                        }
-                                        Spacer(Modifier.width(6.dp))
+                                                else -> "터미널 실행 실패"
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = AppColors.NeonPurple.copy(alpha = 0.2f),
+                                            contentColor = AppColors.NeonPurple,
+                                        ),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.NeonPurple),
+                                        modifier = Modifier.height(30.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                                        shape = RoundedCornerShape(4.dp),
+                                    ) {
+                                        Text("▶ AI CLI 터미널 열기", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
 
