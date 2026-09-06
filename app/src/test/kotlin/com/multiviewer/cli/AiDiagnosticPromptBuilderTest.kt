@@ -107,4 +107,33 @@ class AiDiagnosticPromptBuilderTest {
 
         tempFile.delete()
     }
+
+    @Test
+    fun testBuildPromptStripsControlCharsThatTruncateTheClipboard() {
+        val tempFile = File.createTempFile("test-ctrl-prompt-", ".mp4")
+        tempFile.deleteOnExit()
+        FileOutputStream(tempFile).use { it.write(ByteArray(64)) }
+
+        // A raw metadata value straight out of String(bytes, UTF_8): an interior
+        // NUL followed by real text, a BEL, and a stray CRLF. On Windows the NUL
+        // would cut every paste of this prompt short at ~this line.
+        val dirtyValue = "modelName\u0000iPhone 15 Pro\u0007\r\nx264"
+        val moov = BoxNode(
+            "moov", offset = 8, headerSize = 8, size = 40,
+            fields = listOf(BoxField("value", dirtyValue, 16, 32)),
+        )
+        val root = BoxNode("root", offset = 0, headerSize = 0, size = 64, children = listOf(moov))
+        val warnings = listOf(WarningEntry(moov, "trailing bytes after moov"))
+
+        val prompt = AiDiagnosticPromptBuilder.buildPrompt(tempFile, root, warnings)
+
+        assertFalse(prompt.contains('\u0000'), "NUL must be stripped (it truncates the Windows clipboard)")
+        assertFalse(prompt.contains('\u0007'), "other C0 control codes must be stripped")
+        assertFalse(prompt.contains('\r'), "CR must be normalized away")
+        // Text on both sides of the NUL survives.
+        assertTrue(prompt.contains("modelNameiPhone 15 Pro"))
+        assertTrue(prompt.contains("x264"))
+
+        tempFile.delete()
+    }
 }

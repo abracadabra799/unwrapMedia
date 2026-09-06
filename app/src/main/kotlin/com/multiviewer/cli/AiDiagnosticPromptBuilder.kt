@@ -115,7 +115,7 @@ object AiDiagnosticPromptBuilder {
             sb.appendLine("### [4. 요청 사항]")
             sb.appendLine("1. 이 미디어 컨테이너의 표준 호환성(Web Streaming, Android/iOS 호환성 등)을 더욱 높이기 위한 최적화 방안(예: faststart, moov 위치, 청크 정렬 등)을 제안해 주세요.")
             sb.appendLine("2. 모바일 기기(Android MediaCodec/Apple AVFoundation) 및 웹 브라우저에서의 재생/디코딩 효율을 높이기 위한 인코딩/먹싱 권장 설정을 설명해 주세요.")
-            return sb.toString()
+            return sanitizePrompt(sb.toString())
         }
 
         // 2. 구조적 결함 및 경고 상세 데이터 (Facts & Detailed Context)
@@ -245,7 +245,25 @@ object AiDiagnosticPromptBuilder {
             sb.appendLine("   - 이 미디어 파일을 생성하는 인코더/먹서 소프트웨어 개발자가 동일한 결함을 방지하기 위해 준수해야 할 표준 스펙 조항과 파이프라인 방어 로직을 제안해 주세요.")
         }
 
-        return sb.toString()
+        return sanitizePrompt(sb.toString())
+    }
+
+    /**
+     * The prompt interpolates raw parser field values (`BoxField.value`, media
+     * summary fields) that come straight from `String(bytes, UTF_8)` decoders and
+     * can carry an interior NUL or other C0 control code. Left in, a NUL truncates
+     * the whole prompt on the Windows clipboard (`CF_UNICODETEXT` is
+     * NUL-terminated) and stray control codes corrupt the pasted text. Normalize
+     * CR to LF, then drop every other C0 except tab/newline.
+     */
+    private fun sanitizePrompt(text: String): String {
+        val normalized = text.replace("\r\n", "\n").replace('\r', '\n')
+        if (normalized.none { it < ' ' && it != '\t' && it != '\n' }) return normalized
+        return buildString(normalized.length) {
+            for (c in normalized) {
+                if (c >= ' ' || c == '\t' || c == '\n') append(c)
+            }
+        }
     }
 
     /**
