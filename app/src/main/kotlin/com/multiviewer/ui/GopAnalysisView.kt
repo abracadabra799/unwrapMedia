@@ -36,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -59,8 +60,15 @@ private const val FRAME_BAR_ZOOM_STEP_DP = 2f
 private const val FRAME_BAR_SPACING_DP = 2
 // The tallest bar (the single biggest frame in the video) would otherwise reach 100% of the
 // panel's height, which reads as too dominant -- this caps it at 60%, scaling every other bar down
-// proportionally along with it so their relative size differences are preserved.
 private const val FRAME_BAR_MAX_HEIGHT_FRACTION = 0.6f
+
+private fun formatFrameByteSize(bytes: Long): String {
+    return if (bytes >= 1024 * 1024) String.format(java.util.Locale.US, "%.1f MB", bytes.toDouble() / (1024 * 1024))
+    else if (bytes >= 1024) String.format(java.util.Locale.US, "%.1f KB", bytes.toDouble() / 1024)
+    else "$bytes B"
+}
+
+private fun formatFrameByteSize(bytes: Int): String = formatFrameByteSize(bytes.toLong())
 
 @Composable
 private fun colorForFrameType(type: Char) = when (type) {
@@ -197,7 +205,40 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
                     }
 
                     val maxSize = remember(frames) { frames.maxOf { it.sizeBytes }.coerceAtLeast(1) }
+                    val avgSize = remember(frames) { if (frames.isNotEmpty()) frames.map { it.sizeBytes }.average().toLong() else 0L }
+                    val totalBytes = remember(frames) { frames.sumOf { it.sizeBytes } }
+                    val durationSec = remember(frames) {
+                        if (frames.size >= 2) (frames.last().ptsSeconds - frames.first().ptsSeconds).coerceAtLeast(0.01) else 1.0
+                    }
+                    val avgBitrateKbps = remember(totalBytes, durationSec) {
+                        ((totalBytes * 8.0) / durationSec / 1000.0).toLong()
+                    }
                     var frameBarWidthDp by remember { mutableStateOf(FRAME_BAR_WIDTH_DP.toFloat()) }
+
+                    // Frame Bitrate & Size Distribution Summary Line
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF1B1B1B))
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "📊 프레임 크기 분포:",
+                                style = AppTypography.labelLarge.copy(fontSize = 11.sp, color = AppColors.NeonBlue, fontWeight = FontWeight.Bold),
+                            )
+                            Text("최대: ${formatFrameByteSize(maxSize)}", fontSize = 11.sp, color = AppColors.TextPrimary)
+                            Text("평균: ${formatFrameByteSize(avgSize)}", fontSize = 11.sp, color = AppColors.TextPrimary)
+                            Text("추정 비트레이트: ${avgBitrateKbps} kbps", fontSize = 11.sp, color = AppColors.NeonGreen)
+                        }
+                        Text(
+                            "휠: 가로 줌 (${frameBarWidthDp.toInt()}px) · 드래그/스크롤바: 이동",
+                            fontSize = 10.sp,
+                            color = AppColors.TextSecondary,
+                        )
+                    }
 
                     // Keeps a keyboard/click-selected frame in view too -- without this, stepping
                     // past the visible window with the arrow keys would move the selection out of
@@ -272,6 +313,7 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
                             Column(
                                 modifier = Modifier.width(frameBarWidthDp.dp).fillMaxSize(),
                                 verticalArrangement = Arrangement.Bottom,
+                                horizontalAlignment = Alignment.CenterHorizontally,
                             ) {
                                 Box(
                                     modifier = Modifier
@@ -280,7 +322,17 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
                                         .background(colorForFrameType(frame.type))
                                         .let { if (isSelected) it.border(2.dp, Color.White) else it }
                                         .clickable { selectFrame(frame) },
-                                )
+                                    contentAlignment = Alignment.TopCenter,
+                                ) {
+                                    if (frameBarWidthDp >= 14f) {
+                                        Text(
+                                            frame.type.toString(),
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.Black.copy(alpha = 0.8f),
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

@@ -33,7 +33,7 @@ object ProcessManager {
     }
 
     /**
-     * Safely terminates a process with a short grace period, then force kills it.
+     * Safely terminates a process with a short grace period, then force kills it and all its descendants.
      */
     fun terminate(process: Process?) {
         if (process == null) return
@@ -46,18 +46,27 @@ object ProcessManager {
                     try {
                         Thread.sleep(200)
                         if (process.isAlive) {
-                            process.destroyForcibly()
+                            killDescendantsAndForcibly(process)
                         }
                     } catch (_: Throwable) {
-                        process.destroyForcibly()
+                        killDescendantsAndForcibly(process)
                     }
                 }.apply { isDaemon = true }.start()
             }
         } catch (_: Throwable) {
-            try {
-                process.destroyForcibly()
-            } catch (_: Throwable) {}
+            killDescendantsAndForcibly(process)
         }
+    }
+
+    private fun killDescendantsAndForcibly(process: Process) {
+        try {
+            ProcessHandle.of(process.pid()).ifPresent { h ->
+                h.descendants().forEach { it.destroyForcibly() }
+            }
+        } catch (_: Throwable) {}
+        try {
+            process.destroyForcibly()
+        } catch (_: Throwable) {}
     }
 
     /**

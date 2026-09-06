@@ -185,4 +185,36 @@ class ProcessTrackingTest {
         assertDiesPromptly(ffprobe)
         fifo.delete()
     }
+
+    @Test
+    fun `ProcessManager terminate kills descendants and handles rapid concurrent terminations under stress`() {
+        val count = 20
+        val fifos = (0 until count).map { makeFifo("stress-$it") }
+        val processes = fifos.map { fifo ->
+            ProcessManager.register(
+                ProcessBuilder(
+                    "sh", "-c", "cat ${fifo.absolutePath}"
+                ).start()
+            )
+        }
+
+        // Concurrently terminate half and destroyAll the rest
+        val threads = (0 until count / 2).map { i ->
+            Thread {
+                ProcessManager.terminate(processes[i])
+            }.apply { start() }
+        }
+        threads.forEach { it.join(2000) }
+
+        ProcessManager.destroyAll()
+
+        val deadline = System.currentTimeMillis() + 5000
+        while (System.currentTimeMillis() < deadline && processes.any { it.isAlive }) {
+            Thread.sleep(50)
+        }
+
+        val aliveCount = processes.count { it.isAlive }
+        assertEquals(0, aliveCount, "All processes and descendant shells must be terminated promptly")
+        fifos.forEach { it.delete() }
+    }
 }

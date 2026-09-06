@@ -42,9 +42,14 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.awt.FileDialog
+import java.awt.Frame
 import java.io.File
+import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -187,6 +192,7 @@ internal fun searchHex(
     pattern: ByteArray,
     maxResults: Int = 100,
     ignoreCase: Boolean = false,
+    isCancelled: () -> Boolean = { false },
 ): List<Long> {
     if (pattern.isEmpty()) return emptyList()
     val fileLength = raf.length()
@@ -199,6 +205,7 @@ internal fun searchHex(
     var currentOffset = 0L
 
     while (currentOffset < fileLength && results.size < maxResults) {
+        if (isCancelled()) break
         val readLen = minOf(chunkSize.toLong() + overlap, fileLength - currentOffset).toInt()
         raf.seek(currentOffset)
         raf.readFully(buffer, 0, readLen)
@@ -244,6 +251,8 @@ data class DataInspectorValues(
     val double64BE: Double?,
     val binary8: String,
     val asciiChar: String,
+    val fourCC: String?,
+    val timestampUnix: String?,
 )
 
 internal fun readDataInspectorValues(raf: RandomAccessFile, offset: Long, fileLength: Long): DataInspectorValues? {
@@ -276,6 +285,26 @@ internal fun readDataInspectorValues(raf: RandomAccessFile, offset: Long, fileLe
     val d64LE = if (maxLen >= 8) ByteBuffer.wrap(buf, 0, 8).order(ByteOrder.LITTLE_ENDIAN).double else null
     val d64BE = if (maxLen >= 8) ByteBuffer.wrap(buf, 0, 8).order(ByteOrder.BIG_ENDIAN).double else null
 
+    val fourCC = if (maxLen >= 4) {
+        val fourBytes = buf.sliceArray(0 until 4)
+        if (fourBytes.all { (it.toInt() and 0xFF) in 0x20..0x7E }) {
+            String(fourBytes, Charsets.US_ASCII)
+        } else {
+            null
+        }
+    } else null
+
+    val timestampUnix = u32BE?.let { sec ->
+        // Valid if within 1995 ~ 2038
+        if (sec in 788918400L..2147483647L) {
+            try {
+                java.time.Instant.ofEpochSecond(sec).atZone(java.time.ZoneId.of("UTC")).format(
+                    java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss 'UTC'")
+                )
+            } catch (_: Exception) { null }
+        } else null
+    }
+
     return DataInspectorValues(
         offset = offset,
         uint8 = u8,
@@ -296,6 +325,8 @@ internal fun readDataInspectorValues(raf: RandomAccessFile, offset: Long, fileLe
         double64BE = d64BE,
         binary8 = bin8,
         asciiChar = ascii,
+        fourCC = fourCC,
+        timestampUnix = timestampUnix,
     )
 }
 
@@ -348,6 +379,50 @@ internal fun copyBytesAsBase64(raf: RandomAccessFile, range: LongRange) {
     com.multiviewer.util.ClipboardUtil.copyToClipboard(formatBytesAsBase64(buf))
 }
 
+internal fun exportRangeBytesToFile(
+    raf: RandomAccessFile,
+    range: LongRange,
+    destination: File,
+    onSuccess: (String) -> Unit,
+    onError: (String) -> Unit,
+) {
+    try {
+        val totalBytes = range.last - range.first + 1
+        raf.seek(range.first)
+        FileOutputStream(destination).use { fos ->
+            val buf = ByteArray(65536)
+            var remaining = totalBytes
+            while (remaining > 0) {
+                val toRead = minOf(buf.size.toLong(), remaining).toInt()
+                raf.readFully(buf, 0, toRead)
+                fos.write(buf, 0, toRead)
+                remaining -= toRead
+            }
+        }
+        onSuccess("${destination.name} 저장 완료 ($totalBytes 바이트)")
+    } catch (e: Exception) {
+        onError("저장 실패: ${e.message}")
+    }
+}
+
+internal fun promptSaveRangeBytesWithDialog(
+    raf: RandomAccessFile,
+    range: LongRange,
+    defaultFileName: String,
+    onSuccess: (String) -> Unit,
+    onError: (String) -> Unit,
+) {
+    val dialog = FileDialog(null as Frame?, "선택 바이트 파일로 추출 (Export Bytes)", FileDialog.SAVE)
+    dialog.file = defaultFileName
+    dialog.isVisible = true
+    val fileName = dialog.file
+    val directory = dialog.directory
+    if (fileName != null && directory != null) {
+        val destFile = File(directory, fileName)
+        exportRangeBytesToFile(raf, range, destFile, onSuccess, onError)
+    }
+}
+
 private fun resolveByteAt(
     position: Offset,
     listState: LazyListState,
@@ -380,8 +455,12 @@ fun HexView(
     onSelectionChanged: (Long) -> Unit = {},
 ) {
     val raf = remember(file) { RandomAccessFile(file, "r") }
+    var searchJob by remember(file) { mutableStateOf<Job?>(null) }
     DisposableEffect(raf) {
-        onDispose { raf.close() }
+        onDispose {
+            searchJob?.cancel()
+            raf.close()
+        }
     }
     val fileLength = raf.length()
     val rowCount = ((fileLength + BYTES_PER_ROW - 1) / BYTES_PER_ROW).toInt()
@@ -465,6 +544,7 @@ fun HexView(
     }
 
     fun performSearch() {
+        searchJob?.cancel()
         val pattern = parseHexSearchPattern(searchQuery, isHexSearchMode)
         if (pattern == null || pattern.isEmpty()) {
             searchMatches = emptyList()
@@ -472,17 +552,24 @@ fun HexView(
             return
         }
         activeSearchPatternLength = pattern.size
-        coroutineScope.launch {
+        searchJob = coroutineScope.launch {
             val results = withContext(Dispatchers.IO) {
-                searchHex(raf, pattern, ignoreCase = ignoreSearchCase && !isHexSearchMode)
+                searchHex(
+                    raf = raf,
+                    pattern = pattern,
+                    ignoreCase = ignoreSearchCase && !isHexSearchMode,
+                    isCancelled = { !isActive }
+                )
             }
-            searchMatches = results
-            currentMatchIndex = 0
-            if (results.isNotEmpty()) {
-                val matchOffset = results[0]
-                selectionAnchor = matchOffset
-                selectionEnd = matchOffset + pattern.size - 1
-                scrollToOffset(matchOffset)
+            if (isActive) {
+                searchMatches = results
+                currentMatchIndex = 0
+                if (results.isNotEmpty()) {
+                    val matchOffset = results[0]
+                    selectionAnchor = matchOffset
+                    selectionEnd = matchOffset + pattern.size - 1
+                    scrollToOffset(matchOffset)
+                }
             }
         }
     }
@@ -709,8 +796,51 @@ fun HexView(
                             Text("No match", fontSize = 10.sp, color = AppColors.NeonRed)
                         }
 
-                        IconButton(onClick = { showFindBar = false; searchMatches = emptyList() }, modifier = Modifier.size(20.dp)) {
+                        IconButton(onClick = {
+                            showFindBar = false
+                            searchJob?.cancel()
+                            searchMatches = emptyList()
+                        }, modifier = Modifier.size(20.dp)) {
                             Text("✕", fontSize = 11.sp, color = AppColors.TextSecondary)
+                        }
+                    }
+
+                    // Quick Preset Chips for common signatures / FourCCs
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 2.dp, start = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text("프리셋:", fontSize = 10.sp, color = AppColors.TextSecondary)
+                        val presets = listOf(
+                            "ftyp" to false,
+                            "moov" to false,
+                            "mdat" to false,
+                            "iloc" to false,
+                            "00 00 00 01" to true,
+                            "FF D8 FF" to true,
+                            "89 50 4E 47" to true,
+                        )
+                        presets.forEach { (preset, isHex) ->
+                            Surface(
+                                color = Color(0xFF1E1E1E),
+                                shape = RoundedCornerShape(3.dp),
+                                border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFF444444)),
+                                modifier = Modifier.clickable {
+                                    isHexSearchMode = isHex
+                                    searchQuery = preset
+                                    performSearch()
+                                },
+                            ) {
+                                Text(
+                                    preset,
+                                    fontSize = 9.sp,
+                                    color = if (isHex) AppColors.NeonYellow else AppColors.NeonBlue,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -946,7 +1076,38 @@ fun HexView(
                                 copyToastMessage = "ASCII 복사됨"
                             },
                         )
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = AppColors.Border)
+                        DropdownMenuItem(
+                            text = { Text("💾 선택 바이트 파일로 추출 (Export Bytes...)", fontSize = 11.sp, color = AppColors.NeonGreen, fontWeight = FontWeight.Bold) },
+                            onClick = {
+                                showMoreFormatsMenu = false
+                                val defaultName = "${file.nameWithoutExtension}_0x${range.first.toString(16).uppercase()}_0x${range.last.toString(16).uppercase()}.bin"
+                                promptSaveRangeBytesWithDialog(
+                                    raf, range, defaultName,
+                                    onSuccess = { copyToastMessage = it },
+                                    onError = { copyToastMessage = it },
+                                )
+                            },
+                        )
                     }
+                }
+
+                Spacer(Modifier.width(4.dp))
+
+                FilledTonalButton(
+                    onClick = {
+                        val defaultName = "${file.nameWithoutExtension}_0x${range.first.toString(16).uppercase()}_0x${range.last.toString(16).uppercase()}.bin"
+                        promptSaveRangeBytesWithDialog(
+                            raf, range, defaultName,
+                            onSuccess = { copyToastMessage = it },
+                            onError = { copyToastMessage = it },
+                        )
+                    },
+                    contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp),
+                    modifier = Modifier.height(24.dp),
+                    colors = ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.NeonGreen.copy(alpha = 0.25f)),
+                ) {
+                    Text("💾 파일 추출", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AppColors.NeonGreen)
                 }
             }
         }
@@ -1008,6 +1169,14 @@ fun HexView(
                             ContextMenuItem("💻 C/C++ 바이트 배열(0xXX, ...)로 복사") {
                                 copyBytesAsCodeArray(raf, range)
                                 copyToastMessage = "C-Array 복사됨"
+                            },
+                            ContextMenuItem("💾 선택 바이트 파일로 추출 (Export to File...)") {
+                                val defaultName = "${file.nameWithoutExtension}_0x${range.first.toString(16).uppercase()}_0x${range.last.toString(16).uppercase()}.bin"
+                                promptSaveRangeBytesWithDialog(
+                                    raf, range, defaultName,
+                                    onSuccess = { copyToastMessage = it },
+                                    onError = { copyToastMessage = it },
+                                )
                             },
                         ) + (if (selectedRange != null) listOf(
                             ContextMenuItem("❌ 선택 영역 해제 (ESC)") { clearSelection() }
@@ -1218,20 +1387,20 @@ fun HexView(
                             InspectorRow("Binary (8-bit)", inspectorValues.binary8)
                         }
 
-                        // Column 2: 32-bit & Floats
+                        // Column 2: 32-bit, FourCC & Floats
                         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             InspectorRow("uint32 (LE / BE)", "${inspectorValues.uint32LE ?: "-"} (0x${inspectorValues.uint32LE?.toString(16)?.uppercase() ?: "-"}) / ${inspectorValues.uint32BE ?: "-"}")
                             InspectorRow("int32 (LE / BE)", "${inspectorValues.int32LE ?: "-"} / ${inspectorValues.int32BE ?: "-"}")
+                            InspectorRow("FourCC (32-bit)", inspectorValues.fourCC ?: "-")
                             InspectorRow("float32 (LE / BE)", "${inspectorValues.float32LE ?: "-"} / ${inspectorValues.float32BE ?: "-"}")
-                            InspectorRow("ASCII / Char", inspectorValues.asciiChar)
                         }
 
-                        // Column 3: 64-bit & Double
+                        // Column 3: 64-bit, Time & Double
                         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            InspectorRow("Unix Time (UTC)", inspectorValues.timestampUnix ?: "-")
                             InspectorRow("int64 (LE)", "${inspectorValues.int64LE ?: "-"}")
                             InspectorRow("int64 (BE)", "${inspectorValues.int64BE ?: "-"}")
-                            InspectorRow("double64 (LE)", "${inspectorValues.double64LE ?: "-"}")
-                            InspectorRow("double64 (BE)", "${inspectorValues.double64BE ?: "-"}")
+                            InspectorRow("double64 (LE / BE)", "${inspectorValues.double64LE ?: "-"} / ${inspectorValues.double64BE ?: "-"}")
                         }
                     }
                 }
