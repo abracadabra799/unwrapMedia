@@ -34,7 +34,6 @@ import com.multiviewer.parser.ScanStatistics
 import com.multiviewer.parser.computeScanStatistics
 import com.multiviewer.parser.WarningEntry
 import com.multiviewer.parser.collectWarnings
-import com.multiviewer.util.ClipboardUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -691,10 +690,6 @@ private fun DetailPropertiesTabContent(appState: AppState, tab: TabState) {
                                 PropertyRow(
                                     label = "Byte Offset",
                                     value = "$hexOffset ($offset)",
-                                    onCopy = {
-                                        ClipboardUtil.copyToClipboard(hexOffset)
-                                        appState.statusMessage = "Offset 복사됨: $hexOffset"
-                                    }
                                 )
                             }
                             tab.gopFrames?.let { frames -> gopPositionOf(frames, selectedFrame.index) }?.let { gop ->
@@ -851,10 +846,6 @@ private fun DetailPropertiesTabContent(appState: AppState, tab: TabState) {
                             PropertyRow(
                                 label = "Offset",
                                 value = hexOffset,
-                                onCopy = {
-                                    ClipboardUtil.copyToClipboard(hexOffset)
-                                    appState.statusMessage = "Offset 복사됨: $hexOffset"
-                                }
                             )
                             PropertyRow("Size", "${selectedNode.size} bytes")
                             Spacer(Modifier.height(8.dp))

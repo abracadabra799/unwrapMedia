@@ -149,7 +149,6 @@ fun PropertyRow(
     label: String,
     value: String,
     onClick: (() -> Unit)? = null,
-    onCopy: (() -> Unit)? = null,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -160,34 +159,13 @@ fun PropertyRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(label, style = AppTypography.labelLarge, modifier = Modifier.weight(1f))
-            Row(
-                modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    value,
-                    style = AppTypography.bodyLarge,
-                    color = if (onClick != null) AppColors.NeonBlue else Color.Unspecified,
-                    textAlign = TextAlign.End
-                )
-                if (onCopy != null) {
-                    Spacer(Modifier.width(6.dp))
-                    Box(
-                        modifier = Modifier
-                            .size(20.dp)
-                            .clickable(onClick = onCopy)
-                            .pointerHoverIcon(PointerIcon(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR))),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            "📋",
-                            fontSize = 11.sp,
-                            color = AppColors.NeonBlue
-                        )
-                    }
-                }
-            }
+            Text(
+                value,
+                style = AppTypography.bodyLarge,
+                color = if (onClick != null) AppColors.NeonBlue else Color.Unspecified,
+                textAlign = TextAlign.End,
+                modifier = Modifier.weight(1f)
+            )
         }
         Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AppColors.Border.copy(alpha = 0.5f)))
     }

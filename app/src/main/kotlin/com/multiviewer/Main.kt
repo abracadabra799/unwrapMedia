@@ -613,18 +613,6 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 )
             }
             Menu(I18n.menuHelp(language)) {
-                if (hasUpdateAvailable) {
-                    Item(
-                        "🔔 ${if (language == AppLanguage.KO) "새 버전 v$latestUpdateVersion 업데이트..." else "Update to v$latestUpdateVersion..."}",
-                        onClick = { updateWindowOpen = true },
-                    )
-                } else {
-                    Item(
-                        I18n.menuCheckForUpdates(language),
-                        onClick = { updateWindowOpen = true },
-                    )
-                }
-                Separator()
                 Item(
                     I18n.menuOnlineRepo(language),
                     onClick = {
@@ -1035,8 +1023,8 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                             val frameOffset = currentTab.selectedFrame?.byteOffset
                             when {
                                 paramRange != null -> hexListState.scrollToItem((paramRange.first / BYTES_PER_ROW).toInt())
+                                field != null && field.length > 0 -> hexListState.scrollToItem((field.offset / BYTES_PER_ROW).toInt())
                                 tileRange != null -> hexListState.scrollToItem((tileRange.first / BYTES_PER_ROW).toInt())
-                                field != null -> hexListState.scrollToItem((field.offset / BYTES_PER_ROW).toInt())
                                 frameOffset != null -> hexListState.scrollToItem((frameOffset / BYTES_PER_ROW).toInt())
                                 else -> currentTab.selected?.let {
                                     hexListState.scrollToItem((it.offset / BYTES_PER_ROW).toInt())
@@ -1125,8 +1113,8 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                         val bottomPanel: @Composable ColumnScope.() -> Unit = {
                             PanelHeader("Hex & Raw Data Viewer", color = AppColors.NeonGreen)
                             val hexHighlightRange = currentTab.parameterSetHighlightRange
+                                ?: activeField?.takeIf { it.length > 0 }?.let { it.offset until (it.offset + it.length) }
                                 ?: currentTab.tileHighlightRange
-                                ?: activeField?.let { it.offset until (it.offset + it.length) }
                                 ?: currentTab.selected?.let { it.offset until (it.offset + it.size) }
                                 ?: currentTab.selectedFrame?.let { frame ->
                                     frame.byteOffset?.let { offset -> offset until (offset + frame.sizeBytes) }

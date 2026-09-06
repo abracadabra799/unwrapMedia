@@ -612,55 +612,63 @@ fun HexView(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    FilledTonalButton(
-                        onClick = {
-                            showFindBar = !showFindBar
-                            if (showFindBar) showGoToBar = false
-                        },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                        modifier = Modifier.height(26.dp),
-                        colors = if (showFindBar) ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.NeonBlue.copy(alpha = 0.3f)) else ButtonDefaults.filledTonalButtonColors(),
+                    Row(
+                        modifier = Modifier.weight(1f, fill = false),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Text("🔍 Find (Ctrl+F)", fontSize = 10.sp)
-                    }
+                        FilledTonalButton(
+                            onClick = {
+                                showFindBar = !showFindBar
+                                if (showFindBar) showGoToBar = false
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.height(26.dp),
+                            colors = if (showFindBar) ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.NeonBlue.copy(alpha = 0.3f)) else ButtonDefaults.filledTonalButtonColors(),
+                        ) {
+                            Text("🔍 Find (Ctrl+F)", fontSize = 10.sp, softWrap = false)
+                        }
 
-                    FilledTonalButton(
-                        onClick = {
-                            showGoToBar = !showGoToBar
-                            if (showGoToBar) showFindBar = false
-                        },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                        modifier = Modifier.height(26.dp),
-                        colors = if (showGoToBar) ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.NeonBlue.copy(alpha = 0.3f)) else ButtonDefaults.filledTonalButtonColors(),
-                    ) {
-                        Text("📍 Go to (Ctrl+G)", fontSize = 10.sp)
-                    }
+                        FilledTonalButton(
+                            onClick = {
+                                showGoToBar = !showGoToBar
+                                if (showGoToBar) showFindBar = false
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.height(26.dp),
+                            colors = if (showGoToBar) ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.NeonBlue.copy(alpha = 0.3f)) else ButtonDefaults.filledTonalButtonColors(),
+                        ) {
+                            Text("📍 Go to (Ctrl+G)", fontSize = 10.sp, softWrap = false)
+                        }
 
-                    FilledTonalButton(
-                        onClick = { showInspector = !showInspector },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                        modifier = Modifier.height(26.dp),
-                        colors = if (showInspector) ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.NeonGreen.copy(alpha = 0.3f)) else ButtonDefaults.filledTonalButtonColors(),
-                    ) {
-                        Text("📊 Data Inspector (Ctrl+I)", fontSize = 10.sp)
+                        FilledTonalButton(
+                            onClick = { showInspector = !showInspector },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.height(26.dp),
+                            colors = if (showInspector) ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.NeonGreen.copy(alpha = 0.3f)) else ButtonDefaults.filledTonalButtonColors(),
+                        ) {
+                            Text("📊 Data Inspector (Ctrl+I)", fontSize = 10.sp, softWrap = false)
+                        }
                     }
 
                     Spacer(modifier = Modifier.weight(1f))
 
                     // Font Zoom Controls
-                    Text("Font:", fontSize = 10.sp, color = AppColors.TextSecondary)
-                    IconButton(
-                        onClick = { fontSizeSp = (fontSizeSp - 1f).coerceIn(MIN_HEX_FONT_SP, MAX_HEX_FONT_SP) },
-                        modifier = Modifier.size(22.dp),
-                    ) {
-                        Text("-", fontSize = 12.sp, color = AppColors.TextPrimary)
-                    }
-                    Text("%.0fsp".format(fontSizeSp), fontSize = 10.sp, color = AppColors.NeonBlue)
-                    IconButton(
-                        onClick = { fontSizeSp = (fontSizeSp + 1f).coerceIn(MIN_HEX_FONT_SP, MAX_HEX_FONT_SP) },
-                        modifier = Modifier.size(22.dp),
-                    ) {
-                        Text("+", fontSize = 12.sp, color = AppColors.TextPrimary)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Font:", fontSize = 10.sp, color = AppColors.TextSecondary, softWrap = false)
+                        IconButton(
+                            onClick = { fontSizeSp = (fontSizeSp - 1f).coerceIn(MIN_HEX_FONT_SP, MAX_HEX_FONT_SP) },
+                            modifier = Modifier.size(22.dp),
+                        ) {
+                            Text("-", fontSize = 12.sp, color = AppColors.TextPrimary)
+                        }
+                        Text("%.0fsp".format(fontSizeSp), fontSize = 10.sp, color = AppColors.NeonBlue, softWrap = false)
+                        IconButton(
+                            onClick = { fontSizeSp = (fontSizeSp + 1f).coerceIn(MIN_HEX_FONT_SP, MAX_HEX_FONT_SP) },
+                            modifier = Modifier.size(22.dp),
+                        ) {
+                            Text("+", fontSize = 12.sp, color = AppColors.TextPrimary)
+                        }
                     }
                 }
 
@@ -929,12 +937,11 @@ fun HexView(
         // Selection / Box Range / Copy Info Bar
         activeCopyRange?.let { range ->
             val isManualSelection = selectedRange != null
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(if (isManualSelection) Color(0xFF1E281E) else Color(0xFF16253A))
-                    .padding(horizontal = 8.dp, vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
             ) {
                 val byteCount = range.last - range.first + 1
                 val labelPrefix = if (isManualSelection) "📍 선택 영역" else "📦 선택된 박스/마커"
@@ -946,168 +953,190 @@ fun HexView(
                 } else {
                     "$labelPrefix: 0x${range.first.toString(16).uppercase()} - 0x${range.last.toString(16).uppercase()} ($byteCount 바이트)"
                 }
-                Text(
-                    text,
-                    style = AppTypography.labelLarge.copy(
-                        color = if (isManualSelection) AppColors.NeonGreen else AppColors.NeonBlue,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                    ),
-                    modifier = Modifier.weight(1f).padding(end = 8.dp),
-                )
-                if (isManualSelection) {
-                    Text(
-                        "(ESC: 해제)",
-                        fontSize = 10.sp,
-                        color = AppColors.TextSecondary,
-                        modifier = Modifier.padding(end = 8.dp),
-                    )
-                }
 
-                // Copy Toast Feedback Indicator
-                copyToastMessage?.let { toast ->
-                    Surface(
-                        color = AppColors.NeonGreen.copy(alpha = 0.2f),
-                        shape = RoundedCornerShape(4.dp),
-                        modifier = Modifier.padding(end = 8.dp),
-                    ) {
-                        Text(
-                            "✓ $toast",
-                            fontSize = 10.sp,
+                // Top Info Row: Label, ESC hint, Copy Toast
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text,
+                        style = AppTypography.labelLarge.copy(
+                            color = if (isManualSelection) AppColors.NeonGreen else AppColors.NeonBlue,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = AppColors.NeonGreen,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        ),
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.weight(1f, fill = false).padding(end = 8.dp),
+                    )
+                    if (isManualSelection) {
+                        Text(
+                            "(ESC: 해제)",
+                            fontSize = 10.sp,
+                            color = AppColors.TextSecondary,
+                            softWrap = false,
+                            modifier = Modifier.padding(end = 8.dp),
                         )
+                    }
+
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    // Copy Toast Feedback Indicator
+                    copyToastMessage?.let { toast ->
+                        Surface(
+                            color = AppColors.NeonGreen.copy(alpha = 0.2f),
+                            shape = RoundedCornerShape(4.dp),
+                            modifier = Modifier.padding(start = 4.dp),
+                        ) {
+                            Text(
+                                "✓ $toast",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AppColors.NeonGreen,
+                                softWrap = false,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
                     }
                 }
 
-                // Copy Action Group Label
-                Text(
-                    "복사:",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = AppColors.TextPrimary,
-                    modifier = Modifier.padding(end = 4.dp),
-                )
+                Spacer(modifier = Modifier.height(3.dp))
 
-                // Quick copy buttons
-                FilledTonalButton(
-                    onClick = {
-                        copyBytesAsFormattedDump(raf, range)
-                        copyToastMessage = "덤프 복사됨"
-                    },
-                    contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp),
-                    modifier = Modifier.height(24.dp).padding(end = 3.dp),
-                    colors = ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.NeonBlue.copy(alpha = 0.25f)),
+                // Bottom Actions Row: Horizontal scrollable button strip
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Text("📋 덤프 복사", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AppColors.NeonBlue)
-                }
-                FilledTonalButton(
-                    onClick = {
-                        copyBytesAsHex(raf, range, multiLine = true)
-                        copyToastMessage = "Hex 복사됨"
-                    },
-                    contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp),
-                    modifier = Modifier.height(24.dp).padding(end = 3.dp),
-                ) {
-                    Text("🔢 Hex 복사", fontSize = 10.sp)
-                }
-                FilledTonalButton(
-                    onClick = {
-                        copyBytesAsText(raf, range)
-                        copyToastMessage = "텍스트 복사됨"
-                    },
-                    contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp),
-                    modifier = Modifier.height(24.dp).padding(end = 3.dp),
-                ) {
-                    Text("🔤 텍스트 복사", fontSize = 10.sp)
-                }
+                    Text(
+                        "복사:",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AppColors.TextPrimary,
+                        softWrap = false,
+                        modifier = Modifier.padding(end = 2.dp),
+                    )
 
-                var showMoreFormatsMenu by remember { mutableStateOf(false) }
-                Box {
+                    // Quick copy buttons
                     FilledTonalButton(
-                        onClick = { showMoreFormatsMenu = !showMoreFormatsMenu },
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                        onClick = {
+                            copyBytesAsFormattedDump(raf, range)
+                            copyToastMessage = "덤프 복사됨"
+                        },
+                        contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp),
+                        modifier = Modifier.height(24.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.NeonBlue.copy(alpha = 0.25f)),
+                    ) {
+                        Text("📋 덤프 복사", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AppColors.NeonBlue, softWrap = false)
+                    }
+                    FilledTonalButton(
+                        onClick = {
+                            copyBytesAsHex(raf, range, multiLine = true)
+                            copyToastMessage = "Hex 복사됨"
+                        },
+                        contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp),
                         modifier = Modifier.height(24.dp),
                     ) {
-                        Text("기타 포맷 ▾", fontSize = 10.sp)
+                        Text("🔢 Hex 복사", fontSize = 10.sp, softWrap = false)
                     }
-                    DropdownMenu(
-                        expanded = showMoreFormatsMenu,
-                        onDismissRequest = { showMoreFormatsMenu = false },
+                    FilledTonalButton(
+                        onClick = {
+                            copyBytesAsText(raf, range)
+                            copyToastMessage = "텍스트 복사됨"
+                        },
+                        contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp),
+                        modifier = Modifier.height(24.dp),
                     ) {
-                        DropdownMenuItem(
-                            text = { Text("📦 Base64 문자열 복사", fontSize = 11.sp) },
-                            onClick = {
-                                showMoreFormatsMenu = false
-                                copyBytesAsBase64(raf, range)
-                                copyToastMessage = "Base64 복사됨"
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("💻 C/C++ 배열 복사 (0xXX, ...)", fontSize = 11.sp) },
-                            onClick = {
-                                showMoreFormatsMenu = false
-                                copyBytesAsCodeArray(raf, range)
-                                copyToastMessage = "C-Array 복사됨"
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("🐍 Python Bytes 복사 (b'\\x00...')", fontSize = 11.sp) },
-                            onClick = {
-                                showMoreFormatsMenu = false
-                                copyBytesAsPythonBytes(raf, range)
-                                copyToastMessage = "Py-Bytes 복사됨"
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("🔗 연속 16진수(Hex Stream) 복사", fontSize = 11.sp) },
-                            onClick = {
-                                showMoreFormatsMenu = false
-                                copyBytesAsContinuousHex(raf, range)
-                                copyToastMessage = "Continuous Hex 복사됨"
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("🔤 출력 가능한 ASCII 문자만 복사", fontSize = 11.sp) },
-                            onClick = {
-                                showMoreFormatsMenu = false
-                                copyBytesAsPrintableAscii(raf, range)
-                                copyToastMessage = "ASCII 복사됨"
-                            },
-                        )
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = AppColors.Border)
-                        DropdownMenuItem(
-                            text = { Text("💾 선택 바이트 파일로 추출 (Export Bytes...)", fontSize = 11.sp, color = AppColors.NeonGreen, fontWeight = FontWeight.Bold) },
-                            onClick = {
-                                showMoreFormatsMenu = false
-                                val defaultName = "${file.nameWithoutExtension}_0x${range.first.toString(16).uppercase()}_0x${range.last.toString(16).uppercase()}.bin"
-                                promptSaveRangeBytesWithDialog(
-                                    raf, range, defaultName,
-                                    onSuccess = { copyToastMessage = it },
-                                    onError = { copyToastMessage = it },
-                                )
-                            },
-                        )
+                        Text("🔤 텍스트 복사", fontSize = 10.sp, softWrap = false)
                     }
-                }
 
-                Spacer(Modifier.width(4.dp))
+                    var showMoreFormatsMenu by remember { mutableStateOf(false) }
+                    Box {
+                        FilledTonalButton(
+                            onClick = { showMoreFormatsMenu = !showMoreFormatsMenu },
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                            modifier = Modifier.height(24.dp),
+                        ) {
+                            Text("기타 포맷 ▾", fontSize = 10.sp, softWrap = false)
+                        }
+                        DropdownMenu(
+                            expanded = showMoreFormatsMenu,
+                            onDismissRequest = { showMoreFormatsMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("📦 Base64 문자열 복사", fontSize = 11.sp) },
+                                onClick = {
+                                    showMoreFormatsMenu = false
+                                    copyBytesAsBase64(raf, range)
+                                    copyToastMessage = "Base64 복사됨"
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("💻 C/C++ 배열 복사 (0xXX, ...)", fontSize = 11.sp) },
+                                onClick = {
+                                    showMoreFormatsMenu = false
+                                    copyBytesAsCodeArray(raf, range)
+                                    copyToastMessage = "C-Array 복사됨"
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("🐍 Python Bytes 복사 (b'\\x00...')", fontSize = 11.sp) },
+                                onClick = {
+                                    showMoreFormatsMenu = false
+                                    copyBytesAsPythonBytes(raf, range)
+                                    copyToastMessage = "Py-Bytes 복사됨"
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("🔗 연속 16진수(Hex Stream) 복사", fontSize = 11.sp) },
+                                onClick = {
+                                    showMoreFormatsMenu = false
+                                    copyBytesAsContinuousHex(raf, range)
+                                    copyToastMessage = "Continuous Hex 복사됨"
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("🔤 출력 가능한 ASCII 문자만 복사", fontSize = 11.sp) },
+                                onClick = {
+                                    showMoreFormatsMenu = false
+                                    copyBytesAsPrintableAscii(raf, range)
+                                    copyToastMessage = "ASCII 복사됨"
+                                },
+                            )
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = AppColors.Border)
+                            DropdownMenuItem(
+                                text = { Text("💾 선택 바이트 파일로 추출 (Export Bytes...)", fontSize = 11.sp, color = AppColors.NeonGreen, fontWeight = FontWeight.Bold) },
+                                onClick = {
+                                    showMoreFormatsMenu = false
+                                    val defaultName = "${file.nameWithoutExtension}_0x${range.first.toString(16).uppercase()}_0x${range.last.toString(16).uppercase()}.bin"
+                                    promptSaveRangeBytesWithDialog(
+                                        raf, range, defaultName,
+                                        onSuccess = { copyToastMessage = it },
+                                        onError = { copyToastMessage = it },
+                                    )
+                                },
+                            )
+                        }
+                    }
 
-                FilledTonalButton(
-                    onClick = {
-                        val defaultName = "${file.nameWithoutExtension}_0x${range.first.toString(16).uppercase()}_0x${range.last.toString(16).uppercase()}.bin"
-                        promptSaveRangeBytesWithDialog(
-                            raf, range, defaultName,
-                            onSuccess = { copyToastMessage = it },
-                            onError = { copyToastMessage = it },
-                        )
-                    },
-                    contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp),
-                    modifier = Modifier.height(24.dp),
-                    colors = ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.NeonGreen.copy(alpha = 0.25f)),
-                ) {
-                    Text("💾 파일 추출", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AppColors.NeonGreen)
+                    Spacer(Modifier.width(2.dp))
+
+                    FilledTonalButton(
+                        onClick = {
+                            val defaultName = "${file.nameWithoutExtension}_0x${range.first.toString(16).uppercase()}_0x${range.last.toString(16).uppercase()}.bin"
+                            promptSaveRangeBytesWithDialog(
+                                raf, range, defaultName,
+                                onSuccess = { copyToastMessage = it },
+                                onError = { copyToastMessage = it },
+                            )
+                        },
+                        contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp),
+                        modifier = Modifier.height(24.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.NeonGreen.copy(alpha = 0.25f)),
+                    ) {
+                        Text("💾 파일 추출", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AppColors.NeonGreen, softWrap = false)
+                    }
                 }
             }
         }

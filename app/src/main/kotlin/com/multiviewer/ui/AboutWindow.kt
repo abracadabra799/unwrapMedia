@@ -113,14 +113,21 @@ fun AboutWindow(
                             }
                             if (onCheckUpdate != null) {
                                 Spacer(Modifier.width(8.dp))
-                                TextButton(
+                                OutlinedButton(
                                     onClick = onCheckUpdate,
-                                    modifier = Modifier.height(24.dp),
-                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                    modifier = Modifier.height(26.dp),
+                                    shape = RoundedCornerShape(4.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.NeonBlue.copy(alpha = 0.7f)),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = AppColors.NeonBlue.copy(alpha = 0.12f),
+                                        contentColor = AppColors.NeonBlue,
+                                    ),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                                 ) {
                                     Text(
-                                        I18n.menuCheckForUpdates(language),
+                                        I18n.btnCheckForUpdates(language),
                                         fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
                                         color = AppColors.NeonBlue,
                                     )
                                 }
