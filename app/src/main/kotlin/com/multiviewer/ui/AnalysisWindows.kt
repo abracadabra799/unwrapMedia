@@ -910,10 +910,7 @@ fun AiPromptPreviewWindow(
 
                         Spacer(Modifier.height(12.dp))
 
-                        // Bottom Action Bar. One button per CLI in the enum's
-                        // declaration order (agy before gemini). Task 2 collapses
-                        // these to a single "open a shell" action.
-
+                        // Bottom action bar: prompt-size readout, the "open a shell" button, Copy/Close.
                         Column(modifier = Modifier.fillMaxWidth()) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -1058,7 +1055,7 @@ fun AiPromptPreviewWindow(
                                         onClick = {
                                             ClipboardUtil.copyToClipboard(promptText)
                                             statusMessage = when {
-                                                isWindows && activeCliSession != null ->
+                                                isWindows && activeCliSession?.isAlive == true ->
                                                     "터미널이 이미 열려 있습니다"
                                                 isWindows -> startShellSession()
                                                 com.multiviewer.util.AiCliDetector.openShellAt(tab.file.parentFile) ->
@@ -1150,7 +1147,7 @@ fun AiPromptPreviewWindow(
                                     }
                                 },
                         )
-                        // key on the session instance so a CLI switch fully
+                        // key on the session instance so a restart fully
                         // remounts the panel (its SwingPanel factory binds the
                         // connector once and is not re-invoked on recomposition)
                         key(activeCliSession) {
@@ -1173,7 +1170,7 @@ fun AiPromptPreviewWindow(
                     if (confirmCloseWhileRunning) {
                         CliConfirmDialog(
                             title = "세션 종료",
-                            message = "실행 중인 CLI 세션을 종료하고 창을 닫습니다.",
+                            message = "실행 중인 터미널 세션을 종료하고 창을 닫습니다.",
                             confirmLabel = "종료 후 닫기",
                             themeMode = themeMode,
                             onConfirm = {

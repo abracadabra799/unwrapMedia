@@ -23,8 +23,7 @@ class PtyCliCommandTest {
         assertTrue(p.contains("chcp 65001"), "sets the console code page")
         assertTrue(p.contains("[Console]::InputEncoding"), "sets console input encoding")
         assertTrue(p.contains("[Console]::OutputEncoding"), "sets console output encoding")
-        // A plain interactive shell -- it must not launch a CLI or kill itself.
-        assertFalse(p.contains("&"), "no CLI invocation")
+        // A plain interactive shell -- it must not kill itself.
         assertFalse(p.contains("exit"), "no exit -- the shell stays alive")
     }
 

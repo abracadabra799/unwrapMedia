@@ -58,9 +58,10 @@ import javax.swing.JPanel
  */
 internal class BracketedPasteSignal {
     // Follows the running program's current bracketed-paste mode. A readline/Ink
-    // CLI turns it on at its prompt and off on exit, so this is true exactly while
-    // a paste would land in a CLI rather than the bare `PS>` prompt. Ink apps
-    // don't toggle it on redraw, so no flicker.
+    // CLI turns it on at its prompt and off on exit, so this is true while the
+    // running program has bracketed-paste mode on. A CLI that exits via a full
+    // terminal reset can briefly leave this stale-true — Ctrl+V paste is
+    // unaffected either way. Ink apps don't toggle it on redraw, so no flicker.
     var isReady by mutableStateOf(false)
         private set
 
@@ -183,8 +184,8 @@ private class ReadyAwareJediTermWidget(
 }
 
 /**
- * The AI prompt popup's live VT100 terminal running the CLI (docked to the right
- * of the prompt view). The diagnostic prompt is NOT auto-injected — it is copied
+ * The AI prompt popup's live VT100 terminal — a plain PowerShell docked to the
+ * right of the prompt view. The diagnostic prompt is NOT auto-injected — it is copied
  * to the clipboard when the session starts, and the user pastes it (the
  * "프롬프트 붙여넣기" button, or the terminal's own Ctrl/Cmd+V) once they have
  * finished any browser login and are at the CLI's own prompt. Auto-injecting hit
@@ -283,7 +284,7 @@ internal fun EmbeddedTerminalPanel(
             }
         }
 
-        if (state == SessionState.Running) {
+        if (state == SessionState.Running && !readySignal.isReady) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 6.dp).padding(bottom = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -298,7 +299,7 @@ internal fun EmbeddedTerminalPanel(
                     }
                 }
                 Text(
-                    "또는 원하는 명령을 직접 입력",
+                    "셸에서 실행 — 또는 직접 입력",
                     fontSize = 10.sp,
                     color = AppColors.TextSecondary,
                     maxLines = 1,
@@ -311,7 +312,7 @@ internal fun EmbeddedTerminalPanel(
             SessionState.Running ->
                 "① 위 칩을 누르거나 직접 명령을 입력해 AI CLI를 실행하세요. " +
                     "② 로그인이 필요하면 진행하세요 (브라우저가 안 열리면 출력된 URL 클릭). " +
-                    "③ CLI 프롬프트에서 '프롬프트 붙여넣기' 후 Enter."
+                    "③ CLI 프롬프트에서 '프롬프트 붙여넣기'(또는 Ctrl+V) 후 Enter."
             is SessionState.Exited ->
                 "PowerShell이 종료되었습니다 (exit ${s.code}). " +
                     "'↻ PowerShell 다시 시작'을 누르면 새 셸이 열리고 프롬프트가 다시 클립보드에 복사됩니다."
@@ -329,7 +330,7 @@ internal fun EmbeddedTerminalPanel(
         SwingPanel(
             background = Color(0xFF13161A),
             modifier = Modifier.fillMaxWidth().weight(1f),
-            // factory runs once per mount. A CLI switch changes the session
+            // factory runs once per mount. A restart changes the session
             // instance; the call site wraps this panel in key(session) so the
             // whole composable remounts and the widget is recreated with the new
             // connector. Do not rely on recomposition to rebind the connector.
