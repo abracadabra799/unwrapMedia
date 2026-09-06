@@ -38,6 +38,19 @@ private fun severityOf(absDeltaMs: Double): SyncSeverity = when {
 }
 
 /**
+ * The [origin, span] time window the sync points actually cover, in seconds —
+ * the single X domain shared by the segment bar and the skew curve so their
+ * time axes line up. `timeSeconds` is a raw PTS that can start well above 0
+ * (MPEG-TS), so everything time-relative must be measured from `origin`.
+ */
+internal fun avSyncTimeSpan(points: List<SyncPoint>): Pair<Double, Double> {
+    if (points.isEmpty()) return 0.0 to 0.01
+    val t0 = points.minOf { it.timeSeconds }
+    val t1 = points.maxOf { it.timeSeconds }
+    return t0 to (t1 - t0).coerceAtLeast(0.01)
+}
+
+/**
  * One plain-language sentence describing the sync state. Priority: good →
  * progressive drift → spiky → constant offset.
  */
@@ -48,10 +61,8 @@ internal fun avSyncVerdict(report: AvSyncReport): String {
     }
 
     val deltas = points.map { it.deltaMs }
-    val absDeltas = deltas.map { abs(it) }
-    val maxAbs = absDeltas.max()
-    val minAbs = absDeltas.min()
-    val total = maxOf(report.videoDurationSec, report.audioDurationSec)
+    val maxAbs = deltas.maxOf { abs(it) }
+    val (t0, span) = avSyncTimeSpan(points)
 
     // 1. Everything inside the comfort zone.
     if (maxAbs <= 40.0) {
@@ -60,32 +71,35 @@ internal fun avSyncVerdict(report: AvSyncReport): String {
 
     // 2. Progressive drift.
     if (abs(report.driftRateMsPerMin) > 5.0) {
-        val widening = (report.driftRateMsPerMin > 0) == (deltas.last() >= 0)
-        val last = deltas.lastOrNull() ?: report.initialSkewMs
-        return "🔴 시간이 갈수록 편차가 커집니다 — 분당 %.0fms씩 %s. %s 지점에서 %+.0fms. 클럭/타임스케일 불일치가 의심됩니다.".format(
+        val last = deltas.last()
+        val widening = (report.driftRateMsPerMin > 0) == (last >= 0)
+        val prefix = if (widening) "🔴 시간이 갈수록 편차가 커집니다" else "⚠ 편차가 점차 줄어듭니다 (끝부분에서 개선)"
+        return "%s — 분당 %.0fms씩 %s. %s 지점에서 %+.0fms. 클럭/타임스케일 불일치가 의심됩니다.".format(
+            java.util.Locale.US,
+            prefix,
             abs(report.driftRateMsPerMin),
             if (widening) "벌어짐" else "좁혀짐",
-            formatMinSec(total),
+            formatMinSec(span),
             last,
         )
     }
 
-    // 3. Spiky — a localized excursion.
-    if (maxAbs - minAbs > 60.0) {
+    // 3. Spiky — a localized excursion (measured on SIGNED deltas so a symmetric swing counts).
+    if (deltas.max() - deltas.min() > 60.0) {
         val worst = points.maxByOrNull { abs(it.deltaMs) }!!
-        val window = (total * 0.05).coerceIn(1.0, 10.0)
-        val lo = (worst.timeSeconds - window).coerceIn(0.0, total)
-        val hi = (worst.timeSeconds + window).coerceIn(0.0, total)
+        val window = (span * 0.05).coerceIn(1.0, 10.0)
+        val worstElapsed = worst.timeSeconds - t0
+        val lo = (worstElapsed - window).coerceIn(0.0, span)
+        val hi = (worstElapsed + window).coerceIn(0.0, span)
         return "⚠ %s–%s 구간에서 최대 %+.0fms까지 튑니다 — 해당 구간을 집중 확인하세요.".format(
-            formatMinSec(lo), formatMinSec(hi), worst.deltaMs,
+            java.util.Locale.US, formatMinSec(lo), formatMinSec(hi), worst.deltaMs,
         )
     }
 
     // 4. Roughly constant offset.
-    val ahead = report.avgSkewMs > 0
-    return "⚠ 오디오가 영상보다 일정하게 %+.0fms %s — 고정 지연이므로 -itsoffset 으로 교정 가능합니다.".format(
-        report.avgSkewMs,
-        if (ahead) "앞섬" else "뒤처짐",
+    val avg = deltas.average()
+    return "⚠ 오디오가 영상보다 일정하게 %.0fms %s — 고정 지연이므로 -itsoffset 으로 교정 가능합니다.".format(
+        java.util.Locale.US, abs(avg), if (avg > 0) "앞섬" else "뒤처짐",
     )
 }
 
@@ -96,10 +110,10 @@ internal fun avSyncVerdict(report: AvSyncReport): String {
  */
 internal fun avSyncSegments(report: AvSyncReport, segmentCount: Int): List<SyncSeverity?> {
     val n = segmentCount.coerceAtLeast(1)
-    val total = maxOf(report.videoDurationSec, report.audioDurationSec).coerceAtLeast(0.001)
+    val (t0, span) = avSyncTimeSpan(report.syncPoints)
     val worstAbs = DoubleArray(n) { -1.0 }
     for (p in report.syncPoints) {
-        val idx = ((p.timeSeconds / total) * n).toInt().coerceIn(0, n - 1)
+        val idx = (((p.timeSeconds - t0) / span) * n).toInt().coerceIn(0, n - 1)
         val a = abs(p.deltaMs)
         if (a > worstAbs[idx]) worstAbs[idx] = a
     }
@@ -135,7 +149,7 @@ internal fun AvSyncGraph(
 
     val maxAbsDelta = points.maxOf { abs(it.deltaMs) }.coerceAtLeast(120.0)
     val yCeiling = (maxAbsDelta * 1.25)
-    val maxTime = points.maxOf { it.timeSeconds }.coerceAtLeast(0.01)
+    val (t0, span) = avSyncTimeSpan(points)
 
     Canvas(
         modifier = modifier
@@ -145,7 +159,7 @@ internal fun AvSyncGraph(
                     val paddingX = 40f
                     val graphW = w - paddingX * 2
                     val clickFraction = ((offset.x - paddingX) / graphW).coerceIn(0f, 1f)
-                    val targetTime = clickFraction * maxTime
+                    val targetTime = t0 + clickFraction * span
                     val nearest = points.minByOrNull { abs(it.timeSeconds - targetTime) }
                     onSelectPoint(nearest)
                 }
@@ -164,7 +178,7 @@ internal fun AvSyncGraph(
         }
 
         fun toX(timeSec: Double): Float {
-            return padX + ((timeSec / maxTime).toFloat() * graphW)
+            return padX + (((timeSec - t0) / span).toFloat() * graphW)
         }
 
         val yPos100 = toY(100.0)
@@ -232,7 +246,7 @@ internal fun AvSyncGraph(
             drawLine(Color(0x40FFFFFF), Offset(tx, h - padY), Offset(tx, h - padY + 4f), strokeWidth = 1f)
             drawText(
                 textMeasurer,
-                formatMinSec(frac.toDouble() * maxTime),
+                formatMinSec(frac.toDouble() * span),
                 topLeft = Offset(tx - 12f, h - padY + 5f),
                 style = axisStyle,
             )
@@ -308,7 +322,7 @@ internal fun AvSyncSegmentBar(
     onSelectPoint: (SyncPoint?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val total = maxOf(report.videoDurationSec, report.audioDurationSec).coerceAtLeast(0.01)
+    val (t0, span) = avSyncTimeSpan(report.syncPoints)
     val syncPoints = report.syncPoints
     val textMeasurer = rememberTextMeasurer()
     val axisStyle = TextStyle(color = Color(0xFF9AA0A6), fontSize = 9.sp)
@@ -318,7 +332,7 @@ internal fun AvSyncSegmentBar(
             detectTapGestures { offset ->
                 if (syncPoints.isEmpty()) return@detectTapGestures
                 val frac = (offset.x / size.width).coerceIn(0f, 1f)
-                val t = frac * total
+                val t = t0 + frac * span
                 onSelectPoint(syncPoints.minByOrNull { kotlin.math.abs(it.timeSeconds - t) })
             }
         },
@@ -342,13 +356,19 @@ internal fun AvSyncSegmentBar(
         for (i in 0..3) {
             val frac = i / 3f
             val tx = frac * w
-            drawLine(Color(0x40FFFFFF), Offset(tx.coerceIn(0.5f, w - 0.5f), barH), Offset(tx.coerceIn(0.5f, w - 0.5f), barH + 4f), strokeWidth = 1f)
-            drawText(textMeasurer, formatMinSec(frac.toDouble() * total), topLeft = Offset((tx - 12f).coerceIn(0f, w - 28f), barH + 5f), style = axisStyle)
+            val txc = tx.coerceIn(0.5f, (w - 0.5f).coerceAtLeast(0.5f))
+            drawLine(Color(0x40FFFFFF), Offset(txc, barH), Offset(txc, barH + 4f), strokeWidth = 1f)
+            drawText(
+                textMeasurer,
+                formatMinSec(frac.toDouble() * span),
+                topLeft = Offset((tx - 12f).coerceIn(0f, (w - 28f).coerceAtLeast(0f)), barH + 5f),
+                style = axisStyle,
+            )
         }
 
         // Selected marker
         if (selectedPoint != null) {
-            val sx = ((selectedPoint.timeSeconds / total).toFloat() * w).coerceIn(0f, w)
+            val sx = ((((selectedPoint.timeSeconds - t0) / span).toFloat()) * w).coerceIn(0f, w)
             drawLine(Color(0xFFFFEB3B), Offset(sx, 0f), Offset(sx, barH), strokeWidth = 1.5f)
         }
     }

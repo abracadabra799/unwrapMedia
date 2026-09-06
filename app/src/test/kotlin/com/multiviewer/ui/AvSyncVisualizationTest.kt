@@ -95,10 +95,11 @@ class AvSyncVisualizationTest {
 
     @Test
     fun segments_gapWithNoPoints_isNull() {
-        // points only in the first half of a 10s file
-        val s = avSyncSegments(report(pts(0.0 to 5.0, 2.0 to 5.0, 4.0 to 5.0), videoDurationSec = 10.0), 10)
+        // points cluster at each end of their own span -> interior buckets have none.
+        // (the time domain is the points' span, not the file length.)
+        val s = avSyncSegments(report(pts(0.0 to 5.0, 1.0 to 5.0, 9.0 to 5.0, 10.0 to 5.0), videoDurationSec = 20.0), 10)
         assertEquals(10, s.size)
-        assertNull(s.last())
+        assertNull(s[5])
     }
 
     @Test
@@ -106,5 +107,46 @@ class AvSyncVisualizationTest {
         val r = report(pts(0.0 to 5.0), videoDurationSec = 4.0)
         assertEquals(1, avSyncSegments(r, 1).size)
         assertEquals(50, avSyncSegments(r, 50).size)
+    }
+
+    @Test
+    fun verdict_driftConverging_saysImprovingNotWorsening() {
+        // starts at -120ms, converges toward 0 -> driftRate positive, widening = false
+        val v = avSyncVerdict(report(pts(0.0 to -120.0, 60.0 to -60.0, 120.0 to -8.0), driftRateMsPerMin = 55.0))
+        assertTrue(v.contains("줄어듭니다"), v)
+        assertFalse(v.contains("커집니다"), v)
+    }
+
+    @Test
+    fun verdict_constantOffsetPositive_saysAhead() {
+        val v = avSyncVerdict(report(pts(0.0 to 49.0, 30.0 to 50.0, 60.0 to 51.0), avgSkewMs = 50.0, driftRateMsPerMin = 0.3))
+        assertTrue(v.contains("앞섬"), v)
+        assertTrue(v.contains("50ms"), v)
+        assertFalse(v.contains("+50ms"), v)
+    }
+
+    @Test
+    fun verdict_constantOffsetNegative_showsAbsoluteMagnitudeNotDoubleNegative() {
+        val v = avSyncVerdict(report(pts(0.0 to -84.0, 30.0 to -85.0, 60.0 to -86.0), avgSkewMs = -85.0, driftRateMsPerMin = 0.5))
+        assertTrue(v.contains("85ms"), v)
+        assertFalse(v.contains("-85ms"), v)
+    }
+
+    @Test
+    fun verdict_signCrossingOscillation_isSpikyNotConstantOffset() {
+        val v = avSyncVerdict(report(pts(0.0 to 50.0, 10.0 to -50.0, 20.0 to 50.0, 30.0 to -50.0, 40.0 to 50.0), driftRateMsPerMin = 0.0))
+        assertTrue(v.contains("튑니다"), v)
+        assertFalse(v.contains("-itsoffset"), v)
+    }
+
+    @Test
+    fun segments_nonZeroStartPts_bucketedFromFirstPoint() {
+        // PTS starts at 100s (MPEG-TS style); spread over 10s -> without the fix
+        // every point collapses into the last bucket.
+        val s = avSyncSegments(report(pts(100.0 to 5.0, 102.5 to 5.0, 105.0 to 5.0, 107.5 to 5.0, 110.0 to 5.0), videoDurationSec = 10.0), 4)
+        assertEquals(4, s.size)
+        assertEquals(SyncSeverity.PASS, s.first())
+        assertEquals(SyncSeverity.PASS, s.last())
+        assertTrue(s.all { it == SyncSeverity.PASS }, s.toString())
     }
 }

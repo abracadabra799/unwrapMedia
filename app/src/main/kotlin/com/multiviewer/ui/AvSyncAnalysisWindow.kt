@@ -230,12 +230,20 @@ private fun AvSyncReportContent(
                         .background(AppColors.Panel, RoundedCornerShape(4.dp))
                         .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
                 ) {
-                    AvSyncGraph(
-                        points = report.syncPoints,
-                        selectedPoint = selectedSyncPoint,
-                        onSelectPoint = onSelectSyncPoint,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    if (report.syncPoints.isEmpty()) {
+                        Text(
+                            "싱크 포인트 데이터가 없습니다.",
+                            style = AppTypography.bodyMedium.copy(color = AppColors.TextSecondary),
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    } else {
+                        AvSyncGraph(
+                            points = report.syncPoints,
+                            selectedPoint = selectedSyncPoint,
+                            onSelectPoint = onSelectSyncPoint,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
 
                 if (selectedSyncPoint != null) {
