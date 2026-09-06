@@ -53,6 +53,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Bitmap
 import org.jetbrains.skia.ColorAlphaType
@@ -322,13 +323,25 @@ fun FfmpegVideoPlayer(
     // everywhere elapsed position is reported, keeping it in absolute video time.
     var startFromSeconds by remember(file) { mutableStateOf(0.0) }
     var lastHandledSeekTick by remember(file) { mutableStateOf(0) }
+    val audioPlayingAtomic = remember(file) { AtomicBoolean(false) }
+    val audioMutedAtomic = remember(file) { AtomicBoolean(false) }
+    var isMuted by remember(file) { mutableStateOf(false) }
+    var audioInfo by remember(file) { mutableStateOf<AudioFileInfo?>(null) }
+    // Hoisted so both the DisposableEffect (which creates it) and the progress coroutine (which reads
+    // its clock) see the same instance.
+    var audioTrackRef by remember(file) { mutableStateOf<VideoAudioTrack?>(null) }
+
+    fun setPlaying(play: Boolean) {
+        isPlaying = play
+        audioPlayingAtomic.set(play)
+    }
 
     LaunchedEffect(seekRequestTick) {
         if (seekRequestTick != lastHandledSeekTick) {
             lastHandledSeekTick = seekRequestTick
             startFromSeconds = seekRequestSeconds
             hasEnded = false
-            isPlaying = false // seek-and-pause: show the requested frame rather than resuming playback
+            setPlaying(false) // seek-and-pause: show the requested frame rather than resuming playback
             restartTrigger++
         }
     }
@@ -372,6 +385,7 @@ fun FfmpegVideoPlayer(
                 probedInfo = info.copy(duration = inferredDuration)
             }
         }
+        audioInfo = if (info != null) withContext(Dispatchers.IO) { probeAudioFormat(file) } else null
         onProbeComplete()
     }
 
@@ -392,6 +406,8 @@ fun FfmpegVideoPlayer(
 
     DisposableEffect(file, restartTrigger) {
         playedSeconds = 0.0
+        audioPlayingAtomic.set(isPlaying)
+        audioMutedAtomic.set(isMuted)
         val seekSeconds = startFromSeconds
         val seekArgs = if (seekSeconds > 0.0) listOf("-ss", seekSeconds.toString()) else emptyList()
         val process = try {
@@ -418,6 +434,18 @@ fun FfmpegVideoPlayer(
         } else {
             info.width to info.height
         }
+
+        val audioTrack = audioInfo?.let { ai ->
+            VideoAudioTrack(
+                file = file,
+                startFromSeconds = seekSeconds,
+                sampleRate = ai.sampleRate,
+                channels = ai.channels,
+                playing = audioPlayingAtomic,
+                muted = audioMutedAtomic,
+            ).also { it.start() }
+        }
+        audioTrackRef = audioTrack
 
         val stopped = AtomicBoolean(false)
         val fallbackDurationSeconds = 1.0 / info.fps
@@ -487,6 +515,7 @@ fun FfmpegVideoPlayer(
                     // construction/delivery) once that debt reaches a full frame's budget, instead
                     // of letting every frame's overrun compound for the rest of the video.
                     var cumulativeLagMillis = 0L
+                    var frameElapsed = 0.0
                     while (!stopped.get()) {
                         if (!isPlaying) {
                             Thread.sleep(50)
@@ -495,22 +524,41 @@ fun FfmpegVideoPlayer(
                         val start = System.currentTimeMillis()
                         if (!readFrame()) {
                             EventQueue.invokeLater {
-                                isPlaying = false
+                                setPlaying(false)
                                 hasEnded = true
                             }
                             break // EOF
                         }
                         val durationSeconds = nextFrameDurationSeconds()
                         val budgetMillis = (durationSeconds * 1000).toLong()
-                        if (shouldSkipFrame(cumulativeLagMillis, budgetMillis)) {
-                            cumulativeLagMillis = laggedAfterSkip(cumulativeLagMillis, budgetMillis)
-                            EventQueue.invokeLater { playedSeconds += durationSeconds }
+                        val frameStart = frameElapsed
+                        frameElapsed += durationSeconds
+
+                        val audioClock = audioTrack?.takeIf { !it.failed && !it.ended }?.clockSeconds
+                        if (audioClock == null) {
+                            // No audio track, audio failed to start, or audio ended before the video -- fall back to
+                            // the self-pacing video-frame clock (unchanged behavior for audio-less files).
+                            if (shouldSkipFrame(cumulativeLagMillis, budgetMillis)) {
+                                cumulativeLagMillis = laggedAfterSkip(cumulativeLagMillis, budgetMillis)
+                                EventQueue.invokeLater { playedSeconds += durationSeconds }
+                            } else {
+                                deliver(durationSeconds)
+                                val elapsedMillis = System.currentTimeMillis() - start
+                                cumulativeLagMillis = laggedAfterFrame(cumulativeLagMillis, budgetMillis, elapsedMillis)
+                                val remaining = budgetMillis - elapsedMillis
+                                if (remaining > 0) Thread.sleep(remaining)
+                            }
                         } else {
-                            deliver(durationSeconds)
-                            val elapsedMillis = System.currentTimeMillis() - start
-                            cumulativeLagMillis = laggedAfterFrame(cumulativeLagMillis, budgetMillis, elapsedMillis)
-                            val remaining = budgetMillis - elapsedMillis
-                            if (remaining > 0) Thread.sleep(remaining)
+                            // Audio is the master clock. deliver(null): in audio mode playedSeconds is mirrored from
+                            // the audio clock by a separate coroutine, not advanced here.
+                            when (val action = frameSyncAction(frameStart, audioClock)) {
+                                is FrameAction.WaitThenDeliver -> {
+                                    if (action.millis > 0) Thread.sleep(action.millis)
+                                    deliver(null)
+                                }
+                                FrameAction.Drop -> { /* >100ms behind audio: bytes already read, skip the render */ }
+                                FrameAction.Deliver -> deliver(null)
+                            }
                         }
                     }
                 } catch (e: InterruptedException) {
@@ -527,6 +575,20 @@ fun FfmpegVideoPlayer(
             stopped.set(true)
             readerThread?.interrupt()
             com.multiviewer.util.ProcessManager.terminate(process)
+            audioTrack?.destroy()
+            audioTrackRef = null
+        }
+    }
+
+    // In audio mode the reader thread does not touch playedSeconds -- mirror the audio clock here so
+    // the progress bar and elapsed caption track what the user actually hears.
+    LaunchedEffect(restartTrigger, audioInfo) {
+        if (audioInfo == null) return@LaunchedEffect
+        while (true) {
+            audioTrackRef?.let { track ->
+                if (!track.failed) playedSeconds = track.clockSeconds
+            }
+            delay(50)
         }
     }
 
@@ -564,10 +626,10 @@ fun FfmpegVideoPlayer(
 
         fun stepSingleFrame(delta: Int) {
             if (onStepFrame != null) {
-                isPlaying = false
+                setPlaying(false)
                 onStepFrame(delta)
             } else {
-                isPlaying = false
+                setPlaying(false)
                 hasEnded = false
                 val fps = if (info.fps > 0) info.fps else 30.0
                 val timestamps = frameTimestamps
@@ -617,9 +679,9 @@ fun FfmpegVideoPlayer(
                                     startFromSeconds = 0.0
                                     restartTrigger++
                                 }
-                                isPlaying = true
+                                setPlaying(true)
                             } else {
-                                isPlaying = false
+                                setPlaying(false)
                             }
                             true
                         }
@@ -634,9 +696,9 @@ fun FfmpegVideoPlayer(
                             startFromSeconds = 0.0
                             restartTrigger++
                         }
-                        isPlaying = true
+                        setPlaying(true)
                     } else {
-                        isPlaying = false
+                        setPlaying(false)
                     }
                 },
         )
@@ -661,14 +723,14 @@ fun FfmpegVideoPlayer(
                         .background(Color.White.copy(alpha = 0.25f))
                         .clickable {
                             if (isPlaying) {
-                                isPlaying = false
+                                setPlaying(false)
                             } else {
                                 if (hasEnded) {
                                     hasEnded = false
                                     startFromSeconds = 0.0
                                     restartTrigger++
                                 }
-                                isPlaying = true
+                                setPlaying(true)
                             }
                         },
                     contentAlignment = Alignment.Center,
@@ -708,7 +770,7 @@ fun FfmpegVideoPlayer(
                         .pointerInput(info.duration) {
                             fun seekToFraction(fraction: Float) {
                                 hasEnded = false
-                                isPlaying = false
+                                setPlaying(false)
                                 startFromSeconds = fraction.coerceIn(0f, 1f) * info.duration
                                 restartTrigger++
                             }
