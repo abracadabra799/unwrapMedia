@@ -1,10 +1,7 @@
 package com.multiviewer.ui
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,12 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.DpSize
@@ -182,99 +174,55 @@ private fun AvSyncReportContent(
             )
         }
 
-        // 2. Timeline Skew / Drift Visualizer Graph
-        // 2. Timeline Visualization Card (Dual-Lane Track Timeline + Skew Curve Graph)
-        var selectedVisualMode by remember { mutableStateOf(0) } // 0: Dual-Lane Timeline, 1: Skew Curve
-
+        // 2. At-a-glance sync bar + verdict, then the annotated skew curve
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(8.dp),
             colors = CardDefaults.cardColors(containerColor = AppColors.Surface)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(
-                            if (selectedVisualMode == 0) "A/V 프레임/패킷 일직선 동기화 레일 (Dual-Lane Timeline)"
-                            else "A/V 타임스탬프 편차 곡선 (A/V Sync Skew Curve)",
-                            style = AppTypography.headlineSmall.copy(
-                                color = AppColors.TextPrimary,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        )
-                        Text(
-                            if (selectedVisualMode == 0) "동일 시간축(X축) 상에서 비디오 프레임(상단)과 오디오 패킷(하단)의 물리적 정렬과 일치선 표시"
-                            else "Δt = Video PTS - Audio PTS (양수: 비디오 지연/오디오 선행, 음수: 비디오 선행/오디오 지연)",
-                            style = AppTypography.bodySmall.copy(color = AppColors.TextSecondary)
-                        )
-                    }
-
-                    // Mode switch buttons
-                    Row(
-                        modifier = Modifier
-                            .background(AppColors.Panel, RoundedCornerShape(6.dp))
-                            .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp))
-                            .padding(2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Surface(
-                            color = if (selectedVisualMode == 0) AppColors.Surface else Color.Transparent,
-                            shape = RoundedCornerShape(4.dp),
-                            modifier = Modifier.clickable { selectedVisualMode = 0 }
-                        ) {
-                            Text(
-                                "🎞️ 듀얼 레일(프레임별 정렬)",
-                                style = AppTypography.labelSmall.copy(
-                                    color = if (selectedVisualMode == 0) AppColors.NeonBlue else AppColors.TextSecondary,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 11.5.sp
-                                ),
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
-                            )
-                        }
-                        Surface(
-                            color = if (selectedVisualMode == 1) AppColors.Surface else Color.Transparent,
-                            shape = RoundedCornerShape(4.dp),
-                            modifier = Modifier.clickable { selectedVisualMode = 1 }
-                        ) {
-                            Text(
-                                "📈 편차 곡선(Skew)",
-                                style = AppTypography.labelSmall.copy(
-                                    color = if (selectedVisualMode == 1) AppColors.NeonBlue else AppColors.TextSecondary,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 11.5.sp
-                                ),
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
-                            )
-                        }
-                    }
+                // Layer 1: at-a-glance
+                Text(
+                    "한눈에 보는 동기화 상태",
+                    style = AppTypography.headlineSmall.copy(color = AppColors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                )
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    LegendBadge("양호 (±40ms)", Color(0xFF2E7D32))
+                    LegendBadge("주의 (±100ms)", Color(0xFFF57F17))
+                    LegendBadge("심각 (>100ms)", Color(0xFFC62828))
+                    LegendBadge("데이터 없음", Color(0xFF3A3A3A))
                 }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Legends
-                if (selectedVisualMode == 0) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        LegendBadge("비디오 프레임 (Video Frame)", Color(0xFF1E88E5))
-                        LegendBadge("오디오 패킷 (Audio Packet)", Color(0xFFAB47BC))
-                        LegendBadge("싱크 일치/허용", Color(0xFF2E7D32))
-                        LegendBadge("싱크 어긋남(>40ms)", Color(0xFFE53935))
-                    }
-                } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        LegendBadge("허용 범위 (±40ms)", Color(0xFF2E7D32))
-                        LegendBadge("주의 범위 (±100ms)", Color(0xFFF57F17))
-                        LegendBadge("심각 (>100ms)", Color(0xFFC62828))
-                    }
+                Spacer(Modifier.height(8.dp))
+                AvSyncSegmentBar(
+                    report = report,
+                    selectedPoint = selectedSyncPoint,
+                    onSelectPoint = onSelectSyncPoint,
+                    modifier = Modifier.fillMaxWidth().height(46.dp)
+                )
+                Spacer(Modifier.height(8.dp))
+                val verdictColor = when (report.overallSeverity) {
+                    SyncSeverity.PASS -> Color(0xFF2E7D32)
+                    SyncSeverity.WARNING -> Color(0xFFF57F17)
+                    SyncSeverity.CRITICAL -> Color(0xFFC62828)
                 }
+                Text(
+                    avSyncVerdict(report),
+                    style = AppTypography.bodyMedium.copy(color = verdictColor, fontWeight = FontWeight.SemiBold)
+                )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(Modifier.height(20.dp))
 
+                // Layer 2: annotated curve
+                Text(
+                    "A/V 타임스탬프 편차 곡선 (Δt = Video PTS − Audio PTS)",
+                    style = AppTypography.headlineSmall.copy(color = AppColors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                )
+                Text(
+                    "양수: 오디오 선행 / 음수: 비디오 선행",
+                    style = AppTypography.bodySmall.copy(color = AppColors.TextSecondary)
+                )
+                Spacer(Modifier.height(12.dp))
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -282,21 +230,12 @@ private fun AvSyncReportContent(
                         .background(AppColors.Panel, RoundedCornerShape(4.dp))
                         .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
                 ) {
-                    if (selectedVisualMode == 0) {
-                        AvDualLaneTimeline(
-                            report = report,
-                            selectedPoint = selectedSyncPoint,
-                            onSelectPoint = onSelectSyncPoint,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        AvSyncGraph(
-                            points = report.syncPoints,
-                            selectedPoint = selectedSyncPoint,
-                            onSelectPoint = onSelectSyncPoint,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
+                    AvSyncGraph(
+                        points = report.syncPoints,
+                        selectedPoint = selectedSyncPoint,
+                        onSelectPoint = onSelectSyncPoint,
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
 
                 if (selectedSyncPoint != null) {
@@ -315,12 +254,7 @@ private fun AvSyncReportContent(
                         ) {
                             Text(
                                 text = "선택된 위치: 시간 ${String.format(Locale.US, "%.3f", p.timeSeconds)}s  |  Video(#${p.videoFrameIndex}): ${String.format(Locale.US, "%.3f", p.videoPts)}s  |  Audio(#${p.audioPacketIndex}): ${String.format(Locale.US, "%.3f", p.audioPts)}s",
-                                style = AppTypography.bodySmall.copy(
-                                    color = AppColors.TextPrimary,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.5.sp
-                                )
+                                style = AppTypography.bodySmall.copy(color = AppColors.TextPrimary, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace, fontSize = 11.5.sp)
                             )
                             val skewColor = when {
                                 abs(p.deltaMs) > 100 -> Color(0xFFEF5350)
@@ -329,12 +263,7 @@ private fun AvSyncReportContent(
                             }
                             Text(
                                 text = "편차(Δt): ${String.format(Locale.US, "%+.1f", p.deltaMs)} ms (${if (p.deltaMs > 0) "오디오 선행" else if (p.deltaMs < 0) "비디오 선행" else "일치"})",
-                                style = AppTypography.bodySmall.copy(
-                                    color = skewColor,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.5.sp
-                                )
+                                style = AppTypography.bodySmall.copy(color = skewColor, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 11.5.sp)
                             )
                         }
                     }
@@ -376,196 +305,6 @@ private fun MetricCard(
             Text(title, style = AppTypography.bodySmall.copy(color = AppColors.TextSecondary, fontSize = 11.sp))
             Text(value, style = AppTypography.headlineMedium.copy(color = valueColor, fontWeight = FontWeight.Bold, fontSize = 20.sp))
             Text(subtext, style = AppTypography.bodySmall.copy(color = AppColors.TextSecondary, fontSize = 11.sp))
-        }
-    }
-}
-
-@Composable
-private fun AvDualLaneTimeline(
-    report: AvSyncReport,
-    selectedPoint: SyncPoint?,
-    onSelectPoint: (SyncPoint?) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val totalTime = maxOf(report.videoDurationSec, report.audioDurationSec).coerceAtLeast(0.01)
-    val syncPoints = report.syncPoints
-
-    Canvas(
-        modifier = modifier
-            .pointerInput(syncPoints) {
-                detectTapGestures { offset ->
-                    val w = size.width
-                    val padX = 24f
-                    val trackW = w - padX * 2
-                    if (trackW <= 0) return@detectTapGestures
-                    val clickFraction = ((offset.x - padX) / trackW).coerceIn(0f, 1f)
-                    val targetTime = clickFraction * totalTime
-                    val nearest = syncPoints.minByOrNull { abs(it.timeSeconds - targetTime) }
-                    onSelectPoint(nearest)
-                }
-            }
-    ) {
-        val w = size.width
-        val h = size.height
-        val padX = 24f
-        val padY = 16f
-        val trackW = w - padX * 2
-        val usableH = h - padY * 2
-
-        // Lane definitions
-        // Video Lane: Top
-        val videoLaneY = padY + 12f
-        val videoLaneH = 42f
-
-        // Audio Lane: Bottom
-        val audioLaneH = 42f
-        val audioLaneY = h - padY - audioLaneH - 12f
-
-        // Middle sync connection area
-        val midTopY = videoLaneY + videoLaneH
-        val midBottomY = audioLaneY
-
-        fun timeToX(t: Double): Float {
-            return padX + ((t / totalTime).toFloat() * trackW).coerceIn(0f, trackW)
-        }
-
-        // Draw track backgrounds (rails)
-        // Video Track background
-        drawRoundRect(
-            color = Color(0xFF152238),
-            topLeft = Offset(padX, videoLaneY),
-            size = Size(trackW, videoLaneH),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 4f)
-        )
-        // Audio Track background
-        drawRoundRect(
-            color = Color(0xFF231633),
-            topLeft = Offset(padX, audioLaneY),
-            size = Size(trackW, audioLaneH),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 4f)
-        )
-
-        // Middle connector area subtle background
-        drawRect(
-            color = Color(0x0AFFFFFF),
-            topLeft = Offset(padX, midTopY),
-            size = Size(trackW, midBottomY - midTopY)
-        )
-
-        // Subsample packets for smooth UI rendering if list is large
-        val vPackets = report.sampleVideoPackets
-        val aPackets = report.sampleAudioPackets
-
-        // 1. Draw Audio Packets on bottom lane
-        if (aPackets.isNotEmpty()) {
-            val step = (aPackets.size / 300).coerceAtLeast(1)
-            for (i in aPackets.indices step step) {
-                val pkt = aPackets[i]
-                val startX = timeToX(pkt.ptsSeconds)
-                val dur = pkt.durationSeconds ?: 0.023
-                val blockW = ((dur / totalTime).toFloat() * trackW).coerceAtLeast(3.5f)
-
-                drawRoundRect(
-                    color = Color(0xFF8E24AA),
-                    topLeft = Offset(startX, audioLaneY + 6f),
-                    size = Size(blockW, audioLaneH - 12f),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(2f, 2f)
-                )
-            }
-        }
-
-        // 2. Draw Video Frames on top lane
-        if (vPackets.isNotEmpty()) {
-            val step = (vPackets.size / 300).coerceAtLeast(1)
-            for (i in vPackets.indices step step) {
-                val pkt = vPackets[i]
-                val startX = timeToX(pkt.ptsSeconds)
-                val dur = pkt.durationSeconds ?: 0.033
-                val blockW = ((dur / totalTime).toFloat() * trackW).coerceAtLeast(4f)
-
-                drawRoundRect(
-                    color = Color(0xFF1E88E5),
-                    topLeft = Offset(startX, videoLaneY + 6f),
-                    size = Size(blockW, videoLaneH - 12f),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(2f, 2f)
-                )
-            }
-        }
-
-        // 3. Draw Sync connection lines in middle zone
-        syncPoints.forEach { pt ->
-            val vX = timeToX(pt.videoPts)
-            val aX = timeToX(pt.audioPts)
-            val isSevere = abs(pt.deltaMs) > 40.0
-            val lineColor = if (isSevere) Color(0xFFE53935).copy(alpha = 0.85f) else Color(0xFF43A047).copy(alpha = 0.45f)
-            val lineWidth = if (isSevere) 1.5f else 1.0f
-
-            // Connector between video block center-bottom and audio block center-top
-            val path = Path().apply {
-                moveTo(vX, midTopY)
-                cubicTo(
-                    vX, midTopY + (midBottomY - midTopY) * 0.5f,
-                    aX, midTopY + (midBottomY - midTopY) * 0.5f,
-                    aX, midBottomY
-                )
-            }
-            drawPath(path, color = lineColor, style = Stroke(width = lineWidth))
-
-            // Draw small anchor pins at stream rails
-            drawCircle(
-                color = if (isSevere) Color(0xFFE53935) else Color(0xFF66BB6A),
-                radius = 2.5f,
-                center = Offset(vX, midTopY)
-            )
-            drawCircle(
-                color = if (isSevere) Color(0xFFE53935) else Color(0xFFAB47BC),
-                radius = 2.5f,
-                center = Offset(aX, midBottomY)
-            )
-        }
-
-        // 4. Highlight Selected Sync Point
-        if (selectedPoint != null) {
-            val vX = timeToX(selectedPoint.videoPts)
-            val aX = timeToX(selectedPoint.audioPts)
-
-            // Video highlight
-            drawRoundRect(
-                color = Color(0xFFFFEB3B),
-                topLeft = Offset(vX - 3f, videoLaneY + 2f),
-                size = Size(8f, videoLaneH - 4f),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(3f, 3f)
-            )
-            // Audio highlight
-            drawRoundRect(
-                color = Color(0xFFFFEB3B),
-                topLeft = Offset(aX - 3f, audioLaneY + 2f),
-                size = Size(8f, audioLaneH - 4f),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(3f, 3f)
-            )
-
-            // Dynamic connector curve for selected
-            val selPath = Path().apply {
-                moveTo(vX, midTopY)
-                cubicTo(
-                    vX, midTopY + (midBottomY - midTopY) * 0.5f,
-                    aX, midTopY + (midBottomY - midTopY) * 0.5f,
-                    aX, midBottomY
-                )
-            }
-            drawPath(
-                path = selPath,
-                color = Color(0xFFFFEB3B),
-                style = Stroke(width = 2.5f)
-            )
-
-            // Vertical indicator guides across lanes
-            drawLine(
-                color = Color(0x66FFEB3B),
-                start = Offset(vX, padY),
-                end = Offset(vX, h - padY),
-                strokeWidth = 1f
-            )
         }
     }
 }

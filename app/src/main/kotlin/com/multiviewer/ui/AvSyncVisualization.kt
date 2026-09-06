@@ -300,3 +300,56 @@ internal fun AvSyncGraph(
         }
     }
 }
+
+@Composable
+internal fun AvSyncSegmentBar(
+    report: AvSyncReport,
+    selectedPoint: SyncPoint?,
+    onSelectPoint: (SyncPoint?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val total = maxOf(report.videoDurationSec, report.audioDurationSec).coerceAtLeast(0.01)
+    val syncPoints = report.syncPoints
+    val textMeasurer = rememberTextMeasurer()
+    val axisStyle = TextStyle(color = Color(0xFF9AA0A6), fontSize = 9.sp)
+
+    Canvas(
+        modifier = modifier.pointerInput(syncPoints) {
+            detectTapGestures { offset ->
+                if (syncPoints.isEmpty()) return@detectTapGestures
+                val frac = (offset.x / size.width).coerceIn(0f, 1f)
+                val t = frac * total
+                onSelectPoint(syncPoints.minByOrNull { kotlin.math.abs(it.timeSeconds - t) })
+            }
+        },
+    ) {
+        val w = size.width
+        val barH = 28.dp.toPx()
+        val n = (w / 4f).toInt().coerceIn(24, 160)
+        val segs = avSyncSegments(report, n)
+        val segW = w / n
+        segs.forEachIndexed { i, sev ->
+            val c = when (sev) {
+                SyncSeverity.PASS -> Color(0xFF2E7D32)
+                SyncSeverity.WARNING -> Color(0xFFF57F17)
+                SyncSeverity.CRITICAL -> Color(0xFFC62828)
+                null -> Color(0xFF3A3A3A)
+            }
+            drawRect(color = c, topLeft = Offset(i * segW, 0f), size = Size(segW + 1f, barH))
+        }
+
+        // X-axis ticks
+        for (i in 0..3) {
+            val frac = i / 3f
+            val tx = frac * w
+            drawLine(Color(0x40FFFFFF), Offset(tx.coerceIn(0.5f, w - 0.5f), barH), Offset(tx.coerceIn(0.5f, w - 0.5f), barH + 4f), strokeWidth = 1f)
+            drawText(textMeasurer, formatMinSec(frac.toDouble() * total), topLeft = Offset((tx - 12f).coerceIn(0f, w - 28f), barH + 5f), style = axisStyle)
+        }
+
+        // Selected marker
+        if (selectedPoint != null) {
+            val sx = ((selectedPoint.timeSeconds / total).toFloat() * w).coerceIn(0f, w)
+            drawLine(Color(0xFFFFEB3B), Offset(sx, 0f), Offset(sx, barH), strokeWidth = 1.5f)
+        }
+    }
+}

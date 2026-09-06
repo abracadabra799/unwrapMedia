@@ -69,8 +69,6 @@ data class AvSyncReport(
     val syncPoints: List<SyncPoint>,
     val diagnoses: List<SyncDiagnosis>,
     val overallSeverity: SyncSeverity,
-    val sampleVideoPackets: List<StreamPacket> = emptyList(),
-    val sampleAudioPackets: List<StreamPacket> = emptyList(),
 )
 
 object AvSyncAnalyzer {
@@ -252,8 +250,6 @@ object AvSyncAnalyzer {
                 syncPoints = syncPoints,
                 diagnoses = diagnoses,
                 overallSeverity = overallSeverity,
-                sampleVideoPackets = videoPackets,
-                sampleAudioPackets = audioPackets,
             )
         } catch (e: Exception) {
             e.printStackTrace()
