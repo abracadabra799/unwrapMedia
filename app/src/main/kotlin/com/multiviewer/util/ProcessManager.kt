@@ -10,6 +10,9 @@ import java.util.concurrent.ConcurrentHashMap
 object ProcessManager {
     private val activeProcesses = Collections.newSetFromMap(ConcurrentHashMap<Process, Boolean>())
 
+    /** Number of processes currently tracked. For leak assertions in tests. */
+    internal val activeCount: Int get() = activeProcesses.size
+
     init {
         // Register JVM shutdown hook to kill all remaining child processes
         Runtime.getRuntime().addShutdownHook(Thread {

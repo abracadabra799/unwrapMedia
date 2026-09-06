@@ -230,7 +230,9 @@ internal fun EmbeddedTerminalPanel(
         }
     }
     DisposableEffect(session) {
-        onDispose { widget?.close() }
+        // close() on a widget that failed mid-start() can throw; disposal must not
+        // propagate an exception into Compose.
+        onDispose { runCatching { widget?.close() } }
     }
 
     val ended = state is SessionState.Exited || state is SessionState.Failed
