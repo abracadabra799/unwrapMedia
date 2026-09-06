@@ -645,13 +645,14 @@ fun AiPromptPreviewWindow(
     fun startCliSession(cli: com.multiviewer.util.AiCliType): String? {
         val bin = com.multiviewer.util.AiCliDetector.findBinary(cli.binaryName)
             ?: return "${cli.binaryName} 실행 파일을 찾을 수 없습니다"
-        ClipboardUtil.copyToClipboard(promptText)
         val s = WindowsPtyCliSession(cli, bin, tab.file.parentFile, promptText)
         s.start()
         if (s.state is SessionState.Failed) {
             com.multiviewer.util.AiCliDetector.launchInteractiveCli(cli, promptText, tab.file.parentFile)
             return "임베드 터미널 실패 — 외부 창으로 실행"
         }
+        // tear down any prior session (e.g. one that already exited) before replacing it
+        activeCliSession?.destroy()
         activeCliSession = s
         windowState.size = windowState.size.copy(
             height = (baseWindowHeight + terminalHeight + 48.dp).coerceAtMost(1200.dp),
@@ -1041,7 +1042,7 @@ fun AiPromptPreviewWindow(
                                     }
                                     Spacer(Modifier.width(8.dp))
                                     Button(
-                                        onClick = onCloseRequest,
+                                        onClick = requestClose,
                                         colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.TextPrimary),
                                         modifier = Modifier.height(32.dp).border(1.dp, AppColors.Border, RoundedCornerShape(4.dp)),
                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
@@ -1070,11 +1071,16 @@ fun AiPromptPreviewWindow(
                                     },
                             )
                             Spacer(Modifier.height(4.dp))
-                            EmbeddedTerminalPanel(
-                                session = activeCliSession!!,
-                                onEndSession = { endCliSession() },
-                                modifier = Modifier.fillMaxWidth().height(terminalHeight),
-                            )
+                            // key on the session instance so a CLI switch fully
+                            // remounts the panel (its SwingPanel factory binds the
+                            // connector once and is not re-invoked on recomposition)
+                            key(activeCliSession) {
+                                EmbeddedTerminalPanel(
+                                    session = activeCliSession!!,
+                                    onEndSession = { endCliSession() },
+                                    modifier = Modifier.fillMaxWidth().height(terminalHeight),
+                                )
+                            }
                         }
                     }
 
@@ -1089,6 +1095,7 @@ fun AiPromptPreviewWindow(
                                 TextButton(onClick = {
                                     pendingSwitchCli = null
                                     endCliSession()
+                                    ClipboardUtil.copyToClipboard(promptText)
                                     statusMessage = startCliSession(next)
                                 }) { Text("전환") }
                             },
