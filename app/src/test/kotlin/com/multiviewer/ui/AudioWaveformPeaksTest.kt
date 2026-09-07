@@ -152,4 +152,52 @@ class AudioWaveformPeaksTest {
         assertEquals(10, cols.size)
         assertEquals(0.95f, cols.maxOf { it.max })
     }
+
+    private fun forEachPeakColumnList(peaks: ChannelPeaks, visibleRange: IntRange, targetColumns: Int): List<PeakColumn> {
+        val out = ArrayList<PeakColumn>()
+        var expectedCount = -1
+        forEachPeakColumn(peaks, visibleRange, targetColumns) { idx, columnCount, mn, mx ->
+            if (expectedCount < 0) expectedCount = columnCount
+            assertEquals(expectedCount, columnCount, "columnCount must be constant within one invocation")
+            assertEquals(out.size, idx, "columnIndex must run 0 until columnCount in order")
+            out.add(PeakColumn(mn, mx))
+        }
+        if (expectedCount >= 0) assertEquals(expectedCount, out.size, "emitted column count must equal reported columnCount")
+        return out
+    }
+
+    @Test
+    fun `forEachPeakColumn emits the same sequence as downsamplePeaks`() {
+        // Aggregation case: buckets far exceed the target.
+        val min = FloatArray(1000) { -0.001f * it }
+        val max = FloatArray(1000) { 0.002f * it }
+        max[473] = 0.95f
+        min[512] = -0.9f
+        val big = ChannelPeaks(min, max)
+        assertEquals(downsamplePeaks(big, 0..999, 10), forEachPeakColumnList(big, 0..999, 10))
+        assertEquals(downsamplePeaks(big, 100..800, 64), forEachPeakColumnList(big, 100..800, 64))
+
+        // Passthrough case: range already fits in the target (including out-of-bounds tail).
+        val small = ChannelPeaks(floatArrayOf(-0.1f, -0.2f, -0.3f, -0.4f), floatArrayOf(0.1f, 0.2f, 0.3f, 0.4f))
+        assertEquals(downsamplePeaks(small, 1..2, 100), forEachPeakColumnList(small, 1..2, 100))
+        assertEquals(downsamplePeaks(small, 0..6, 100), forEachPeakColumnList(small, 0..6, 100))
+
+        // Degenerate inputs emit nothing.
+        assertTrue(forEachPeakColumnList(small, IntRange.EMPTY, 100).isEmpty())
+        assertTrue(forEachPeakColumnList(small, 0..3, 0).isEmpty())
+
+        // Explicit expected values (not just self-consistency with downsamplePeaks).
+        val agg = ChannelPeaks(
+            floatArrayOf(-0.1f, -0.9f, -0.2f, -0.3f, -0.4f, -0.5f, -0.05f, -0.6f),
+            floatArrayOf(0.1f, 0.2f, 0.8f, 0.3f, 0.4f, 0.5f, 0.7f, 0.6f),
+        )
+        assertEquals(
+            listOf(PeakColumn(-0.9f, 0.8f), PeakColumn(-0.6f, 0.7f)),
+            forEachPeakColumnList(agg, 0..7, 2),
+        )
+        assertEquals(
+            listOf(PeakColumn(-0.2f, 0.2f), PeakColumn(-0.3f, 0.3f)),
+            forEachPeakColumnList(small, 1..2, 100),
+        )
+    }
 }

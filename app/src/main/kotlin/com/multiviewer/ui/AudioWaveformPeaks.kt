@@ -33,34 +33,52 @@ data class PeakColumn(val min: Float, val max: Float)
 
 // Collapses the buckets in visibleRange down to at most targetColumns (min,max) spans -- one per
 // screen pixel -- so the Canvas draws O(width) lines regardless of how many buckets the range
-// spans. When the range already fits in targetColumns, each bucket is returned as its own column
-// unchanged. An all-silent span yields PeakColumn(0f, 0f).
-fun downsamplePeaks(peaks: ChannelPeaks, visibleRange: IntRange, targetColumns: Int): List<PeakColumn> {
+// spans. When the range already fits in targetColumns, each bucket is emitted as its own column
+// unchanged. An all-silent span yields (0f, 0f).
+//
+// Streamed through a callback -- no List / no PeakColumn boxing -- for the per-frame Canvas hot
+// path (drawChannelPeaks re-runs every frame during playback, once per channel). `columnIndex`
+// runs 0 until `columnCount`, and `columnCount` is the same for every call within one invocation.
+inline fun forEachPeakColumn(
+    peaks: ChannelPeaks,
+    visibleRange: IntRange,
+    targetColumns: Int,
+    action: (columnIndex: Int, columnCount: Int, min: Float, max: Float) -> Unit,
+) {
     val first = visibleRange.first
     val last = visibleRange.last
     val count = last - first + 1
-    if (count <= 0 || targetColumns <= 0) return emptyList()
+    if (count <= 0 || targetColumns <= 0) return
     val size = minOf(peaks.min.size, peaks.max.size)
     if (count <= targetColumns) {
-        return (first..last).map { i ->
-            if (i in 0 until size) PeakColumn(peaks.min[i], peaks.max[i]) else PeakColumn(0f, 0f)
+        var col = 0
+        for (i in first..last) {
+            if (i in 0 until size) action(col, count, peaks.min[i], peaks.max[i]) else action(col, count, 0f, 0f)
+            col++
         }
+        return
     }
-    val result = ArrayList<PeakColumn>(targetColumns)
     for (col in 0 until targetColumns) {
-        val lo = first + (col.toLong() * count / targetColumns).toInt()
+        val lo = (first + (col.toLong() * count / targetColumns).toInt()).coerceAtLeast(0)
         val hi = (first + ((col + 1).toLong() * count / targetColumns).toInt()).coerceAtMost(size)
         var mn = Float.MAX_VALUE
         var mx = -Float.MAX_VALUE
-        var b = lo.coerceAtLeast(0)
+        var b = lo
         while (b < hi) {
             if (peaks.min[b] < mn) mn = peaks.min[b]
             if (peaks.max[b] > mx) mx = peaks.max[b]
             b++
         }
-        result.add(if (mn == Float.MAX_VALUE) PeakColumn(0f, 0f) else PeakColumn(mn, mx))
+        if (mn == Float.MAX_VALUE) action(col, targetColumns, 0f, 0f) else action(col, targetColumns, mn, mx)
     }
-    return result
+}
+
+// List-returning form, built on forEachPeakColumn so there is one source of truth. Used by the
+// memoized minimap (AudioMinimap.kt) and the tests, neither of which is a per-frame path.
+fun downsamplePeaks(peaks: ChannelPeaks, visibleRange: IntRange, targetColumns: Int): List<PeakColumn> {
+    val out = ArrayList<PeakColumn>()
+    forEachPeakColumn(peaks, visibleRange, targetColumns) { _, _, mn, mx -> out.add(PeakColumn(mn, mx)) }
+    return out
 }
 
 // Maps a time window onto an index range within a bucket array of the given size -- since
@@ -203,13 +221,12 @@ private fun DrawScope.drawChannelPeaks(peaks: ChannelPeaks, color: Color, visibl
     val height = size.height
     val centerY = height / 2f
     if (width <= 0f) return
-    val columns = downsamplePeaks(peaks, visibleRange, width.toInt())
-    if (columns.isEmpty()) return
     val strokeWidthPx = 1.5.dp.toPx()
-    for ((idx, col) in columns.withIndex()) {
-        val x = width * idx / columns.size
-        val yTop = centerY - col.max * centerY
-        val yBottom = centerY - col.min * centerY
+    // Allocation-free: forEachPeakColumn streams the columns instead of building a List every frame.
+    forEachPeakColumn(peaks, visibleRange, width.toInt()) { idx, columnCount, mn, mx ->
+        val x = width * idx / columnCount
+        val yTop = centerY - mx * centerY
+        val yBottom = centerY - mn * centerY
         drawLine(color = color, start = Offset(x, yTop), end = Offset(x, yBottom), strokeWidth = strokeWidthPx)
     }
 }

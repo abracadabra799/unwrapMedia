@@ -121,6 +121,7 @@ private fun renderAudioVisualization(
     // No deleteOnExit(): the finally below deletes it on every path, and this re-runs on every
     // spectrogram render/zoom (see RawPixelDecoder.decodeYuvFamily).
     var inputFile: File? = null
+    var process: Process? = null
     return try {
         val resolvedInputFile = if (rawAudioParams != null) rawAudioSourceFile(file, rawAudioParams.offsetBytes) else file
         inputFile = resolvedInputFile
@@ -139,16 +140,17 @@ private fun renderAudioVisualization(
         } else {
             emptyList()
         }
-        val process = ProcessBuilder(
+        process = ProcessBuilder(
             listOf(FfmpegLocator.ffmpegPath(), "-y") + rawInputArgs + windowArgs + listOf(
                 "-i", resolvedInputFile.absolutePath,
                 "-lavfi", filter, "-frames:v", "1", tempPng.absolutePath,
             ),
         ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD)
             .also { FfmpegLocator.configureEnvironment(it) }.start()
+            .also { com.multiviewer.util.ProcessManager.register(it) }
         val finished = process.waitFor(AUDIO_VISUAL_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         if (!finished) {
-            process.destroyForcibly()
+            // finally below force-kills and unregisters -- destroyForcibly here just hurries it.
             null
         } else if (process.exitValue() != 0 || tempPng.length() == 0L) {
             null
@@ -158,6 +160,8 @@ private fun renderAudioVisualization(
     } catch (e: Exception) {
         null
     } finally {
+        // No-op if it already exited; ProcessManager.terminate also unregisters on every path.
+        com.multiviewer.util.ProcessManager.terminate(process)
         tempPng.delete()
         val fileToClean = inputFile
         if (fileToClean != null && fileToClean != file) fileToClean.delete()
@@ -468,6 +472,23 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
     fun seekToWindowFraction(fraction: Float) =
         seekToSeconds(visibleWindow.startSeconds + fraction.coerceIn(0f, 1f) * visibleWindow.durationSeconds)
 
+    // Preview seek: moves the playhead + follow window to `t` WITHOUT bumping restartTrigger, so
+    // the ffmpeg pipe + SourceDataLine are not torn down. Used on every pointer-move during a
+    // drag-scrub; the matching seekTo*() call on drag-release does the single real pipe restart at
+    // the final position. Without this, a 1-second drag fired 30-60 spawn/kill cycles per second.
+    fun previewSeekToSeconds(t: Double) {
+        hasEnded = false
+        startFromSeconds = t.coerceIn(0.0, info.duration)
+        playedSeconds = 0.0
+        smoothElapsed = startFromSeconds
+    }
+
+    fun previewSeekToWindowFraction(fraction: Float) =
+        previewSeekToSeconds(visibleWindow.startSeconds + fraction.coerceIn(0f, 1f) * visibleWindow.durationSeconds)
+
+    fun previewSeekToFraction(fraction: Float) =
+        previewSeekToSeconds(fraction.coerceIn(0f, 1f).toDouble() * info.duration)
+
     Column(modifier = modifier.fillMaxSize().onGloballyPositioned { containerHeightPx = it.size.height }) {
         Box(
             modifier = Modifier
@@ -503,11 +524,16 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
                             val dy = down.position.y - centerY
                             val isOverCenterButton = (dx * dx + dy * dy) <= (36.dp.toPx() * 36.dp.toPx())
                             if (!isOverCenterButton) {
-                                seekToWindowFraction(down.position.x / size.width.toFloat())
-                            }
-                            drag(down.id) { change ->
-                                change.consume()
-                                seekToWindowFraction(change.position.x / size.width.toFloat())
+                                // Scrub live via preview seeks (no pipe restart); commit once on
+                                // release with a single real seek at the final cursor position.
+                                var lastFraction = down.position.x / size.width.toFloat()
+                                previewSeekToWindowFraction(lastFraction)
+                                drag(down.id) { change ->
+                                    change.consume()
+                                    lastFraction = change.position.x / size.width.toFloat()
+                                    previewSeekToWindowFraction(lastFraction)
+                                }
+                                seekToWindowFraction(lastFraction)
                             }
                         }
                     },
@@ -632,6 +658,7 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
             totalDuration = info.duration,
             elapsedSeconds = displayElapsed,
             onWindowChange = { visibleWindow = it },
+            onPreviewSeek = { fraction -> previewSeekToFraction(fraction) },
             onSeek = { fraction -> seekToFraction(fraction) },
             modifier = Modifier.padding(top = 2.dp),
         )

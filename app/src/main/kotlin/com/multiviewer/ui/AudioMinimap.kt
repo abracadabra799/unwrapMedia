@@ -36,6 +36,7 @@ fun AudioMinimap(
     totalDuration: Double,
     elapsedSeconds: Double,
     onWindowChange: (AudioViewWindow) -> Unit,
+    onPreviewSeek: (fraction: Float) -> Unit,
     onSeek: (fraction: Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -51,12 +52,18 @@ fun AudioMinimap(
             .background(Color.Black)
             .pointerInput(totalDuration) {
                 awaitEachGesture {
+                    // Scrub live via onPreviewSeek (no ffmpeg-pipe restart) and commit once on
+                    // release with a single onSeek at the final position -- a drag used to fire
+                    // one full pipe teardown/respawn per pointer-move (30-60x/sec).
                     val down = awaitFirstDown()
-                    onSeek(down.position.x / size.width.toFloat())
+                    var lastFraction = down.position.x / size.width.toFloat()
+                    onPreviewSeek(lastFraction)
                     drag(down.id) { change ->
                         change.consume()
-                        onSeek(change.position.x / size.width.toFloat())
+                        lastFraction = change.position.x / size.width.toFloat()
+                        onPreviewSeek(lastFraction)
                     }
+                    onSeek(lastFraction)
                 }
             },
     ) {
