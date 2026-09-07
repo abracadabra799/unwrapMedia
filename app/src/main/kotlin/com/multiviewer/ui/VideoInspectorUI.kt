@@ -126,27 +126,15 @@ fun VideoInspectorUI(
                             .background(Color.Black),
                         contentAlignment = Alignment.Center
                     ) {
+                        // The live player runs fully independently of the GOP / filmstrip panel on
+                        // the right: no elapsed-position feedback, no seek-request wiring, no frame
+                        // step delegation. Playback, progress-bar seek, and arrow-key single-frame
+                        // stepping are all handled internally by FfmpegVideoPlayer (via its own
+                        // per-frame timestamp list). onProbeComplete is kept -- it only enables the
+                        // "analyze frames" button, it is not interactive linkage.
                         FfmpegVideoPlayer(
                             tab.file,
-                            onElapsedChanged = { tab.playbackElapsedSeconds = it },
-                            seekRequestSeconds = tab.seekTargetSeconds,
-                            seekRequestTick = tab.seekRequestTick,
                             onProbeComplete = { tab.videoReadyForAnalysis = true },
-                            onStepFrame = if (!tab.gopFrames.isNullOrEmpty()) {
-                                { delta ->
-                                    val frames = tab.gopFrames
-                                    if (!frames.isNullOrEmpty()) {
-                                        val currentIdx = tab.selectedFrame?.let { sf -> frames.indexOfFirst { it.index == sf.index } }
-                                            ?: frames.indexOfLast { it.ptsSeconds <= tab.playbackElapsedSeconds + 0.001 }.coerceAtLeast(0)
-                                        val nextIdx = (currentIdx + delta).coerceIn(0, frames.size - 1)
-                                        val nextFrame = frames[nextIdx]
-                                        tab.selectedFrame = nextFrame
-                                        tab.selected = null
-                                        tab.seekTargetSeconds = nextFrame.ptsSeconds
-                                        tab.seekRequestTick++
-                                    }
-                                }
-                            } else null
                         )
 
                         Text("LIVE PLAYER",
