@@ -98,4 +98,58 @@ class AudioWaveformPeaksTest {
         val range = visibleBucketRange(AudioViewWindow(59.9, MIN_VISIBLE_DURATION_SECONDS), totalDuration = 60.0, bucketCount = 4096)
         assertTrue(range.last >= range.first)
     }
+
+    @Test
+    fun `waveformBucketCountFor floors at 4096 for short files`() {
+        assertEquals(4096, waveformBucketCountFor(0.0))
+        assertEquals(4096, waveformBucketCountFor(10.0)) // 10*300 = 3000, below the floor
+    }
+
+    @Test
+    fun `waveformBucketCountFor scales at 300 buckets per second in the mid range`() {
+        assertEquals(30_000, waveformBucketCountFor(100.0))
+        assertEquals(90_000, waveformBucketCountFor(300.0))
+    }
+
+    @Test
+    fun `waveformBucketCountFor caps at 1_800_000 for very long files`() {
+        assertEquals(1_800_000, waveformBucketCountFor(20_000.0)) // would be 6,000,000
+        assertEquals(1_800_000, waveformBucketCountFor(6_000.0))  // exactly at the cap
+    }
+
+    @Test
+    fun `downsamplePeaks returns empty for an empty range or zero columns`() {
+        val p = ChannelPeaks(FloatArray(10), FloatArray(10))
+        assertTrue(downsamplePeaks(p, IntRange.EMPTY, 100).isEmpty())
+        assertTrue(downsamplePeaks(p, 0..9, 0).isEmpty())
+    }
+
+    @Test
+    fun `downsamplePeaks passes buckets through unchanged when the range fits in the target`() {
+        val min = floatArrayOf(-0.1f, -0.2f, -0.3f, -0.4f)
+        val max = floatArrayOf(0.1f, 0.2f, 0.3f, 0.4f)
+        val cols = downsamplePeaks(ChannelPeaks(min, max), 1..2, 100)
+        assertEquals(listOf(PeakColumn(-0.2f, 0.2f), PeakColumn(-0.3f, 0.3f)), cols)
+    }
+
+    @Test
+    fun `downsamplePeaks aggregates min and max over each span when buckets exceed the target`() {
+        // 8 buckets -> 2 columns: column 0 covers buckets 0..3, column 1 covers 4..7
+        val min = floatArrayOf(-0.1f, -0.9f, -0.2f, -0.3f, -0.4f, -0.5f, -0.05f, -0.6f)
+        val max = floatArrayOf(0.1f, 0.2f, 0.8f, 0.3f, 0.4f, 0.5f, 0.7f, 0.6f)
+        val cols = downsamplePeaks(ChannelPeaks(min, max), 0..7, 2)
+        assertEquals(2, cols.size)
+        assertEquals(PeakColumn(-0.9f, 0.8f), cols[0]) // deepest min + tallest max in buckets 0..3
+        assertEquals(PeakColumn(-0.6f, 0.7f), cols[1]) // buckets 4..7
+    }
+
+    @Test
+    fun `downsamplePeaks preserves a lone spike through heavy downsampling`() {
+        val min = FloatArray(1000)
+        val max = FloatArray(1000)
+        max[473] = 0.95f
+        val cols = downsamplePeaks(ChannelPeaks(min, max), 0..999, 10)
+        assertEquals(10, cols.size)
+        assertEquals(0.95f, cols.maxOf { it.max })
+    }
 }

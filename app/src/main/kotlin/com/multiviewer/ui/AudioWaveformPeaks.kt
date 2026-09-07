@@ -19,6 +19,49 @@ data class WaveformPeaks(val channelCount: Int, val bucketCount: Int, val channe
 // the same bucket values at new pixel positions on resize, no recomputation ever needed.
 const val WAVEFORM_PEAK_BUCKET_COUNT = 4096
 
+// Peak buckets scale with file length so a zoomed-in view (the player's default is a 5-second
+// window) still has ~one bucket per screen pixel of real detail. 300 buckets/sec ~= 3.3 ms.
+// Floored at the old fixed count and capped so a multi-hour file stays bounded (1.8M buckets ~=
+// 14 MB per stereo channel pair of min+max floats). The decode pass in computeWaveformPeaks reads
+// every sample regardless of bucket count, so a finer array costs memory, not I/O.
+fun waveformBucketCountFor(durationSeconds: Double): Int =
+    (durationSeconds * 300.0).toInt().coerceIn(WAVEFORM_PEAK_BUCKET_COUNT, 1_800_000)
+
+// One vertical span to draw at one screen x-pixel.
+data class PeakColumn(val min: Float, val max: Float)
+
+// Collapses the buckets in visibleRange down to at most targetColumns (min,max) spans -- one per
+// screen pixel -- so the Canvas draws O(width) lines regardless of how many buckets the range
+// spans. When the range already fits in targetColumns, each bucket is returned as its own column
+// unchanged. An all-silent span yields PeakColumn(0f, 0f).
+fun downsamplePeaks(peaks: ChannelPeaks, visibleRange: IntRange, targetColumns: Int): List<PeakColumn> {
+    val first = visibleRange.first
+    val last = visibleRange.last
+    val count = last - first + 1
+    if (count <= 0 || targetColumns <= 0) return emptyList()
+    val size = minOf(peaks.min.size, peaks.max.size)
+    if (count <= targetColumns) {
+        return (first..last).map { i ->
+            if (i in 0 until size) PeakColumn(peaks.min[i], peaks.max[i]) else PeakColumn(0f, 0f)
+        }
+    }
+    val result = ArrayList<PeakColumn>(targetColumns)
+    for (col in 0 until targetColumns) {
+        val lo = first + (col.toLong() * count / targetColumns).toInt()
+        val hi = (first + ((col + 1).toLong() * count / targetColumns).toInt()).coerceAtMost(size)
+        var mn = Float.MAX_VALUE
+        var mx = -Float.MAX_VALUE
+        var b = lo.coerceAtLeast(0)
+        while (b < hi) {
+            if (peaks.min[b] < mn) mn = peaks.min[b]
+            if (peaks.max[b] > mx) mx = peaks.max[b]
+            b++
+        }
+        result.add(if (mn == Float.MAX_VALUE) PeakColumn(0f, 0f) else PeakColumn(mn, mx))
+    }
+    return result
+}
+
 // Maps a time window onto an index range within a bucket array of the given size -- since
 // computeWaveformPeaks already spaces its buckets evenly across the whole file duration, this is
 // pure arithmetic, no new peak computation needed to redraw a zoomed-in sub-range.
