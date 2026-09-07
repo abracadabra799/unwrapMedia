@@ -241,7 +241,9 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
         probedInfo = info
         probing = false
         if (info != null) {
-            waveformPeaks = withContext(Dispatchers.IO) { computeWaveformPeaks(file, info, rawAudioParams = rawAudioParams) }
+            waveformPeaks = withContext(Dispatchers.IO) {
+                computeWaveformPeaks(file, info, bucketCount = waveformBucketCountFor(info.duration), rawAudioParams = rawAudioParams)
+            }
             spectrogramBitmap = withContext(Dispatchers.IO) { generateFullSpectrogramImage(file, rawAudioParams = rawAudioParams) }
         }
     }

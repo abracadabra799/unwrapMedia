@@ -22,10 +22,6 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 
-// Every Nth bucket of the same 4096-bucket array WaveformDisplay already draws, sampled coarser
-// since this is a whole-track overview, not a detail view -- no new computation, no ffmpeg call.
-private const val MINIMAP_BUCKET_STRIDE = 8
-
 // Always shows the WHOLE track (never zoomed itself), with a draggable rectangle for the current
 // zoom window and a playhead marker. Clicking anywhere seeks the whole player, independent of
 // zoom -- the one place seeking always reaches the entire file regardless of the detail panels'
@@ -99,16 +95,17 @@ fun AudioMinimap(
 private fun DrawScope.drawMinimapWaveform(peaks: WaveformPeaks) {
     val channel = peaks.channels.firstOrNull() ?: return
     val width = size.width
-    val height = size.height
-    val centerY = height / 2f
+    val centerY = size.height / 2f
     val bucketCount = channel.min.size
     if (bucketCount == 0 || width <= 0f) return
-    var i = 0
-    while (i < bucketCount) {
-        val x = width * i / bucketCount
-        val yTop = centerY - channel.max[i] * centerY
-        val yBottom = centerY - channel.min[i] * centerY
-        drawLine(color = Color(0xFF39FF14).copy(alpha = 0.6f), start = Offset(x, yTop), end = Offset(x, yBottom), strokeWidth = 1f)
-        i += MINIMAP_BUCKET_STRIDE
+    val columns = downsamplePeaks(channel, 0 until bucketCount, width.toInt())
+    for ((idx, col) in columns.withIndex()) {
+        val x = width * idx / columns.size
+        val yTop = centerY - col.max * centerY
+        val yBottom = centerY - col.min * centerY
+        drawLine(
+            color = Color(0xFF39FF14).copy(alpha = 0.6f),
+            start = Offset(x, yTop), end = Offset(x, yBottom), strokeWidth = 1f,
+        )
     }
 }

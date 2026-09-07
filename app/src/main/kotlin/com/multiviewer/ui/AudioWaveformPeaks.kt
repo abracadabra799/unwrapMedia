@@ -195,14 +195,14 @@ private fun DrawScope.drawChannelPeaks(peaks: ChannelPeaks, color: Color, visibl
     val width = size.width
     val height = size.height
     val centerY = height / 2f
-    val startBucket = visibleRange.first
-    val visibleCount = visibleRange.last - visibleRange.first + 1
-    if (visibleCount <= 0 || width <= 0f) return
+    if (width <= 0f) return
+    val columns = downsamplePeaks(peaks, visibleRange, width.toInt())
+    if (columns.isEmpty()) return
     val strokeWidthPx = 1.5.dp.toPx()
-    for (i in visibleRange) {
-        val x = width * (i - startBucket) / visibleCount
-        val yTop = centerY - peaks.max[i] * centerY
-        val yBottom = centerY - peaks.min[i] * centerY
+    for ((idx, col) in columns.withIndex()) {
+        val x = width * idx / columns.size
+        val yTop = centerY - col.max * centerY
+        val yBottom = centerY - col.min * centerY
         drawLine(color = color, start = Offset(x, yTop), end = Offset(x, yBottom), strokeWidth = strokeWidthPx)
     }
 }
