@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
@@ -46,6 +47,7 @@ import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image
@@ -189,6 +191,16 @@ fun generateSpectrogramImage(
 private const val ZOOM_STEP_FACTOR = 0.08
 private const val PAN_STEP_FACTOR = 0.05
 
+// Solo one channel of a stereo file for listening. The soloed channel is sent to BOTH output
+// channels (so it plays in both ears); output stays 2ch so the SourceDataLine format is unchanged.
+enum class ChannelMode { STEREO, LEFT, RIGHT }
+
+fun channelModeFilterArgs(mode: ChannelMode): List<String> = when (mode) {
+    ChannelMode.STEREO -> emptyList()
+    ChannelMode.LEFT -> listOf("-af", "pan=stereo|c0=c0|c1=c0")
+    ChannelMode.RIGHT -> listOf("-af", "pan=stereo|c0=c1|c1=c1")
+}
+
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifier: Modifier = Modifier) {
@@ -199,6 +211,7 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
     var playedSeconds by remember(file) { mutableStateOf(0.0) }
     var startFromSeconds by remember(file) { mutableStateOf(0.0) }
     var loadError by remember(file) { mutableStateOf(false) }
+    var channelMode by remember(file) { mutableStateOf(ChannelMode.STEREO) }
 
     var probedInfo by remember(file) { mutableStateOf<AudioFileInfo?>(null) }
     var probing by remember(file) { mutableStateOf(true) }
@@ -281,6 +294,7 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
             ProcessBuilder(
                 listOf(FfmpegLocator.ffmpegPath()) + seekArgs + rawInputArgs + listOf(
                     "-i", inputFile.absolutePath, "-map", "0:a:0",
+                ) + channelModeFilterArgs(channelMode) + listOf(
                     "-f", "s16le", "-ar", sampleRate.toString(), "-ac", channels.toString(),
                     "-acodec", "pcm_s16le", "-",
                 ),
@@ -377,6 +391,8 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
         if (!isPlaying) return@LaunchedEffect
         var lastPlayed = playedSeconds
         var lastChangeNanos = System.nanoTime()
+        smoothElapsed = (startFromSeconds + playedSeconds)
+            .coerceIn(0.0, if (info.duration > 0) info.duration else Double.MAX_VALUE)
         while (true) {
             withFrameNanos {
                 if (playedSeconds != lastPlayed) {
@@ -510,6 +526,43 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
                     AudioPauseIcon(modifier = Modifier.size(24.dp), color = Color.White)
                 } else {
                     Icon(Icons.Filled.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(48.dp))
+                }
+            }
+
+            if (info.channels == 2) {
+                Row(
+                    modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    ChannelMode.entries.forEach { mode ->
+                        val selected = mode == channelMode
+                        val label = when (mode) {
+                            ChannelMode.STEREO -> "Stereo"
+                            ChannelMode.LEFT -> "L"
+                            ChannelMode.RIGHT -> "R"
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(if (selected) Color(0xFF39FF14).copy(alpha = 0.25f) else Color.White.copy(alpha = 0.10f))
+                                .clickable {
+                                    if (mode != channelMode) {
+                                        channelMode = mode
+                                        hasEnded = false
+                                        startFromSeconds = elapsedSeconds
+                                        playedSeconds = 0.0
+                                        restartTrigger++
+                                    }
+                                }
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                        ) {
+                            Text(
+                                label,
+                                color = if (selected) Color(0xFF39FF14) else Color.White.copy(alpha = 0.7f),
+                                fontSize = 10.sp,
+                            )
+                        }
+                    }
                 }
             }
         }

@@ -64,4 +64,11 @@ class FfmpegAudioPlayerTest {
         assertEquals(80, bitmap.height)
         audio.delete()
     }
+
+    @Test
+    fun `channelModeFilterArgs maps each mode to the right ffmpeg pan filter`() {
+        assertEquals(emptyList(), channelModeFilterArgs(ChannelMode.STEREO))
+        assertEquals(listOf("-af", "pan=stereo|c0=c0|c1=c0"), channelModeFilterArgs(ChannelMode.LEFT))
+        assertEquals(listOf("-af", "pan=stereo|c0=c1|c1=c1"), channelModeFilterArgs(ChannelMode.RIGHT))
+    }
 }
