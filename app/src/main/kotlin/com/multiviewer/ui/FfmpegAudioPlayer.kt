@@ -32,6 +32,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -218,6 +219,13 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
     var waveformPeaks by remember(file) { mutableStateOf<WaveformPeaks?>(null) }
     var spectrogramBitmap by remember(file) { mutableStateOf<ImageBitmap?>(null) }
 
+    // Playhead position for display, interpolated to frame rate. playedSeconds only updates ~20x/sec
+    // (once per PCM read chunk), which would step-scroll the waveform; between samples this advances
+    // at wall-clock rate. Only meaningful while isPlaying -- otherwise use elapsedSeconds directly.
+    // Declared up here so setPlaying/seekToSeconds can seed it synchronously when they move the
+    // playhead outside the follow loop (avoids a one-frame flash at the old position).
+    var smoothElapsed by remember(file) { mutableStateOf(0.0) }
+
     fun setPlaying(play: Boolean) {
         if (play) {
             val totalDuration = probedInfo?.duration ?: 0.0
@@ -228,6 +236,7 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
                 playedSeconds = 0.0
                 restartTrigger++
             }
+            smoothElapsed = startFromSeconds + playedSeconds
             isPlaying = true
             isPlayingAtomic.set(true)
         } else {
@@ -294,7 +303,7 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
             ProcessBuilder(
                 listOf(FfmpegLocator.ffmpegPath()) + seekArgs + rawInputArgs + listOf(
                     "-i", inputFile.absolutePath, "-map", "0:a:0",
-                ) + channelModeFilterArgs(channelMode) + listOf(
+                ) + (if (info.channels == 2) channelModeFilterArgs(channelMode) else emptyList()) + listOf(
                     "-f", "s16le", "-ar", sampleRate.toString(), "-ac", channels.toString(),
                     "-acodec", "pcm_s16le", "-",
                 ),
@@ -376,10 +385,6 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
     // while playing (see the follow LaunchedEffect below). The minimap remains the whole-track view.
     var visibleWindow by remember(file) { mutableStateOf(AudioViewWindow(0.0, minOf(5.0, info.duration.coerceAtLeast(0.5)))) }
 
-    // Playhead position for display, interpolated to frame rate. playedSeconds only updates ~20x/sec
-    // (once per PCM read chunk), which would step-scroll the waveform; between samples this advances
-    // at wall-clock rate. Only meaningful while isPlaying -- otherwise use elapsedSeconds directly.
-    var smoothElapsed by remember(file) { mutableStateOf(0.0) }
     val displayElapsed = if (isPlaying) smoothElapsed else elapsedSeconds
 
     // While playing: keep the playhead centred in visibleWindow every frame. Wheel-zoom still works
@@ -390,18 +395,20 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
     LaunchedEffect(isPlaying, restartTrigger) {
         if (!isPlaying) return@LaunchedEffect
         var lastPlayed = playedSeconds
-        var lastChangeNanos = System.nanoTime()
+        // Seeded on the first frame from that frame's timestamp so every time math below uses the
+        // single clock withFrameNanos hands us, not a mix of it and System.nanoTime().
+        var lastChangeNanos = -1L
         smoothElapsed = (startFromSeconds + playedSeconds)
             .coerceIn(0.0, if (info.duration > 0) info.duration else Double.MAX_VALUE)
         while (true) {
-            withFrameNanos {
-                if (playedSeconds != lastPlayed) {
+            withFrameNanos { frameNanos ->
+                if (lastChangeNanos < 0L || playedSeconds != lastPlayed) {
                     lastPlayed = playedSeconds
-                    lastChangeNanos = System.nanoTime()
+                    lastChangeNanos = frameNanos
                 }
                 // Cap the extrapolation so a genuinely stuck sample (e.g. paused at the OS layer)
                 // can't run the playhead away.
-                val sinceChange = ((System.nanoTime() - lastChangeNanos) / 1e9).coerceIn(0.0, 0.12)
+                val sinceChange = ((frameNanos - lastChangeNanos) / 1e9).coerceIn(0.0, 0.12)
                 val interp = (startFromSeconds + lastPlayed + sinceChange)
                     .coerceIn(0.0, if (info.duration > 0) info.duration else Double.MAX_VALUE)
                 smoothElapsed = interp
@@ -435,11 +442,12 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
         }
     }
 
-    fun seekToFraction(fraction: Float) {
+    fun seekToSeconds(t: Double) {
         hasEnded = false
         val wasPlaying = isPlaying
-        startFromSeconds = fraction.coerceIn(0f, 1f) * info.duration
+        startFromSeconds = t.coerceIn(0.0, info.duration)
         playedSeconds = 0.0
+        smoothElapsed = startFromSeconds
         if (wasPlaying) {
             isPlaying = true
             isPlayingAtomic.set(true)
@@ -449,6 +457,16 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
         }
         restartTrigger++
     }
+
+    // Whole-track seek -- used by the minimap, which always represents the entire file.
+    fun seekToFraction(fraction: Float) =
+        seekToSeconds(fraction.coerceIn(0f, 1f).toDouble() * info.duration)
+
+    // Window-relative seek -- used by the waveform/spectrogram detail panels, whose x-axis spans
+    // only visibleWindow, not the whole track (so a click lands under the cursor, not at panel
+    // centre mapped to the middle of the song).
+    fun seekToWindowFraction(fraction: Float) =
+        seekToSeconds(visibleWindow.startSeconds + fraction.coerceIn(0f, 1f) * visibleWindow.durationSeconds)
 
     Column(modifier = modifier.fillMaxSize().onGloballyPositioned { containerHeightPx = it.size.height }) {
         Box(
@@ -485,11 +503,11 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
                             val dy = down.position.y - centerY
                             val isOverCenterButton = (dx * dx + dy * dy) <= (36.dp.toPx() * 36.dp.toPx())
                             if (!isOverCenterButton) {
-                                seekToFraction(down.position.x / size.width.toFloat())
+                                seekToWindowFraction(down.position.x / size.width.toFloat())
                             }
                             drag(down.id) { change ->
                                 change.consume()
-                                seekToFraction(change.position.x / size.width.toFloat())
+                                seekToWindowFraction(change.position.x / size.width.toFloat())
                             }
                         }
                     },
@@ -632,6 +650,9 @@ private fun AudioZoomScrollbar(
     onWindowChange: (AudioViewWindow) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // pointerInput only restarts on totalDuration (never changes), so the drag lambda would
+    // otherwise compute from the window as of first composition. Read the live value instead.
+    val currentWindow by rememberUpdatedState(window)
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -642,7 +663,7 @@ private fun AudioZoomScrollbar(
                     change.consume()
                     if (totalDuration > 0.0 && size.width > 0) {
                         val deltaSeconds = (dragAmount.x / size.width) * totalDuration
-                        onWindowChange(clampWindow(window.startSeconds + deltaSeconds, window.durationSeconds, totalDuration))
+                        onWindowChange(clampWindow(currentWindow.startSeconds + deltaSeconds, currentWindow.durationSeconds, totalDuration))
                     }
                 }
             },

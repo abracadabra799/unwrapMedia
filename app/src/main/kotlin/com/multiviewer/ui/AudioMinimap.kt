@@ -15,6 +15,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -36,6 +39,11 @@ fun AudioMinimap(
     onSeek: (fraction: Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // The suspend pointerInput block below only restarts when its keys change, and none of them
+    // track `window` -- so read the live value through rememberUpdatedState rather than the one
+    // captured at first composition (otherwise every rectangle drag snaps back to (0, 5)).
+    val currentWindow by rememberUpdatedState(window)
+
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
@@ -54,9 +62,19 @@ fun AudioMinimap(
     ) {
         val totalWidthPx = constraints.maxWidth
 
-        if (peaks != null) {
+        // The minimap waveform is static per file (peaks fixed, width fixed) but this composable
+        // recomposes ~60x/s during playback -- memoize the columns so a long file doesn't rescan
+        // its whole (multi-million-entry) peak array every frame.
+        val minimapColumns = remember(peaks, totalWidthPx) {
+            peaks?.channels?.firstOrNull()?.let { ch ->
+                if (ch.min.isNotEmpty() && totalWidthPx > 0) downsamplePeaks(ch, 0 until ch.min.size, totalWidthPx)
+                else null
+            }
+        }
+
+        if (minimapColumns != null) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                drawMinimapWaveform(peaks)
+                drawMinimapWaveform(minimapColumns)
             }
         }
 
@@ -74,7 +92,7 @@ fun AudioMinimap(
                             change.consume()
                             if (totalWidthPx > 0) {
                                 val deltaSeconds = (dragAmount.x / totalWidthPx.toFloat()) * totalDuration
-                                onWindowChange(clampWindow(window.startSeconds + deltaSeconds, window.durationSeconds, totalDuration))
+                                onWindowChange(clampWindow(currentWindow.startSeconds + deltaSeconds, currentWindow.durationSeconds, totalDuration))
                             }
                         }
                     },
@@ -92,13 +110,10 @@ fun AudioMinimap(
     }
 }
 
-private fun DrawScope.drawMinimapWaveform(peaks: WaveformPeaks) {
-    val channel = peaks.channels.firstOrNull() ?: return
+private fun DrawScope.drawMinimapWaveform(columns: List<PeakColumn>) {
     val width = size.width
     val centerY = size.height / 2f
-    val bucketCount = channel.min.size
-    if (bucketCount == 0 || width <= 0f) return
-    val columns = downsamplePeaks(channel, 0 until bucketCount, width.toInt())
+    if (columns.isEmpty() || width <= 0f) return
     for ((idx, col) in columns.withIndex()) {
         val x = width * idx / columns.size
         val yTop = centerY - col.max * centerY

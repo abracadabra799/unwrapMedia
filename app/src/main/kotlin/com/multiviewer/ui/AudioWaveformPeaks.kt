@@ -22,8 +22,9 @@ const val WAVEFORM_PEAK_BUCKET_COUNT = 4096
 // Peak buckets scale with file length so a zoomed-in view (the player's default is a 5-second
 // window) still has ~one bucket per screen pixel of real detail. 300 buckets/sec ~= 3.3 ms.
 // Floored at the old fixed count and capped so a multi-hour file stays bounded (1.8M buckets ~=
-// 14 MB per stereo channel pair of min+max floats). The decode pass in computeWaveformPeaks reads
-// every sample regardless of bucket count, so a finer array costs memory, not I/O.
+// 14.4 MB of min+max floats per stored channel, so ~29 MB for the stereo pair that is the most
+// computeWaveformPeaks ever keeps). The decode pass in computeWaveformPeaks reads every sample
+// regardless of bucket count, so a finer array costs memory, not I/O.
 fun waveformBucketCountFor(durationSeconds: Double): Int =
     (durationSeconds * 300.0).toInt().coerceIn(WAVEFORM_PEAK_BUCKET_COUNT, 1_800_000)
 
@@ -92,8 +93,12 @@ fun computeWaveformPeaks(
     val estimatedTotalFrames = (info.duration * info.sampleRate).toLong().coerceAtLeast(1L)
     val framesPerBucket = (estimatedTotalFrames / bucketCount).coerceAtLeast(1L)
 
-    val minPerChannel = Array(channels) { FloatArray(bucketCount) { Float.MAX_VALUE } }
-    val maxPerChannel = Array(channels) { FloatArray(bucketCount) { -Float.MAX_VALUE } }
+    // Every channel is still decoded and scanned (the interleave offset must stay correct), but
+    // only the first two are ever drawn (WaveformDisplay takes 2, the minimap takes the first), so
+    // we allocate peak arrays for just those -- a 5.1 file no longer holds ~57 MB it never reads.
+    val storedChannels = minOf(channels, 2)
+    val minPerChannel = Array(storedChannels) { FloatArray(bucketCount) { Float.MAX_VALUE } }
+    val maxPerChannel = Array(storedChannels) { FloatArray(bucketCount) { -Float.MAX_VALUE } }
 
     val inputFile = if (rawAudioParams != null) rawAudioSourceFile(file, rawAudioParams.offsetBytes) else file
     val rawInputArgs = if (rawAudioParams != null) {
@@ -133,8 +138,10 @@ fun computeWaveformPeaks(
                     val bucket = (frameIndex / framesPerBucket).coerceAtMost((bucketCount - 1).toLong()).toInt()
                     for (c in 0 until channels) {
                         val sample = (((chunk[offset + 1].toInt() shl 8) or (chunk[offset].toInt() and 0xFF))).toShort().toFloat() / 32768f
-                        if (sample < minPerChannel[c][bucket]) minPerChannel[c][bucket] = sample
-                        if (sample > maxPerChannel[c][bucket]) maxPerChannel[c][bucket] = sample
+                        if (c < storedChannels) {
+                            if (sample < minPerChannel[c][bucket]) minPerChannel[c][bucket] = sample
+                            if (sample > maxPerChannel[c][bucket]) maxPerChannel[c][bucket] = sample
+                        }
                         offset += 2
                     }
                     frameIndex++
@@ -147,7 +154,7 @@ fun computeWaveformPeaks(
         if (completedFrameCount == null || completedFrameCount == 0L) {
             null
         } else {
-            for (c in 0 until channels) {
+            for (c in 0 until storedChannels) {
                 for (b in 0 until bucketCount) {
                     if (minPerChannel[c][b] == Float.MAX_VALUE) {
                         minPerChannel[c][b] = 0f
@@ -158,7 +165,7 @@ fun computeWaveformPeaks(
             WaveformPeaks(
                 channelCount = channels,
                 bucketCount = bucketCount,
-                channels = (0 until channels).map { ChannelPeaks(minPerChannel[it], maxPerChannel[it]) },
+                channels = (0 until storedChannels).map { ChannelPeaks(minPerChannel[it], maxPerChannel[it]) },
             )
         }
     } catch (e: Exception) {
