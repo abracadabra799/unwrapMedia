@@ -1,13 +1,15 @@
 package com.multiviewer.ui
 
 import com.multiviewer.util.ProcessManager
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import java.io.ByteArrayInputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.concurrent.atomic.AtomicBoolean
+import javax.sound.sampled.AudioFormat
+import javax.sound.sampled.AudioSystem
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class VideoAudioTrackTest {
@@ -34,8 +36,15 @@ class VideoAudioTrackTest {
 
     @Test
     fun `frameSyncAction at exactly minus 100ms still delivers`() {
-        assertEquals(FrameAction.Deliver, frameSyncAction(frameStartSeconds = 0.9, audioClockSeconds = 1.0))
+        // Pass the lead directly so leadSeconds is exactly -0.1 (0.9 - 1.0 is -0.09999999999999998
+        // in IEEE754 and would not exercise the boundary).
+        assertEquals(FrameAction.Deliver, frameSyncAction(frameStartSeconds = 0.0, audioClockSeconds = 0.10))
     }
+
+    /** True when this host can open a plain stereo PCM line -- gates the tests that need a mixer. */
+    private fun mixerAvailable(): Boolean = runCatching {
+        AudioSystem.getSourceDataLine(AudioFormat(44100f, 16, 2, true, false)).close()
+    }.isSuccess
 
     /** Fake process whose stdout is a fixed PCM byte blob then EOF. */
     private class FakePcmProcess(bytes: ByteArray) : Process() {
@@ -81,7 +90,8 @@ class VideoAudioTrackTest {
     }
 
     @Test
-    fun `pipe EOF sets ended and unregisters the process`() {
+    fun `pipe EOF sets ended and destroy unregisters the process`() {
+        assumeTrue(mixerAvailable(), "no audio mixer on this host")
         val before = ProcessManager.activeCount
         val track = VideoAudioTrack(
             java.io.File("x.mp4"), 0.0, 8000, 1, AtomicBoolean(true), AtomicBoolean(false),
@@ -94,6 +104,22 @@ class VideoAudioTrackTest {
         track.destroy()
         Thread.sleep(200)
         assertEquals(before, ProcessManager.activeCount)
+    }
+
+    @Test
+    fun `multichannel source is downmixed to stereo in the ffmpeg args`() {
+        var capturedArgs: List<String>? = null
+        val track = VideoAudioTrack(
+            java.io.File("x.mp4"), 0.0, sampleRate = 48000, channels = 6, // 5.1 source
+            playing = AtomicBoolean(false), muted = AtomicBoolean(false),
+            processFactory = { args -> capturedArgs = args; FakePcmProcess(ByteArray(0)) },
+        )
+        track.start()
+        val args = capturedArgs ?: error("processFactory was not invoked")
+        val acIndex = args.indexOf("-ac")
+        assertTrue(acIndex >= 0 && acIndex + 1 < args.size, "expected -ac in the ffmpeg args")
+        assertEquals("2", args[acIndex + 1])
+        track.destroy()
     }
 
     @Test
@@ -114,11 +140,12 @@ class VideoAudioTrackTest {
     }
 
     @Test
-    fun `no audio device sets failed rather than crashing`() {
-        // Can't force "no device" portably; assert instead that a line-open failure path exists by
-        // constructing with an absurd format the mixer will reject.
+    fun `line-open failure sets failed rather than crashing the thread`() {
+        // An absurd sample rate no mixer supports (and if there is no mixer at all, getSourceDataLine
+        // throws regardless) -- either way the writer thread must catch it and set failed, not crash.
+        // channels is downmixed to <=2 now, so the sample rate is the lever.
         val track = VideoAudioTrack(
-            java.io.File("x.mp4"), 0.0, sampleRate = 1, channels = 99, // invalid -> line open throws
+            java.io.File("x.mp4"), 0.0, sampleRate = 100_000_000, channels = 2,
             playing = AtomicBoolean(true), muted = AtomicBoolean(false),
             processFactory = { FakePcmProcess(ByteArray(64)) },
         )

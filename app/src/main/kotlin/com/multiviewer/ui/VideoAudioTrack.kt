@@ -98,10 +98,16 @@ internal class VideoAudioTrack(
     @Volatile private var process: Process? = null
     @Volatile private var line: SourceDataLine? = null
     private val stopped = AtomicBoolean(false)
-    private var thread: Thread? = null
+    @Volatile private var thread: Thread? = null
+
+    // Java Sound's default mixers on macOS/Windows routinely refuse a >2-channel SourceDataLine, so
+    // a 5.1/7.1 source would throw at getSourceDataLine and fall back to a silent movie. Downmix to
+    // stereo in ffmpeg and open the line with the same count.
+    private val outChannels: Int = channels.coerceIn(1, 2)
 
     // Audio actually rendered by the mixer, in seconds, relative to this pipe's -ss seek point.
-    // Frozen while the line is stopped (pause). 0.0 before the line opens.
+    // Frozen while the line is stopped (pause). 0.0 before the line opens. Only meaningful while
+    // !failed && !ended -- after the line closes this keeps returning its last stale position.
     val clockSeconds: Double
         get() = (line?.microsecondPosition ?: 0L) / 1_000_000.0
 
@@ -110,7 +116,7 @@ internal class VideoAudioTrack(
         val seekArgs = if (startFromSeconds > 0.0) listOf("-ss", startFromSeconds.toString()) else emptyList()
         val args = listOf(FfmpegLocator.ffmpegPath()) + seekArgs + listOf(
             "-i", file.absolutePath, "-map", "0:a:0",
-            "-f", "s16le", "-ar", sampleRate.toString(), "-ac", channels.toString(),
+            "-f", "s16le", "-ar", sampleRate.toString(), "-ac", outChannels.toString(),
             "-acodec", "pcm_s16le", "-",
         )
         val p = try {
@@ -123,7 +129,7 @@ internal class VideoAudioTrack(
         thread = Thread {
             var ln: SourceDataLine? = null
             try {
-                val format = AudioFormat(sampleRate.toFloat(), 16, channels, true, false)
+                val format = AudioFormat(sampleRate.toFloat(), 16, outChannels, true, false)
                 ln = AudioSystem.getSourceDataLine(format)
                 ln.open(format)
                 ln.start()
@@ -156,6 +162,10 @@ internal class VideoAudioTrack(
                 ln?.stop()
                 ln?.flush()
                 ln?.close()
+                // Proactively kill the ffmpeg pipe on failure/EOF rather than leaving it blocked on
+                // a full stdout pipe until the owning composable disposes. Idempotent; the destroy()
+                // path also calls terminate().
+                ProcessManager.terminate(process)
             }
         }.apply { isDaemon = true; name = "video-audio" }.also { it.start() }
     }

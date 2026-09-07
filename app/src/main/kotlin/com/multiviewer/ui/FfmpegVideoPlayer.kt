@@ -367,14 +367,22 @@ fun FfmpegVideoPlayer(
     LaunchedEffect(file) {
         probing = true
         val info = withContext(Dispatchers.IO) { probeVideo(file) }
-        // Flip probing off (and let the player UI render) as soon as this cheap probe resolves --
-        // do not wait on the expensive full-file frame-timestamp scan below. The player already
+        // Flip probing off (and let the player UI render) after the two cheap probes (video format
+        // above, audio format below) -- do not wait on the expensive full-file frame-timestamp scan
+        // that follows. The player already
         // has a correct average-fps pacing fallback (nextFrameDurationSeconds's
         // fallbackDurationSeconds) for whenever frameTimestamps is still null, the same fallback
         // already used today if probeFrameTimestamps fails outright. Continuing to await it here,
         // in the same coroutine, still updates frameTimestamps once it completes -- the next
         // replay or seek (both already restart DisposableEffect) picks up the more precise
         // per-frame durations automatically; an in-flight playthrough does not hot-swap mid-play.
+        // Resolve audioInfo BEFORE flipping `probing` off -- the DisposableEffect below is keyed on
+        // `audioInfo` too, but it first runs on the recomposition that `probing = false` triggers,
+        // while this coroutine is still suspended in the slow whole-file probeFrameTimestamps scan.
+        // If audioInfo were still null then, no VideoAudioTrack would be created and the first
+        // playthrough would be silent. probeAudioFormat is one cheap ffprobe, same cost class as the
+        // probeVideo call already awaited above.
+        audioInfo = if (info != null) withContext(Dispatchers.IO) { probeAudioFormat(file) } else null
         probedInfo = info
         probing = false
         if (info != null) {
@@ -390,7 +398,6 @@ fun FfmpegVideoPlayer(
                 probedInfo = info.copy(duration = inferredDuration)
             }
         }
-        audioInfo = if (info != null) withContext(Dispatchers.IO) { probeAudioFormat(file) } else null
         onProbeComplete()
     }
 
@@ -409,7 +416,7 @@ fun FfmpegVideoPlayer(
         return
     }
 
-    DisposableEffect(file, restartTrigger) {
+    DisposableEffect(file, restartTrigger, audioInfo) {
         playedSeconds = 0.0
         audioPlayingAtomic.set(isPlaying)
         audioMutedAtomic.set(isMuted)
@@ -510,8 +517,9 @@ fun FfmpegVideoPlayer(
                     // First frame, shown immediately while paused -- still advances frameIndex so
                     // the duration list stays aligned with frames read from here on, but it
                     // doesn't count toward playedSeconds since nothing played yet.
+                    var firstFrameDurationSeconds = 0.0
                     if (readFrame()) {
-                        nextFrameDurationSeconds()
+                        firstFrameDurationSeconds = nextFrameDurationSeconds()
                         deliver(null)
                     }
                     // See shouldSkipFrame/laggedAfterFrame/laggedAfterSkip's docs -- tracks how far
@@ -520,9 +528,14 @@ fun FfmpegVideoPlayer(
                     // construction/delivery) once that debt reaches a full frame's budget, instead
                     // of letting every frame's overrun compound for the rest of the video.
                     var cumulativeLagMillis = 0L
-                    var frameElapsed = 0.0
+                    // Seeded with the pre-loop first frame's duration so frameStart tracks true
+                    // pipe-relative PTS rather than trailing it by one frame all session.
+                    var frameElapsed = firstFrameDurationSeconds
                     while (!stopped.get()) {
-                        if (!isPlaying) {
+                        // audioPlayingAtomic (not the Compose `isPlaying` state) so this thread and
+                        // VideoAudioTrack's thread read the same authoritative pause flag -- setPlaying
+                        // writes both, but reading the state here could transiently lag the atomic.
+                        if (!audioPlayingAtomic.get()) {
                             Thread.sleep(50)
                             continue
                         }
