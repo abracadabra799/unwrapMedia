@@ -21,3 +21,13 @@ fun clampWindow(requestedStart: Double, requestedDuration: Double, totalDuration
     val start = requestedStart.coerceIn(0.0, (totalDuration - duration).coerceAtLeast(0.0))
     return AudioViewWindow(start, duration)
 }
+
+// The view window the scrolling waveform uses while playing: keeps displayElapsedSeconds at the
+// centre, then clamps so it never runs past either end of the track (so near the ends the
+// playhead drifts toward the edge rather than the window showing blank margin).
+fun followWindow(
+    displayElapsedSeconds: Double,
+    windowDurationSeconds: Double,
+    totalDurationSeconds: Double,
+): AudioViewWindow =
+    clampWindow(displayElapsedSeconds - windowDurationSeconds / 2.0, windowDurationSeconds, totalDurationSeconds)

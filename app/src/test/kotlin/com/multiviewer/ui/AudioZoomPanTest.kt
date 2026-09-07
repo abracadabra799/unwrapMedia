@@ -34,4 +34,30 @@ class AudioZoomPanTest {
         val window = clampWindow(requestedStart = -5.0, requestedDuration = 10.0, totalDuration = 60.0)
         assertEquals(0.0, window.startSeconds)
     }
+
+    @Test
+    fun `followWindow centres the playhead in the middle of a long track`() {
+        val w = followWindow(displayElapsedSeconds = 30.0, windowDurationSeconds = 5.0, totalDurationSeconds = 120.0)
+        assertEquals(27.5, w.startSeconds, 1e-9)
+        assertEquals(5.0, w.durationSeconds, 1e-9)
+    }
+
+    @Test
+    fun `followWindow pins to the start within the first half-window`() {
+        val w = followWindow(displayElapsedSeconds = 1.0, windowDurationSeconds = 5.0, totalDurationSeconds = 120.0)
+        assertEquals(0.0, w.startSeconds, 1e-9)
+    }
+
+    @Test
+    fun `followWindow pins to the end within the last half-window`() {
+        val w = followWindow(displayElapsedSeconds = 119.0, windowDurationSeconds = 5.0, totalDurationSeconds = 120.0)
+        assertEquals(115.0, w.startSeconds, 1e-9) // total - duration
+    }
+
+    @Test
+    fun `followWindow with a window at least as long as the track shows the whole track from zero`() {
+        val w = followWindow(displayElapsedSeconds = 2.0, windowDurationSeconds = 10.0, totalDurationSeconds = 4.0)
+        assertEquals(0.0, w.startSeconds, 1e-9)
+        assertEquals(4.0, w.durationSeconds, 1e-9)
+    }
 }
