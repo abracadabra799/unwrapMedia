@@ -32,6 +32,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -357,9 +358,41 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
     var containerHeightPx by remember(file) { mutableStateOf(0) }
     val elapsedSeconds = (startFromSeconds + playedSeconds).coerceIn(0.0, if (info.duration > 0) info.duration else Double.MAX_VALUE)
 
-    // Shared by the waveform, spectrogram, scrollbar, and minimap -- fully zoomed out (the whole
-    // track) whenever a new file loads, same as today's pre-zoom behavior.
-    var visibleWindow by remember(file) { mutableStateOf(AudioViewWindow(0.0, info.duration)) }
+    // Default to a 5-second detail window -- the waveform/spectrogram scroll to follow the playhead
+    // while playing (see the follow LaunchedEffect below). The minimap remains the whole-track view.
+    var visibleWindow by remember(file) { mutableStateOf(AudioViewWindow(0.0, minOf(5.0, info.duration.coerceAtLeast(0.5)))) }
+
+    // Playhead position for display, interpolated to frame rate. playedSeconds only updates ~20x/sec
+    // (once per PCM read chunk), which would step-scroll the waveform; between samples this advances
+    // at wall-clock rate. Only meaningful while isPlaying -- otherwise use elapsedSeconds directly.
+    var smoothElapsed by remember(file) { mutableStateOf(0.0) }
+    val displayElapsed = if (isPlaying) smoothElapsed else elapsedSeconds
+
+    // While playing: keep the playhead centred in visibleWindow every frame. Wheel-zoom still works
+    // (it changes durationSeconds; this re-centres with the new width next frame). Panning / scrollbar
+    // drags are overwritten here until playback is paused. Cancelled (loop ends) when isPlaying flips
+    // false, leaving the window where it stopped; re-keyed on restartTrigger so a seek restarts the
+    // interpolation cleanly.
+    LaunchedEffect(isPlaying, restartTrigger) {
+        if (!isPlaying) return@LaunchedEffect
+        var lastPlayed = playedSeconds
+        var lastChangeNanos = System.nanoTime()
+        while (true) {
+            withFrameNanos {
+                if (playedSeconds != lastPlayed) {
+                    lastPlayed = playedSeconds
+                    lastChangeNanos = System.nanoTime()
+                }
+                // Cap the extrapolation so a genuinely stuck sample (e.g. paused at the OS layer)
+                // can't run the playhead away.
+                val sinceChange = ((System.nanoTime() - lastChangeNanos) / 1e9).coerceIn(0.0, 0.12)
+                val interp = (startFromSeconds + lastPlayed + sinceChange)
+                    .coerceIn(0.0, if (info.duration > 0) info.duration else Double.MAX_VALUE)
+                smoothElapsed = interp
+                visibleWindow = followWindow(interp, visibleWindow.durationSeconds, info.duration)
+            }
+        }
+    }
 
     fun applyZoomOrPan(scrollDeltaX: Float, scrollDeltaY: Float) {
         visibleWindow = if (scrollDeltaX != 0f) {
@@ -450,13 +483,13 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
                 // Progress fill is relative to the VISIBLE window now, not the whole track -- when
                 // the playhead is outside the current zoom window, this fraction clamps to 0 or 1
                 // (fill empty or full) rather than pointing somewhere meaningless off-screen.
-                val windowProgress = ((elapsedSeconds - visibleWindow.startSeconds) / visibleWindow.durationSeconds)
+                val windowProgress = ((displayElapsed - visibleWindow.startSeconds) / visibleWindow.durationSeconds)
                     .toFloat().coerceIn(0f, 1f)
                 Box(modifier = Modifier.align(Alignment.CenterStart).fillMaxHeight().fillMaxWidth(windowProgress)) {
                     Box(modifier = Modifier.align(Alignment.CenterEnd).width(2.dp).fillMaxHeight().background(Color.White))
                 }
                 PreviewCaption(
-                    "${formatMmSs(elapsedSeconds)} / ${formatMmSs(info.duration)}",
+                    "${formatMmSs(displayElapsed)} / ${formatMmSs(info.duration)}",
                     modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),
                 )
             }
@@ -507,7 +540,7 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
                 DecodingIndicator("스펙트로그램 생성 중...", modifier = Modifier.align(Alignment.Center))
             }
             if (info.duration > 0) {
-                val windowProgress = ((elapsedSeconds - visibleWindow.startSeconds) / visibleWindow.durationSeconds)
+                val windowProgress = ((displayElapsed - visibleWindow.startSeconds) / visibleWindow.durationSeconds)
                     .toFloat().coerceIn(0f, 1f)
                 Box(modifier = Modifier.align(Alignment.CenterStart).fillMaxHeight().fillMaxWidth(windowProgress)) {
                     Box(modifier = Modifier.align(Alignment.CenterEnd).width(2.dp).fillMaxHeight().background(Color.White))
@@ -526,7 +559,7 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
             peaks = waveformPeaks,
             window = visibleWindow,
             totalDuration = info.duration,
-            elapsedSeconds = elapsedSeconds,
+            elapsedSeconds = displayElapsed,
             onWindowChange = { visibleWindow = it },
             onSeek = { fraction -> seekToFraction(fraction) },
             modifier = Modifier.padding(top = 2.dp),
