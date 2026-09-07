@@ -541,9 +541,28 @@ fun FfmpegVideoPlayer(
                         }
                         val start = System.currentTimeMillis()
                         if (!readFrame()) {
+                            // Video pipe exhausted. If the audio track is still rendering its
+                            // buffered tail, wait (bounded) for it to hit its own EOF before
+                            // finalizing -- setPlaying(false) parks the audio thread immediately,
+                            // so without this the last few hundred ms of sound are cut off.
+                            val at = audioTrack
+                            if (at != null && !at.failed && !at.ended) {
+                                val deadline = System.currentTimeMillis() + 2000
+                                while (!at.ended && !stopped.get() && System.currentTimeMillis() < deadline) {
+                                    Thread.sleep(30)
+                                }
+                            }
                             EventQueue.invokeLater {
                                 setPlaying(false)
                                 hasEnded = true
+                                // Snap the progress to the true end. In audio mode `playedSeconds`
+                                // mirrors the audio clock (rendered position), which is still short
+                                // of the end by whatever is left un-rendered in the line buffer when
+                                // the pipe EOFs -- a run-dependent ~100-400ms -- so without this the
+                                // progress bar freezes at a slightly different point every play.
+                                if (info.duration > 0) {
+                                    playedSeconds = (info.duration - startFromSeconds).coerceAtLeast(0.0)
+                                }
                             }
                             break // EOF
                         }
@@ -604,7 +623,10 @@ fun FfmpegVideoPlayer(
         if (audioInfo == null) return@LaunchedEffect
         while (true) {
             audioTrackRef?.let { track ->
-                if (!track.failed && !track.ended) playedSeconds = track.clockSeconds
+                // Stop mirroring once the track ends or the reader thread has finalized playback --
+                // at EOF the reader snaps playedSeconds to the true end and this must not overwrite
+                // it back to the (short) rendered clock position.
+                if (!track.failed && !track.ended && !hasEnded) playedSeconds = track.clockSeconds
             }
             delay(50)
         }

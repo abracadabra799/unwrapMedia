@@ -159,6 +159,22 @@ internal class VideoAudioTrack(
                 failed = true
                 System.err.println("VideoAudioTrack thread failed: $e")
             } finally {
+                // On a clean pipe EOF (ended, and not a destroy()), let the line's internal buffer
+                // finish rendering before stopping -- stop()+flush() alone discard the last
+                // ~200-400ms still queued in the mixer buffer, audible as the audio cutting out
+                // slightly before the end. Poll (rather than drain()) so a destroy() landing here
+                // still tears down promptly via the stopped check; 3s hard cap as a safety net.
+                val drainLine = ln
+                if (ended && drainLine != null && !stopped.get()) {
+                    runCatching {
+                        val deadline = System.currentTimeMillis() + 3000
+                        while (!stopped.get() && System.currentTimeMillis() < deadline &&
+                            drainLine.bufferSize - drainLine.available() > 0
+                        ) {
+                            Thread.sleep(20)
+                        }
+                    }
+                }
                 ln?.stop()
                 ln?.flush()
                 ln?.close()
