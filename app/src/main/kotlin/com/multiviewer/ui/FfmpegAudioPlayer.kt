@@ -1,12 +1,7 @@
 package com.multiviewer.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,14 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -38,17 +26,11 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image
@@ -56,6 +38,7 @@ import java.awt.EventQueue
 import java.io.File
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import javax.sound.sampled.AudioFormat
 import javax.sound.sampled.AudioSystem
 import javax.sound.sampled.SourceDataLine
@@ -206,47 +189,44 @@ fun channelModeFilterArgs(mode: ChannelMode): List<String> = when (mode) {
     ChannelMode.RIGHT -> listOf("-af", "pan=stereo|c0=c1|c1=c1")
 }
 
+// GoldWave-style waveform player: a top header ([ Open Audio ] + MM:SS.mmm / MM:SS.mmm), the
+// scrolling L/R waveform (click to seek, wheel to zoom), an optional bottom scrollbar while zoomed
+// in, and a transport bar (rewind / play-pause / stop + zoom -/+).
+//
+// The playhead (`cursorSeconds`) is driven ONLY by the audio mixer clock
+// (SourceDataLine.microsecondPosition + the current pipe's -ss offset) -- no wall-clock or
+// bytes-read bookkeeping -- so it never drifts against what you actually hear. Every seek tears
+// down the ffmpeg pipe + SourceDataLine and respawns them with a fresh -ss (restartTrigger).
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifier: Modifier = Modifier) {
+fun FfmpegAudioPlayer(
+    file: File,
+    rawAudioParams: RawAudioParams? = null,
+    onOpenAudio: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
     var isPlaying by remember(file) { mutableStateOf(false) }
     val isPlayingAtomic = remember(file) { AtomicBoolean(false) }
     var hasEnded by remember(file) { mutableStateOf(false) }
     var restartTrigger by remember(file) { mutableStateOf(0) }
-    var playedSeconds by remember(file) { mutableStateOf(0.0) }
-    var startFromSeconds by remember(file) { mutableStateOf(0.0) }
+    var pipeStartSeconds by remember(file) { mutableStateOf(0.0) }   // -ss of the current pipe
+    var cursorSeconds by remember(file) { mutableStateOf(0.0) }      // displayed playhead (absolute)
     var loadError by remember(file) { mutableStateOf(false) }
-    var channelMode by remember(file) { mutableStateOf(ChannelMode.STEREO) }
 
     var probedInfo by remember(file) { mutableStateOf<AudioFileInfo?>(null) }
     var probing by remember(file) { mutableStateOf(true) }
     var waveformPeaks by remember(file) { mutableStateOf<WaveformPeaks?>(null) }
-    var spectrogramBitmap by remember(file) { mutableStateOf<ImageBitmap?>(null) }
 
-    // Playhead position for display, interpolated to frame rate. playedSeconds only updates ~20x/sec
-    // (once per PCM read chunk), which would step-scroll the waveform; between samples this advances
-    // at wall-clock rate. Only meaningful while isPlaying -- otherwise use elapsedSeconds directly.
-    // Declared up here so setPlaying/seekToSeconds can seed it synchronously when they move the
-    // playhead outside the follow loop (avoids a one-frame flash at the old position).
-    var smoothElapsed by remember(file) { mutableStateOf(0.0) }
+    // The audio line, published by the reader thread so the follow coroutine can read its clock.
+    val lineHolder = remember(file) { AtomicReference<SourceDataLine?>(null) }
 
-    fun setPlaying(play: Boolean) {
-        if (play) {
-            val totalDuration = probedInfo?.duration ?: 0.0
-            val isAtEnd = hasEnded || (totalDuration > 0.0 && (startFromSeconds + playedSeconds) >= totalDuration - 0.2)
-            if (isAtEnd) {
-                hasEnded = false
-                startFromSeconds = 0.0
-                playedSeconds = 0.0
-                restartTrigger++
-            }
-            smoothElapsed = startFromSeconds + playedSeconds
-            isPlaying = true
-            isPlayingAtomic.set(true)
-        } else {
-            isPlaying = false
-            isPlayingAtomic.set(false)
-        }
+    // Called by the reader thread (via EventQueue.invokeLater) when the PCM stream ends. Captured
+    // through rememberUpdatedState so the thread always invokes the current composition's state
+    // setters, never a stale closure from a superseded DisposableEffect.
+    val onEndOfStream = rememberUpdatedState {
+        isPlaying = false
+        isPlayingAtomic.set(false)
+        hasEnded = true
     }
 
     LaunchedEffect(file) {
@@ -271,7 +251,6 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
             waveformPeaks = withContext(Dispatchers.IO) {
                 computeWaveformPeaks(file, info, bucketCount = waveformBucketCountFor(info.duration), rawAudioParams = rawAudioParams)
             }
-            spectrogramBitmap = withContext(Dispatchers.IO) { generateFullSpectrogramImage(file, rawAudioParams = rawAudioParams) }
         }
     }
 
@@ -290,13 +269,17 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
         return
     }
 
+    var view by remember(file) {
+        mutableStateOf(AudioViewWindow(0.0, info.duration.coerceAtLeast(MIN_VISIBLE_DURATION_SECONDS)))
+    }
+
+    // --- reader thread + audio pipe (respawned on restartTrigger, e.g. every seek) ---
     DisposableEffect(file, restartTrigger) {
-        playedSeconds = 0.0
         isPlayingAtomic.set(isPlaying)
-        val seekSeconds = startFromSeconds
-        val seekArgs = if (seekSeconds > 0.0) listOf("-ss", seekSeconds.toString()) else emptyList()
-        val sampleRate = info.sampleRate
-        val channels = info.channels
+        val startSec = pipeStartSeconds
+        val seekArgs = if (startSec > 0.0) listOf("-ss", startSec.toString()) else emptyList()
+        val sr = info.sampleRate
+        val ch = info.channels
         val inputFile = if (rawAudioParams != null) rawAudioSourceFile(file, rawAudioParams.offsetBytes) else file
         val rawInputArgs = if (rawAudioParams != null) {
             listOf("-f", rawAudioParams.ffmpegFormatCode(), "-ar", rawAudioParams.sampleRate.toString(), "-ac", rawAudioParams.channels.toString())
@@ -307,57 +290,50 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
             ProcessBuilder(
                 listOf(FfmpegLocator.ffmpegPath()) + seekArgs + rawInputArgs + listOf(
                     "-i", inputFile.absolutePath, "-map", "0:a:0",
-                ) + (if (info.channels == 2) channelModeFilterArgs(channelMode) else emptyList()) + listOf(
-                    "-f", "s16le", "-ar", sampleRate.toString(), "-ac", channels.toString(),
-                    "-acodec", "pcm_s16le", "-",
+                    "-f", "s16le", "-ar", sr.toString(), "-ac", ch.toString(), "-acodec", "pcm_s16le", "-",
                 ),
             ).redirectError(ProcessBuilder.Redirect.DISCARD)
-            .also { FfmpegLocator.configureEnvironment(it) }.start().also {
-                com.multiviewer.util.ProcessManager.register(it)
-            }
+                .also { FfmpegLocator.configureEnvironment(it) }.start()
+                .also { com.multiviewer.util.ProcessManager.register(it) }
         } catch (e: Exception) {
             null
         }
         if (process == null) loadError = true
 
         val stopped = AtomicBoolean(false)
-        val format = AudioFormat(sampleRate.toFloat(), 16, channels, true, false)
-        val bytesPerSecond = sampleRate * channels * 2
+        val format = AudioFormat(sr.toFloat(), 16, ch, true, false)
 
         val readerThread = if (process != null) {
             Thread {
                 var line: SourceDataLine? = null
                 try {
-                    line = AudioSystem.getSourceDataLine(format)
-                    line.open(format)
-                    line.start()
+                    line = AudioSystem.getSourceDataLine(format).apply { open(format); start() }
+                    lineHolder.set(line)
                     var wasPlaying = true
-                    val buffer = ByteArray(8192)
+                    val buf = ByteArray(8192)
                     val input = process.inputStream
+                    var ended = false
                     while (!stopped.get()) {
                         if (!isPlayingAtomic.get()) {
-                            if (wasPlaying) {
-                                line.stop()
-                                wasPlaying = false
-                            }
+                            if (wasPlaying) { line.stop(); wasPlaying = false }
                             Thread.sleep(50)
                             continue
                         }
-                        if (!wasPlaying) {
-                            line.start()
-                            wasPlaying = true
+                        if (!wasPlaying) { line.start(); wasPlaying = true }
+                        val n = input.read(buf)
+                        if (n < 0) { ended = true; break }
+                        line.write(buf, 0, n)
+                    }
+                    if (ended && !stopped.get()) {
+                        // Let the line buffer drain so the cursor reaches the true end. Bail early
+                        // if the line was stopped (paused) meanwhile -- available() won't move then.
+                        val deadline = System.currentTimeMillis() + 2000
+                        while (!stopped.get() && line.isRunning && System.currentTimeMillis() < deadline &&
+                            line.bufferSize - line.available() > 0
+                        ) {
+                            Thread.sleep(20)
                         }
-                        val bytesRead = input.read(buffer)
-                        if (bytesRead < 0) {
-                            EventQueue.invokeLater {
-                                setPlaying(false)
-                                hasEnded = true
-                            }
-                            break
-                        }
-                        line.write(buffer, 0, bytesRead)
-                        val secondsThisChunk = bytesRead.toDouble() / bytesPerSecond
-                        EventQueue.invokeLater { playedSeconds += secondsThisChunk }
+                        EventQueue.invokeLater { onEndOfStream.value.invoke() }
                     }
                 } catch (e: InterruptedException) {
                     // Expected on dispose -- not an error.
@@ -367,6 +343,12 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
                     line?.stop()
                     line?.flush()
                     line?.close()
+                    // compareAndSet, not set(null): on a seek/replay the NEXT reader thread may have
+                    // already published its line by the time this (superseded) thread reaches its
+                    // finally -- an unconditional null would wipe the live line and freeze the
+                    // playhead. Only clear our own.
+                    line?.let { lineHolder.compareAndSet(it, null) }
+                    com.multiviewer.util.ProcessManager.terminate(process)
                 }
             }.apply { isDaemon = true }.also { it.start() }
         } else {
@@ -381,290 +363,155 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
         }
     }
 
-    var waveformSplit by remember(file) { mutableStateOf(0.6f) }
-    var containerHeightPx by remember(file) { mutableStateOf(0) }
-    val elapsedSeconds = (startFromSeconds + playedSeconds).coerceIn(0.0, if (info.duration > 0) info.duration else Double.MAX_VALUE)
-
-    // Default to a 5-second detail window -- the waveform/spectrogram scroll to follow the playhead
-    // while playing (see the follow LaunchedEffect below). The minimap remains the whole-track view.
-    var visibleWindow by remember(file) { mutableStateOf(AudioViewWindow(0.0, minOf(5.0, info.duration.coerceAtLeast(0.5)))) }
-
-    val displayElapsed = if (isPlaying) smoothElapsed else elapsedSeconds
-
-    // While playing: keep the playhead centred in visibleWindow every frame. Wheel-zoom still works
-    // (it changes durationSeconds; this re-centres with the new width next frame). Panning / scrollbar
-    // drags are overwritten here until playback is paused. Cancelled (loop ends) when isPlaying flips
-    // false, leaving the window where it stopped; re-keyed on restartTrigger so a seek restarts the
-    // interpolation cleanly.
-    LaunchedEffect(isPlaying, restartTrigger) {
-        if (!isPlaying) return@LaunchedEffect
-        var lastPlayed = playedSeconds
-        // Seeded on the first frame from that frame's timestamp so every time math below uses the
-        // single clock withFrameNanos hands us, not a mix of it and System.nanoTime().
-        var lastChangeNanos = -1L
-        smoothElapsed = (startFromSeconds + playedSeconds)
-            .coerceIn(0.0, if (info.duration > 0) info.duration else Double.MAX_VALUE)
-        while (true) {
-            withFrameNanos { frameNanos ->
-                if (lastChangeNanos < 0L || playedSeconds != lastPlayed) {
-                    lastPlayed = playedSeconds
-                    lastChangeNanos = frameNanos
-                }
-                // Cap the extrapolation so a genuinely stuck sample (e.g. paused at the OS layer)
-                // can't run the playhead away.
-                val sinceChange = ((frameNanos - lastChangeNanos) / 1e9).coerceIn(0.0, 0.12)
-                val interp = (startFromSeconds + lastPlayed + sinceChange)
-                    .coerceIn(0.0, if (info.duration > 0) info.duration else Double.MAX_VALUE)
-                smoothElapsed = interp
-                visibleWindow = followWindow(interp, visibleWindow.durationSeconds, info.duration)
-            }
+    fun setPlaying(play: Boolean) {
+        if (play && hasEnded) {
+            hasEnded = false
+            pipeStartSeconds = 0.0
+            cursorSeconds = 0.0
+            restartTrigger++
         }
-    }
-
-    fun applyZoomOrPan(scrollDeltaX: Float, scrollDeltaY: Float) {
-        visibleWindow = if (scrollDeltaX != 0f) {
-            // Two-finger trackpad horizontal scroll -- pan.
-            clampWindow(
-                visibleWindow.startSeconds + scrollDeltaX.toDouble() * PAN_STEP_FACTOR * visibleWindow.durationSeconds,
-                visibleWindow.durationSeconds,
-                info.duration,
-            )
-        } else {
-            // Mouse wheel / trackpad vertical scroll -- zoom. Compose reports a NEGATIVE
-            // scrollDelta.y when scrolling up/away (confirmed by GopAnalysisView's own existing
-            // zoom code and comment), and scroll-up conventionally means "zoom in" -- zooming in
-            // means a SMALLER visible duration (narrower time window), the opposite relationship
-            // GopAnalysisView has (there, scroll-up grows a pixel width). So the sign here is
-            // deliberately `+`, not `-`: factor = 1.0 + scrollDeltaY * ZOOM_STEP_FACTOR gives
-            // factor < 1 (duration shrinks) when scrollDeltaY is negative (scroll up), and
-            // factor > 1 (duration grows) when scrolling down.
-            clampWindow(
-                visibleWindow.startSeconds,
-                visibleWindow.durationSeconds * (1.0 + scrollDeltaY.toDouble() * ZOOM_STEP_FACTOR),
-                info.duration,
-            )
-        }
+        isPlaying = play
+        isPlayingAtomic.set(play)
     }
 
     fun seekToSeconds(t: Double) {
+        val clamped = t.coerceIn(0.0, info.duration)
         hasEnded = false
-        val wasPlaying = isPlaying
-        startFromSeconds = t.coerceIn(0.0, info.duration)
-        playedSeconds = 0.0
-        smoothElapsed = startFromSeconds
-        if (wasPlaying) {
-            isPlaying = true
-            isPlayingAtomic.set(true)
-        } else {
-            isPlaying = false
-            isPlayingAtomic.set(false)
+        pipeStartSeconds = clamped
+        cursorSeconds = clamped
+        if (clamped < view.startSeconds || clamped > view.startSeconds + view.durationSeconds) {
+            view = clampWindow(clamped - view.durationSeconds / 2.0, view.durationSeconds, info.duration)
         }
         restartTrigger++
     }
 
-    // Whole-track seek -- used by the minimap, which always represents the entire file.
-    fun seekToFraction(fraction: Float) =
-        seekToSeconds(fraction.coerceIn(0f, 1f).toDouble() * info.duration)
-
-    // Window-relative seek -- used by the waveform/spectrogram detail panels, whose x-axis spans
-    // only visibleWindow, not the whole track (so a click lands under the cursor, not at panel
-    // centre mapped to the middle of the song).
-    fun seekToWindowFraction(fraction: Float) =
-        seekToSeconds(visibleWindow.startSeconds + fraction.coerceIn(0f, 1f) * visibleWindow.durationSeconds)
-
-    // Preview seek: moves the playhead + follow window to `t` WITHOUT bumping restartTrigger, so
-    // the ffmpeg pipe + SourceDataLine are not torn down. Used on every pointer-move during a
-    // drag-scrub; the matching seekTo*() call on drag-release does the single real pipe restart at
-    // the final position. Without this, a 1-second drag fired 30-60 spawn/kill cycles per second.
-    fun previewSeekToSeconds(t: Double) {
-        hasEnded = false
-        startFromSeconds = t.coerceIn(0.0, info.duration)
-        playedSeconds = 0.0
-        smoothElapsed = startFromSeconds
+    fun zoomTo(newSpan: Double, anchor: Double) {
+        val span = newSpan.coerceIn(
+            MIN_VISIBLE_DURATION_SECONDS,
+            info.duration.coerceAtLeast(MIN_VISIBLE_DURATION_SECONDS),
+        )
+        view = zoomAround(view, anchor, span, info.duration)
     }
 
-    fun previewSeekToWindowFraction(fraction: Float) =
-        previewSeekToSeconds(visibleWindow.startSeconds + fraction.coerceIn(0f, 1f) * visibleWindow.durationSeconds)
+    // Follow: while playing, drive cursorSeconds from the mixer clock and page-scroll the view.
+    // Cancelled (and restarted) whenever isPlaying or restartTrigger changes.
+    LaunchedEffect(isPlaying, restartTrigger) {
+        if (!isPlaying) return@LaunchedEffect
+        while (true) {
+            withFrameNanos {
+                val line = lineHolder.get()?.takeIf { it.isOpen }
+                if (line != null) {
+                    cursorSeconds = (pipeStartSeconds + line.microsecondPosition / 1_000_000.0)
+                        .coerceIn(0.0, info.duration)
+                    pageScrollView(cursorSeconds, view, info.duration)?.let { view = it }
+                }
+            }
+        }
+    }
 
-    fun previewSeekToFraction(fraction: Float) =
-        previewSeekToSeconds(fraction.coerceIn(0f, 1f).toDouble() * info.duration)
+    Column(modifier.fillMaxSize().background(Color.Black)) {
+        AudioPlayerHeader(
+            cursorSeconds = cursorSeconds,
+            totalSeconds = info.duration,
+            onOpenAudio = onOpenAudio,
+        )
 
-    Column(modifier = modifier.fillMaxSize().onGloballyPositioned { containerHeightPx = it.size.height }) {
-        Box(
-            modifier = Modifier
-                .weight(waveformSplit)
-                .fillMaxWidth()
-                .background(Color.Black)
-                .onPointerEvent(PointerEventType.Scroll, pass = PointerEventPass.Initial) { event ->
-                    val delta = event.changes.firstOrNull()?.scrollDelta ?: return@onPointerEvent
-                    applyZoomOrPan(delta.x, delta.y)
-                    event.changes.forEach { it.consume() }
+        if (loadError) {
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Text("Could not start ffmpeg playback", color = Color.White)
+            }
+        } else {
+            AudioWaveformView(
+                peaks = waveformPeaks,
+                view = view,
+                totalDurationSeconds = info.duration,
+                cursorSeconds = cursorSeconds,
+                onSeekTo = { seekToSeconds(it) },
+                onZoom = { deltaY, anchor ->
+                    // Compose reports a NEGATIVE scroll delta for scroll-up; scroll-up = zoom in
+                    // = a SMALLER visible span.
+                    val factor = if (deltaY < 0f) 1.0 / 1.5 else 1.5
+                    zoomTo(view.durationSeconds * factor, anchor)
                 },
-        ) {
-            val peaks = waveformPeaks
-            if (loadError) {
-                Text("Could not start ffmpeg playback", color = Color.White, modifier = Modifier.align(Alignment.Center))
-            } else if (peaks != null) {
-                val visibleRange = visibleBucketRange(visibleWindow, info.duration, peaks.bucketCount)
-                WaveformDisplay(peaks = peaks, color = Color(0xFF39FF14), visibleRange = visibleRange, modifier = Modifier.fillMaxSize())
-            } else {
-                DecodingIndicator("파형 생성 중...", modifier = Modifier.align(Alignment.Center))
-            }
-
-            // Click or drag on waveform to seek, skipping center button area to avoid interfering with play/pause clicks
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .pointerInput(info.duration) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown()
-                            val centerX = size.width / 2f
-                            val centerY = size.height / 2f
-                            val dx = down.position.x - centerX
-                            val dy = down.position.y - centerY
-                            val isOverCenterButton = (dx * dx + dy * dy) <= (36.dp.toPx() * 36.dp.toPx())
-                            if (!isOverCenterButton) {
-                                // Scrub live via preview seeks (no pipe restart); commit once on
-                                // release with a single real seek. Commit the ABSOLUTE position the
-                                // preview already resolved into startFromSeconds -- not a re-mapping
-                                // of the last fraction, because while playing the follow loop keeps
-                                // recentring visibleWindow on the moving playhead during the drag,
-                                // so seekToWindowFraction(fraction) would land at ~2x the offset.
-                                previewSeekToWindowFraction(down.position.x / size.width.toFloat())
-                                drag(down.id) { change ->
-                                    change.consume()
-                                    previewSeekToWindowFraction(change.position.x / size.width.toFloat())
-                                }
-                                seekToSeconds(startFromSeconds)
-                            }
-                        }
-                    },
+                modifier = Modifier.weight(1f).fillMaxWidth(),
             )
+        }
 
-            if (info.duration > 0) {
-                // Progress fill is relative to the VISIBLE window now, not the whole track -- when
-                // the playhead is outside the current zoom window, this fraction clamps to 0 or 1
-                // (fill empty or full) rather than pointing somewhere meaningless off-screen.
-                val windowProgress = ((displayElapsed - visibleWindow.startSeconds) / visibleWindow.durationSeconds)
-                    .toFloat().coerceIn(0f, 1f)
-                Box(modifier = Modifier.align(Alignment.CenterStart).fillMaxHeight().fillMaxWidth(windowProgress)) {
-                    Box(modifier = Modifier.align(Alignment.CenterEnd).width(2.dp).fillMaxHeight().background(Color.White))
-                }
-                PreviewCaption(
-                    "${formatMmSs(displayElapsed)} / ${formatMmSs(info.duration)}",
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),
-                )
-            }
+        if (view.durationSeconds < info.duration) {
+            AudioWaveformScrollbar(
+                view = view,
+                totalDuration = info.duration,
+                onScroll = { view = it },
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
 
-            // Center play/pause overlay button
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(64.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.65f))
-                    .clickable {
-                        setPlaying(!isPlaying)
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                if (isPlaying) {
-                    AudioPauseIcon(modifier = Modifier.size(24.dp), color = Color.White)
-                } else {
-                    Icon(Icons.Filled.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(48.dp))
-                }
-            }
+        AudioTransportBar(
+            isPlaying = isPlaying,
+            cursorSeconds = cursorSeconds,
+            totalSeconds = info.duration,
+            zoomPercentValue = zoomPercent(view, info.duration),
+            canZoomOut = view.durationSeconds < info.duration,
+            canZoomIn = view.durationSeconds > MIN_VISIBLE_DURATION_SECONDS,
+            onOpenAudio = onOpenAudio,
+            onRewind = { seekToSeconds(0.0) },
+            onPlayPause = { setPlaying(!isPlaying) },
+            onStop = {
+                setPlaying(false)
+                seekToSeconds(0.0)
+                view = clampWindow(0.0, view.durationSeconds, info.duration)
+            },
+            onZoomOut = { zoomTo(view.durationSeconds * 1.5, cursorSeconds) },
+            onZoomIn = { zoomTo(view.durationSeconds / 1.5, cursorSeconds) },
+            showHeader = false,
+        )
+    }
+}
 
-            if (info.channels == 2) {
-                Row(
-                    modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    ChannelMode.entries.forEach { mode ->
-                        val selected = mode == channelMode
-                        val label = when (mode) {
-                            ChannelMode.STEREO -> "Stereo"
-                            ChannelMode.LEFT -> "L"
-                            ChannelMode.RIGHT -> "R"
-                        }
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(if (selected) Color(0xFF39FF14).copy(alpha = 0.25f) else Color.White.copy(alpha = 0.10f))
-                                .clickable {
-                                    if (mode != channelMode) {
-                                        channelMode = mode
-                                        hasEnded = false
-                                        startFromSeconds = elapsedSeconds
-                                        playedSeconds = 0.0
-                                        restartTrigger++
-                                    }
-                                }
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
-                        ) {
-                            Text(
-                                label,
-                                color = if (selected) Color(0xFF39FF14) else Color.White.copy(alpha = 0.7f),
-                                fontSize = 10.sp,
-                            )
-                        }
+// A full-width strip below the waveform: the highlighted segment is the current zoom window
+// against the whole track; dragging it left/right pans the view. Same detectDragGestures
+// convention as DraggableDivider (Components.kt), horizontal-position instead of a resize split.
+@Composable
+private fun AudioWaveformScrollbar(
+    view: AudioViewWindow,
+    totalDuration: Double,
+    onScroll: (AudioViewWindow) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // pointerInput only restarts on totalDuration, and the drag lambda is captured once, so read
+    // the live window through this handle rather than the value from first composition.
+    val liveView by rememberUpdatedState(view)
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(8.dp)
+            .background(Color.White.copy(alpha = 0.10f))
+            .pointerInput(totalDuration) {
+                detectDragGestures { change, dragAmount ->
+                    change.consume()
+                    if (totalDuration > 0.0 && size.width > 0) {
+                        val deltaSeconds = (dragAmount.x / size.width) * totalDuration
+                        onScroll(
+                            clampWindow(
+                                liveView.startSeconds + deltaSeconds,
+                                liveView.durationSeconds,
+                                totalDuration,
+                            ),
+                        )
                     }
                 }
+            },
+    ) {
+        if (totalDuration > 0.0) {
+            val startFraction = (view.startSeconds / totalDuration).toFloat().coerceIn(0f, 1f)
+            val durationFraction = (view.durationSeconds / totalDuration).toFloat().coerceIn(0.001f, 1f)
+            val afterFraction = (1f - startFraction - durationFraction).coerceAtLeast(0f)
+            Row(modifier = Modifier.fillMaxSize()) {
+                Spacer(modifier = Modifier.weight(startFraction.coerceAtLeast(0.0001f)))
+                Box(modifier = Modifier.weight(durationFraction).fillMaxHeight().background(Color(0xFF39FF14)))
+                Spacer(modifier = Modifier.weight(afterFraction.coerceAtLeast(0.0001f)))
             }
         }
-
-        DraggableDivider(
-            orientation = Orientation.Horizontal,
-            containerSizePx = containerHeightPx,
-            getSplit = { waveformSplit },
-            setSplit = { waveformSplit = it },
-        )
-
-        Box(
-            modifier = Modifier
-                .weight(1f - waveformSplit)
-                .fillMaxWidth()
-                .background(Color.Black)
-                .onPointerEvent(PointerEventType.Scroll, pass = PointerEventPass.Initial) { event ->
-                    val delta = event.changes.firstOrNull()?.scrollDelta ?: return@onPointerEvent
-                    applyZoomOrPan(delta.x, delta.y)
-                    event.changes.forEach { it.consume() }
-                },
-        ) {
-            val spectrogram = spectrogramBitmap
-            if (spectrogram != null) {
-                val visibleRange = visibleBucketRange(visibleWindow, info.duration, SPECTROGRAM_WIDTH_PX)
-                SpectrogramDisplay(bitmap = spectrogram, visibleRange = visibleRange, modifier = Modifier.fillMaxSize())
-            } else {
-                DecodingIndicator("스펙트로그램 생성 중...", modifier = Modifier.align(Alignment.Center))
-            }
-            if (info.duration > 0) {
-                val windowProgress = ((displayElapsed - visibleWindow.startSeconds) / visibleWindow.durationSeconds)
-                    .toFloat().coerceIn(0f, 1f)
-                Box(modifier = Modifier.align(Alignment.CenterStart).fillMaxHeight().fillMaxWidth(windowProgress)) {
-                    Box(modifier = Modifier.align(Alignment.CenterEnd).width(2.dp).fillMaxHeight().background(Color.White))
-                }
-            }
-        }
-
-        AudioZoomScrollbar(
-            window = visibleWindow,
-            totalDuration = info.duration,
-            onWindowChange = { visibleWindow = it },
-            modifier = Modifier.padding(top = 2.dp),
-        )
-
-        AudioMinimap(
-            peaks = waveformPeaks,
-            window = visibleWindow,
-            totalDuration = info.duration,
-            elapsedSeconds = displayElapsed,
-            onWindowChange = { visibleWindow = it },
-            onPreviewSeek = { fraction -> previewSeekToFraction(fraction) },
-            onSeek = { fraction -> seekToFraction(fraction) },
-            modifier = Modifier.padding(top = 2.dp),
-        )
-
     }
 }
 

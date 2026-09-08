@@ -33,14 +33,54 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
+ * Header strip for the GoldWave-style audio player: optional `[ Open Audio ]` button on the left,
+ * `cursor / total` monospaced time readout on the right. Stateless -- all interaction is delegated.
+ */
+@Composable
+fun AudioPlayerHeader(
+    cursorSeconds: Double,
+    totalSeconds: Double,
+    onOpenAudio: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (onOpenAudio != null) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.30f), RoundedCornerShape(4.dp))
+                    .background(Color.White.copy(alpha = 0.12f))
+                    .clickable { onOpenAudio() }
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("Open Audio", color = Color.White, fontSize = 12.sp)
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        Text(
+            "${formatMinSecMillis(cursorSeconds)} / ${formatMinSecMillis(totalSeconds)}",
+            fontFamily = FontFamily.Monospace,
+            fontSize = 12.sp,
+            color = Color.White,
+        )
+    }
+}
+
+/**
  * Stateless GoldWave-style transport bar shown under the audio waveform.
  *
  * Layout (top to bottom):
- *  1. Header row: optional `[ Open Audio ]` button + `cursor / total` monospaced time readout.
+ *  1. Header row (only when `showHeader`): `[ Open Audio ]` button + `cursor / total` time readout.
  *  2. Transport row: rewind / play-pause / stop, three round buttons.
  *  3. Zoom row: `Zoom:` label, `[-]`, `NN%`, `[+]`.
  *
  * All interaction is delegated through the callback parameters; this Composable holds no state.
+ * `showHeader = false` lets a caller render `AudioPlayerHeader` elsewhere (e.g. above the waveform)
+ * without the time readout appearing twice.
  */
 @Composable
 fun AudioTransportBar(
@@ -57,33 +97,12 @@ fun AudioTransportBar(
     onZoomOut: () -> Unit,
     onZoomIn: () -> Unit,
     modifier: Modifier = Modifier,
+    showHeader: Boolean = true,
 ) {
     Column(modifier) {
         // 1. Header row -------------------------------------------------------
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (onOpenAudio != null) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .border(1.dp, Color.White.copy(alpha = 0.30f), RoundedCornerShape(4.dp))
-                        .background(Color.White.copy(alpha = 0.12f))
-                        .clickable { onOpenAudio() }
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("Open Audio", color = Color.White, fontSize = 12.sp)
-                }
-            }
-            Spacer(Modifier.weight(1f))
-            Text(
-                "${formatMinSecMillis(cursorSeconds)} / ${formatMinSecMillis(totalSeconds)}",
-                fontFamily = FontFamily.Monospace,
-                fontSize = 12.sp,
-                color = Color.White,
-            )
+        if (showHeader) {
+            AudioPlayerHeader(cursorSeconds = cursorSeconds, totalSeconds = totalSeconds, onOpenAudio = onOpenAudio)
         }
 
         // 2. Transport row --------------------------------------------------
