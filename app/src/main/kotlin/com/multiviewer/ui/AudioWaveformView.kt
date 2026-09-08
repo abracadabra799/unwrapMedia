@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isPrimaryPressed
 import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
@@ -65,16 +66,15 @@ fun AudioWaveformView(
     peaks: WaveformPeaks?,
     view: AudioViewWindow,
     totalDurationSeconds: Double,
-    cursorSeconds: Double,
+    cursorSeconds: () -> Double,
     onSeekTo: (seconds: Double) -> Unit,
     onZoom: (scrollDeltaY: Float, anchorSeconds: Double) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // The pointerInput block re-keys only on totalDurationSeconds, and onPointerEvent's lambda is
-    // captured once, so both gesture paths must read the window through these live handles rather
+    // captured once, so both gesture paths must read the window through this live handle rather
     // than the `view` value captured at first composition.
     val liveView by rememberUpdatedState(view)
-    val liveTotal by rememberUpdatedState(totalDurationSeconds)
 
     BoxWithConstraints(
         modifier = modifier
@@ -82,6 +82,9 @@ fun AudioWaveformView(
             .background(Color.Black)
             .onPointerEvent(PointerEventType.Scroll, pass = PointerEventPass.Initial) { event ->
                 val change = event.changes.firstOrNull() ?: return@onPointerEvent
+                // A pure-horizontal (two-finger) trackpad scroll reports scrollDelta.y == 0.
+                // Ignore it entirely -- don't zoom, don't consume.
+                if (change.scrollDelta.y == 0f) return@onPointerEvent
                 val w = size.width.toFloat()
                 if (w > 0f) {
                     val v = liveView
@@ -93,13 +96,16 @@ fun AudioWaveformView(
             .pointerInput(totalDurationSeconds) {
                 awaitEachGesture {
                     // Down-only: seek where the press landed, consume it, ignore any drag.
+                    // Primary button only -- a right/middle click must not seek.
                     val down = awaitFirstDown()
-                    val w = size.width.toFloat()
-                    if (w > 0f) {
-                        val v = liveView
-                        onSeekTo(v.startSeconds + (down.position.x / w) * v.durationSeconds)
+                    if (currentEvent.buttons.isPrimaryPressed) {
+                        val w = size.width.toFloat()
+                        if (w > 0f) {
+                            val v = liveView
+                            onSeekTo(v.startSeconds + (down.position.x / w) * v.durationSeconds)
+                        }
+                        down.consume()
                     }
-                    down.consume()
                 }
             },
     ) {
@@ -108,42 +114,51 @@ fun AudioWaveformView(
             return@BoxWithConstraints
         }
 
-        val safeTotal = if (liveTotal > 0.0) liveTotal else totalDurationSeconds
         val channels = peaks.channels.take(2)
-        val visibleRange = visibleBucketRange(view, safeTotal, peaks.bucketCount)
+        val visibleRange = visibleBucketRange(view, totalDurationSeconds, peaks.bucketCount)
         val ticks = remember(view.startSeconds, view.durationSeconds) { waveformTicks(view) }
-        val cursorFrac = if (view.durationSeconds > 0.0) {
-            ((cursorSeconds - view.startSeconds) / view.durationSeconds).toFloat()
-        } else {
-            Float.NaN
-        }
-        val playheadFrac = if (cursorFrac in 0f..1f) cursorFrac else null
 
-        Column(Modifier.fillMaxSize()) {
-            channels.forEachIndexed { index, channel ->
-                val label = if (channels.size == 2) (if (index == 0) "L" else "R") else null
-                Box(Modifier.weight(1f).fillMaxWidth()) {
-                    Canvas(Modifier.fillMaxSize()) {
-                        drawLaneWaveform(channel, visibleRange)
-                        drawAxisTicks(ticks)
-                        playheadFrac?.let { drawPlayhead(it) }
+        Box(Modifier.fillMaxSize()) {
+            // Lanes: keyed on `view` / `peaks`, which change rarely (zoom, page jump, seek, load).
+            // The per-frame playhead is a SEPARATE Canvas below so the expensive forEachPeakColumn
+            // rescan doesn't run every frame.
+            Column(Modifier.fillMaxSize()) {
+                channels.forEachIndexed { index, channel ->
+                    val label = if (channels.size == 2) (if (index == 0) "L" else "R") else null
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        Canvas(Modifier.fillMaxSize()) {
+                            drawLaneWaveform(channel, visibleRange)
+                            drawAxisTicks(ticks)
+                        }
+                        if (label != null) {
+                            Text(
+                                text = label,
+                                color = WAVE_COLOR.copy(alpha = 0.7f),
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.align(Alignment.TopStart).padding(2.dp),
+                            )
+                        }
                     }
-                    if (label != null) {
-                        Text(
-                            text = label,
-                            color = WAVE_COLOR.copy(alpha = 0.7f),
-                            fontSize = 9.sp,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.align(Alignment.TopStart).padding(2.dp),
-                        )
-                    }
+                }
+            }
+
+            // Playhead: its own full-size leaf. Reading cursorSeconds() / liveView inside the draw
+            // lambda invalidates only this Canvas's draw phase -- no recomposition of the lanes.
+            Canvas(Modifier.fillMaxSize()) {
+                val v = liveView
+                if (v.durationSeconds > 0.0) {
+                    val frac = ((cursorSeconds() - v.startSeconds) / v.durationSeconds).toFloat()
+                    if (frac in 0f..1f) drawPlayhead(frac)
                 }
             }
         }
 
         // Time labels: a non-interactive layer positioned along the bottom edge. No pointerInput,
-        // so clicks and wheel events still reach the waveform underneath.
+        // so clicks and wheel events still reach the waveform underneath. Labels past 95% of the
+        // view are dropped so the rightmost one can't overflow the edge.
         for ((frac, text) in ticks) {
+            if (frac > 0.95f) continue
             Text(
                 text = text,
                 color = AXIS_COLOR,
@@ -151,7 +166,7 @@ fun AudioWaveformView(
                 fontFamily = FontFamily.Monospace,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .offset(x = maxWidth * frac.coerceIn(0f, 1f))
+                    .offset(x = maxWidth * frac)
                     .padding(bottom = 1.dp),
             )
         }

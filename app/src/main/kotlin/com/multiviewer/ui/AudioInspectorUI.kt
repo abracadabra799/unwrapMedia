@@ -36,7 +36,8 @@ fun AudioInspectorUI(
                         val dir = dialog.directory
                         val name = dialog.file
                         if (dir != null && name != null) {
-                            appState.lastOpenedDirectory = java.io.File(dir)
+                            // appState.openFile already updates lastOpenedDirectory (with an
+                            // exists()/isDirectory guard this assignment skipped).
                             appState.openFile(java.io.File(dir, name))
                         }
                     },

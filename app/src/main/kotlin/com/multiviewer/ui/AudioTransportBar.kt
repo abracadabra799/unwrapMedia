@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -74,38 +75,30 @@ fun AudioPlayerHeader(
  * Stateless GoldWave-style transport bar shown under the audio waveform.
  *
  * Layout (top to bottom):
- *  1. Header row (only when `showHeader`): `[ Open Audio ]` button + `cursor / total` time readout.
- *  2. Transport row: rewind / play-pause / stop, three round buttons.
- *  3. Zoom row: `Zoom:` label, `[-]`, `NN%`, `[+]`.
+ *  1. Transport row: rewind / play-pause / stop, three round buttons.
+ *  2. Zoom row: `Zoom:` label, `[-]`, `NN%`, `[+]`.
+ *  3. Channel-solo row (only when `channelMode != null`): `[ Stereo | L | R ]` segmented control.
  *
  * All interaction is delegated through the callback parameters; this Composable holds no state.
- * `showHeader = false` lets a caller render `AudioPlayerHeader` elsewhere (e.g. above the waveform)
- * without the time readout appearing twice.
+ * The top `AudioPlayerHeader` (`[ Open Audio ]` + `cursor / total`) is rendered by the caller.
  */
 @Composable
 fun AudioTransportBar(
     isPlaying: Boolean,
-    cursorSeconds: Double,
-    totalSeconds: Double,
     zoomPercentValue: Int,
     canZoomOut: Boolean,
     canZoomIn: Boolean,
-    onOpenAudio: (() -> Unit)?,
+    channelMode: ChannelMode?,
+    onChannelMode: (ChannelMode) -> Unit,
     onRewind: () -> Unit,
     onPlayPause: () -> Unit,
     onStop: () -> Unit,
     onZoomOut: () -> Unit,
     onZoomIn: () -> Unit,
     modifier: Modifier = Modifier,
-    showHeader: Boolean = true,
 ) {
     Column(modifier) {
-        // 1. Header row -------------------------------------------------------
-        if (showHeader) {
-            AudioPlayerHeader(cursorSeconds = cursorSeconds, totalSeconds = totalSeconds, onOpenAudio = onOpenAudio)
-        }
-
-        // 2. Transport row --------------------------------------------------
+        // 1. Transport row --------------------------------------------------
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
@@ -136,7 +129,7 @@ fun AudioTransportBar(
             }
         }
 
-        // 3. Zoom row -----------------------------------------------------------
+        // 2. Zoom row -----------------------------------------------------------
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
@@ -144,15 +137,48 @@ fun AudioTransportBar(
         ) {
             Text("Zoom:", color = Color.White, fontSize = 11.sp)
             ZoomButton(symbol = "−", enabled = canZoomOut, onClick = onZoomOut)
+            // widthIn (not a fixed width): a long file can zoom past 720000%, which overflows a
+            // fixed box. Past 10000% switch to a compact "NNN×" multiplier.
+            val zoomLabel = if (zoomPercentValue >= 10000) "${zoomPercentValue / 100}×" else "$zoomPercentValue%"
             Text(
-                "$zoomPercentValue%",
+                zoomLabel,
                 color = Color.White,
                 fontSize = 11.sp,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.width(52.dp),
+                modifier = Modifier.widthIn(min = 52.dp),
             )
             ZoomButton(symbol = "+", enabled = canZoomIn, onClick = onZoomIn)
         }
+
+        // 3. Channel-solo row -------------------------------------------------
+        if (channelMode != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ChannelModeSegment("Stereo", channelMode == ChannelMode.STEREO) { onChannelMode(ChannelMode.STEREO) }
+                ChannelModeSegment("L", channelMode == ChannelMode.LEFT) { onChannelMode(ChannelMode.LEFT) }
+                ChannelModeSegment("R", channelMode == ChannelMode.RIGHT) { onChannelMode(ChannelMode.RIGHT) }
+            }
+        }
+    }
+}
+
+/** One segment of the `[ Stereo | L | R ]` channel-solo control. */
+@Composable
+private fun ChannelModeSegment(label: String, selected: Boolean, onClick: () -> Unit) {
+    val bg = if (selected) Color(0xFF39FF14).copy(alpha = 0.25f) else Color.White.copy(alpha = 0.10f)
+    val fg = if (selected) Color(0xFF39FF14) else Color.White.copy(alpha = 0.7f)
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(3.dp))
+            .background(bg)
+            .clickable { onClick() }
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = fg, fontSize = 10.sp)
     }
 }
 

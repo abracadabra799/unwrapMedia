@@ -39,6 +39,20 @@ import javax.sound.sampled.SourceDataLine
 
 data class AudioFileInfo(val sampleRate: Int, val channels: Int, val duration: Double)
 
+// Solo one channel of a stereo file for listening. The soloed channel is sent to BOTH output
+// channels so it plays in both ears; output stays 2ch so the SourceDataLine format is unchanged.
+enum class ChannelMode { STEREO, LEFT, RIGHT }
+
+fun channelModeFilterArgs(mode: ChannelMode): List<String> = when (mode) {
+    ChannelMode.STEREO -> emptyList()
+    ChannelMode.LEFT -> listOf("-af", "pan=stereo|c0=c0|c1=c0")
+    ChannelMode.RIGHT -> listOf("-af", "pan=stereo|c0=c1|c1=c1")
+}
+
+// The audio line stamped with the restartTrigger generation that spawned it, so the reader thread
+// only affects the composition (publishes its clock, fires EOF) while its generation is current.
+private data class LineSlot(val gen: Int, val line: SourceDataLine)
+
 fun probeAudioFormat(file: File): AudioFileInfo? {
     return try {
         val process = ProcessBuilder(
@@ -98,13 +112,19 @@ fun FfmpegAudioPlayer(
     var pipeStartSeconds by remember(file) { mutableStateOf(0.0) }   // -ss of the current pipe
     var cursorSeconds by remember(file) { mutableStateOf(0.0) }      // displayed playhead (absolute)
     var loadError by remember(file) { mutableStateOf(false) }
+    var channelMode by remember(file) { mutableStateOf(ChannelMode.STEREO) }
 
     var probedInfo by remember(file) { mutableStateOf<AudioFileInfo?>(null) }
     var probing by remember(file) { mutableStateOf(true) }
     var waveformPeaks by remember(file) { mutableStateOf<WaveformPeaks?>(null) }
 
     // The audio line, published by the reader thread so the follow coroutine can read its clock.
-    val lineHolder = remember(file) { AtomicReference<SourceDataLine?>(null) }
+    // Wrapped in a LineSlot stamped with the restartTrigger generation that spawned it.
+    val lineHolder = remember(file) { AtomicReference<LineSlot?>(null) }
+
+    // The live restartTrigger, readable on the EDT so a superseded reader thread's EOF callback can
+    // check whether its generation is still current before touching the composition.
+    val currentGenState = rememberUpdatedState(restartTrigger)
 
     // Called by the reader thread (via EventQueue.invokeLater) when the PCM stream ends. Captured
     // through rememberUpdatedState so the thread always invokes the current composition's state
@@ -161,9 +181,16 @@ fun FfmpegAudioPlayer(
 
     // --- reader thread + audio pipe (respawned on restartTrigger, e.g. every seek) ---
     DisposableEffect(file, restartTrigger) {
+        val myGen = restartTrigger
         isPlayingAtomic.set(isPlaying)
         val startSec = pipeStartSeconds
-        val seekArgs = if (startSec > 0.0) listOf("-ss", startSec.toString()) else emptyList()
+        // "%.6f" + Locale.ROOT: Double.toString emits scientific notation ("6.0E-4") below 1e-3,
+        // which ffmpeg's -ss rejects; a comma-decimal locale would emit "0,000600".
+        val seekArgs = if (startSec > 0.0) {
+            listOf("-ss", "%.6f".format(java.util.Locale.ROOT, startSec))
+        } else {
+            emptyList()
+        }
         val sr = info.sampleRate
         val ch = info.channels
         val inputFile = if (rawAudioParams != null) rawAudioSourceFile(file, rawAudioParams.offsetBytes) else file
@@ -174,17 +201,20 @@ fun FfmpegAudioPlayer(
         }
         val process = try {
             ProcessBuilder(
-                listOf(FfmpegLocator.ffmpegPath()) + seekArgs + rawInputArgs + listOf(
-                    "-i", inputFile.absolutePath, "-map", "0:a:0",
-                    "-f", "s16le", "-ar", sr.toString(), "-ac", ch.toString(), "-acodec", "pcm_s16le", "-",
-                ),
+                listOf(FfmpegLocator.ffmpegPath()) + seekArgs + rawInputArgs +
+                    listOf("-i", inputFile.absolutePath, "-map", "0:a:0") +
+                    (if (info.channels == 2) channelModeFilterArgs(channelMode) else emptyList()) +
+                    listOf(
+                        "-f", "s16le", "-ar", sr.toString(), "-ac", ch.toString(), "-acodec", "pcm_s16le", "-",
+                    ),
             ).redirectError(ProcessBuilder.Redirect.DISCARD)
                 .also { FfmpegLocator.configureEnvironment(it) }.start()
                 .also { com.multiviewer.util.ProcessManager.register(it) }
         } catch (e: Exception) {
             null
         }
-        if (process == null) loadError = true
+        // Assigned every run: a later successful respawn must clear a stale transient failure.
+        loadError = process == null
 
         val stopped = AtomicBoolean(false)
         val format = AudioFormat(sr.toFloat(), 16, ch, true, false)
@@ -194,7 +224,7 @@ fun FfmpegAudioPlayer(
                 var line: SourceDataLine? = null
                 try {
                     line = AudioSystem.getSourceDataLine(format).apply { open(format); start() }
-                    lineHolder.set(line)
+                    lineHolder.set(LineSlot(myGen, line))
                     var wasPlaying = true
                     val buf = ByteArray(8192)
                     val input = process.inputStream
@@ -214,12 +244,20 @@ fun FfmpegAudioPlayer(
                         // Let the line buffer drain so the cursor reaches the true end. Bail early
                         // if the line was stopped (paused) meanwhile -- available() won't move then.
                         val deadline = System.currentTimeMillis() + 2000
-                        while (!stopped.get() && line.isRunning && System.currentTimeMillis() < deadline &&
+                        while (!stopped.get() && isPlayingAtomic.get() && line.isRunning &&
+                            System.currentTimeMillis() < deadline &&
                             line.bufferSize - line.available() > 0
                         ) {
                             Thread.sleep(20)
                         }
-                        EventQueue.invokeLater { onEndOfStream.value.invoke() }
+                        // Only end the composition's playback if this thread's generation is still
+                        // the live one -- a replay during the drain bumps restartTrigger and this
+                        // callback must not kill the new pipe.
+                        if (!stopped.get()) {
+                            EventQueue.invokeLater {
+                                if (currentGenState.value == myGen) onEndOfStream.value.invoke()
+                            }
+                        }
                     }
                 } catch (e: InterruptedException) {
                     // Expected on dispose -- not an error.
@@ -229,11 +267,11 @@ fun FfmpegAudioPlayer(
                     line?.stop()
                     line?.flush()
                     line?.close()
-                    // compareAndSet, not set(null): on a seek/replay the NEXT reader thread may have
-                    // already published its line by the time this (superseded) thread reaches its
-                    // finally -- an unconditional null would wipe the live line and freeze the
-                    // playhead. Only clear our own.
-                    line?.let { lineHolder.compareAndSet(it, null) }
+                    // Only clear our own slot: on a seek/replay the NEXT reader thread may have
+                    // already published its LineSlot by the time this (superseded) thread reaches
+                    // its finally -- an unconditional null would wipe the live line and freeze the
+                    // playhead.
+                    lineHolder.updateAndGet { if (it?.gen == myGen) null else it }
                     com.multiviewer.util.ProcessManager.terminate(process)
                 }
             }.apply { isDaemon = true }.also { it.start() }
@@ -285,7 +323,11 @@ fun FfmpegAudioPlayer(
         if (!isPlaying) return@LaunchedEffect
         while (true) {
             withFrameNanos {
-                val line = lineHolder.get()?.takeIf { it.isOpen }
+                // Gate on the generation: right after a seek-while-playing the OLD reader thread can
+                // still hold its OLD (still-open) line for ~50 ms; reading its clock would compute a
+                // bogus cursor against the NEW -ss offset and mis-page the view.
+                val slot = lineHolder.get()
+                val line = slot?.takeIf { it.gen == restartTrigger && it.line.isOpen }?.line
                 if (line != null) {
                     cursorSeconds = (pipeStartSeconds + line.microsecondPosition / 1_000_000.0)
                         .coerceIn(0.0, info.duration)
@@ -311,13 +353,15 @@ fun FfmpegAudioPlayer(
                 peaks = waveformPeaks,
                 view = view,
                 totalDurationSeconds = info.duration,
-                cursorSeconds = cursorSeconds,
+                cursorSeconds = { cursorSeconds },
                 onSeekTo = { seekToSeconds(it) },
                 onZoom = { deltaY, anchor ->
                     // Compose reports a NEGATIVE scroll delta for scroll-up; scroll-up = zoom in
-                    // = a SMALLER visible span.
-                    val factor = if (deltaY < 0f) 1.0 / 1.5 else 1.5
-                    zoomTo(view.durationSeconds * factor, anchor)
+                    // = a SMALLER visible span. deltaY == 0 is a pure-horizontal scroll -- ignore.
+                    if (deltaY != 0f) {
+                        val factor = if (deltaY < 0f) 1.0 / 1.5 else 1.5
+                        zoomTo(view.durationSeconds * factor, anchor)
+                    }
                 },
                 modifier = Modifier.weight(1f).fillMaxWidth(),
             )
@@ -334,12 +378,20 @@ fun FfmpegAudioPlayer(
 
         AudioTransportBar(
             isPlaying = isPlaying,
-            cursorSeconds = cursorSeconds,
-            totalSeconds = info.duration,
             zoomPercentValue = zoomPercent(view, info.duration),
             canZoomOut = view.durationSeconds < info.duration,
             canZoomIn = view.durationSeconds > MIN_VISIBLE_DURATION_SECONDS,
-            onOpenAudio = onOpenAudio,
+            channelMode = if (info.channels == 2) channelMode else null,
+            onChannelMode = { m ->
+                if (m != channelMode) {
+                    // Position-preserving restart, same as a seek. isPlayingAtomic re-syncs to
+                    // isPlaying at the top of DisposableEffect so playback carries across.
+                    channelMode = m
+                    pipeStartSeconds = cursorSeconds
+                    hasEnded = false
+                    restartTrigger++
+                }
+            },
             onRewind = { seekToSeconds(0.0) },
             onPlayPause = { setPlaying(!isPlaying) },
             onStop = {
@@ -349,7 +401,6 @@ fun FfmpegAudioPlayer(
             },
             onZoomOut = { zoomTo(view.durationSeconds * 1.5, cursorSeconds) },
             onZoomIn = { zoomTo(view.durationSeconds / 1.5, cursorSeconds) },
-            showHeader = false,
         )
     }
 }
