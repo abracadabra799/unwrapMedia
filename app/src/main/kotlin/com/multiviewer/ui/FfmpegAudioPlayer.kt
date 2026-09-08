@@ -525,15 +525,17 @@ fun FfmpegAudioPlayer(file: File, rawAudioParams: RawAudioParams? = null, modifi
                             val isOverCenterButton = (dx * dx + dy * dy) <= (36.dp.toPx() * 36.dp.toPx())
                             if (!isOverCenterButton) {
                                 // Scrub live via preview seeks (no pipe restart); commit once on
-                                // release with a single real seek at the final cursor position.
-                                var lastFraction = down.position.x / size.width.toFloat()
-                                previewSeekToWindowFraction(lastFraction)
+                                // release with a single real seek. Commit the ABSOLUTE position the
+                                // preview already resolved into startFromSeconds -- not a re-mapping
+                                // of the last fraction, because while playing the follow loop keeps
+                                // recentring visibleWindow on the moving playhead during the drag,
+                                // so seekToWindowFraction(fraction) would land at ~2x the offset.
+                                previewSeekToWindowFraction(down.position.x / size.width.toFloat())
                                 drag(down.id) { change ->
                                     change.consume()
-                                    lastFraction = change.position.x / size.width.toFloat()
-                                    previewSeekToWindowFraction(lastFraction)
+                                    previewSeekToWindowFraction(change.position.x / size.width.toFloat())
                                 }
-                                seekToWindowFraction(lastFraction)
+                                seekToSeconds(startFromSeconds)
                             }
                         }
                     },
