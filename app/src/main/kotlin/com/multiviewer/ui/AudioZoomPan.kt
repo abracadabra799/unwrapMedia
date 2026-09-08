@@ -1,13 +1,11 @@
 package com.multiviewer.ui
 
 // The narrowest time range zoom can show -- prevents a degenerate zero-width (or inverted)
-// window, which would make both the waveform's bucket range and the spectrogram's ffmpeg -t
-// argument meaningless.
+// window, which would make the waveform's visible bucket range meaningless.
 const val MIN_VISIBLE_DURATION_SECONDS = 0.5
 
-// The waveform, spectrogram, minimap, and scrollbar all share one of these: what time range is
-// currently shown in the (non-minimap) detail panels. durationSeconds == totalDuration means
-// fully zoomed out (today's pre-zoom-feature behavior).
+// The waveform view and the scrollbar share one of these: what time range is currently shown in
+// the detail panel. durationSeconds == totalDuration means fully zoomed out.
 data class AudioViewWindow(val startSeconds: Double, val durationSeconds: Double)
 
 // Single source of truth for keeping a requested window valid: duration is clamped to
@@ -21,16 +19,6 @@ fun clampWindow(requestedStart: Double, requestedDuration: Double, totalDuration
     val start = requestedStart.coerceIn(0.0, (totalDuration - duration).coerceAtLeast(0.0))
     return AudioViewWindow(start, duration)
 }
-
-// The view window the scrolling waveform uses while playing: keeps displayElapsedSeconds at the
-// centre, then clamps so it never runs past either end of the track (so near the ends the
-// playhead drifts toward the edge rather than the window showing blank margin).
-fun followWindow(
-    displayElapsedSeconds: Double,
-    windowDurationSeconds: Double,
-    totalDurationSeconds: Double,
-): AudioViewWindow =
-    clampWindow(displayElapsedSeconds - windowDurationSeconds / 2.0, windowDurationSeconds, totalDurationSeconds)
 
 // The view after the playhead has left the visible span during playback (page-scroll, like
 // GoldWave): when the cursor passes 90% of the width, jump forward so it reappears at ~10% from

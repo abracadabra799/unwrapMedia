@@ -2,7 +2,6 @@ package com.multiviewer.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -27,16 +25,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.jetbrains.skia.Image
 import java.awt.EventQueue
 import java.io.File
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import javax.sound.sampled.AudioFormat
@@ -79,114 +73,6 @@ fun probeAudioFormat(file: File): AudioFileInfo? {
     } catch (e: Exception) {
         null
     }
-}
-
-private const val AUDIO_VISUAL_TIMEOUT_MS = 10000L
-
-// Renders the spectrogram via ffmpeg's own showspectrumpic filter -- already implements the
-// standard color-mapped STFT rendering audio editors use for this, so there's no need to hand-roll
-// FFT in Kotlin. (The waveform itself is no longer rendered this way -- see AudioWaveformPeaks.kt,
-// which computes real PCM min/max peaks and draws them via Compose Canvas instead.)
-// Follows the same temp-file ffmpeg-image-extraction convention as
-// FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap: write to a temp PNG, wait with a timeout,
-// check exit code and file size, decode via Skia, always clean up the temp file.
-private fun renderAudioVisualization(
-    file: File,
-    filter: String,
-    rawAudioParams: RawAudioParams? = null,
-    window: AudioViewWindow? = null,
-): ImageBitmap? {
-    val tempPng = try {
-        File.createTempFile("audio-visual-", ".png")
-    } catch (e: Exception) {
-        return null
-    }
-    // No deleteOnExit(): the finally below deletes it on every path, and this re-runs on every
-    // spectrogram render/zoom (see RawPixelDecoder.decodeYuvFamily).
-    var inputFile: File? = null
-    var process: Process? = null
-    return try {
-        val resolvedInputFile = if (rawAudioParams != null) rawAudioSourceFile(file, rawAudioParams.offsetBytes) else file
-        inputFile = resolvedInputFile
-        val rawInputArgs = if (rawAudioParams != null) {
-            listOf("-f", rawAudioParams.ffmpegFormatCode(), "-ar", rawAudioParams.sampleRate.toString(), "-ac", rawAudioParams.channels.toString())
-        } else {
-            emptyList()
-        }
-        // Trims the SOURCE to just the visible zoom window before ffmpeg ever sees the rest of the
-        // file, rather than rendering the whole spectrum and cropping the image -- this is what
-        // makes zooming in reveal genuinely more spectral detail instead of a blurrier crop of the
-        // same fixed-resolution picture. Both -ss and -t are input-side flags (must precede -i to
-        // trim the input rather than the output), same convention as the raw-PCM input flags above.
-        val windowArgs = if (window != null) {
-            listOf("-ss", window.startSeconds.toString(), "-t", window.durationSeconds.toString())
-        } else {
-            emptyList()
-        }
-        process = ProcessBuilder(
-            listOf(FfmpegLocator.ffmpegPath(), "-y") + rawInputArgs + windowArgs + listOf(
-                "-i", resolvedInputFile.absolutePath,
-                "-lavfi", filter, "-frames:v", "1", tempPng.absolutePath,
-            ),
-        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD)
-            .also { FfmpegLocator.configureEnvironment(it) }.start()
-            .also { com.multiviewer.util.ProcessManager.register(it) }
-        val finished = process.waitFor(AUDIO_VISUAL_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-        if (!finished) {
-            // finally below force-kills and unregisters -- destroyForcibly here just hurries it.
-            null
-        } else if (process.exitValue() != 0 || tempPng.length() == 0L) {
-            null
-        } else {
-            Image.makeFromEncoded(tempPng.readBytes()).toComposeImageBitmap()
-        }
-    } catch (e: Exception) {
-        null
-    } finally {
-        // No-op if it already exited; ProcessManager.terminate also unregisters on every path.
-        com.multiviewer.util.ProcessManager.terminate(process)
-        tempPng.delete()
-        val fileToClean = inputFile
-        if (fileToClean != null && fileToClean != file) fileToClean.delete()
-    }
-}
-
-// showspectrumpic draws a legend/axis border by default (legend=true), which reserves margin
-// space around the actual spectrum data -- that margin is what was causing the rendered content
-// to NOT line up with the waveform's edges, since the data region sits inset from the image
-// bounds rather than flush to them (confirmed by rendering a probe file with sharp clicks at known
-// timestamps and measuring where their energy actually landed in the output pixels: with the
-// legend on, a click at true t=0.01s in a 4s clip landed at x-fraction 0.13 instead of 0.0025;
-// with legend=0, it landed at 0.0025, matching the true timestamp). legend=0 removes that margin
-// entirely, so the image is pure spectrum data edge-to-edge. scale=W:H (no aspect-ratio
-// preservation) still forces the exact requested dimensions by stretching rather than
-// letterboxing/pillarboxing, since showspectrumpic doesn't honor its own s=WxH request precisely.
-// This matters because the progress overlay and the shared zoom/pan window both assume "image
-// width == the full requested time range" linearly -- any inset margin would make the playhead and
-// the waveform's visible range visually misaligned with the spectrogram's actual content.
-fun generateSpectrogramImage(
-    file: File,
-    width: Int,
-    height: Int,
-    rawAudioParams: RawAudioParams? = null,
-    window: AudioViewWindow? = null,
-): ImageBitmap? =
-    renderAudioVisualization(file, "showspectrumpic=s=${width}x${height}:legend=0,scale=${width}:${height}", rawAudioParams, window)
-
-// Both scale with the CURRENT visible duration rather than being a fixed number of seconds per
-// scroll unit, so zoom/pan feel consistent whether the view is showing the whole track or one
-// second of it -- a fixed-seconds step would feel glacial zoomed out and twitchy zoomed in.
-private const val ZOOM_STEP_FACTOR = 0.08
-private const val PAN_STEP_FACTOR = 0.05
-
-// Solo one channel of a stereo file for listening. The soloed channel is sent to BOTH output
-// channels (so it plays in both ears); output stays 2ch so the SourceDataLine format is unchanged.
-enum class ChannelMode { STEREO, LEFT, RIGHT }
-
-fun channelModeFilterArgs(mode: ChannelMode): List<String> = when (mode) {
-    ChannelMode.STEREO -> emptyList()
-    ChannelMode.LEFT -> listOf("-af", "pan=stereo|c0=c0|c1=c0")
-    ChannelMode.RIGHT -> listOf("-af", "pan=stereo|c0=c1|c1=c1")
 }
 
 // GoldWave-style waveform player: a top header ([ Open Audio ] + MM:SS.mmm / MM:SS.mmm), the
@@ -515,56 +401,3 @@ private fun AudioWaveformScrollbar(
     }
 }
 
-// A thin draggable strip beneath the panels showing (and letting the user drag) the current zoom
-// window as a highlighted segment against the full track -- same detectDragGestures convention
-// already used by this app's DraggableDivider (Components.kt), just horizontal-position instead
-// of a resize split.
-@Composable
-private fun AudioZoomScrollbar(
-    window: AudioViewWindow,
-    totalDuration: Double,
-    onWindowChange: (AudioViewWindow) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    // pointerInput only restarts on totalDuration (never changes), so the drag lambda would
-    // otherwise compute from the window as of first composition. Read the live value instead.
-    val currentWindow by rememberUpdatedState(window)
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(6.dp)
-            .background(Color.White.copy(alpha = 0.1f))
-            .pointerInput(totalDuration) {
-                detectDragGestures { change, dragAmount ->
-                    change.consume()
-                    if (totalDuration > 0.0 && size.width > 0) {
-                        val deltaSeconds = (dragAmount.x / size.width) * totalDuration
-                        onWindowChange(clampWindow(currentWindow.startSeconds + deltaSeconds, currentWindow.durationSeconds, totalDuration))
-                    }
-                }
-            },
-    ) {
-        if (totalDuration > 0.0) {
-            val startFraction = (window.startSeconds / totalDuration).toFloat().coerceIn(0f, 1f)
-            val durationFraction = (window.durationSeconds / totalDuration).toFloat().coerceIn(0.001f, 1f)
-            val afterFraction = (1f - startFraction - durationFraction).coerceAtLeast(0f)
-            Row(modifier = Modifier.fillMaxSize()) {
-                Spacer(modifier = Modifier.weight(startFraction.coerceAtLeast(0.0001f)))
-                Box(modifier = Modifier.weight(durationFraction).fillMaxHeight().background(Color(0xFF39FF14)))
-                Spacer(modifier = Modifier.weight(afterFraction.coerceAtLeast(0.0001f)))
-            }
-        }
-    }
-}
-
-@Composable
-private fun AudioPauseIcon(modifier: Modifier = Modifier, color: Color = Color.White) {
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(modifier = Modifier.fillMaxHeight().width(3.dp).background(color))
-        Box(modifier = Modifier.fillMaxHeight().width(3.dp).background(color))
-    }
-}

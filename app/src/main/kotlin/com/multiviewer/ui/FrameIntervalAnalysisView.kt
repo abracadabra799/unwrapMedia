@@ -66,7 +66,7 @@ fun FrameIntervalAnalysisView(intervals: List<FrameInterval>, fps: Double?, modi
     // composable body -- NOT from inside Canvas's onDraw lambda below, which runs during the draw
     // phase rather than composition. Resolving them to plain Color vals here lets the draw lambda
     // close over the values instead (same reason GopAnalysisView keeps colorForFrameType outside
-    // its Canvas-less bar Boxes, and AudioWaveformPeaks/AudioMinimap take color as a parameter).
+    // its Canvas-less bar Boxes, and AudioWaveformView takes color as a parameter).
     val colorI = AppColors.FrameTypeI
     val colorP = AppColors.FrameTypeP
     val colorB = AppColors.FrameTypeB
@@ -135,8 +135,7 @@ fun FrameIntervalAnalysisView(intervals: List<FrameInterval>, fps: Double?, modi
                 },
         ) {
             // BoxWithConstraints (not plain Box) so the tick labels below can be positioned by
-            // maxHeight * fraction -- same technique AudioMinimap.kt already uses for its
-            // zoom-window rectangle (Modifier.offset(x = maxWidth * fraction)), just vertical here.
+            // maxHeight * fraction (Modifier.offset(y = maxHeight * fraction)).
             // The vertical padding reserves room for the topmost/bottommost Y-axis labels' own
             // height so they stay inside the bordered box instead of spilling past its edge.
             BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(vertical = 10.dp)) {

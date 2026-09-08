@@ -1,15 +1,5 @@
 package com.multiviewer.ui
 
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.unit.dp
 import java.io.File
 
 data class ChannelPeaks(val min: FloatArray, val max: FloatArray)
@@ -37,8 +27,9 @@ data class PeakColumn(val min: Float, val max: Float)
 // unchanged. An all-silent span yields (0f, 0f).
 //
 // Streamed through a callback -- no List / no PeakColumn boxing -- for the per-frame Canvas hot
-// path (drawChannelPeaks re-runs every frame during playback, once per channel). `columnIndex`
-// runs 0 until `columnCount`, and `columnCount` is the same for every call within one invocation.
+// path in AudioWaveformView.kt (re-runs every frame during playback, once per channel).
+// `columnIndex` runs 0 until `columnCount`, and `columnCount` is the same for every call within
+// one invocation.
 inline fun forEachPeakColumn(
     peaks: ChannelPeaks,
     visibleRange: IntRange,
@@ -74,7 +65,7 @@ inline fun forEachPeakColumn(
 }
 
 // List-returning form, built on forEachPeakColumn so there is one source of truth. Used by the
-// memoized minimap (AudioMinimap.kt) and the tests, neither of which is a per-frame path.
+// tests, which are not a per-frame path.
 fun downsamplePeaks(peaks: ChannelPeaks, visibleRange: IntRange, targetColumns: Int): List<PeakColumn> {
     val out = ArrayList<PeakColumn>()
     forEachPeakColumn(peaks, visibleRange, targetColumns) { _, _, mn, mx -> out.add(PeakColumn(mn, mx)) }
@@ -112,8 +103,8 @@ fun computeWaveformPeaks(
     val framesPerBucket = (estimatedTotalFrames / bucketCount).coerceAtLeast(1L)
 
     // Every channel is still decoded and scanned (the interleave offset must stay correct), but
-    // only the first two are ever drawn (WaveformDisplay takes 2, the minimap takes the first), so
-    // we allocate peak arrays for just those -- a 5.1 file no longer holds ~57 MB it never reads.
+    // only the first two are ever drawn (AudioWaveformView stacks L/R), so we allocate peak arrays
+    // for just those -- a 5.1 file no longer holds ~57 MB it never reads.
     val storedChannels = minOf(channels, 2)
     val minPerChannel = Array(storedChannels) { FloatArray(bucketCount) { Float.MAX_VALUE } }
     val maxPerChannel = Array(storedChannels) { FloatArray(bucketCount) { -Float.MAX_VALUE } }
@@ -191,42 +182,5 @@ fun computeWaveformPeaks(
     } finally {
         process.destroyForcibly()
         if (inputFile != file) inputFile.delete()
-    }
-}
-
-// channelCount >= 2 stacks channel 0 (L) above channel 1 (R); any channels beyond the first two
-// are ignored (surround audio is out of scope). channelCount == 1 draws a single full-size Canvas.
-@Composable
-fun WaveformDisplay(peaks: WaveformPeaks, color: Color, visibleRange: IntRange, modifier: Modifier = Modifier) {
-    val displayChannels = peaks.channels.take(2)
-    if (displayChannels.size >= 2) {
-        Column(modifier = modifier) {
-            WaveformChannelCanvas(displayChannels[0], color, visibleRange, Modifier.weight(1f).fillMaxWidth())
-            WaveformChannelCanvas(displayChannels[1], color, visibleRange, Modifier.weight(1f).fillMaxWidth())
-        }
-    } else if (displayChannels.size == 1) {
-        WaveformChannelCanvas(displayChannels[0], color, visibleRange, modifier.fillMaxSize())
-    }
-}
-
-@Composable
-private fun WaveformChannelCanvas(peaks: ChannelPeaks, color: Color, visibleRange: IntRange, modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier) {
-        drawChannelPeaks(peaks, color, visibleRange)
-    }
-}
-
-private fun DrawScope.drawChannelPeaks(peaks: ChannelPeaks, color: Color, visibleRange: IntRange) {
-    val width = size.width
-    val height = size.height
-    val centerY = height / 2f
-    if (width <= 0f) return
-    val strokeWidthPx = 1.5.dp.toPx()
-    // Allocation-free: forEachPeakColumn streams the columns instead of building a List every frame.
-    forEachPeakColumn(peaks, visibleRange, width.toInt()) { idx, columnCount, mn, mx ->
-        val x = width * idx / columnCount
-        val yTop = centerY - mx * centerY
-        val yBottom = centerY - mn * centerY
-        drawLine(color = color, start = Offset(x, yTop), end = Offset(x, yBottom), strokeWidth = strokeWidthPx)
     }
 }
