@@ -50,11 +50,6 @@ import org.jetbrains.skia.Image
 import java.awt.EventQueue
 import java.awt.FileDialog
 import java.awt.Frame
-import java.awt.datatransfer.DataFlavor
-import java.awt.dnd.DnDConstants
-import java.awt.dnd.DropTarget
-import java.awt.dnd.DropTargetAdapter
-import java.awt.dnd.DropTargetDropEvent
 import java.io.File
 import javax.swing.JOptionPane
 
@@ -632,50 +627,15 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         }
 
         LaunchedEffect(Unit) {
-            // Compose Desktop renders into a deeply-nested Skiko SkiaLayer several levels below
-            // `window` (window -> JRootPane -> JLayeredPane -> ... -> SkiaLayer) -- that SkiaLayer
-            // is the only real heavyweight/native surface actually receiving OS drag events.
-            // Attaching a DropTarget to `window` or `window.contentPane` alone never sees a drag
-            // at all (confirmed: dragEnter never fired). Attaching recursively to every component
-            // in the tree reaches the SkiaLayer regardless of Compose Desktop's internal structure,
-            // without depending on that structure by name/type.
-            val listener = object : DropTargetAdapter() {
-                override fun dragEnter(dtde: java.awt.dnd.DropTargetDragEvent) {
-                    if (dtde.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) dtde.acceptDrag(DnDConstants.ACTION_COPY) else dtde.rejectDrag()
-                }
-                override fun dragOver(dtde: java.awt.dnd.DropTargetDragEvent) {
-                    if (dtde.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) dtde.acceptDrag(DnDConstants.ACTION_COPY) else dtde.rejectDrag()
-                }
-                override fun drop(event: DropTargetDropEvent) {
-                    if (!event.transferable.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
-                        event.rejectDrop()
-                        return
-                    }
-                    event.acceptDrop(DnDConstants.ACTION_COPY)
-                    try {
-                        @Suppress("UNCHECKED_CAST")
-                        val files = event.transferable.getTransferData(DataFlavor.javaFileListFlavor) as List<File>
-                        if (files.isNotEmpty()) {
-                            if (files.size == 1 && files[0].isDirectory) {
-                                appState.openFolder(files[0])
-                            } else {
-                                appState.openFiles(files)
-                            }
-                        }
-                        event.dropComplete(true)
-                    } catch (e: Exception) {
-                        event.dropComplete(false)
+            attachFileDropTarget(window) { files, _ ->
+                if (files.isNotEmpty()) {
+                    if (files.size == 1 && files[0].isDirectory) {
+                        appState.openFolder(files[0])
+                    } else {
+                        appState.openFiles(files)
                     }
                 }
             }
-
-            fun attachRecursively(component: java.awt.Component) {
-                component.dropTarget = DropTarget(component, listener)
-                if (component is java.awt.Container) {
-                    for (child in component.components) attachRecursively(child)
-                }
-            }
-            attachRecursively(window)
         }
 
         AppTheme(themeMode, showPixelGrid) {
