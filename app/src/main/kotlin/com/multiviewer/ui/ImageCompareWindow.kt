@@ -333,7 +333,7 @@ fun ImageCompareWindow(
             attachFileDropTarget(
                 window = window,
                 onDragPosition = { point ->
-                    dragHoverSide = point?.let { it.x < window.width / 2 }
+                    dragHoverSide = point?.let { window.width > 0 && it.x.toFloat() / window.width < 0.5f }
                 },
                 onFilesDropped = { files, point ->
                     val mediaFiles = files.filter {
