@@ -316,11 +316,36 @@ fun ImageCompareWindow(
     LaunchedEffect(fileA) { loadInfo(fileA) { infoA = it } }
     LaunchedEffect(fileB) { loadInfo(fileB) { infoB = it } }
 
+    fun applyPick(pick: ComparePick) {
+        tooManyPickedCount = pick.refusedCount
+        pick.fileA?.let { fileA = it; folderA = it.parentFile }
+        pick.fileB?.let { fileB = it; folderB = it.parentFile }
+    }
+
     Window(
         onCloseRequest = onCloseRequest,
         title = if (language == AppLanguage.KO) "미디어 비교 분석기 (이미지/동영상)" else "Media Comparison Analyzer (Image/Video)",
         state = rememberWindowState(size = DpSize(1150.dp, 840.dp)),
     ) {
+        var dragHoverSide by remember { mutableStateOf<Boolean?>(null) }
+
+        LaunchedEffect(Unit) {
+            attachFileDropTarget(
+                window = window,
+                onDragPosition = { point ->
+                    dragHoverSide = point?.let { it.x < window.width / 2 }
+                },
+                onFilesDropped = { files, point ->
+                    val mediaFiles = files.filter {
+                        it.isFile && it.extension.lowercase(Locale.US) in ALL_SUPPORTED_MEDIA_EXTENSIONS
+                    }
+                    val xFraction = if (window.width > 0) point.x.toFloat() / window.width else 0f
+                    applyPick(resolveDroppedFiles(mediaFiles, xFraction))
+                    dragHoverSide = null
+                },
+            )
+        }
+
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
                 // 1. Media Selection Bar (Tabs dropdown + File Pickers)
@@ -338,11 +363,8 @@ fun ImageCompareWindow(
                     // its own folder, so the two files never have to live in the same directory --
                     // browsing per slot still works exactly as before for files far apart.
                     tooManyPickedCount = tooManyPickedCount,
-                    onPick = { pick ->
-                        tooManyPickedCount = pick.refusedCount
-                        pick.fileA?.let { fileA = it; folderA = it.parentFile }
-                        pick.fileB?.let { fileB = it; folderB = it.parentFile }
-                    },
+                    dragHoverSide = dragHoverSide,
+                    onPick = ::applyPick,
                     onSelectA = { fileA = it },
                     onSelectB = { fileB = it },
                     onSwap = {
@@ -412,6 +434,7 @@ private fun MediaSelectionBar(
     infoB: CompareMediaInfo?,
     openTabFiles: List<File>,
     tooManyPickedCount: Int?,
+    dragHoverSide: Boolean?,
     onPick: (ComparePick) -> Unit,
     onSelectA: (File) -> Unit,
     onSelectB: (File) -> Unit,
@@ -463,8 +486,13 @@ private fun MediaSelectionBar(
             modifier = Modifier.fillMaxWidth().padding(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Media A Selector
-            Column(modifier = Modifier.weight(1f)) {
+            // Media A Selector -- bordered while a file drag hovers over the left half
+            // of the window (see attachFileDropTarget's onDragPosition wiring above).
+            Column(
+                modifier = Modifier.weight(1f).padding(4.dp).then(
+                    if (dragHoverSide == true) Modifier.border(2.dp, AppColors.NeonBlue, RoundedCornerShape(6.dp)) else Modifier
+                ),
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         if (language == AppLanguage.KO) "기준 미디어 (A)" else "Reference Media (A)",
@@ -512,8 +540,13 @@ private fun MediaSelectionBar(
                 Text("⇄", fontSize = 22.sp, fontWeight = FontWeight.Bold)
             }
 
-            // Media B Selector
-            Column(modifier = Modifier.weight(1f)) {
+            // Media B Selector -- bordered while a file drag hovers over the right half
+            // of the window (see attachFileDropTarget's onDragPosition wiring above).
+            Column(
+                modifier = Modifier.weight(1f).padding(4.dp).then(
+                    if (dragHoverSide == false) Modifier.border(2.dp, AppColors.NeonBlue, RoundedCornerShape(6.dp)) else Modifier
+                ),
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         if (language == AppLanguage.KO) "비교 미디어 (B)" else "Target Media (B)",
