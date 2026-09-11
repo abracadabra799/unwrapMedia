@@ -17,11 +17,14 @@ object ImageAnalyzer {
     // size: a large JPEG's raster decode alone measured at ~45ms, and doing it here would block
     // the file from becoming interactive (structure tree, hex view) until it finished. Callers run
     // the primary decode separately, off AppState.openFile's synchronous path.
-    fun analyze(file: File, root: BoxNode): ImageForensicData {
+    fun analyze(file: File, root: BoxNode): ImageForensicData =
+        ByteReader.open(file).use { reader -> analyze(file, root, reader) }
+
+    fun analyze(file: File, root: BoxNode, reader: ByteReader): ImageForensicData {
         println("File Structure Trace: ${file.name}")
         traceNodes(root, 0)
 
-        val thumbnailResult = tryExtractEmbeddedJpeg(file, root)
+        val thumbnailResult = tryExtractEmbeddedJpeg(reader, root)
 
         var quality = 0
         var isModified = false
@@ -232,7 +235,7 @@ object ImageAnalyzer {
         node.children.forEach { traceNodes(it, depth + 1) }
     }
 
-    private fun tryExtractEmbeddedJpeg(file: File, root: BoxNode): ThumbnailExtractionResult {
+    private fun tryExtractEmbeddedJpeg(reader: ByteReader, root: BoxNode): ThumbnailExtractionResult {
         val meta = findFirst(root) { it.type == "meta" }
         val iloc = if (meta != null) findFirst(meta) { it.type == "iloc" } else null
         val iinf = if (meta != null) findFirst(meta) { it.type == "iinf" } else null
@@ -254,7 +257,7 @@ object ImageAnalyzer {
         }
         val hasThumbnailReference = thumbIds.isNotEmpty()
 
-        val image = ByteReader.open(file).use { reader ->
+        val image = run {
             // --- Strategy 1: ISOBMFF Metadata (HEIC/AVIF/MP4) ---
             // Only extract items that are explicitly referenced via 'thmb' in iref.
             // Never fall back to auxiliary items like GainMap (auxl) or depth maps.
@@ -264,7 +267,7 @@ object ImageAnalyzer {
 
                 for (id in thumbIds) {
                     val img = extractItemById(reader, iloc, id, idatBase)
-                    if (img != null) return@use img
+                    if (img != null) return@run img
                 }
             }
 
@@ -274,7 +277,7 @@ object ImageAnalyzer {
             if (thumbNode != null && thumbNode.size in 64..2_000_000) {
                 try {
                     val possibleImg = Image.makeFromEncoded(reader.readBytes(thumbNode.offset, thumbNode.size.toInt()))
-                    if (possibleImg.width > 10) return@use possibleImg
+                    if (possibleImg.width > 10) return@run possibleImg
                 } catch (e: Exception) {}
             }
 
@@ -285,7 +288,7 @@ object ImageAnalyzer {
                 for (scanPos in findJpegMagicOffsets(reader, exifNode.offset, limit)) {
                     try {
                         val possibleImg = Image.makeFromEncoded(reader.readBytes(scanPos, (limit - scanPos).toInt().coerceAtMost(1_000_000)))
-                        if (possibleImg.width > 10) return@use possibleImg
+                        if (possibleImg.width > 10) return@run possibleImg
                     } catch (e: Exception) {}
                 }
             }
