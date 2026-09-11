@@ -330,17 +330,21 @@ fun ImageCompareWindow(
         var dragHoverSide by remember { mutableStateOf<Boolean?>(null) }
 
         LaunchedEffect(Unit) {
+            fun xFractionOf(point: java.awt.Point): Float =
+                if (window.width > 0) point.x.toFloat() / window.width else 0f
+
             attachFileDropTarget(
                 window = window,
                 onDragPosition = { point ->
-                    dragHoverSide = point?.let { window.width > 0 && it.x.toFloat() / window.width < 0.5f }
+                    dragHoverSide = point?.let { xFractionOf(it) < 0.5f }
                 },
                 onFilesDropped = { files, point ->
                     val mediaFiles = files.filter {
                         it.isFile && it.extension.lowercase(Locale.US) in ALL_SUPPORTED_MEDIA_EXTENSIONS
                     }
-                    val xFraction = if (window.width > 0) point.x.toFloat() / window.width else 0f
-                    applyPick(resolveDroppedFiles(mediaFiles, xFraction))
+                    if (mediaFiles.isNotEmpty()) {
+                        applyPick(resolveDroppedFiles(mediaFiles, xFractionOf(point)))
+                    }
                     dragHoverSide = null
                 },
             )
