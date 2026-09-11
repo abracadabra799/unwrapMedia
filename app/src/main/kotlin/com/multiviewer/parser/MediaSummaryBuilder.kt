@@ -12,7 +12,10 @@ private val CODEC_DISPLAY_NAMES = mapOf(
     "mp4a" to "AAC",
 )
 
-fun buildMediaSummary(root: BoxNode, file: File): MediaSummary {
+fun buildMediaSummary(root: BoxNode, file: File): MediaSummary =
+    ByteReader.open(file).use { reader -> buildMediaSummary(root, file, reader) }
+
+fun buildMediaSummary(root: BoxNode, file: File, reader: ByteReader): MediaSummary {
     val category = detectCategory(root)
     val sections = when (category) {
         MediaCategory.IMAGE -> buildImageSummary(root, file)
@@ -30,36 +33,32 @@ fun buildMediaSummary(root: BoxNode, file: File): MediaSummary {
         }
     }
     val motionPhotoVideoSections = if (category == MediaCategory.IMAGE) {
-        buildMotionPhotoVideoSummary(root, file)
+        buildMotionPhotoVideoSummary(root, reader)
     } else {
         null
     }
-    val thumbnail = if (category == MediaCategory.IMAGE) buildThumbnail(root, file) else null
+    val thumbnail = if (category == MediaCategory.IMAGE) buildThumbnail(root, reader) else null
     return MediaSummary(category, sections, motionPhotoVideoSections, thumbnail)
 }
 
-private fun buildMotionPhotoVideoSummary(root: BoxNode, file: File): List<SummarySection>? {
+private fun buildMotionPhotoVideoSummary(root: BoxNode, reader: ByteReader): List<SummarySection>? {
     return try {
-        ByteReader.open(file).use { reader ->
-            val video = findEmbeddedVideo(root, reader) ?: return null
-            val videoBoxes = parseBoxes(reader, video.start, video.end)
-            val videoRoot = BoxNode(
-                type = "root", offset = video.start, headerSize = 0,
-                size = video.end - video.start, children = videoBoxes,
-            )
-            buildVideoSummary(videoRoot, video.end - video.start)
-        }
+        val video = findEmbeddedVideo(root, reader) ?: return null
+        val videoBoxes = parseBoxes(reader, video.start, video.end)
+        val videoRoot = BoxNode(
+            type = "root", offset = video.start, headerSize = 0,
+            size = video.end - video.start, children = videoBoxes,
+        )
+        buildVideoSummary(videoRoot, video.end - video.start)
     } catch (e: Exception) {
         null
     }
 }
 
-private fun buildThumbnail(root: BoxNode, file: File): ByteArray? {
+private fun buildThumbnail(root: BoxNode, reader: ByteReader): ByteArray? {
     val thumbnailNode = findFirst(root) { it.type == "ThumbnailImage" } ?: return null
     return try {
-        ByteReader.open(file).use { reader ->
-            reader.readBytes(thumbnailNode.offset, thumbnailNode.size.toInt())
-        }
+        reader.readBytes(thumbnailNode.offset, thumbnailNode.size.toInt())
     } catch (e: Exception) {
         null
     }
