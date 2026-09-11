@@ -82,6 +82,14 @@ class ByteReader private constructor(private val raf: RandomAccessFile) : AutoCl
     override fun close() = raf.close()
 
     companion object {
-        fun open(file: File): ByteReader = ByteReader(RandomAccessFile(file, "r"))
+        // Test-only observability: counts real ByteReader.open() calls so tests can assert on
+        // file-open counts (e.g. "opening one file for the compare window opens it once, not
+        // four times") without instrumenting every call site. No production code reads this.
+        internal var openCallCount: Int = 0
+
+        fun open(file: File): ByteReader {
+            openCallCount++
+            return ByteReader(RandomAccessFile(file, "r"))
+        }
     }
 }

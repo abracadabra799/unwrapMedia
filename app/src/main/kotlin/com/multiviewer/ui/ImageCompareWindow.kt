@@ -231,58 +231,42 @@ fun ImageCompareWindow(
         onLoaded(CompareMediaInfo(file = file, root = null, forensic = null, bitmap = null, summary = null, fileSize = file.length(), isLoading = true))
         compareExecutor.execute {
             try {
-                val root = parseFile(file)
-                val summary = buildMediaSummary(root, file)
-                val isVid = summary.category == MediaCategory.VIDEO || isVideoExtension(file)
-                val dur = extractVideoDuration(root, summary)
+                ByteReader.open(file).use { reader ->
+                    val root = parseFile(file, reader)
+                    val summary = buildMediaSummary(root, file, reader)
+                    val isVid = summary.category == MediaCategory.VIDEO || isVideoExtension(file)
+                    val dur = extractVideoDuration(root, summary)
 
-                if (isVid) {
-                    FrameFullSizeDecoder.decodeFrameAsync(file, 0.0) { firstFrame ->
-                        EventQueue.invokeLater {
-                            onLoaded(
-                                CompareMediaInfo(
-                                    file = file,
-                                    root = root,
-                                    forensic = null,
-                                    bitmap = firstFrame,
-                                    summary = summary,
-                                    fileSize = file.length(),
-                                    isVideo = true,
-                                    durationSeconds = dur,
-                                    isLoading = false,
-                                )
-                            )
-                        }
-                    }
-                } else {
-                    val forensic = ImageAnalyzer.analyze(file, root)
-                    val (decodedBitmap, _) = ImageAnalyzer.decodePrimaryBitmapAndHistogram(file)
-
-                    if (decodedBitmap != null) {
-                        EventQueue.invokeLater {
-                            onLoaded(
-                                CompareMediaInfo(
-                                    file = file,
-                                    root = root,
-                                    forensic = forensic.copy(bitmap = decodedBitmap),
-                                    bitmap = decodedBitmap,
-                                    summary = summary,
-                                    fileSize = file.length(),
-                                    isVideo = false,
-                                    durationSeconds = 0.0,
-                                    isLoading = false,
-                                )
-                            )
-                        }
-                    } else {
-                        FfmpegImageSnapshotDecoder.decodeFirstFrameAsync(file) { fallbackBitmap ->
+                    if (isVid) {
+                        FrameFullSizeDecoder.decodeFrameAsync(file, 0.0) { firstFrame ->
                             EventQueue.invokeLater {
                                 onLoaded(
                                     CompareMediaInfo(
                                         file = file,
                                         root = root,
-                                        forensic = forensic.copy(bitmap = fallbackBitmap),
-                                        bitmap = fallbackBitmap,
+                                        forensic = null,
+                                        bitmap = firstFrame,
+                                        summary = summary,
+                                        fileSize = file.length(),
+                                        isVideo = true,
+                                        durationSeconds = dur,
+                                        isLoading = false,
+                                    )
+                                )
+                            }
+                        }
+                    } else {
+                        val forensic = ImageAnalyzer.analyze(file, root, reader)
+                        val (decodedBitmap, _) = ImageAnalyzer.decodePrimaryBitmapAndHistogram(file)
+
+                        if (decodedBitmap != null) {
+                            EventQueue.invokeLater {
+                                onLoaded(
+                                    CompareMediaInfo(
+                                        file = file,
+                                        root = root,
+                                        forensic = forensic.copy(bitmap = decodedBitmap),
+                                        bitmap = decodedBitmap,
                                         summary = summary,
                                         fileSize = file.length(),
                                         isVideo = false,
@@ -290,6 +274,24 @@ fun ImageCompareWindow(
                                         isLoading = false,
                                     )
                                 )
+                            }
+                        } else {
+                            FfmpegImageSnapshotDecoder.decodeFirstFrameAsync(file) { fallbackBitmap ->
+                                EventQueue.invokeLater {
+                                    onLoaded(
+                                        CompareMediaInfo(
+                                            file = file,
+                                            root = root,
+                                            forensic = forensic.copy(bitmap = fallbackBitmap),
+                                            bitmap = fallbackBitmap,
+                                            summary = summary,
+                                            fileSize = file.length(),
+                                            isVideo = false,
+                                            durationSeconds = 0.0,
+                                            isLoading = false,
+                                        )
+                                    )
+                                }
                             }
                         }
                     }

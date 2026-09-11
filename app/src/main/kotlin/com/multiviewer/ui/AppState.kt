@@ -306,6 +306,18 @@ enum class LeftPanelMode {
     FOLDER_EXPLORER,
 }
 
+private data class OpenFileParseResult(
+    val root: BoxNode,
+    val mediaSummary: MediaSummary?,
+    val resolution: Pair<Int, Int>?,
+    val hardBlockMessage: String?,
+    val embeddedVideo: EmbeddedVideo?,
+    val motionPhotoPreview: EmbeddedVideo?,
+    val gainmapInfo: GainmapInfo?,
+    val imageForensic: ImageForensicData?,
+    val type: MediaType,
+)
+
 class AppState {
     val tabs = mutableStateListOf<TabState>()
     var selectedTabIndex by mutableStateOf(0)
@@ -616,29 +628,63 @@ class AppState {
         // for the ffmpeg HEIC fallback decode below.
         Thread {
             try {
-                val root = parseFile(file)
+                val (root, mediaSummary, resolution, hardBlockMessage, embeddedVideo, motionPhotoPreview, gainmapInfo, finalImageForensic, type) = ByteReader.open(file).use { reader ->
+                    val root = parseFile(file, reader)
 
-                val type = when {
-                    extension in IMAGE_EXTENSIONS -> MediaType.IMAGE
-                    extension in VIDEO_EXTENSIONS -> MediaType.VIDEO
-                    extension in AUDIO_EXTENSIONS -> MediaType.AUDIO
-                    else -> MediaType.UNKNOWN
+                    val type = when {
+                        extension in IMAGE_EXTENSIONS -> MediaType.IMAGE
+                        extension in VIDEO_EXTENSIONS -> MediaType.VIDEO
+                        extension in AUDIO_EXTENSIONS -> MediaType.AUDIO
+                        else -> MediaType.UNKNOWN
+                    }
+
+                    val mediaSummary = try {
+                        buildMediaSummary(root, file, reader)
+                    } catch (e: Exception) {
+                        null
+                    }
+
+                    // Resolution is read from the already-parsed header fields (cheap, from
+                    // buildMediaSummary's own box walking -- not from probeStreamDetails below) so
+                    // this gate runs before either heavy step: probeStreamDetails spawns a second
+                    // ffprobe process, and ImageAnalyzer.analyze does a full Image.makeFromEncoded
+                    // raster decode of the whole file into memory. An oversized file gets rejected
+                    // without ever attempting either.
+                    val resolution = extractResolution(mediaSummary)
+                    val hardBlockMessage = resolution?.let { (w, h) -> hardResolutionRejectionMessage(w, h) }
+
+                    if (hardBlockMessage != null) {
+                        return@use OpenFileParseResult(root, mediaSummary, resolution, hardBlockMessage, null, null, null, null, type)
+                    }
+
+                    val embeddedVideo = try {
+                        ByteReader.open(file).use { embedReader -> findEmbeddedVideo(root, embedReader) }
+                    } catch (e: Exception) {
+                        null
+                    }
+                    val motionPhotoPreview = try {
+                        findMotionPhotoPreview(root)
+                    } catch (e: Exception) {
+                        null
+                    }
+
+                    val gainmapInfo = try {
+                        com.multiviewer.parser.GainmapParser.findGainmapInfo(file, root)
+                    } catch (e: Exception) {
+                        null
+                    }
+
+                    var imageForensic: ImageForensicData? = null
+                    when (type) {
+                        MediaType.IMAGE -> imageForensic = ImageAnalyzer.analyze(file, root, reader)
+                        MediaType.VIDEO -> {
+                            // Attempt to extract thumbnail for video files too
+                            imageForensic = ImageAnalyzer.analyze(file, root, reader)
+                        }
+                        else -> {}
+                    }
+                    OpenFileParseResult(root, mediaSummary, resolution, hardBlockMessage, embeddedVideo, motionPhotoPreview, gainmapInfo, imageForensic, type)
                 }
-
-                val mediaSummary = try {
-                    buildMediaSummary(root, file)
-                } catch (e: Exception) {
-                    null
-                }
-
-                // Resolution is read from the already-parsed header fields (cheap, from
-                // buildMediaSummary's own box walking -- not from probeStreamDetails below) so
-                // this gate runs before either heavy step: probeStreamDetails spawns a second
-                // ffprobe process, and ImageAnalyzer.analyze does a full Image.makeFromEncoded
-                // raster decode of the whole file into memory. An oversized file gets rejected
-                // without ever attempting either.
-                val resolution = extractResolution(mediaSummary)
-                val hardBlockMessage = resolution?.let { (w, h) -> hardResolutionRejectionMessage(w, h) }
 
                 if (hardBlockMessage != null) {
                     EventQueue.invokeLater {
@@ -650,33 +696,6 @@ class AppState {
                     return@Thread
                 }
 
-                val embeddedVideo = try {
-                    ByteReader.open(file).use { reader -> findEmbeddedVideo(root, reader) }
-                } catch (e: Exception) {
-                    null
-                }
-                val motionPhotoPreview = try {
-                    findMotionPhotoPreview(root)
-                } catch (e: Exception) {
-                    null
-                }
-
-                val gainmapInfo = try {
-                    com.multiviewer.parser.GainmapParser.findGainmapInfo(file, root)
-                } catch (e: Exception) {
-                    null
-                }
-
-                var imageForensic: ImageForensicData? = null
-                when (type) {
-                    MediaType.IMAGE -> imageForensic = ImageAnalyzer.analyze(file, root)
-                    MediaType.VIDEO -> {
-                        // Attempt to extract thumbnail for video files too
-                        imageForensic = ImageAnalyzer.analyze(file, root)
-                    }
-                    else -> {}
-                }
-                val finalImageForensic = imageForensic
                 val warning = resolution?.let { (w, h) -> resolutionWarningMessage(w, h, type == MediaType.VIDEO) }
 
                 EventQueue.invokeLater {
