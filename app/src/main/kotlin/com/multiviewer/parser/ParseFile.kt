@@ -2,46 +2,46 @@ package com.multiviewer.parser
 
 import java.io.File
 
-fun parseFile(path: File): BoxNode {
+fun parseFile(path: File): BoxNode = ByteReader.open(path).use { reader -> parseFile(path, reader) }
+
+fun parseFile(path: File, reader: ByteReader): BoxNode {
     registerAllDecoders()
-    ByteReader.open(path).use { reader ->
-        val isJpeg = reader.length >= 2 && reader.readUInt8(0) == 0xFF && reader.readUInt8(1) == 0xD8
-        val isPng = !isJpeg && isPngMagic(reader)
-        val isBmp = !isJpeg && !isPng && isBmpMagic(reader)
-        val isGif = !isJpeg && !isPng && !isBmp && isGifMagic(reader)
-        val isTiff = !isJpeg && !isPng && !isBmp && !isGif && isTiffMagic(reader)
-        val isWebp = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && isWebpMagic(reader)
-        val isWav = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && isWavMagic(reader)
-        val isAvi = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && isAviMagic(reader)
-        val isFlv = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isAvi && isFlvMagic(reader)
-        val isAsf = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isAvi && !isFlv && isAsfMagic(reader)
-        val isAac = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isAvi && !isFlv && !isAsf && isAacMagic(reader)
-        val isMp3 = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isAvi && !isFlv && !isAsf && !isAac && isMp3Magic(reader)
-        val isEbml = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isAvi && !isFlv && !isAsf && !isAac && !isMp3 && isEbmlMagic(reader)
-        val isFlac = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isAvi && !isFlv && !isAsf && !isAac && !isMp3 && !isEbml && isFlacMagic(reader)
-        val isOgg = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isAvi && !isFlv && !isAsf && !isAac && !isMp3 && !isEbml && !isFlac && isOggMagic(reader)
-        val isAiff = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isAvi && !isFlv && !isAsf && !isAac && !isMp3 && !isEbml && !isFlac && !isOgg && isAiffMagic(reader)
-        val children = when {
-            isJpeg -> parseJpegSegments(reader, 0, reader.length)
-            isPng -> parsePngChunks(reader, 8, reader.length)
-            isBmp -> parseBmpHeaders(reader, 0, reader.length)
-            isGif -> parseGifBlocks(reader, 6, reader.length)
-            isTiff -> decodeTiff(reader, 0, reader.length)
-            isWebp -> parseWebpChunks(reader, 0, reader.length)
-            isWav -> parseWavChunks(reader, 0, reader.length)
-            isAvi -> parseAviChunks(reader, 0, reader.length)
-            isFlv -> parseFlv(reader, 0, reader.length)
-            isAsf -> parseAsf(reader, 0, reader.length)
-            isAac -> parseAac(reader, 0, reader.length)
-            isMp3 -> parseMp3(reader, 0, reader.length)
-            isEbml -> parseEbmlElements(reader, 0, reader.length)
-            isFlac -> parseFlacBlocks(reader, 0, reader.length)
-            isOgg -> parseOggPages(reader, 0, reader.length)
-            isAiff -> parseAiffChunks(reader, 0, reader.length)
-            else -> parseBoxes(reader, 0, reader.length)
-        }
-        return BoxNode(type = "root", offset = 0, headerSize = 0, size = reader.length, children = children)
+    val isJpeg = reader.length >= 2 && reader.readUInt8(0) == 0xFF && reader.readUInt8(1) == 0xD8
+    val isPng = !isJpeg && isPngMagic(reader)
+    val isBmp = !isJpeg && !isPng && isBmpMagic(reader)
+    val isGif = !isJpeg && !isPng && !isBmp && isGifMagic(reader)
+    val isTiff = !isJpeg && !isPng && !isBmp && !isGif && isTiffMagic(reader)
+    val isWebp = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && isWebpMagic(reader)
+    val isWav = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && isWavMagic(reader)
+    val isAvi = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && isAviMagic(reader)
+    val isFlv = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isAvi && isFlvMagic(reader)
+    val isAsf = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isAvi && !isFlv && isAsfMagic(reader)
+    val isAac = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isAvi && !isFlv && !isAsf && isAacMagic(reader)
+    val isMp3 = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isAvi && !isFlv && !isAsf && !isAac && isMp3Magic(reader)
+    val isEbml = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isAvi && !isFlv && !isAsf && !isAac && !isMp3 && isEbmlMagic(reader)
+    val isFlac = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isAvi && !isFlv && !isAsf && !isAac && !isMp3 && !isEbml && isFlacMagic(reader)
+    val isOgg = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isAvi && !isFlv && !isAsf && !isAac && !isMp3 && !isEbml && !isFlac && isOggMagic(reader)
+    val isAiff = !isJpeg && !isPng && !isBmp && !isGif && !isTiff && !isWebp && !isWav && !isAvi && !isFlv && !isAsf && !isAac && !isMp3 && !isEbml && !isFlac && !isOgg && isAiffMagic(reader)
+    val children = when {
+        isJpeg -> parseJpegSegments(reader, 0, reader.length)
+        isPng -> parsePngChunks(reader, 8, reader.length)
+        isBmp -> parseBmpHeaders(reader, 0, reader.length)
+        isGif -> parseGifBlocks(reader, 6, reader.length)
+        isTiff -> decodeTiff(reader, 0, reader.length)
+        isWebp -> parseWebpChunks(reader, 0, reader.length)
+        isWav -> parseWavChunks(reader, 0, reader.length)
+        isAvi -> parseAviChunks(reader, 0, reader.length)
+        isFlv -> parseFlv(reader, 0, reader.length)
+        isAsf -> parseAsf(reader, 0, reader.length)
+        isAac -> parseAac(reader, 0, reader.length)
+        isMp3 -> parseMp3(reader, 0, reader.length)
+        isEbml -> parseEbmlElements(reader, 0, reader.length)
+        isFlac -> parseFlacBlocks(reader, 0, reader.length)
+        isOgg -> parseOggPages(reader, 0, reader.length)
+        isAiff -> parseAiffChunks(reader, 0, reader.length)
+        else -> parseBoxes(reader, 0, reader.length)
     }
+    return BoxNode(type = "root", offset = 0, headerSize = 0, size = reader.length, children = children)
 }
 
 private val PNG_SIGNATURE = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
