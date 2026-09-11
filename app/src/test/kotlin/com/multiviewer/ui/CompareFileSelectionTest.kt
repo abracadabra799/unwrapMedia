@@ -78,4 +78,61 @@ class CompareFileSelectionTest {
         assertNull(result.fileA)
         assertNull(result.fileB)
     }
+
+    // A single file dropped on the left half of the window lands in A -- matches where
+    // the A panel is drawn, so the drop location alone should predict the outcome.
+    @Test
+    fun `one dropped file on the left half fills A`() {
+        val result = resolveDroppedFiles(listOf(f("only.mp4")), xFraction = 0.25f)
+        assertEquals(f("only.mp4"), result.fileA)
+        assertNull(result.fileB)
+    }
+
+    // Same file, dropped on the right half, fills B instead -- no button-click context
+    // needed, unlike resolveComparePick's targetIsA.
+    @Test
+    fun `one dropped file on the right half fills B`() {
+        val result = resolveDroppedFiles(listOf(f("only.mp4")), xFraction = 0.75f)
+        assertNull(result.fileA)
+        assertEquals(f("only.mp4"), result.fileB)
+    }
+
+    // Exact center is B, not A -- the boundary is "< 0.5f is A", so 0.5f itself falls
+    // into the else branch.
+    @Test
+    fun `one dropped file exactly at the halfway point fills B`() {
+        val result = resolveDroppedFiles(listOf(f("only.mp4")), xFraction = 0.5f)
+        assertNull(result.fileA)
+        assertEquals(f("only.mp4"), result.fileB)
+    }
+
+    // Two dropped files fill both slots, sorted by name -- same rule resolveComparePick
+    // uses for a two-file browse, and drop position is irrelevant once there are two.
+    @Test
+    fun `two dropped files fill both slots ordered by name regardless of drop position`() {
+        val result = resolveDroppedFiles(listOf(f("z.mp4"), f("m.mp4")), xFraction = 0.9f)
+        assertEquals(f("m.mp4"), result.fileA)
+        assertEquals(f("z.mp4"), result.fileB)
+    }
+
+    // More than two dropped files is refused exactly like an over-sized dialog
+    // selection -- silently keeping two of three would drop the rest with no
+    // explanation.
+    @Test
+    fun `more than two dropped files are refused and change nothing`() {
+        val result = resolveDroppedFiles(listOf(f("a.mp4"), f("b.mp4"), f("c.mp4")), xFraction = 0.1f)
+        assertEquals(3, result.refusedCount)
+        assertNull(result.fileA)
+        assertNull(result.fileB)
+    }
+
+    // An empty drop (everything filtered out upstream, e.g. a folder or a non-media
+    // file) changes nothing and carries no refusal.
+    @Test
+    fun `an empty dropped list changes nothing`() {
+        val result = resolveDroppedFiles(emptyList(), xFraction = 0.5f)
+        assertNull(result.fileA)
+        assertNull(result.fileB)
+        assertNull(result.refusedCount)
+    }
 }

@@ -113,6 +113,27 @@ fun resolveComparePick(picked: List<File>, targetIsA: Boolean): ComparePick {
     }
 }
 
+/**
+ * Same output shape as [resolveComparePick], but for a drag-and-drop rather than a
+ * dialog browse: a single dropped file's slot is decided by where it landed instead
+ * of which button was clicked. [xFraction] is the drop's horizontal position as a
+ * fraction of the window's width (0f = left edge, 1f = right edge) -- left half lands
+ * in A (matching where the A panel is drawn), right half (including exactly the
+ * midpoint) lands in B.
+ *
+ * Two or more dropped files behave identically to [resolveComparePick]: sorted by
+ * name for exactly two, refused outright for more than [MAX_COMPARE_SELECTION].
+ */
+fun resolveDroppedFiles(picked: List<File>, xFraction: Float): ComparePick {
+    if (picked.size > MAX_COMPARE_SELECTION) return ComparePick(null, null, refusedCount = picked.size)
+    val sorted = picked.sortedBy { it.name.lowercase(Locale.US) }
+    return when {
+        sorted.isEmpty() -> ComparePick(null, null)
+        sorted.size == 1 -> if (xFraction < 0.5f) ComparePick(sorted[0], null) else ComparePick(null, sorted[0])
+        else -> ComparePick(sorted[0], sorted[1])
+    }
+}
+
 enum class VisualCompareMode {
     SPLIT_WIPER,
     SIDE_BY_SIDE,
