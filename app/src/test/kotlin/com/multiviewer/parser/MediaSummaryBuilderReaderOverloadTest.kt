@@ -3,6 +3,7 @@ package com.multiviewer.parser
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class MediaSummaryBuilderReaderOverloadTest {
     // A root with an EXIF ThumbnailImage node exercises buildThumbnail's real-data path
@@ -29,7 +30,10 @@ class MediaSummaryBuilderReaderOverloadTest {
         val viaFileOnly = buildMediaSummary(root, tmp)
         val viaSharedReader = ByteReader.open(tmp).use { reader -> buildMediaSummary(root, tmp, reader) }
 
-        assertEquals(viaFileOnly, viaSharedReader)
+        assertEquals(viaFileOnly.category, viaSharedReader.category)
+        assertEquals(viaFileOnly.sections, viaSharedReader.sections)
+        assertEquals(viaFileOnly.motionPhotoVideoSections, viaSharedReader.motionPhotoVideoSections)
+        assertTrue(viaFileOnly.thumbnail.contentEquals(viaSharedReader.thumbnail), "thumbnail bytes should match")
     }
 
     @Test
