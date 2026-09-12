@@ -16,6 +16,14 @@ class ByteReaderOpenCountTest {
         return BoxNode(type = "root", offset = 0, headerSize = 0, size = (100 + thumbnailBytes.size).toLong(), children = listOf(soi, exif))
     }
 
+    // This test does NOT call ImageCompareWindow.loadInfo or AppState.openFile -- it
+    // hand-reconstructs the same ByteReader.open(file).use { parseFile(...); buildMediaSummary(...);
+    // ImageAnalyzer.analyze(...) } sequence those functions use and asserts that calling the three
+    // split functions directly, in that sequence, with one caller-supplied reader, results in
+    // exactly one ByteReader.open(). It proves the three functions correctly share whatever reader
+    // they're given -- it provides no regression protection for the actual wiring inside
+    // loadInfo/openFile. Confirming those real orchestrators open the file as expected is currently
+    // a manual-only check (the plan's Step 10), not an automated one.
     @Test
     fun `parseFile, buildMediaSummary, and analyze share one reader when the caller opens one`() {
         val thumbnailBytes = byteArrayOf(0x11, 0x22, 0x33, 0x44)
