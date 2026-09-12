@@ -98,6 +98,26 @@ private fun decodeWebpChunk(reader: ByteReader, type: String, offset: Long, payl
                 summary = "XMP (${text.length} chars)",
             )
         }
+        "ANIM" -> {
+            if (payloadSize < 6) {
+                return BoxNode(type = type, offset = offset, headerSize = 8, size = totalSize, warnings = listOf("ANIM chunk too short to contain background color and loop count"))
+            }
+            val blue = reader.readUInt8(payloadStart)
+            val green = reader.readUInt8(payloadStart + 1)
+            val red = reader.readUInt8(payloadStart + 2)
+            val alpha = reader.readUInt8(payloadStart + 3)
+            val backgroundColor = "#%02X%02X%02X%02X".format(red, green, blue, alpha)
+            val loopCount = reader.readUInt16LE(payloadStart + 4)
+            val loopCountLabel = if (loopCount == 0) "0 (infinite)" else loopCount.toString()
+            return BoxNode(
+                type = type, offset = offset, headerSize = 8, size = totalSize,
+                fields = listOf(
+                    BoxField("background_color", backgroundColor, payloadStart, 4),
+                    BoxField("loop_count", loopCountLabel, payloadStart + 4, 2),
+                ),
+                summary = "Loop count: $loopCountLabel",
+            )
+        }
     }
 
     return BoxNode(type = type, offset = offset, headerSize = 8, size = totalSize, fields = fields, summary = summary)

@@ -100,7 +100,7 @@ class WebpWalkerTest {
             0x57, 0x02, 0x00, // height_minus_one = 599
             0x41, 0x4e, 0x49, 0x4d, // "ANIM"
             0x06, 0x00, 0x00, 0x00, // chunk_size = 6 (LE)
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // arbitrary ANIM payload (not decoded by this task)
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // all-zero ANIM payload (decodes to background_color #00000000, loop_count 0/infinite -- not asserted here, this test is about the chunk-walking loop, not ANIM's fields; see the dedicated ANIM tests above)
         )
         byteReaderOf(bytes, "webp-walker-multi-chunk").use { reader ->
             val nodes = parseWebpChunks(reader, 0, bytes.size.toLong())
@@ -200,6 +200,64 @@ class WebpWalkerTest {
             assertEquals("XMP ", xmp.type)
             assertEquals(text, xmp.fields.first { it.name == "xmp" }.value)
             assertEquals("XMP (24 chars)", xmp.summary)
+        }
+    }
+
+    @Test
+    fun `ANIM decodes background color and a non-zero loop count`() {
+        val bytes = byteArrayOf(
+            0x52, 0x49, 0x46, 0x46, // "RIFF"
+            0x00, 0x00, 0x00, 0x00, // file_size (not asserted in this test)
+            0x57, 0x45, 0x42, 0x50, // "WEBP"
+            0x41, 0x4e, 0x49, 0x4d, // "ANIM"
+            0x06, 0x00, 0x00, 0x00, // chunk_size = 6 (LE)
+            0x11, 0x22, 0x33, 0xff.toByte(), // background color: B=0x11, G=0x22, R=0x33, A=0xFF
+            0x05, 0x00, // loop_count = 5 (LE)
+        )
+        byteReaderOf(bytes, "webp-walker-anim").use { reader ->
+            val nodes = parseWebpChunks(reader, 0, bytes.size.toLong())
+            val anim = nodes[1]
+            assertEquals("ANIM", anim.type)
+            assertEquals("#332211FF", anim.fields.first { it.name == "background_color" }.value)
+            assertEquals("5", anim.fields.first { it.name == "loop_count" }.value)
+            assertEquals("Loop count: 5", anim.summary)
+        }
+    }
+
+    @Test
+    fun `ANIM loop count of zero is labeled infinite`() {
+        val bytes = byteArrayOf(
+            0x52, 0x49, 0x46, 0x46,
+            0x00, 0x00, 0x00, 0x00,
+            0x57, 0x45, 0x42, 0x50,
+            0x41, 0x4e, 0x49, 0x4d,
+            0x06, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, // background color = black, opaque=0 (not asserted here)
+            0x00, 0x00, // loop_count = 0
+        )
+        byteReaderOf(bytes, "webp-walker-anim-infinite").use { reader ->
+            val nodes = parseWebpChunks(reader, 0, bytes.size.toLong())
+            val anim = nodes[1]
+            assertEquals("0 (infinite)", anim.fields.first { it.name == "loop_count" }.value)
+            assertEquals("Loop count: 0 (infinite)", anim.summary)
+        }
+    }
+
+    @Test
+    fun `ANIM shorter than 6 bytes produces a warning and no fields`() {
+        val bytes = byteArrayOf(
+            0x52, 0x49, 0x46, 0x46,
+            0x00, 0x00, 0x00, 0x00,
+            0x57, 0x45, 0x42, 0x50,
+            0x41, 0x4e, 0x49, 0x4d,
+            0x03, 0x00, 0x00, 0x00, // chunk_size = 3 (too short)
+            0x01, 0x02, 0x03,
+        )
+        byteReaderOf(bytes, "webp-walker-anim-short").use { reader ->
+            val nodes = parseWebpChunks(reader, 0, bytes.size.toLong())
+            val anim = nodes[1]
+            assertEquals(0, anim.fields.size)
+            assertEquals(listOf("ANIM chunk too short to contain background color and loop count"), anim.warnings)
         }
     }
 }
