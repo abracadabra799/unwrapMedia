@@ -278,4 +278,34 @@ class PngWalkerTest {
             assertEquals("밝게 편집됨", itxt.fields.first { it.name == "text" }.value)
         }
     }
+
+    @Test
+    fun `decodes PLTE with a bounded color preview`() {
+        val data = byteArrayOf(
+            0xFF.toByte(), 0x00, 0x00, // color_1 = red
+            0x00, 0xFF.toByte(), 0x00, // color_2 = green
+            0x00, 0x00, 0xFF.toByte(), // color_3 = blue
+        )
+        val bytes = pngChunk("PLTE", data)
+        readerOver(bytes, "png-walker-plte").use { reader ->
+            val nodes = parsePngChunks(reader, 0, bytes.size.toLong())
+            val plte = nodes[0]
+            assertEquals("PLTE", plte.type)
+            assertEquals("#FF0000", plte.fields.first { it.name == "color_1" }.value)
+            assertEquals("#00FF00", plte.fields.first { it.name == "color_2" }.value)
+            assertEquals("#0000FF", plte.fields.first { it.name == "color_3" }.value)
+            assertEquals("3 colors", plte.summary)
+        }
+    }
+
+    @Test
+    fun `PLTE with a length not a multiple of 3 adds a warning`() {
+        val bytes = pngChunk("PLTE", byteArrayOf(0xFF.toByte(), 0x00)) // 2 bytes, not a multiple of 3
+        readerOver(bytes, "png-walker-plte-bad").use { reader ->
+            val nodes = parsePngChunks(reader, 0, bytes.size.toLong())
+            val plte = nodes[0]
+            assertEquals(true, plte.warnings.isNotEmpty())
+            assertEquals(true, plte.fields.isEmpty())
+        }
+    }
 }

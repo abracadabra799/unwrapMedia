@@ -43,6 +43,7 @@ private fun decodePngChunk(reader: ByteReader, type: String, offset: Long, dataS
         "iCCP" -> decodeIccp(reader, offset, dataStart, length, totalSize)
         "zTXt" -> decodeZtxt(reader, offset, dataStart, length, totalSize)
         "iTXt" -> decodeItxt(reader, offset, dataStart, length, totalSize)
+        "PLTE" -> decodePlte(reader, offset, dataStart, length, totalSize)
         else -> BoxNode(type = type, offset = offset, headerSize = 8, size = totalSize)
     }
 
@@ -346,5 +347,25 @@ private fun decodeItxt(reader: ByteReader, offset: Long, dataStart: Long, length
         type = "iTXt", offset = offset, headerSize = 8, size = totalSize,
         fields = baseFields + BoxField("text", text, dataStart + textStart, rawTextBytes.size.toLong()),
         summary = "$keyword: $text",
+    )
+}
+
+private fun decodePlte(reader: ByteReader, offset: Long, dataStart: Long, length: Long, totalSize: Long): BoxNode {
+    if (length % 3 != 0L) {
+        return BoxNode(type = "PLTE", offset = offset, headerSize = 8, size = totalSize, warnings = listOf("PLTE length $length is not a multiple of 3"))
+    }
+    val count = (length / 3).toInt()
+    val previewCount = minOf(count, 8)
+    val fields = mutableListOf<BoxField>()
+    for (i in 0 until previewCount) {
+        val entryStart = dataStart + i * 3L
+        val rgb = reader.readBytes(entryStart, 3)
+        val hex = "#" + rgb.joinToString("") { "%02X".format(it) }
+        fields.add(BoxField("color_${i + 1}", hex, entryStart, 3))
+    }
+    return BoxNode(
+        type = "PLTE", offset = offset, headerSize = 8, size = totalSize,
+        fields = fields,
+        summary = "$count colors",
     )
 }
