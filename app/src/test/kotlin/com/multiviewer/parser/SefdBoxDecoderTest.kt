@@ -232,4 +232,52 @@ class SefdBoxDecoderTest {
         assertEquals("Mobile Country Code (MCC)", field.fields.first { it.name == "meaning" }.value)
         reader.close()
     }
+
+    @Test
+    fun `a JSON-shaped field with non-ASCII text is decoded and pretty-printed instead of shown as binary`() {
+        // data = {"tone":"밝게"} as UTF-8 bytes -- {,",t,o,n,e,",:,",<밝=EB B0 9D>,<게=EA B2 8C>,",}
+        val body = byteArrayOf(
+            0x00, 0x00, 0xa1.toByte(), 0x0b, 0x0a, 0x00, 0x00, 0x00,
+            0x52, 0x65, 0x45, 0x64, 0x69, 0x74, 0x44, 0x61, 0x74, 0x61, // "ReEditData"
+            0x7b, 0x22, 0x74, 0x6f, 0x6e, 0x65, 0x22, 0x3a, 0x22,
+            0xeb.toByte(), 0xb0.toByte(), 0x9d.toByte(), 0xea.toByte(), 0xb2.toByte(), 0x8c.toByte(),
+            0x22, 0x7d,
+            0x53, 0x45, 0x46, 0x48,
+            0x01, 0x00, 0x00, 0x00,
+            0x01, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0xa1.toByte(), 0x0b, 0x23, 0x00, 0x00, 0x00, 0x23, 0x00, 0x00, 0x00,
+            0x18, 0x00, 0x00, 0x00,
+            0x53, 0x45, 0x46, 0x54,
+        )
+        val reader = byteReaderOf(body)
+        val node = SefdBoxDecoder.decode(reader, "sefd", 0, 0, body.size.toLong(), emptyList())
+
+        val field = node.children[0]
+        assertEquals("ReEditData", field.type)
+        assertEquals("{\n  \"tone\": \"밝게\"\n}", field.fields.first { it.name == "value" }.value)
+        assertEquals("JSON (17 bytes)", field.summary)
+        reader.close()
+    }
+
+    @Test
+    fun `genuinely binary data is still shown as a byte count, not garbled text`() {
+        val body = byteArrayOf(
+            0x00, 0x00, 0x34, 0x12, 0x07, 0x00, 0x00, 0x00,
+            0x46, 0x69, 0x65, 0x6c, 0x64, 0x5f, 0x41,
+            0xff.toByte(), 0xfe.toByte(), // invalid UTF-8 (lone continuation-style bytes), not printable ASCII either
+            0x53, 0x45, 0x46, 0x48,
+            0x01, 0x00, 0x00, 0x00,
+            0x01, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x34, 0x12, 0x11, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00,
+            0x18, 0x00, 0x00, 0x00,
+            0x53, 0x45, 0x46, 0x54,
+        )
+        val reader = byteReaderOf(body)
+        val node = SefdBoxDecoder.decode(reader, "sefd", 0, 0, body.size.toLong(), emptyList())
+
+        val field = node.children[0]
+        assertEquals("2 bytes (binary)", field.summary)
+        assertEquals(true, field.fields.none { it.name == "value" })
+        reader.close()
+    }
 }

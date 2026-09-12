@@ -124,15 +124,12 @@ object SefdBoxDecoder : BoxDecoder {
         }
 
         val dataBytes = reader.readBytes(dataStart, dataLength)
-        val isPrintable = dataBytes.all { b ->
-            val v = b.toInt() and 0xFF
-            v in 0x20..0x7E || v == 0x09 || v == 0x0A || v == 0x0D
-        }
-        return if (isPrintable) {
-            val value = String(dataBytes, Charsets.UTF_8)
-            val fields = mutableListOf(markerField, BoxField("value", value, dataStart, dataLength.toLong()))
+        val decodedText = decodeFieldText(dataBytes)
+        return if (decodedText != null) {
+            val displayValue = if (isJsonShaped(decodedText)) prettyPrintJson(decodedText) else decodedText
+            val fields = mutableListOf(markerField, BoxField("value", displayValue, dataStart, dataLength.toLong()))
             if (directoryMarker == MARKER_UTC_TIMESTAMP) {
-                value.trim().toLongOrNull()?.let { epochSeconds ->
+                decodedText.trim().toLongOrNull()?.let { epochSeconds ->
                     val formatted = java.time.Instant.ofEpochSecond(epochSeconds)
                         .atZone(java.time.ZoneOffset.UTC)
                         .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss 'UTC'"))
@@ -146,7 +143,7 @@ object SefdBoxDecoder : BoxDecoder {
                 type = name, offset = blockStart, headerSize = fieldHeaderSize, size = blockSize,
                 fields = fields,
                 warnings = warnings,
-                summary = value,
+                summary = if (isJsonShaped(decodedText)) "JSON ($dataLength bytes)" else decodedText,
             )
         } else {
             BoxNode(
@@ -156,6 +153,72 @@ object SefdBoxDecoder : BoxDecoder {
             )
         }
     }
+}
+
+// Broader than the old strict-ASCII-only check: accepts any bytes that decode as
+// valid UTF-8 (rejecting malformed/unmappable sequences, never silently replacing
+// them) with no disallowed control characters. ASCII text already accepted by the
+// old check still decodes identically here (ASCII is a subset of UTF-8) -- this
+// only *additionally* rescues genuinely valid multi-byte UTF-8 (e.g. Korean-language
+// JSON values) that a byte-range check misclassifies as binary. Returns null for
+// anything that isn't valid, safely-printable text, so genuinely binary data still
+// falls through to the existing "N bytes (binary)" display.
+private fun decodeFieldText(bytes: ByteArray): String? {
+    val text = try {
+        Charsets.UTF_8.newDecoder()
+            .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+            .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+            .decode(java.nio.ByteBuffer.wrap(bytes))
+            .toString()
+    } catch (e: Exception) {
+        return null
+    }
+    val hasDisallowedControlChars = text.any { c ->
+        (c.code < 0x20 && c != '\t' && c != '\n' && c != '\r') || c.code == 0x7F
+    }
+    return if (hasDisallowedControlChars) null else text
+}
+
+private fun isJsonShaped(text: String): Boolean {
+    val trimmed = text.trim().trimEnd(Char(0)).trim()
+    return (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+        (trimmed.startsWith("[") && trimmed.endsWith("]"))
+}
+
+// Re-indents JSON-shaped text for readability without a JSON parsing library:
+// walks the text tracking {}/[] nesting depth, passing string-literal contents
+// through untouched (respecting \" escapes) so braces/commas inside string values
+// never affect indentation.
+private fun prettyPrintJson(text: String): String {
+    val trimmed = text.trim().trimEnd(Char(0)).trim()
+    val sb = StringBuilder()
+    var depth = 0
+    var inString = false
+    var i = 0
+    while (i < trimmed.length) {
+        val c = trimmed[i]
+        if (inString) {
+            sb.append(c)
+            if (c == '\\' && i + 1 < trimmed.length) {
+                i++
+                sb.append(trimmed[i])
+            } else if (c == '"') {
+                inString = false
+            }
+        } else {
+            when (c) {
+                '"' -> { inString = true; sb.append(c) }
+                '{', '[' -> { sb.append(c); depth++; sb.append('\n'); sb.append("  ".repeat(depth)) }
+                '}', ']' -> { depth--; sb.append('\n'); sb.append("  ".repeat(depth)); sb.append(c) }
+                ',' -> { sb.append(c); sb.append('\n'); sb.append("  ".repeat(depth)) }
+                ':' -> { sb.append(c); sb.append(' ') }
+                ' ', '\t', '\n', '\r' -> {} // drop the original formatting; we control it
+                else -> sb.append(c)
+            }
+        }
+        i++
+    }
+    return sb.toString()
 }
 
 private fun readUInt16LE(reader: ByteReader, offset: Long): Int {
