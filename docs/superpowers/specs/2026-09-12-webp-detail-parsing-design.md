@@ -46,7 +46,7 @@ concern here, unlike Phase 1's Samsung SEFD.
 | `ICCP` | variable | Raw (uncompressed) ICC profile bytes — unlike PNG's `iCCP`, no name prefix and no compression |
 | `XMP ` | variable | Raw UTF-8 XMP/RDF text, no prefix (unlike JPEG's APP1, which has an identifier string before the XMP payload) |
 | `ANIM` | 6 bytes | Background Color (4 bytes, BGRA byte order) + Loop Count (`uint16`, little-endian, 0 = infinite) |
-| `ANMF` | 16-byte header + sub-chunks | Frame X (`uint24` LE, in units of 2 pixels), Frame Y (same), Frame Width Minus One (`uint24` LE), Frame Height Minus One (`uint24` LE), Frame Duration (`uint24` LE, 1ms units), then 1 flags byte: bit 6 = blending method, bit 7 = disposal method, remaining bits reserved |
+| `ANMF` | 16-byte header + sub-chunks | Frame X (`uint24` LE, in units of 2 pixels), Frame Y (same), Frame Width Minus One (`uint24` LE), Frame Height Minus One (`uint24` LE), Frame Duration (`uint24` LE, 1ms units), then 1 flags byte: bits 7-2 reserved, bit 1 = blending method, bit 0 = disposal method |
 | `ALPH` | 1-byte header + alpha data | 1 byte: Reserved (2 bits) \| Preprocessing (2 bits) \| Filtering method (2 bits) \| Compression method (2 bits) |
 
 ## Approach
@@ -114,9 +114,12 @@ test). Reuse it directly for all five 24-bit fields below.
 - `width` = `readUInt24(payloadStart + 6) + 1`
 - `height` = `readUInt24(payloadStart + 9) + 1`
 - `duration_ms` = `readUInt24(payloadStart + 12)`
-- flags byte at `payloadStart + 15`:
-  - `blending`: bit 6 (`0x40`) — `0` → `"Blend"`, `1` → `"Do not blend"`
-  - `disposal`: bit 7 (`0x80`) — `0` → `"Do not dispose"`, `1` → `"Dispose to background"`
+- flags byte at `payloadStart + 15` (verified against Google's official WebP
+  Container Specification's raw bit-diagram: `| Reserved(6 bits) | B | D |`,
+  i.e. bits 7-2 reserved, bit 1 = B, bit 0 = D — corrected during plan-writing
+  from an earlier, incorrect bit6/bit7 assumption in this spec's first draft):
+  - `blending`: bit 1 (`0x02`) — `0` → `"Blend"`, `1` → `"Do not blend"`
+  - `disposal`: bit 0 (`0x01`) — `0` → `"Do not dispose"`, `1` → `"Dispose to background"`
 - Summary: `"${width}x${height}, ${duration_ms}ms (frame data: $frameDataSize bytes, not parsed)"`,
   where `frameDataSize = payloadSize - 16` (the sub-chunk region this phase
   deliberately does not recurse into, per the Non-goals section).
