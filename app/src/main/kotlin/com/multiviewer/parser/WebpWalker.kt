@@ -81,6 +81,23 @@ private fun decodeWebpChunk(reader: ByteReader, type: String, offset: Long, payl
             val children = decodeExif(reader, payloadStart, payloadStart + payloadSize)
             return BoxNode(type, offset, 8, totalSize, children = children, summary = "Exif metadata")
         }
+        "ICCP" -> {
+            if (payloadSize < 128) {
+                return BoxNode(type = type, offset = offset, headerSize = 8, size = totalSize, warnings = listOf("ICC profile too short to contain a valid header"))
+            }
+            val headerBytes = reader.readBytes(payloadStart, 128)
+            val headerFields = decodeIccProfileHeader(headerBytes, payloadStart)
+            val version = headerFields.first { it.name == "version" }.value
+            return BoxNode(type = type, offset = offset, headerSize = 8, size = totalSize, fields = headerFields, summary = "ICC Profile v$version ($payloadSize bytes)")
+        }
+        "XMP " -> {
+            val text = String(reader.readBytes(payloadStart, payloadSize.toInt()), Charsets.UTF_8)
+            return BoxNode(
+                type = type, offset = offset, headerSize = 8, size = totalSize,
+                fields = listOf(BoxField("xmp", text, payloadStart, payloadSize)),
+                summary = "XMP (${text.length} chars)",
+            )
+        }
     }
 
     return BoxNode(type = type, offset = offset, headerSize = 8, size = totalSize, fields = fields, summary = summary)

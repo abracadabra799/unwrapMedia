@@ -113,4 +113,93 @@ class WebpWalkerTest {
             assertEquals(14L, nodes[2].size)
         }
     }
+
+    @Test
+    fun `ICCP payload is parsed as a raw (uncompressed) 128-byte ICC header`() {
+        // The same 128-byte ICC.1 header bytes already verified correct by
+        // JpegWalkerTest's "APP2 ICC profile first chunk parses the full
+        // 128-byte header" test -- reused here since WebP's ICCP chunk is
+        // this exact 128-byte header with no name prefix and no compression
+        // (unlike PNG's iCCP, which needed zlib-inflate in Phase 2).
+        val iccHeaderBytes = byteArrayOf(
+            0x00, 0x00, 0x00, 0x8e.toByte(), // profile_size = 142
+            0x41, 0x50, 0x50, 0x4c,          // cmm_type = "APPL"
+            0x02, 0x10, 0x00, 0x00,          // version = 2.1.0
+            0x6d, 0x6e, 0x74, 0x72,          // profile_class = "mntr"
+            0x52, 0x47, 0x42, 0x20,          // data_colour_space = "RGB "
+            0x58, 0x59, 0x5a, 0x20,          // pcs = "XYZ "
+            0x07, 0xe8.toByte(), 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // date_time_created
+            0x61, 0x63, 0x73, 0x70,          // "acsp"
+            0x41, 0x50, 0x50, 0x4c,          // primary_platform = "APPL"
+            0x00, 0x00, 0x00, 0x00,          // profile_flags = 0
+            0x41, 0x50, 0x50, 0x4c,          // device_manufacturer = "APPL"
+            0x00, 0x00, 0x00, 0x00,          // device_model = (unspecified)
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // device_attributes = 0
+            0x00, 0x00, 0x00, 0x00,          // rendering_intent = 0 (Perceptual)
+            0x00, 0x00, 0xf6.toByte(), 0xd4.toByte(), // illuminant X = 0.9642
+            0x00, 0x01, 0x00, 0x00,          // illuminant Y = 1.0000
+            0x00, 0x00, 0xd3.toByte(), 0x2d, // illuminant Z = 0.8249
+            0x41, 0x50, 0x50, 0x4c,          // profile_creator = "APPL"
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // profile_id = (not set)
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 28 reserved bytes
+        )
+        val header = byteArrayOf(
+            0x52, 0x49, 0x46, 0x46, // "RIFF"
+            0x00, 0x00, 0x00, 0x00, // file_size (not asserted in this test)
+            0x57, 0x45, 0x42, 0x50, // "WEBP"
+            0x49, 0x43, 0x43, 0x50, // "ICCP"
+            0x80.toByte(), 0x00, 0x00, 0x00, // chunk_size = 128 (LE)
+        )
+        val bytes = header + iccHeaderBytes
+        byteReaderOf(bytes, "webp-walker-iccp").use { reader ->
+            val nodes = parseWebpChunks(reader, 0, bytes.size.toLong())
+            val iccp = nodes[1]
+            assertEquals("ICCP", iccp.type)
+            assertEquals("2.1.0", iccp.fields.first { it.name == "version" }.value)
+            assertEquals("mntr", iccp.fields.first { it.name == "profile_class" }.value)
+            assertEquals("RGB", iccp.fields.first { it.name == "data_colour_space" }.value)
+            assertEquals("ICC Profile v2.1.0 (128 bytes)", iccp.summary)
+        }
+    }
+
+    @Test
+    fun `ICCP shorter than 128 bytes produces a warning and no fields`() {
+        val bytes = byteArrayOf(
+            0x52, 0x49, 0x46, 0x46, // "RIFF"
+            0x00, 0x00, 0x00, 0x00, // file_size (not asserted in this test)
+            0x57, 0x45, 0x42, 0x50, // "WEBP"
+            0x49, 0x43, 0x43, 0x50, // "ICCP"
+            0x0a, 0x00, 0x00, 0x00, // chunk_size = 10 (LE)
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, // 10 arbitrary bytes
+        )
+        byteReaderOf(bytes, "webp-walker-iccp-short").use { reader ->
+            val nodes = parseWebpChunks(reader, 0, bytes.size.toLong())
+            val iccp = nodes[1]
+            assertEquals("ICCP", iccp.type)
+            assertEquals(0, iccp.fields.size)
+            assertEquals(listOf("ICC profile too short to contain a valid header"), iccp.warnings)
+        }
+    }
+
+    @Test
+    fun `XMP payload is exposed as a single UTF-8 text field`() {
+        val text = "<x:xmpmeta></x:xmpmeta> " // 24 chars, ASCII, even length
+        val payload = text.toByteArray(Charsets.UTF_8)
+        val sizeBytes = byteArrayOf(payload.size.toByte(), 0x00, 0x00, 0x00) // chunk_size (LE)
+        val header = byteArrayOf(
+            0x52, 0x49, 0x46, 0x46, // "RIFF"
+            0x00, 0x00, 0x00, 0x00, // file_size (not asserted in this test)
+            0x57, 0x45, 0x42, 0x50, // "WEBP"
+            0x58, 0x4d, 0x50, 0x20, // "XMP " (trailing space, same FourCC padding convention as "VP8 ")
+        )
+        val bytes = header + sizeBytes + payload
+        byteReaderOf(bytes, "webp-walker-xmp").use { reader ->
+            val nodes = parseWebpChunks(reader, 0, bytes.size.toLong())
+            val xmp = nodes[1]
+            assertEquals("XMP ", xmp.type)
+            assertEquals(text, xmp.fields.first { it.name == "xmp" }.value)
+            assertEquals("XMP (24 chars)", xmp.summary)
+        }
+    }
 }
