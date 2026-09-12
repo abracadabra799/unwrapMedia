@@ -225,67 +225,79 @@ private fun decodeApp1(reader: ByteReader, name: String, offset: Long, declaredS
 private val MPF_PREFIX = byteArrayOf(0x4D, 0x50, 0x46, 0x00) // "MPF\0"
 private val ICC_PREFIX = "ICC_PROFILE\u0000".toByteArray(Charsets.US_ASCII)
 
-private val RENDERING_INTENT_NAMES = mapOf(
+internal val RENDERING_INTENT_NAMES = mapOf(
     0 to "Perceptual",
     1 to "Media-Relative Colorimetric",
     2 to "Saturation",
     3 to "ICC-Absolute Colorimetric",
 )
 
-// Reads a 4-byte ICC signature: printable ASCII (trimmed of trailing padding spaces)
-// when every byte is in the printable range, "(unspecified)" for an all-zero
-// signature (legitimately common -- several ICC header fields are optional), or a
-// hex dump for anything else rather than risking mojibake.
-private fun readIccSignature(reader: ByteReader, offset: Long): String {
-    val bytes = reader.readBytes(offset, 4)
-    if (bytes.all { it == 0.toByte() }) return "(unspecified)"
-    val printable = bytes.all { b -> val v = b.toInt() and 0xFF; v in 0x20..0x7E }
+private fun ByteArray.u8At(i: Int): Int = this[i].toInt() and 0xFF
+private fun ByteArray.u16At(i: Int): Int = (u8At(i) shl 8) or u8At(i + 1)
+private fun ByteArray.u32At(i: Int): Long =
+    (u8At(i).toLong() shl 24) or (u8At(i + 1).toLong() shl 16) or (u8At(i + 2).toLong() shl 8) or u8At(i + 3).toLong()
+private fun ByteArray.u64At(i: Int): Long = (u32At(i) shl 32) or u32At(i + 4)
+
+// Reads a 4-byte ICC signature from [bytes] at [offset]: printable ASCII (trimmed of
+// trailing padding spaces) when every byte is in the printable range, "(unspecified)"
+// for an all-zero signature (legitimately common -- several ICC header fields are
+// optional), or a hex dump for anything else rather than risking mojibake.
+internal fun readIccSignature(bytes: ByteArray, offset: Int): String {
+    val slice = bytes.copyOfRange(offset, offset + 4)
+    if (slice.all { it == 0.toByte() }) return "(unspecified)"
+    val printable = slice.all { b -> val v = b.toInt() and 0xFF; v in 0x20..0x7E }
     return if (printable) {
-        String(bytes, Charsets.US_ASCII).trimEnd(' ')
+        String(slice, Charsets.US_ASCII).trimEnd(' ')
     } else {
-        "0x" + bytes.joinToString("") { "%02X".format(it) }
+        "0x" + slice.joinToString("") { "%02X".format(it) }
     }
 }
 
 // ICC's s15Fixed16Number: a signed 32-bit big-endian integer, divided by 65536 to
 // get the real value (used for the PCS illuminant XYZ triplet).
-private fun readS15Fixed16(reader: ByteReader, offset: Long): Double {
-    val raw = reader.readUInt32(offset)
+internal fun readS15Fixed16(bytes: ByteArray, offset: Int): Double {
+    val raw = bytes.u32At(offset)
     val signed = if (raw > 0x7FFFFFFFL) raw - 0x100000000L else raw
     return signed / 65536.0
 }
 
 // Parses the 128-byte ICC.1 profile header (a stable format, unchanged since the
-// 2001 spec) starting at [headerStart]. Caller guarantees at least 128 bytes are
-// available from headerStart.
-private fun decodeIccProfileHeader(reader: ByteReader, headerStart: Long): List<BoxField> {
-    val profileSize = reader.readUInt32(headerStart)
-    val cmmType = readIccSignature(reader, headerStart + 4)
-    val versionByte0 = reader.readUInt8(headerStart + 8)
-    val versionByte1 = reader.readUInt8(headerStart + 9)
+// 2001 spec) out of [headerBytes] (exactly 128 bytes, already read/decompressed by
+// the caller -- this function does no I/O of its own, so it works equally for a live
+// file-backed read (JPEG APP2, below) or an in-memory decompressed buffer (PNG's
+// iCCP chunk). [baseOffset] is only used to compute the returned BoxFields' offsets,
+// so a caller with no real file position for these bytes (e.g. post-decompression)
+// can pass whatever's most useful -- this codebase's existing convention for such
+// synthetic fields (e.g. decodeApp2's MPF entries) is to point at the nearest real
+// chunk/byte range rather than a byte-exact position that doesn't exist.
+internal fun decodeIccProfileHeader(headerBytes: ByteArray, baseOffset: Long): List<BoxField> {
+    val profileSize = headerBytes.u32At(0)
+    val cmmType = readIccSignature(headerBytes, 4)
+    val versionByte0 = headerBytes.u8At(8)
+    val versionByte1 = headerBytes.u8At(9)
     val version = "$versionByte0.${versionByte1 shr 4}.${versionByte1 and 0x0F}"
-    val profileClass = readIccSignature(reader, headerStart + 12)
-    val dataColourSpace = readIccSignature(reader, headerStart + 16)
-    val pcs = readIccSignature(reader, headerStart + 20)
-    val year = reader.readUInt16(headerStart + 24)
-    val month = reader.readUInt16(headerStart + 26)
-    val day = reader.readUInt16(headerStart + 28)
-    val hour = reader.readUInt16(headerStart + 30)
-    val minute = reader.readUInt16(headerStart + 32)
-    val second = reader.readUInt16(headerStart + 34)
+    val profileClass = readIccSignature(headerBytes, 12)
+    val dataColourSpace = readIccSignature(headerBytes, 16)
+    val pcs = readIccSignature(headerBytes, 20)
+    val year = headerBytes.u16At(24)
+    val month = headerBytes.u16At(26)
+    val day = headerBytes.u16At(28)
+    val hour = headerBytes.u16At(30)
+    val minute = headerBytes.u16At(32)
+    val second = headerBytes.u16At(34)
     val dateTimeCreated = "%04d-%02d-%02d %02d:%02d:%02d UTC".format(year, month, day, hour, minute, second)
-    val primaryPlatform = readIccSignature(reader, headerStart + 40)
-    val profileFlags = reader.readUInt32(headerStart + 44)
-    val deviceManufacturer = readIccSignature(reader, headerStart + 48)
-    val deviceModel = readIccSignature(reader, headerStart + 52)
-    val deviceAttributes = reader.readUInt64(headerStart + 56)
-    val renderingIntentCode = reader.readUInt32(headerStart + 64).toInt()
+    val primaryPlatform = readIccSignature(headerBytes, 40)
+    val profileFlags = headerBytes.u32At(44)
+    val deviceManufacturer = readIccSignature(headerBytes, 48)
+    val deviceModel = readIccSignature(headerBytes, 52)
+    val deviceAttributes = headerBytes.u64At(56)
+    val renderingIntentCode = headerBytes.u32At(64).toInt()
     val renderingIntent = RENDERING_INTENT_NAMES[renderingIntentCode] ?: "Unknown ($renderingIntentCode)"
-    val illumX = readS15Fixed16(reader, headerStart + 68)
-    val illumY = readS15Fixed16(reader, headerStart + 72)
-    val illumZ = readS15Fixed16(reader, headerStart + 76)
-    val profileCreator = readIccSignature(reader, headerStart + 80)
-    val profileIdBytes = reader.readBytes(headerStart + 84, 16)
+    val illumX = readS15Fixed16(headerBytes, 68)
+    val illumY = readS15Fixed16(headerBytes, 72)
+    val illumZ = readS15Fixed16(headerBytes, 76)
+    val profileCreator = readIccSignature(headerBytes, 80)
+    val profileIdBytes = headerBytes.copyOfRange(84, 100)
     val profileId = if (profileIdBytes.all { it == 0.toByte() }) {
         "(not set)"
     } else {
@@ -293,22 +305,22 @@ private fun decodeIccProfileHeader(reader: ByteReader, headerStart: Long): List<
     }
 
     return listOf(
-        BoxField("profile_size", "$profileSize bytes", headerStart, 4),
-        BoxField("cmm_type", cmmType, headerStart + 4, 4),
-        BoxField("version", version, headerStart + 8, 4),
-        BoxField("profile_class", profileClass, headerStart + 12, 4),
-        BoxField("data_colour_space", dataColourSpace, headerStart + 16, 4),
-        BoxField("pcs", pcs, headerStart + 20, 4),
-        BoxField("date_time_created", dateTimeCreated, headerStart + 24, 12),
-        BoxField("primary_platform", primaryPlatform, headerStart + 40, 4),
-        BoxField("profile_flags", "0x${profileFlags.toString(16).padStart(8, '0')}", headerStart + 44, 4),
-        BoxField("device_manufacturer", deviceManufacturer, headerStart + 48, 4),
-        BoxField("device_model", deviceModel, headerStart + 52, 4),
-        BoxField("device_attributes", "0x${deviceAttributes.toString(16).padStart(16, '0')}", headerStart + 56, 8),
-        BoxField("rendering_intent", renderingIntent, headerStart + 64, 4),
-        BoxField("pcs_illuminant", "X=%.4f, Y=%.4f, Z=%.4f".format(illumX, illumY, illumZ), headerStart + 68, 12),
-        BoxField("profile_creator", profileCreator, headerStart + 80, 4),
-        BoxField("profile_id", profileId, headerStart + 84, 16),
+        BoxField("profile_size", "$profileSize bytes", baseOffset, 4),
+        BoxField("cmm_type", cmmType, baseOffset + 4, 4),
+        BoxField("version", version, baseOffset + 8, 4),
+        BoxField("profile_class", profileClass, baseOffset + 12, 4),
+        BoxField("data_colour_space", dataColourSpace, baseOffset + 16, 4),
+        BoxField("pcs", pcs, baseOffset + 20, 4),
+        BoxField("date_time_created", dateTimeCreated, baseOffset + 24, 12),
+        BoxField("primary_platform", primaryPlatform, baseOffset + 40, 4),
+        BoxField("profile_flags", "0x${profileFlags.toString(16).padStart(8, '0')}", baseOffset + 44, 4),
+        BoxField("device_manufacturer", deviceManufacturer, baseOffset + 48, 4),
+        BoxField("device_model", deviceModel, baseOffset + 52, 4),
+        BoxField("device_attributes", "0x${deviceAttributes.toString(16).padStart(16, '0')}", baseOffset + 56, 8),
+        BoxField("rendering_intent", renderingIntent, baseOffset + 64, 4),
+        BoxField("pcs_illuminant", "X=%.4f, Y=%.4f, Z=%.4f".format(illumX, illumY, illumZ), baseOffset + 68, 12),
+        BoxField("profile_creator", profileCreator, baseOffset + 80, 4),
+        BoxField("profile_id", profileId, baseOffset + 84, 16),
     )
 }
 
@@ -351,7 +363,8 @@ private fun decodeApp2(reader: ByteReader, name: String, offset: Long, declaredS
             fields.add(BoxField("chunk_count", chunkCount.toString(), chunkInfoStart + 1, 1))
             val headerStart = chunkInfoStart + 2
             if (chunkSequenceNumber == 1 && payloadEnd - headerStart >= 128) {
-                val headerFields = decodeIccProfileHeader(reader, headerStart)
+                val headerBytes = reader.readBytes(headerStart, 128)
+                val headerFields = decodeIccProfileHeader(headerBytes, headerStart)
                 fields.addAll(headerFields)
                 val version = headerFields.first { it.name == "version" }.value
                 summary = "ICC Profile v$version (${payloadLength} bytes)"
