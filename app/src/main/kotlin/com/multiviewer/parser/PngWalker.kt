@@ -36,6 +36,10 @@ private fun decodePngChunk(reader: ByteReader, type: String, offset: Long, dataS
         "pHYs" -> decodePhys(reader, offset, dataStart, totalSize)
         "tEXt" -> decodeText(reader, offset, dataStart, length, totalSize)
         "eXIf" -> decodeExifChunk(reader, offset, dataStart, dataStart + length, totalSize)
+        "gAMA" -> decodeGama(reader, offset, dataStart, totalSize)
+        "cHRM" -> decodeChrm(reader, offset, dataStart, totalSize)
+        "sRGB" -> decodeSrgb(reader, offset, dataStart, totalSize)
+        "tIME" -> decodeTime(reader, offset, dataStart, totalSize)
         else -> BoxNode(type = type, offset = offset, headerSize = 8, size = totalSize)
     }
 
@@ -106,4 +110,79 @@ private fun decodeText(reader: ByteReader, offset: Long, dataStart: Long, length
 private fun decodeExifChunk(reader: ByteReader, offset: Long, dataStart: Long, dataEnd: Long, totalSize: Long): BoxNode {
     val children = decodeTiff(reader, dataStart, dataEnd)
     return BoxNode(type = "eXIf", offset = offset, headerSize = 8, size = totalSize, children = children, summary = "Exif metadata")
+}
+
+private fun decodeGama(reader: ByteReader, offset: Long, dataStart: Long, totalSize: Long): BoxNode {
+    if (totalSize < 16) { // 8 (length+type) + 4 (gAMA body) + 4 (crc)
+        return BoxNode(type = "gAMA", offset = offset, headerSize = 8, size = totalSize, warnings = listOf("gAMA chunk too short to contain the gamma value"))
+    }
+    val gamma = reader.readUInt32(dataStart) / 100000.0
+    return BoxNode(
+        type = "gAMA", offset = offset, headerSize = 8, size = totalSize,
+        fields = listOf(BoxField("gamma", "%.5f".format(gamma), dataStart, 4)),
+        summary = "gamma=%.5f".format(gamma),
+    )
+}
+
+private fun decodeChrm(reader: ByteReader, offset: Long, dataStart: Long, totalSize: Long): BoxNode {
+    if (totalSize < 44) { // 8 + 32 (cHRM body) + 4 (crc)
+        return BoxNode(type = "cHRM", offset = offset, headerSize = 8, size = totalSize, warnings = listOf("cHRM chunk too short to contain all chromaticity values"))
+    }
+    fun point(pos: Long) = reader.readUInt32(pos) / 100000.0
+    val whiteX = point(dataStart)
+    val whiteY = point(dataStart + 4)
+    val redX = point(dataStart + 8)
+    val redY = point(dataStart + 12)
+    val greenX = point(dataStart + 16)
+    val greenY = point(dataStart + 20)
+    val blueX = point(dataStart + 24)
+    val blueY = point(dataStart + 28)
+    return BoxNode(
+        type = "cHRM", offset = offset, headerSize = 8, size = totalSize,
+        fields = listOf(
+            BoxField("white_point", "x=%.4f, y=%.4f".format(whiteX, whiteY), dataStart, 8),
+            BoxField("red", "x=%.4f, y=%.4f".format(redX, redY), dataStart + 8, 8),
+            BoxField("green", "x=%.4f, y=%.4f".format(greenX, greenY), dataStart + 16, 8),
+            BoxField("blue", "x=%.4f, y=%.4f".format(blueX, blueY), dataStart + 24, 8),
+        ),
+        summary = "white=(%.4f, %.4f)".format(whiteX, whiteY),
+    )
+}
+
+private val PNG_RENDERING_INTENT_NAMES = mapOf(
+    0 to "Perceptual",
+    1 to "Media-Relative Colorimetric",
+    2 to "Saturation",
+    3 to "ICC-Absolute Colorimetric",
+)
+
+private fun decodeSrgb(reader: ByteReader, offset: Long, dataStart: Long, totalSize: Long): BoxNode {
+    if (totalSize < 13) { // 8 + 1 (sRGB body) + 4 (crc)
+        return BoxNode(type = "sRGB", offset = offset, headerSize = 8, size = totalSize, warnings = listOf("sRGB chunk too short to contain the rendering intent"))
+    }
+    val intentCode = reader.readUInt8(dataStart)
+    val intent = PNG_RENDERING_INTENT_NAMES[intentCode] ?: "Unknown ($intentCode)"
+    return BoxNode(
+        type = "sRGB", offset = offset, headerSize = 8, size = totalSize,
+        fields = listOf(BoxField("rendering_intent", intent, dataStart, 1)),
+        summary = intent,
+    )
+}
+
+private fun decodeTime(reader: ByteReader, offset: Long, dataStart: Long, totalSize: Long): BoxNode {
+    if (totalSize < 19) { // 8 + 7 (tIME body) + 4 (crc)
+        return BoxNode(type = "tIME", offset = offset, headerSize = 8, size = totalSize, warnings = listOf("tIME chunk too short to contain all fields"))
+    }
+    val year = reader.readUInt16(dataStart)
+    val month = reader.readUInt8(dataStart + 2)
+    val day = reader.readUInt8(dataStart + 3)
+    val hour = reader.readUInt8(dataStart + 4)
+    val minute = reader.readUInt8(dataStart + 5)
+    val second = reader.readUInt8(dataStart + 6)
+    val formatted = "%04d-%02d-%02d %02d:%02d:%02d UTC".format(year, month, day, hour, minute, second)
+    return BoxNode(
+        type = "tIME", offset = offset, headerSize = 8, size = totalSize,
+        fields = listOf(BoxField("last_modified", formatted, dataStart, 7)),
+        summary = formatted,
+    )
 }

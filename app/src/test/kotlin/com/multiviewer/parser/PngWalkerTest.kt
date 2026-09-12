@@ -51,11 +51,11 @@ class PngWalkerTest {
 
     @Test
     fun `an unrecognized chunk type shows as a generic, field-less node`() {
-        val bytes = pngChunk("tIME", byteArrayOf(0x07, 0xEA.toByte(), 0x01, 0x0F, 0x0C, 0x1E, 0x00))
+        val bytes = pngChunk("xyzZ", byteArrayOf(0x07, 0xEA.toByte(), 0x01, 0x0F, 0x0C, 0x1E, 0x00))
         readerOver(bytes, "png-walker-generic").use { reader ->
             val nodes = parsePngChunks(reader, 0, bytes.size.toLong())
             assertEquals(1, nodes.size)
-            assertEquals("tIME", nodes[0].type)
+            assertEquals("xyzZ", nodes[0].type)
             assertTrue(nodes[0].fields.isEmpty())
             assertEquals(bytes.size.toLong(), nodes[0].size)
         }
@@ -127,6 +127,66 @@ class PngWalkerTest {
             assertEquals("IFD0", ifd0.type)
             assertEquals("640", ifd0.fields.first { it.name == "ImageWidth" }.value)
             assertEquals("480", ifd0.fields.first { it.name == "ImageLength" }.value)
+        }
+    }
+
+    @Test
+    fun `decodes gAMA as a gamma value`() {
+        val bytes = pngChunk("gAMA", byteArrayOf(0x00, 0x00, 0xB1.toByte(), 0x8F.toByte())) // 45455 -> 0.45455
+        readerOver(bytes, "png-walker-gama").use { reader ->
+            val nodes = parsePngChunks(reader, 0, bytes.size.toLong())
+            val gama = nodes[0]
+            assertEquals("gAMA", gama.type)
+            assertEquals("0.45455", gama.fields.first { it.name == "gamma" }.value)
+            assertEquals("gamma=0.45455", gama.summary)
+        }
+    }
+
+    @Test
+    fun `decodes cHRM chromaticity points`() {
+        val data = byteArrayOf(
+            0x00, 0x00, 0x7A, 0x26, // white_x = 31270 -> 0.3127
+            0x00, 0x00, 0x80.toByte(), 0x84.toByte(), // white_y = 32900 -> 0.3290
+            0x00, 0x00, 0xFA.toByte(), 0x00, // red_x = 64000 -> 0.6400
+            0x00, 0x00, 0x80.toByte(), 0xE8.toByte(), // red_y = 33000 -> 0.3300
+            0x00, 0x00, 0x75, 0x30, // green_x = 30000 -> 0.3000
+            0x00, 0x00, 0xEA.toByte(), 0x60, // green_y = 60000 -> 0.6000
+            0x00, 0x00, 0x3A, 0x98.toByte(), // blue_x = 15000 -> 0.1500
+            0x00, 0x00, 0x17, 0x70, // blue_y = 6000 -> 0.0600
+        )
+        val bytes = pngChunk("cHRM", data)
+        readerOver(bytes, "png-walker-chrm").use { reader ->
+            val nodes = parsePngChunks(reader, 0, bytes.size.toLong())
+            val chrm = nodes[0]
+            assertEquals("cHRM", chrm.type)
+            assertEquals("x=0.3127, y=0.3290", chrm.fields.first { it.name == "white_point" }.value)
+            assertEquals("x=0.6400, y=0.3300", chrm.fields.first { it.name == "red" }.value)
+            assertEquals("x=0.3000, y=0.6000", chrm.fields.first { it.name == "green" }.value)
+            assertEquals("x=0.1500, y=0.0600", chrm.fields.first { it.name == "blue" }.value)
+        }
+    }
+
+    @Test
+    fun `decodes sRGB rendering intent`() {
+        val bytes = pngChunk("sRGB", byteArrayOf(0x00)) // 0 = Perceptual
+        readerOver(bytes, "png-walker-srgb").use { reader ->
+            val nodes = parsePngChunks(reader, 0, bytes.size.toLong())
+            val srgb = nodes[0]
+            assertEquals("sRGB", srgb.type)
+            assertEquals("Perceptual", srgb.fields.first { it.name == "rendering_intent" }.value)
+            assertEquals("Perceptual", srgb.summary)
+        }
+    }
+
+    @Test
+    fun `decodes tIME last-modified timestamp`() {
+        val bytes = pngChunk("tIME", byteArrayOf(0x07, 0xE8.toByte(), 0x01, 0x0F, 0x0C, 0x1E, 0x00)) // 2024-01-15 12:30:00
+        readerOver(bytes, "png-walker-time").use { reader ->
+            val nodes = parsePngChunks(reader, 0, bytes.size.toLong())
+            val time = nodes[0]
+            assertEquals("tIME", time.type)
+            assertEquals("2024-01-15 12:30:00 UTC", time.fields.first { it.name == "last_modified" }.value)
+            assertEquals("2024-01-15 12:30:00 UTC", time.summary)
         }
     }
 }
