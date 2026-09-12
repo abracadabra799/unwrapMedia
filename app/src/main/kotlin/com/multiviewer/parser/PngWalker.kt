@@ -191,7 +191,7 @@ private fun decodeTime(reader: ByteReader, offset: Long, dataStart: Long, totalS
     )
 }
 
-private const val ICCP_MAX_DECOMPRESSED_BYTES = 64 * 1024 * 1024 // 64 MB safety cap against a decompression bomb
+private const val ZLIB_MAX_DECOMPRESSED_BYTES = 64 * 1024 * 1024 // 64 MB safety cap against a decompression bomb
 
 // Shared zlib inflate for iCCP/zTXt/iTXt. Returns null (never throws, never hangs)
 // on malformed input or if the output would exceed [maxOutputBytes].
@@ -239,7 +239,7 @@ private fun decodeIccp(reader: ByteReader, offset: Long, dataStart: Long, length
     }
     val compressedStart = compressionMethodPos + 1
     val compressed = reader.readBytes(compressedStart, (dataEnd - compressedStart).toInt())
-    val decompressed = inflateZlib(compressed, ICCP_MAX_DECOMPRESSED_BYTES)
+    val decompressed = inflateZlib(compressed, ZLIB_MAX_DECOMPRESSED_BYTES)
     if (decompressed == null) {
         return BoxNode(
             type = "iCCP", offset = offset, headerSize = 8, size = totalSize,
@@ -276,7 +276,7 @@ private fun decodeZtxt(reader: ByteReader, offset: Long, dataStart: Long, length
         return BoxNode(type = "zTXt", offset = offset, headerSize = 8, size = totalSize, fields = listOf(keywordField), warnings = listOf("Unknown zTXt compression method $compressionMethod"), summary = keyword)
     }
     val compressed = headBytes.copyOfRange(compressionMethodPos + 1, headBytes.size)
-    val decompressed = inflateZlib(compressed, ICCP_MAX_DECOMPRESSED_BYTES)
+    val decompressed = inflateZlib(compressed, ZLIB_MAX_DECOMPRESSED_BYTES)
         ?: return BoxNode(type = "zTXt", offset = offset, headerSize = 8, size = totalSize, fields = listOf(keywordField), warnings = listOf("Failed to decompress zTXt text"), summary = keyword)
     val text = String(decompressed, Charsets.ISO_8859_1)
     return BoxNode(
@@ -337,7 +337,7 @@ private fun decodeItxt(reader: ByteReader, offset: Long, dataStart: Long, length
         return BoxNode(type = "iTXt", offset = offset, headerSize = 8, size = totalSize, fields = baseFields, warnings = listOf("Unknown iTXt compression method $compressionMethod"), summary = keyword)
     }
     val textBytes = if (compressionFlag == 1) {
-        inflateZlib(rawTextBytes, ICCP_MAX_DECOMPRESSED_BYTES)
+        inflateZlib(rawTextBytes, ZLIB_MAX_DECOMPRESSED_BYTES)
             ?: return BoxNode(type = "iTXt", offset = offset, headerSize = 8, size = totalSize, fields = baseFields, warnings = listOf("Failed to decompress iTXt text"), summary = keyword)
     } else {
         rawTextBytes

@@ -308,4 +308,32 @@ class PngWalkerTest {
             assertEquals(true, plte.fields.isEmpty())
         }
     }
+
+    @Test
+    fun `PLTE with more than 8 colors still only previews the first 8`() {
+        // 10 distinct 3-byte RGB entries -- more than the 8-entry preview cap.
+        val data = byteArrayOf(
+            0x01, 0x01, 0x01,
+            0x02, 0x02, 0x02,
+            0x03, 0x03, 0x03,
+            0x04, 0x04, 0x04,
+            0x05, 0x05, 0x05,
+            0x06, 0x06, 0x06,
+            0x07, 0x07, 0x07,
+            0x08, 0x08, 0x08,
+            0x09, 0x09, 0x09,
+            0x0A, 0x0A, 0x0A,
+        )
+        val bytes = pngChunk("PLTE", data)
+        readerOver(bytes, "png-walker-plte-many").use { reader ->
+            val nodes = parsePngChunks(reader, 0, bytes.size.toLong())
+            val plte = nodes[0]
+            assertEquals("PLTE", plte.type)
+            assertEquals("10 colors", plte.summary)
+            assertEquals(8, plte.fields.size)
+            assertEquals("#010101", plte.fields.first { it.name == "color_1" }.value)
+            assertEquals("#080808", plte.fields.first { it.name == "color_8" }.value)
+            assertEquals(true, plte.fields.none { it.name == "color_9" })
+        }
+    }
 }
