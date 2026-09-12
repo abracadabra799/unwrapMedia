@@ -11,7 +11,7 @@ fun parseWebpChunks(reader: ByteReader, start: Long, end: Long): List<BoxNode> {
         headerSize = 8,
         size = 12,
         fields = listOf(
-            BoxField("file_size", (reader.readUInt32(start + 4) + 8).toString(), start + 4, 4),
+            BoxField("file_size", reader.readUInt32LE(start + 4).toString(), start + 4, 4),
             BoxField("webp_identifier", reader.readFourCC(start + 8), start + 8, 4)
         )
     )
@@ -21,7 +21,7 @@ fun parseWebpChunks(reader: ByteReader, start: Long, end: Long): List<BoxNode> {
     var pos = start + 12
     while (pos + 8 <= end) {
         val type = reader.readFourCC(pos)
-        val chunkSize = reader.readUInt32(pos + 4)
+        val chunkSize = reader.readUInt32LE(pos + 4)
         val totalSize = 8 + chunkSize
         val paddedSize = if (chunkSize % 2 == 1L) totalSize + 1 else totalSize
         
@@ -56,8 +56,8 @@ private fun decodeWebpChunk(reader: ByteReader, type: String, offset: Long, payl
         "VP8 " -> {
             if (payloadSize >= 10) {
                 // VP8 bitstream header contains dimensions at offset 6
-                val width = reader.readUInt16(payloadStart + 6) and 0x3FFF
-                val height = reader.readUInt16(payloadStart + 8) and 0x3FFF
+                val width = reader.readUInt16LE(payloadStart + 6) and 0x3FFF
+                val height = reader.readUInt16LE(payloadStart + 8) and 0x3FFF
                 fields.add(BoxField("width", width.toString(), payloadStart + 6, 2))
                 fields.add(BoxField("height", height.toString(), payloadStart + 8, 2))
                 summary = "Lossy, ${width}x${height}"
@@ -89,7 +89,23 @@ private fun decodeWebpChunk(reader: ByteReader, type: String, offset: Long, payl
 // Helper for WebP 24-bit little endian values
 private fun ByteReader.readUInt24(offset: Long): Int {
     val bytes = readBytes(offset, 3)
-    return (bytes[0].toInt() and 0xFF) or 
-           ((bytes[1].toInt() and 0xFF) shl 8) or 
+    return (bytes[0].toInt() and 0xFF) or
+           ((bytes[1].toInt() and 0xFF) shl 8) or
            ((bytes[2].toInt() and 0xFF) shl 16)
+}
+
+// RIFF/WebP stores all its multi-byte integers little-endian (unlike most other
+// formats this parser handles, which is why these live here rather than on the
+// shared ByteReader) -- see readUInt24 above for the existing precedent.
+private fun ByteReader.readUInt16LE(offset: Long): Int {
+    val bytes = readBytes(offset, 2)
+    return (bytes[0].toInt() and 0xFF) or ((bytes[1].toInt() and 0xFF) shl 8)
+}
+
+private fun ByteReader.readUInt32LE(offset: Long): Long {
+    val bytes = readBytes(offset, 4)
+    return (bytes[0].toLong() and 0xFF) or
+        ((bytes[1].toLong() and 0xFF) shl 8) or
+        ((bytes[2].toLong() and 0xFF) shl 16) or
+        ((bytes[3].toLong() and 0xFF) shl 24)
 }
