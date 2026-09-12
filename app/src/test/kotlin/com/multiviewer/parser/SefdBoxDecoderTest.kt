@@ -164,4 +164,72 @@ class SefdBoxDecoderTest {
         assertEquals("2 fields", node.summary)
         reader.close()
     }
+
+    @Test
+    fun `a UTC TimeStamp field (marker 0x0a01) gets a human-readable date alongside the raw epoch value`() {
+        val body = byteArrayOf(
+            0x00, 0x00, 0x01, 0x0a, 0x03, 0x00, 0x00, 0x00,
+            0x55, 0x54, 0x43,
+            0x30,
+            0x53, 0x45, 0x46, 0x48,
+            0x01, 0x00, 0x00, 0x00,
+            0x01, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x01, 0x0a, 0x0c, 0x00, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00,
+            0x18, 0x00, 0x00, 0x00,
+            0x53, 0x45, 0x46, 0x54,
+        )
+        val reader = byteReaderOf(body)
+        val node = SefdBoxDecoder.decode(reader, "sefd", 0, 0, body.size.toLong(), emptyList())
+
+        val field = node.children[0]
+        assertEquals("UTC", field.type)
+        assertEquals("0", field.fields.first { it.name == "value" }.value)
+        assertEquals("1970-01-01 00:00:00 UTC", field.fields.first { it.name == "timestamp_utc" }.value)
+        reader.close()
+    }
+
+    @Test
+    fun `a non-numeric UTC field falls back to raw display with no timestamp_utc field`() {
+        val body = byteArrayOf(
+            0x00, 0x00, 0x01, 0x0a, 0x03, 0x00, 0x00, 0x00,
+            0x55, 0x54, 0x43,
+            0x3f, // "?" -- not a valid epoch integer
+            0x53, 0x45, 0x46, 0x48,
+            0x01, 0x00, 0x00, 0x00,
+            0x01, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x01, 0x0a, 0x0c, 0x00, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00,
+            0x18, 0x00, 0x00, 0x00,
+            0x53, 0x45, 0x46, 0x54,
+        )
+        val reader = byteReaderOf(body)
+        val node = SefdBoxDecoder.decode(reader, "sefd", 0, 0, body.size.toLong(), emptyList())
+
+        val field = node.children[0]
+        assertEquals("?", field.fields.first { it.name == "value" }.value)
+        assertEquals(true, field.fields.none { it.name == "timestamp_utc" })
+        reader.close()
+    }
+
+    @Test
+    fun `an MCC field (marker 0x0aa1) is clearly labeled without a guessed country name`() {
+        val body = byteArrayOf(
+            0x00, 0x00, 0xa1.toByte(), 0x0a, 0x03, 0x00, 0x00, 0x00,
+            0x4d, 0x43, 0x43,
+            0x34, 0x35, 0x30,
+            0x53, 0x45, 0x46, 0x48,
+            0x01, 0x00, 0x00, 0x00,
+            0x01, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0xa1.toByte(), 0x0a, 0x0e, 0x00, 0x00, 0x00, 0x0e, 0x00, 0x00, 0x00,
+            0x18, 0x00, 0x00, 0x00,
+            0x53, 0x45, 0x46, 0x54,
+        )
+        val reader = byteReaderOf(body)
+        val node = SefdBoxDecoder.decode(reader, "sefd", 0, 0, body.size.toLong(), emptyList())
+
+        val field = node.children[0]
+        assertEquals("MCC", field.type)
+        assertEquals("450", field.fields.first { it.name == "value" }.value)
+        assertEquals("Mobile Country Code (MCC)", field.fields.first { it.name == "meaning" }.value)
+        reader.close()
+    }
 }

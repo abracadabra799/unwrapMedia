@@ -1,5 +1,10 @@
 package com.multiviewer.parser
 
+// Known Samsung SEFD trailer field markers (per ExifTool's Samsung.pm trailer
+// table) whose values this decoder interprets semantically instead of showing raw.
+private const val MARKER_UTC_TIMESTAMP = 0x0a01
+private const val MARKER_MCC = 0x0aa1
+
 object SefdBoxDecoder : BoxDecoder {
     override fun decode(
         reader: ByteReader,
@@ -125,9 +130,21 @@ object SefdBoxDecoder : BoxDecoder {
         }
         return if (isPrintable) {
             val value = String(dataBytes, Charsets.UTF_8)
+            val fields = mutableListOf(markerField, BoxField("value", value, dataStart, dataLength.toLong()))
+            if (directoryMarker == MARKER_UTC_TIMESTAMP) {
+                value.trim().toLongOrNull()?.let { epochSeconds ->
+                    val formatted = java.time.Instant.ofEpochSecond(epochSeconds)
+                        .atZone(java.time.ZoneOffset.UTC)
+                        .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss 'UTC'"))
+                    fields.add(BoxField("timestamp_utc", formatted, dataStart, dataLength.toLong()))
+                }
+            }
+            if (directoryMarker == MARKER_MCC) {
+                fields.add(BoxField("meaning", "Mobile Country Code (MCC)", dataStart, 0))
+            }
             BoxNode(
                 type = name, offset = blockStart, headerSize = fieldHeaderSize, size = blockSize,
-                fields = listOf(markerField, BoxField("value", value, dataStart, dataLength.toLong())),
+                fields = fields,
                 warnings = warnings,
                 summary = value,
             )
