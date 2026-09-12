@@ -40,6 +40,7 @@ private fun decodePngChunk(reader: ByteReader, type: String, offset: Long, dataS
         "cHRM" -> decodeChrm(reader, offset, dataStart, totalSize)
         "sRGB" -> decodeSrgb(reader, offset, dataStart, totalSize)
         "tIME" -> decodeTime(reader, offset, dataStart, totalSize)
+        "iCCP" -> decodeIccp(reader, offset, dataStart, length, totalSize)
         else -> BoxNode(type = type, offset = offset, headerSize = 8, size = totalSize)
     }
 
@@ -184,5 +185,73 @@ private fun decodeTime(reader: ByteReader, offset: Long, dataStart: Long, totalS
         type = "tIME", offset = offset, headerSize = 8, size = totalSize,
         fields = listOf(BoxField("last_modified", formatted, dataStart, 7)),
         summary = formatted,
+    )
+}
+
+private const val ICCP_MAX_DECOMPRESSED_BYTES = 64 * 1024 * 1024 // 64 MB safety cap against a decompression bomb
+
+// Shared zlib inflate for iCCP/zTXt/iTXt. Returns null (never throws, never hangs)
+// on malformed input or if the output would exceed [maxOutputBytes].
+private fun inflateZlib(compressed: ByteArray, maxOutputBytes: Int): ByteArray? {
+    val inflater = java.util.zip.Inflater()
+    inflater.setInput(compressed)
+    val out = java.io.ByteArrayOutputStream(minOf(compressed.size * 4, maxOutputBytes))
+    val buf = ByteArray(8192)
+    return try {
+        while (!inflater.finished()) {
+            val n = inflater.inflate(buf)
+            if (n == 0 && (inflater.needsInput() || inflater.needsDictionary())) break
+            out.write(buf, 0, n)
+            if (out.size() > maxOutputBytes) return null
+        }
+        out.toByteArray()
+    } catch (e: java.util.zip.DataFormatException) {
+        null
+    } finally {
+        inflater.end()
+    }
+}
+
+private fun decodeIccp(reader: ByteReader, offset: Long, dataStart: Long, length: Long, totalSize: Long): BoxNode {
+    val dataEnd = dataStart + length
+    val nameBytes = reader.readBytes(dataStart, minOf(length, 80L).toInt())
+    val nullIndex = nameBytes.indexOf(0)
+    if (nullIndex < 0) {
+        return BoxNode(type = "iCCP", offset = offset, headerSize = 8, size = totalSize, warnings = listOf("Missing profile name terminator"))
+    }
+    val profileName = String(nameBytes, 0, nullIndex, Charsets.ISO_8859_1)
+    val nameField = BoxField("profile_name", profileName, dataStart, nullIndex.toLong())
+    val compressionMethodPos = dataStart + nullIndex + 1
+    if (compressionMethodPos >= dataEnd) {
+        return BoxNode(type = "iCCP", offset = offset, headerSize = 8, size = totalSize, fields = listOf(nameField), warnings = listOf("Missing compression method byte"))
+    }
+    val compressionMethod = reader.readUInt8(compressionMethodPos)
+    if (compressionMethod != 0) {
+        return BoxNode(
+            type = "iCCP", offset = offset, headerSize = 8, size = totalSize,
+            fields = listOf(nameField),
+            warnings = listOf("Unknown iCCP compression method $compressionMethod"),
+            summary = profileName,
+        )
+    }
+    val compressedStart = compressionMethodPos + 1
+    val compressed = reader.readBytes(compressedStart, (dataEnd - compressedStart).toInt())
+    val decompressed = inflateZlib(compressed, ICCP_MAX_DECOMPRESSED_BYTES)
+    if (decompressed == null) {
+        return BoxNode(
+            type = "iCCP", offset = offset, headerSize = 8, size = totalSize,
+            fields = listOf(nameField),
+            warnings = listOf("Failed to decompress ICC profile data"),
+            summary = profileName,
+        )
+    }
+    val fields = mutableListOf(nameField)
+    if (decompressed.size >= 128) {
+        fields.addAll(decodeIccProfileHeader(decompressed, dataStart))
+    }
+    return BoxNode(
+        type = "iCCP", offset = offset, headerSize = 8, size = totalSize,
+        fields = fields,
+        summary = "$profileName (${decompressed.size} bytes decompressed)",
     )
 }

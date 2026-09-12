@@ -189,4 +189,51 @@ class PngWalkerTest {
             assertEquals("2024-01-15 12:30:00 UTC", time.summary)
         }
     }
+
+    @Test
+    fun `decodes iCCP by inflating the profile and reusing the ICC header parser`() {
+        // Profile name "sRGB" + NUL + compression_method=0 + zlib-compressed 128-byte
+        // ICC header (profile_size=142, cmm_type=APPL, version=2.1.0, profile_class=mntr,
+        // data_colour_space=RGB, pcs=XYZ, date_time_created=2024-01-01, primary_platform=APPL,
+        // rendering_intent=0 Perceptual, illuminant D50, profile_creator=APPL) --
+        // the same field values Phase 1's JpegWalkerTest ICC test already covers.
+        val nameAndMethod = byteArrayOf(0x73, 0x52, 0x47, 0x42, 0x00, 0x00) // "sRGB\0" + compression_method=0
+        val compressedHeader = byteArrayOf(
+            0x78, 0xda.toByte(), 0x63, 0x60, 0x60, 0xe8.toByte(), 0x73, 0x0c, 0x08, 0xf0.toByte(),
+            0x61, 0x12, 0x60, 0x60, 0xc8.toByte(), 0xcd.toByte(), 0x2b, 0x29, 0x0a, 0x72, 0x77,
+            0x52, 0x88.toByte(), 0x88.toByte(), 0x8c.toByte(), 0x52, 0x60, 0x7f, 0xc1.toByte(),
+            0xc0.toByte(), 0x08, 0x84.toByte(), 0x60, 0x90.toByte(), 0x98.toByte(), 0x5c, 0x5c,
+            0x00, 0x52, 0x03, 0x62, 0xc3.toByte(), 0x68, 0x54, 0xf0.toByte(), 0xed.toByte(), 0x1a,
+            0x44, 0xed.toByte(), 0x65, 0x5d, 0xec.toByte(), 0xf2.toByte(), 0xb8.toByte(), 0x01,
+            0x00, 0x18, 0xe8.toByte(), 0x0e, 0xa1.toByte(),
+        )
+        val bytes = pngChunk("iCCP", nameAndMethod + compressedHeader)
+        readerOver(bytes, "png-walker-iccp").use { reader ->
+            val nodes = parsePngChunks(reader, 0, bytes.size.toLong())
+            val iccp = nodes[0]
+            assertEquals("iCCP", iccp.type)
+            assertEquals("sRGB", iccp.fields.first { it.name == "profile_name" }.value)
+            assertEquals("142 bytes", iccp.fields.first { it.name == "profile_size" }.value)
+            assertEquals("APPL", iccp.fields.first { it.name == "cmm_type" }.value)
+            assertEquals("2.1.0", iccp.fields.first { it.name == "version" }.value)
+            assertEquals("mntr", iccp.fields.first { it.name == "profile_class" }.value)
+            assertEquals("RGB", iccp.fields.first { it.name == "data_colour_space" }.value)
+            assertEquals("2024-01-01 00:00:00 UTC", iccp.fields.first { it.name == "date_time_created" }.value)
+            assertEquals("Perceptual", iccp.fields.first { it.name == "rendering_intent" }.value)
+            assertEquals("X=0.9642, Y=1.0000, Z=0.8249", iccp.fields.first { it.name == "pcs_illuminant" }.value)
+        }
+    }
+
+    @Test
+    fun `an iCCP chunk with an unknown compression method is not decompressed`() {
+        val data = byteArrayOf(0x78, 0x00, 0x01) + byteArrayOf(0xAA.toByte(), 0xAA.toByte()) // "x\0" + compression_method=1 (unknown) + arbitrary bytes
+        val bytes = pngChunk("iCCP", data)
+        readerOver(bytes, "png-walker-iccp-unknown").use { reader ->
+            val nodes = parsePngChunks(reader, 0, bytes.size.toLong())
+            val iccp = nodes[0]
+            assertEquals("x", iccp.fields.first { it.name == "profile_name" }.value)
+            assertEquals(true, iccp.warnings.isNotEmpty())
+            assertEquals(true, iccp.fields.none { it.name == "profile_size" })
+        }
+    }
 }
