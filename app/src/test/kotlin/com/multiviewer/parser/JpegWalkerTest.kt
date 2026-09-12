@@ -638,4 +638,101 @@ class JpegWalkerTest {
         assertEquals(0, segments[1].fields.size)
         reader.close()
     }
+
+    @Test
+    fun `APP2 ICC profile first chunk parses the full 128-byte header`() {
+        val bytes = byteArrayOf(
+            0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xe2.toByte(), 0x00, 0x90.toByte(),
+            // "ICC_PROFILE\0"
+            0x49, 0x43, 0x43, 0x5f, 0x50, 0x52, 0x4f, 0x46, 0x49, 0x4c, 0x45, 0x00,
+            // chunk_sequence_number=1, chunk_count=1
+            0x01, 0x01,
+            // --- 128-byte ICC header ---
+            0x00, 0x00, 0x00, 0x8e.toByte(),    // profile_size = 142
+            0x41, 0x50, 0x50, 0x4c,             // cmm_type = "APPL"
+            0x02, 0x10, 0x00, 0x00,             // version = 2.1.0
+            0x6d, 0x6e, 0x74, 0x72,             // profile_class = "mntr"
+            0x52, 0x47, 0x42, 0x20,             // data_colour_space = "RGB "
+            0x58, 0x59, 0x5a, 0x20,             // pcs = "XYZ "
+            0x07, 0xe8.toByte(), 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // date_time_created = 2024-01-01 00:00:00
+            0x61, 0x63, 0x73, 0x70,             // "acsp" signature
+            0x41, 0x50, 0x50, 0x4c,             // primary_platform = "APPL"
+            0x00, 0x00, 0x00, 0x00,             // profile_flags = 0
+            0x41, 0x50, 0x50, 0x4c,             // device_manufacturer = "APPL"
+            0x00, 0x00, 0x00, 0x00,             // device_model = (unspecified)
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // device_attributes = 0
+            0x00, 0x00, 0x00, 0x00,             // rendering_intent = 0 (Perceptual)
+            0x00, 0x00, 0xf6.toByte(), 0xd4.toByte(), // illuminant X = 0.9642
+            0x00, 0x01, 0x00, 0x00,             // illuminant Y = 1.0000
+            0x00, 0x00, 0xd3.toByte(), 0x2d,    // illuminant Z = 0.8249
+            0x41, 0x50, 0x50, 0x4c,             // profile_creator = "APPL"
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // profile_id = (not set)
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 28 reserved bytes
+            0xff.toByte(), 0xd9.toByte(),
+        )
+        val reader = byteReaderOf(bytes)
+        val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
+
+        val app2 = segments[1]
+        assertEquals("APP2", app2.type)
+        fun field(name: String) = app2.fields.first { it.name == name }.value
+        assertEquals("1", field("chunk_sequence_number"))
+        assertEquals("1", field("chunk_count"))
+        assertEquals("142 bytes", field("profile_size"))
+        assertEquals("APPL", field("cmm_type"))
+        assertEquals("2.1.0", field("version"))
+        assertEquals("mntr", field("profile_class"))
+        assertEquals("RGB", field("data_colour_space"))
+        assertEquals("XYZ", field("pcs"))
+        assertEquals("2024-01-01 00:00:00 UTC", field("date_time_created"))
+        assertEquals("APPL", field("primary_platform"))
+        assertEquals("APPL", field("device_manufacturer"))
+        assertEquals("(unspecified)", field("device_model"))
+        assertEquals("Perceptual", field("rendering_intent"))
+        assertEquals("X=0.9642, Y=1.0000, Z=0.8249", field("pcs_illuminant"))
+        assertEquals("APPL", field("profile_creator"))
+        assertEquals("(not set)", field("profile_id"))
+        assertEquals("ICC Profile v2.1.0 (142 bytes)", app2.summary)
+        reader.close()
+    }
+
+    @Test
+    fun `APP2 ICC profile continuation chunk does not attempt a header parse`() {
+        val bytes = byteArrayOf(
+            0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xe2.toByte(), 0x00, 0x1a,
+            0x49, 0x43, 0x43, 0x5f, 0x50, 0x52, 0x4f, 0x46, 0x49, 0x4c, 0x45, 0x00,
+            0x02, 0x02, // chunk_sequence_number=2, chunk_count=2
+            0xaa.toByte(), 0xaa.toByte(), 0xaa.toByte(), 0xaa.toByte(), 0xaa.toByte(),
+            0xaa.toByte(), 0xaa.toByte(), 0xaa.toByte(), 0xaa.toByte(), 0xaa.toByte(),
+            0xff.toByte(), 0xd9.toByte(),
+        )
+        val reader = byteReaderOf(bytes)
+        val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
+
+        val app2 = segments[1]
+        assertEquals("2", app2.fields.first { it.name == "chunk_sequence_number" }.value)
+        assertEquals("2", app2.fields.first { it.name == "chunk_count" }.value)
+        assertEquals(true, app2.fields.none { it.name == "version" })
+        assertEquals("ICC Profile chunk 2 of 2 (continuation, 24 bytes)", app2.summary)
+        reader.close()
+    }
+
+    @Test
+    fun `APP2 ICC profile with truncated header data does not crash`() {
+        val bytes = byteArrayOf(
+            0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xe2.toByte(), 0x00, 0x1a,
+            0x49, 0x43, 0x43, 0x5f, 0x50, 0x52, 0x4f, 0x46, 0x49, 0x4c, 0x45, 0x00,
+            0x01, 0x01, // chunk_sequence_number=1, chunk_count=1, but only 10 bytes follow (< 128)
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xff.toByte(), 0xd9.toByte(),
+        )
+        val reader = byteReaderOf(bytes)
+        val segments = parseJpegSegments(reader, 0, bytes.size.toLong())
+
+        val app2 = segments[1]
+        assertEquals(true, app2.fields.none { it.name == "version" })
+        assertEquals("1", app2.fields.first { it.name == "chunk_sequence_number" }.value)
+        reader.close()
+    }
 }
