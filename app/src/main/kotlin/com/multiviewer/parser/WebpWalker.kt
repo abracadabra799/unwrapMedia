@@ -11,7 +11,7 @@ fun parseWebpChunks(reader: ByteReader, start: Long, end: Long): List<BoxNode> {
         headerSize = 8,
         size = 12,
         fields = listOf(
-            BoxField("file_size", reader.readUInt32LE(start + 4).toString(), start + 4, 4),
+            BoxField("file_size", (reader.readUInt32LE(start + 4) + 8).toString(), start + 4, 4),
             BoxField("webp_identifier", reader.readFourCC(start + 8), start + 8, 4)
         )
     )

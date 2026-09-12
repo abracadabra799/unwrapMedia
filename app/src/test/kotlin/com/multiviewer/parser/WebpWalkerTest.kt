@@ -32,7 +32,7 @@ class WebpWalkerTest {
             val nodes = parseWebpChunks(reader, 0, bytes.size.toLong())
             assertEquals(2, nodes.size)
             val riff = nodes[0]
-            assertEquals("22", riff.fields.first { it.name == "file_size" }.value)
+            assertEquals("30", riff.fields.first { it.name == "file_size" }.value)
             val vp8 = nodes[1]
             assertEquals("VP8 ", vp8.type)
             assertEquals("100", vp8.fields.first { it.name == "width" }.value)
