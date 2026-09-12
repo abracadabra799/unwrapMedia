@@ -317,6 +317,33 @@ class WebpWalkerTest {
     }
 
     @Test
+    fun `ANMF flags with only the blending bit set produces do-not-blend and do-not-dispose, unaffected by reserved bits`() {
+        // 0xFE = 0b11111110: all 6 reserved bits set (proving they don't leak
+        // into either label) + blending bit (0x02) set + disposal bit (0x01) clear.
+        // This is deliberately asymmetric -- unlike the existing 0x03/0x00 tests,
+        // a blending<->disposal bit-mask swap in production code would fail this.
+        val bytes = byteArrayOf(
+            0x52, 0x49, 0x46, 0x46,
+            0x00, 0x00, 0x00, 0x00,
+            0x57, 0x45, 0x42, 0x50,
+            0x41, 0x4e, 0x4d, 0x46,
+            0x10, 0x00, 0x00, 0x00, // chunk_size = 16 (header only)
+            0x00, 0x00, 0x00, // frame_x raw = 0
+            0x00, 0x00, 0x00, // frame_y raw = 0
+            0x00, 0x00, 0x00, // width_minus_one = 0
+            0x00, 0x00, 0x00, // height_minus_one = 0
+            0x00, 0x00, 0x00, // duration raw = 0
+            0xfe.toByte(), // flags = 0b11111110
+        )
+        byteReaderOf(bytes, "webp-walker-anmf-asymmetric-flags").use { reader ->
+            val nodes = parseWebpChunks(reader, 0, bytes.size.toLong())
+            val anmf = nodes[1]
+            assertEquals("Do not blend", anmf.fields.first { it.name == "blending" }.value)
+            assertEquals("Do not dispose", anmf.fields.first { it.name == "disposal" }.value)
+        }
+    }
+
+    @Test
     fun `ANMF shorter than 16 bytes produces a warning and no fields`() {
         val bytes = byteArrayOf(
             0x52, 0x49, 0x46, 0x46,
