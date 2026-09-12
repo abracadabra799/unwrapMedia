@@ -333,4 +333,84 @@ class WebpWalkerTest {
             assertEquals(listOf("ANMF chunk too short to contain its frame header"), anmf.warnings)
         }
     }
+
+    private fun alphBytes(headerByte: Byte): ByteArray = byteArrayOf(
+        0x52, 0x49, 0x46, 0x46, // "RIFF"
+        0x00, 0x00, 0x00, 0x00, // file_size (not asserted in these tests)
+        0x57, 0x45, 0x42, 0x50, // "WEBP"
+        0x41, 0x4c, 0x50, 0x48, // "ALPH"
+        0x01, 0x00, 0x00, 0x00, // chunk_size = 1
+        headerByte,
+    )
+
+    @Test
+    fun `ALPH decodes all four preprocessing values`() {
+        val labels = listOf("None", "Level reduction", "Reserved (2)", "Reserved (3)")
+        for (value in 0..3) {
+            val bytes = alphBytes((value shl 4).toByte())
+            byteReaderOf(bytes, "webp-walker-alph-preprocessing-$value").use { reader ->
+                val nodes = parseWebpChunks(reader, 0, bytes.size.toLong())
+                val alph = nodes[1]
+                assertEquals(labels[value], alph.fields.first { it.name == "preprocessing" }.value)
+            }
+        }
+    }
+
+    @Test
+    fun `ALPH decodes all four filtering_method values`() {
+        val labels = listOf("None", "Horizontal", "Vertical", "Gradient")
+        for (value in 0..3) {
+            val bytes = alphBytes((value shl 2).toByte())
+            byteReaderOf(bytes, "webp-walker-alph-filtering-$value").use { reader ->
+                val nodes = parseWebpChunks(reader, 0, bytes.size.toLong())
+                val alph = nodes[1]
+                assertEquals(labels[value], alph.fields.first { it.name == "filtering_method" }.value)
+            }
+        }
+    }
+
+    @Test
+    fun `ALPH decodes all four compression_method values`() {
+        val labels = listOf("None", "Lossless (WebP)", "Reserved (2)", "Reserved (3)")
+        for (value in 0..3) {
+            val bytes = alphBytes(value.toByte())
+            byteReaderOf(bytes, "webp-walker-alph-compression-$value").use { reader ->
+                val nodes = parseWebpChunks(reader, 0, bytes.size.toLong())
+                val alph = nodes[1]
+                assertEquals(labels[value], alph.fields.first { it.name == "compression_method" }.value)
+            }
+        }
+    }
+
+    @Test
+    fun `ALPH exposes non-zero reserved bits and builds a combined summary`() {
+        // byte 0b11_01_10_11: reserved=3, preprocessing=1, filtering=2, compression=3
+        val bytes = alphBytes(0xdb.toByte())
+        byteReaderOf(bytes, "webp-walker-alph-combined").use { reader ->
+            val nodes = parseWebpChunks(reader, 0, bytes.size.toLong())
+            val alph = nodes[1]
+            assertEquals("3", alph.fields.first { it.name == "reserved" }.value)
+            assertEquals("Level reduction", alph.fields.first { it.name == "preprocessing" }.value)
+            assertEquals("Vertical", alph.fields.first { it.name == "filtering_method" }.value)
+            assertEquals("Reserved (3)", alph.fields.first { it.name == "compression_method" }.value)
+            assertEquals("Vertical filtering, Reserved (3) compression", alph.summary)
+        }
+    }
+
+    @Test
+    fun `ALPH with an empty payload produces a warning and no fields`() {
+        val bytes = byteArrayOf(
+            0x52, 0x49, 0x46, 0x46,
+            0x00, 0x00, 0x00, 0x00,
+            0x57, 0x45, 0x42, 0x50,
+            0x41, 0x4c, 0x50, 0x48,
+            0x00, 0x00, 0x00, 0x00, // chunk_size = 0
+        )
+        byteReaderOf(bytes, "webp-walker-alph-empty").use { reader ->
+            val nodes = parseWebpChunks(reader, 0, bytes.size.toLong())
+            val alph = nodes[1]
+            assertEquals(0, alph.fields.size)
+            assertEquals(listOf("ALPH chunk too short to contain its header byte"), alph.warnings)
+        }
+    }
 }

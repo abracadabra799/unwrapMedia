@@ -145,6 +145,42 @@ private fun decodeWebpChunk(reader: ByteReader, type: String, offset: Long, payl
                 summary = "${width}x${height}, ${durationMs}ms (frame data: $frameDataSize bytes, not parsed)",
             )
         }
+        "ALPH" -> {
+            if (payloadSize < 1) {
+                return BoxNode(type = type, offset = offset, headerSize = 8, size = totalSize, warnings = listOf("ALPH chunk too short to contain its header byte"))
+            }
+            val byte = reader.readUInt8(payloadStart)
+            val reserved = (byte shr 6) and 0x3
+            val preprocessing = (byte shr 4) and 0x3
+            val filteringMethod = (byte shr 2) and 0x3
+            val compressionMethod = byte and 0x3
+            val preprocessingLabel = when (preprocessing) {
+                0 -> "None"
+                1 -> "Level reduction"
+                else -> "Reserved ($preprocessing)"
+            }
+            val filteringLabel = when (filteringMethod) {
+                0 -> "None"
+                1 -> "Horizontal"
+                2 -> "Vertical"
+                else -> "Gradient"
+            }
+            val compressionLabel = when (compressionMethod) {
+                0 -> "None"
+                1 -> "Lossless (WebP)"
+                else -> "Reserved ($compressionMethod)"
+            }
+            return BoxNode(
+                type = type, offset = offset, headerSize = 8, size = totalSize,
+                fields = listOf(
+                    BoxField("reserved", reserved.toString(), payloadStart, 1),
+                    BoxField("preprocessing", preprocessingLabel, payloadStart, 1),
+                    BoxField("filtering_method", filteringLabel, payloadStart, 1),
+                    BoxField("compression_method", compressionLabel, payloadStart, 1),
+                ),
+                summary = "$filteringLabel filtering, $compressionLabel compression",
+            )
+        }
     }
 
     return BoxNode(type = type, offset = offset, headerSize = 8, size = totalSize, fields = fields, summary = summary)
