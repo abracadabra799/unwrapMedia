@@ -236,4 +236,46 @@ class PngWalkerTest {
             assertEquals(true, iccp.fields.none { it.name == "profile_size" })
         }
     }
+
+    @Test
+    fun `decodes zTXt by inflating the compressed text`() {
+        // keyword "Comment" + NUL + compression_method=0 + zlib-compressed "Made with unwrapMedia"
+        val keywordAndMethod = "Comment".toByteArray(Charsets.ISO_8859_1) + byteArrayOf(0x00, 0x00)
+        val compressedText = byteArrayOf(
+            0x78, 0xda.toByte(), 0xf3.toByte(), 0x4d, 0x4c, 0x49, 0x55, 0x28, 0xcf.toByte(),
+            0x2c, 0xc9.toByte(), 0x50, 0x28, 0xcd.toByte(), 0x2b, 0x2f, 0x4a, 0x2c, 0xf0.toByte(),
+            0x4d, 0x4d, 0xc9.toByte(), 0x4c, 0x04, 0x00, 0x55, 0x24, 0x07, 0xf1.toByte(),
+        )
+        val bytes = pngChunk("zTXt", keywordAndMethod + compressedText)
+        readerOver(bytes, "png-walker-ztxt").use { reader ->
+            val nodes = parsePngChunks(reader, 0, bytes.size.toLong())
+            val ztxt = nodes[0]
+            assertEquals("zTXt", ztxt.type)
+            assertEquals("Comment", ztxt.fields.first { it.name == "keyword" }.value)
+            assertEquals("Made with unwrapMedia", ztxt.fields.first { it.name == "text" }.value)
+            assertEquals("Comment: Made with unwrapMedia", ztxt.summary)
+        }
+    }
+
+    @Test
+    fun `decodes uncompressed iTXt with non-ASCII text`() {
+        // keyword "Comment" + NUL + compression_flag=0 + compression_method=0 +
+        // language_tag "" + NUL + translated_keyword "" + NUL + UTF-8 text "밝게 편집됨"
+        val head = "Comment".toByteArray(Charsets.ISO_8859_1) +
+            byteArrayOf(0x00) + // keyword NUL terminator
+            byteArrayOf(0x00, 0x00) + // compression_flag=0, compression_method=0
+            byteArrayOf(0x00) + // empty language_tag + NUL
+            byteArrayOf(0x00) // empty translated_keyword + NUL
+        val text = "밝게 편집됨".toByteArray(Charsets.UTF_8)
+        val bytes = pngChunk("iTXt", head + text)
+        readerOver(bytes, "png-walker-itxt").use { reader ->
+            val nodes = parsePngChunks(reader, 0, bytes.size.toLong())
+            val itxt = nodes[0]
+            assertEquals("iTXt", itxt.type)
+            assertEquals("Comment", itxt.fields.first { it.name == "keyword" }.value)
+            assertEquals("", itxt.fields.first { it.name == "language_tag" }.value)
+            assertEquals("", itxt.fields.first { it.name == "translated_keyword" }.value)
+            assertEquals("밝게 편집됨", itxt.fields.first { it.name == "text" }.value)
+        }
+    }
 }

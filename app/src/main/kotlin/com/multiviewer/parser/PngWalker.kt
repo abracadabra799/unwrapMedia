@@ -41,6 +41,8 @@ private fun decodePngChunk(reader: ByteReader, type: String, offset: Long, dataS
         "sRGB" -> decodeSrgb(reader, offset, dataStart, totalSize)
         "tIME" -> decodeTime(reader, offset, dataStart, totalSize)
         "iCCP" -> decodeIccp(reader, offset, dataStart, length, totalSize)
+        "zTXt" -> decodeZtxt(reader, offset, dataStart, length, totalSize)
+        "iTXt" -> decodeItxt(reader, offset, dataStart, length, totalSize)
         else -> BoxNode(type = type, offset = offset, headerSize = 8, size = totalSize)
     }
 
@@ -253,5 +255,96 @@ private fun decodeIccp(reader: ByteReader, offset: Long, dataStart: Long, length
         type = "iCCP", offset = offset, headerSize = 8, size = totalSize,
         fields = fields,
         summary = "$profileName (${decompressed.size} bytes decompressed)",
+    )
+}
+
+private fun decodeZtxt(reader: ByteReader, offset: Long, dataStart: Long, length: Long, totalSize: Long): BoxNode {
+    val headBytes = reader.readBytes(dataStart, length.toInt())
+    val nullIndex = headBytes.indexOf(0)
+    if (nullIndex < 0) {
+        return BoxNode(type = "zTXt", offset = offset, headerSize = 8, size = totalSize, warnings = listOf("Missing keyword terminator"))
+    }
+    val keyword = String(headBytes, 0, nullIndex, Charsets.ISO_8859_1)
+    val keywordField = BoxField("keyword", keyword, dataStart, nullIndex.toLong())
+    val compressionMethodPos = nullIndex + 1
+    if (compressionMethodPos >= headBytes.size) {
+        return BoxNode(type = "zTXt", offset = offset, headerSize = 8, size = totalSize, fields = listOf(keywordField), warnings = listOf("Missing compression method byte"))
+    }
+    val compressionMethod = headBytes[compressionMethodPos].toInt() and 0xFF
+    if (compressionMethod != 0) {
+        return BoxNode(type = "zTXt", offset = offset, headerSize = 8, size = totalSize, fields = listOf(keywordField), warnings = listOf("Unknown zTXt compression method $compressionMethod"), summary = keyword)
+    }
+    val compressed = headBytes.copyOfRange(compressionMethodPos + 1, headBytes.size)
+    val decompressed = inflateZlib(compressed, ICCP_MAX_DECOMPRESSED_BYTES)
+        ?: return BoxNode(type = "zTXt", offset = offset, headerSize = 8, size = totalSize, fields = listOf(keywordField), warnings = listOf("Failed to decompress zTXt text"), summary = keyword)
+    val text = String(decompressed, Charsets.ISO_8859_1)
+    return BoxNode(
+        type = "zTXt", offset = offset, headerSize = 8, size = totalSize,
+        fields = listOf(keywordField, BoxField("text", text, dataStart + compressionMethodPos + 1, compressed.size.toLong())),
+        summary = "$keyword: $text",
+    )
+}
+
+// Kotlin's stdlib ByteArray.indexOf(element) has no start-index overload; iTXt needs one
+// to find the language-tag and translated-keyword terminators after the first NUL.
+private fun ByteArray.indexOf(element: Byte, startIndex: Int): Int {
+    for (i in startIndex until size) {
+        if (this[i] == element) return i
+    }
+    return -1
+}
+
+private fun decodeItxt(reader: ByteReader, offset: Long, dataStart: Long, length: Long, totalSize: Long): BoxNode {
+    val bytes = reader.readBytes(dataStart, length.toInt())
+
+    val keywordEnd = bytes.indexOf(0)
+    if (keywordEnd < 0) {
+        return BoxNode(type = "iTXt", offset = offset, headerSize = 8, size = totalSize, warnings = listOf("Missing keyword terminator"))
+    }
+    val keyword = String(bytes, 0, keywordEnd, Charsets.ISO_8859_1)
+
+    val flagsStart = keywordEnd + 1
+    if (flagsStart + 2 > bytes.size) {
+        return BoxNode(type = "iTXt", offset = offset, headerSize = 8, size = totalSize, warnings = listOf("Missing compression flag/method"))
+    }
+    val compressionFlag = bytes[flagsStart].toInt() and 0xFF
+    val compressionMethod = bytes[flagsStart + 1].toInt() and 0xFF
+
+    val langStart = flagsStart + 2
+    val langEnd = bytes.indexOf(0, langStart)
+    if (langEnd < 0) {
+        return BoxNode(type = "iTXt", offset = offset, headerSize = 8, size = totalSize, warnings = listOf("Missing language tag terminator"))
+    }
+    val languageTag = String(bytes, langStart, langEnd - langStart, Charsets.US_ASCII)
+
+    val translatedStart = langEnd + 1
+    val translatedEnd = bytes.indexOf(0, translatedStart)
+    if (translatedEnd < 0) {
+        return BoxNode(type = "iTXt", offset = offset, headerSize = 8, size = totalSize, warnings = listOf("Missing translated keyword terminator"))
+    }
+    val translatedKeyword = String(bytes, translatedStart, translatedEnd - translatedStart, Charsets.UTF_8)
+
+    val baseFields = listOf(
+        BoxField("keyword", keyword, dataStart, keywordEnd.toLong()),
+        BoxField("language_tag", languageTag, dataStart + langStart, (langEnd - langStart).toLong()),
+        BoxField("translated_keyword", translatedKeyword, dataStart + translatedStart, (translatedEnd - translatedStart).toLong()),
+    )
+
+    val textStart = translatedEnd + 1
+    val rawTextBytes = bytes.copyOfRange(textStart, bytes.size)
+    if (compressionFlag == 1 && compressionMethod != 0) {
+        return BoxNode(type = "iTXt", offset = offset, headerSize = 8, size = totalSize, fields = baseFields, warnings = listOf("Unknown iTXt compression method $compressionMethod"), summary = keyword)
+    }
+    val textBytes = if (compressionFlag == 1) {
+        inflateZlib(rawTextBytes, ICCP_MAX_DECOMPRESSED_BYTES)
+            ?: return BoxNode(type = "iTXt", offset = offset, headerSize = 8, size = totalSize, fields = baseFields, warnings = listOf("Failed to decompress iTXt text"), summary = keyword)
+    } else {
+        rawTextBytes
+    }
+    val text = String(textBytes, Charsets.UTF_8)
+    return BoxNode(
+        type = "iTXt", offset = offset, headerSize = 8, size = totalSize,
+        fields = baseFields + BoxField("text", text, dataStart + textStart, rawTextBytes.size.toLong()),
+        summary = "$keyword: $text",
     )
 }
