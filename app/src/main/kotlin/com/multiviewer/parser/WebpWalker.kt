@@ -118,6 +118,33 @@ private fun decodeWebpChunk(reader: ByteReader, type: String, offset: Long, payl
                 summary = "Loop count: $loopCountLabel",
             )
         }
+        "ANMF" -> {
+            if (payloadSize < 16) {
+                return BoxNode(type = type, offset = offset, headerSize = 8, size = totalSize, warnings = listOf("ANMF chunk too short to contain its frame header"))
+            }
+            val frameX = reader.readUInt24(payloadStart) * 2
+            val frameY = reader.readUInt24(payloadStart + 3) * 2
+            val width = reader.readUInt24(payloadStart + 6) + 1
+            val height = reader.readUInt24(payloadStart + 9) + 1
+            val durationMs = reader.readUInt24(payloadStart + 12)
+            val flags = reader.readUInt8(payloadStart + 15)
+            val blending = if (flags and 0x02 != 0) "Do not blend" else "Blend"
+            val disposal = if (flags and 0x01 != 0) "Dispose to background" else "Do not dispose"
+            val frameDataSize = payloadSize - 16
+            return BoxNode(
+                type = type, offset = offset, headerSize = 8, size = totalSize,
+                fields = listOf(
+                    BoxField("frame_x", frameX.toString(), payloadStart, 3),
+                    BoxField("frame_y", frameY.toString(), payloadStart + 3, 3),
+                    BoxField("width", width.toString(), payloadStart + 6, 3),
+                    BoxField("height", height.toString(), payloadStart + 9, 3),
+                    BoxField("duration_ms", durationMs.toString(), payloadStart + 12, 3),
+                    BoxField("blending", blending, payloadStart + 15, 1),
+                    BoxField("disposal", disposal, payloadStart + 15, 1),
+                ),
+                summary = "${width}x${height}, ${durationMs}ms (frame data: $frameDataSize bytes, not parsed)",
+            )
+        }
     }
 
     return BoxNode(type = type, offset = offset, headerSize = 8, size = totalSize, fields = fields, summary = summary)

@@ -260,4 +260,77 @@ class WebpWalkerTest {
             assertEquals(listOf("ANIM chunk too short to contain background color and loop count"), anim.warnings)
         }
     }
+
+    @Test
+    fun `ANMF decodes its 16-byte frame header and summarizes the unparsed frame data`() {
+        val bytes = byteArrayOf(
+            0x52, 0x49, 0x46, 0x46, // "RIFF"
+            0x00, 0x00, 0x00, 0x00, // file_size (not asserted in this test)
+            0x57, 0x45, 0x42, 0x50, // "WEBP"
+            0x41, 0x4e, 0x4d, 0x46, // "ANMF"
+            0x14, 0x00, 0x00, 0x00, // chunk_size = 20 (LE) -- 16-byte header + 4 bytes of unparsed frame data
+            0x05, 0x00, 0x00, // frame_x raw = 5 -> frame_x = 10 (raw * 2)
+            0x03, 0x00, 0x00, // frame_y raw = 3 -> frame_y = 6
+            0x9f.toByte(), 0x00, 0x00, // width_minus_one = 159 -> width = 160
+            0x77, 0x00, 0x00, // height_minus_one = 119 -> height = 120
+            0x64, 0x00, 0x00, // duration raw = 100 -> duration_ms = 100
+            0x03, // flags: bit1 (blending) = 1, bit0 (disposal) = 1
+            0xde.toByte(), 0xad.toByte(), 0xbe.toByte(), 0xef.toByte(), // 4 bytes of unparsed frame sub-chunk data
+        )
+        byteReaderOf(bytes, "webp-walker-anmf").use { reader ->
+            val nodes = parseWebpChunks(reader, 0, bytes.size.toLong())
+            val anmf = nodes[1]
+            assertEquals("ANMF", anmf.type)
+            assertEquals("10", anmf.fields.first { it.name == "frame_x" }.value)
+            assertEquals("6", anmf.fields.first { it.name == "frame_y" }.value)
+            assertEquals("160", anmf.fields.first { it.name == "width" }.value)
+            assertEquals("120", anmf.fields.first { it.name == "height" }.value)
+            assertEquals("100", anmf.fields.first { it.name == "duration_ms" }.value)
+            assertEquals("Do not blend", anmf.fields.first { it.name == "blending" }.value)
+            assertEquals("Dispose to background", anmf.fields.first { it.name == "disposal" }.value)
+            assertEquals("160x120, 100ms (frame data: 4 bytes, not parsed)", anmf.summary)
+        }
+    }
+
+    @Test
+    fun `ANMF flags of zero mean blend and do not dispose`() {
+        val bytes = byteArrayOf(
+            0x52, 0x49, 0x46, 0x46,
+            0x00, 0x00, 0x00, 0x00,
+            0x57, 0x45, 0x42, 0x50,
+            0x41, 0x4e, 0x4d, 0x46,
+            0x10, 0x00, 0x00, 0x00, // chunk_size = 16 (header only, no trailing frame data)
+            0x00, 0x00, 0x00, // frame_x raw = 0
+            0x00, 0x00, 0x00, // frame_y raw = 0
+            0x00, 0x00, 0x00, // width_minus_one = 0 -> width = 1
+            0x00, 0x00, 0x00, // height_minus_one = 0 -> height = 1
+            0x00, 0x00, 0x00, // duration raw = 0
+            0x00, // flags = 0
+        )
+        byteReaderOf(bytes, "webp-walker-anmf-zero-flags").use { reader ->
+            val nodes = parseWebpChunks(reader, 0, bytes.size.toLong())
+            val anmf = nodes[1]
+            assertEquals("Blend", anmf.fields.first { it.name == "blending" }.value)
+            assertEquals("Do not dispose", anmf.fields.first { it.name == "disposal" }.value)
+            assertEquals("1x1, 0ms (frame data: 0 bytes, not parsed)", anmf.summary)
+        }
+    }
+
+    @Test
+    fun `ANMF shorter than 16 bytes produces a warning and no fields`() {
+        val bytes = byteArrayOf(
+            0x52, 0x49, 0x46, 0x46,
+            0x00, 0x00, 0x00, 0x00,
+            0x57, 0x45, 0x42, 0x50,
+            0x41, 0x4e, 0x4d, 0x46,
+            0x0a, 0x00, 0x00, 0x00, // chunk_size = 10 (too short for the 16-byte header)
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a,
+        )
+        byteReaderOf(bytes, "webp-walker-anmf-short").use { reader ->
+            val nodes = parseWebpChunks(reader, 0, bytes.size.toLong())
+            val anmf = nodes[1]
+            assertEquals(0, anmf.fields.size)
+            assertEquals(listOf("ANMF chunk too short to contain its frame header"), anmf.warnings)
+        }
+    }
 }
