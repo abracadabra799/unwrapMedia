@@ -187,4 +187,98 @@ class BmpWalkerTest {
             assertTrue(nodes[0].warnings.isNotEmpty())
         }
     }
+
+    @Test
+    fun `BITMAPV4HEADER shows RGBA masks and sRGB color space without calibrated-RGB fields`() {
+        val bytes = ByteArray(122) // 14 (BITMAPFILEHEADER) + 108 (BITMAPV4HEADER)
+        bytes[0] = 'B'.code.toByte()
+        bytes[1] = 'M'.code.toByte()
+        bytes.putUInt32LE(14, 108L) // header_size
+        bytes.putInt32LE(18, 200) // width
+        bytes.putInt32LE(22, 100) // height
+        bytes.putUInt16LE(28, 32) // bit_count
+        bytes.putUInt32LE(30, 3L) // compression = BI_BITFIELDS
+        bytes.putUInt32LE(54, 0x00FF0000L) // red_mask
+        bytes.putUInt32LE(58, 0x0000FF00L) // green_mask
+        bytes.putUInt32LE(62, 0x000000FFL) // blue_mask
+        bytes.putUInt32LE(66, 0xFF000000L) // alpha_mask
+        bytes.putUInt32LE(70, 0x73524742L) // color_space_type = LCS_sRGB
+
+        byteReaderOf(bytes, "bmp-walker-v4-srgb").use { reader ->
+            val nodes = parseBmpHeaders(reader, 0, bytes.size.toLong())
+            val v4 = nodes[1]
+            assertEquals("BITMAPV4HEADER", v4.type)
+            fun field(name: String) = v4.fields.first { it.name == name }.value
+            assertEquals("0x00FF0000", field("red_mask"))
+            assertEquals("0x0000FF00", field("green_mask"))
+            assertEquals("0x000000FF", field("blue_mask"))
+            assertEquals("0xFF000000", field("alpha_mask"))
+            assertEquals("sRGB (LCS_sRGB)", field("color_space_type"))
+            assertEquals(false, v4.fields.any { it.name == "gamma_red" })
+            assertEquals(false, v4.fields.any { it.name.startsWith("endpoint_") })
+            assertEquals("200x100, 32-bit", v4.summary)
+        }
+    }
+
+    @Test
+    fun `BITMAPV4HEADER with Calibrated RGB color space shows hand-verified gamma and endpoint fields`() {
+        // Endpoint/gamma values chosen to be exactly representable so the
+        // expected strings are unambiguous, not just "whatever the code
+        // under test produces":
+        // endpoint_red_x = 0x40000000 / 2^30 = 1.0 exactly
+        // endpoint_red_y = 0x20000000 / 2^30 = 0.5 exactly
+        // gamma_blue = upper 16 bits 1, lower 16 bits 0 = 1.0000 exactly (16.16 fixed point)
+        val bytes = ByteArray(122)
+        bytes[0] = 'B'.code.toByte()
+        bytes[1] = 'M'.code.toByte()
+        bytes.putUInt32LE(14, 108L)
+        bytes.putInt32LE(18, 10)
+        bytes.putInt32LE(22, 10)
+        bytes.putUInt16LE(28, 24)
+        // color_space_type at offset 70 is left as 0x00000000 (LCS_CALIBRATED_RGB) by the zero-filled array
+        bytes.putInt32LE(74, 0x40000000) // endpoint_red_x
+        bytes.putInt32LE(78, 0x20000000) // endpoint_red_y
+        bytes.putUInt32LE(118, 0x00010000L) // gamma_blue
+
+        byteReaderOf(bytes, "bmp-walker-v4-calibrated-rgb").use { reader ->
+            val nodes = parseBmpHeaders(reader, 0, bytes.size.toLong())
+            val v4 = nodes[1]
+            fun field(name: String) = v4.fields.first { it.name == name }.value
+            assertEquals("Calibrated RGB (LCS_CALIBRATED_RGB)", field("color_space_type"))
+            assertEquals("1.000000", field("endpoint_red_x"))
+            assertEquals("0.500000", field("endpoint_red_y"))
+            assertEquals("1.0000", field("gamma_blue"))
+        }
+    }
+
+    @Test
+    fun `an unrecognized color_space_type falls back to a hex label`() {
+        val bytes = ByteArray(122)
+        bytes[0] = 'B'.code.toByte()
+        bytes[1] = 'M'.code.toByte()
+        bytes.putUInt32LE(14, 108L)
+        bytes.putInt32LE(18, 1)
+        bytes.putInt32LE(22, 1)
+        bytes.putUInt32LE(70, 0x12345678L)
+
+        byteReaderOf(bytes, "bmp-walker-v4-unknown-colorspace").use { reader ->
+            val nodes = parseBmpHeaders(reader, 0, bytes.size.toLong())
+            assertEquals("Unknown (0x12345678)", nodes[1].fields.first { it.name == "color_space_type" }.value)
+        }
+    }
+
+    @Test
+    fun `a truncated BITMAPV4HEADER produces a warning and no fields`() {
+        val bytes = ByteArray(14 + 60) // header_size claims 108, but only 60 bytes follow
+        bytes[0] = 'B'.code.toByte()
+        bytes[1] = 'M'.code.toByte()
+        bytes.putUInt32LE(14, 108L)
+
+        byteReaderOf(bytes, "bmp-walker-v4-truncated").use { reader ->
+            val nodes = parseBmpHeaders(reader, 0, bytes.size.toLong())
+            val v4 = nodes[1]
+            assertEquals(0, v4.fields.size)
+            assertEquals(listOf("Truncated BITMAPV4HEADER"), v4.warnings)
+        }
+    }
 }

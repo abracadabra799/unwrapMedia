@@ -39,10 +39,10 @@ fun parseBmpHeaders(reader: ByteReader, start: Long, end: Long): List<BoxNode> {
     if (end - dibStart < 4) return result
     val headerSize = readUInt32LE(reader, dibStart)
     result.add(
-        if (headerSize == 40L) {
-            decodeBitmapInfoHeader(reader, dibStart, end)
-        } else {
-            BoxNode(
+        when (headerSize) {
+            40L -> decodeBitmapInfoHeader(reader, dibStart, end)
+            108L -> decodeBitmapV4Header(reader, dibStart, end)
+            else -> BoxNode(
                 type = "DIBHEADER", offset = dibStart, headerSize = 0, size = minOf(headerSize, end - dibStart),
                 fields = listOf(BoxField("header_size", headerSize.toString(), dibStart, 4)),
             )
@@ -103,6 +103,98 @@ private fun decodeBitmapInfoHeader(reader: ByteReader, offset: Long, end: Long):
     val bitCount = fields.first { it.name == "bit_count" }.value
     return BoxNode(
         type = "BITMAPINFOHEADER", offset = offset, headerSize = 0, size = 40,
+        fields = fields,
+        summary = "${width}x${height}, ${bitCount}-bit",
+    )
+}
+
+private val COLOR_SPACE_TYPE_NAMES = mapOf(
+    0x00000000L to "Calibrated RGB (LCS_CALIBRATED_RGB)",
+    0x73524742L to "sRGB (LCS_sRGB)",
+    0x57696E20L to "Windows Color Space (LCS_WINDOWS_COLOR_SPACE)",
+    0x4C494E4BL to "Linked Profile (PROFILE_LINKED)",
+    0x4D424544L to "Embedded Profile (PROFILE_EMBEDDED)",
+)
+
+private fun colorSpaceTypeLabel(value: Long): String =
+    COLOR_SPACE_TYPE_NAMES[value] ?: "Unknown (0x%08X)".format(value)
+
+// FXPT2DOT30: a signed 2.30 fixed-point number (2's-complement sign, 1
+// integer bit, 30 fractional bits), stored little-endian like every other
+// BMP field -- NOT the same encoding as ICC's big-endian s15Fixed16Number
+// (readS15Fixed16, JpegWalker.kt) this superficially resembles.
+private fun readFxpt2Dot30(reader: ByteReader, offset: Long): Double {
+    val raw = readInt32LE(reader, offset)
+    return raw / 1073741824.0 // 2^30
+}
+
+// Unsigned 16.16 fixed-point: upper 16 bits are the integer part, lower 16
+// bits are the fractional part (used for gamma_red/green/blue).
+private fun formatGamma(raw: Long): String {
+    val integerPart = raw shr 16
+    val fractionalPart = (raw and 0xFFFF) / 65536.0
+    return "%.4f".format(integerPart + fractionalPart)
+}
+
+private fun buildCalibratedRgbFields(reader: ByteReader, endpointsOffset: Long, gammaOffset: Long): List<BoxField> {
+    val x1 = readFxpt2Dot30(reader, endpointsOffset)
+    val y1 = readFxpt2Dot30(reader, endpointsOffset + 4)
+    val z1 = readFxpt2Dot30(reader, endpointsOffset + 8)
+    val x2 = readFxpt2Dot30(reader, endpointsOffset + 12)
+    val y2 = readFxpt2Dot30(reader, endpointsOffset + 16)
+    val z2 = readFxpt2Dot30(reader, endpointsOffset + 20)
+    val x3 = readFxpt2Dot30(reader, endpointsOffset + 24)
+    val y3 = readFxpt2Dot30(reader, endpointsOffset + 28)
+    val z3 = readFxpt2Dot30(reader, endpointsOffset + 32)
+    val gammaRed = readUInt32LE(reader, gammaOffset)
+    val gammaGreen = readUInt32LE(reader, gammaOffset + 4)
+    val gammaBlue = readUInt32LE(reader, gammaOffset + 8)
+    return listOf(
+        BoxField("endpoint_red_x", "%.6f".format(x1), endpointsOffset, 4),
+        BoxField("endpoint_red_y", "%.6f".format(y1), endpointsOffset + 4, 4),
+        BoxField("endpoint_red_z", "%.6f".format(z1), endpointsOffset + 8, 4),
+        BoxField("endpoint_green_x", "%.6f".format(x2), endpointsOffset + 12, 4),
+        BoxField("endpoint_green_y", "%.6f".format(y2), endpointsOffset + 16, 4),
+        BoxField("endpoint_green_z", "%.6f".format(z2), endpointsOffset + 20, 4),
+        BoxField("endpoint_blue_x", "%.6f".format(x3), endpointsOffset + 24, 4),
+        BoxField("endpoint_blue_y", "%.6f".format(y3), endpointsOffset + 28, 4),
+        BoxField("endpoint_blue_z", "%.6f".format(z3), endpointsOffset + 32, 4),
+        BoxField("gamma_red", formatGamma(gammaRed), gammaOffset, 4),
+        BoxField("gamma_green", formatGamma(gammaGreen), gammaOffset + 4, 4),
+        BoxField("gamma_blue", formatGamma(gammaBlue), gammaOffset + 8, 4),
+    )
+}
+
+// Shared by BITMAPV4HEADER and BITMAPV5HEADER -- both start with this exact
+// 108-byte layout (verified against Microsoft's Win32 API docs).
+private fun buildBitmapV4Fields(reader: ByteReader, offset: Long): List<BoxField> {
+    val fields = buildBitmapInfoHeaderFields(reader, offset).toMutableList()
+    val redMask = readUInt32LE(reader, offset + 40)
+    val greenMask = readUInt32LE(reader, offset + 44)
+    val blueMask = readUInt32LE(reader, offset + 48)
+    val alphaMask = readUInt32LE(reader, offset + 52)
+    val colorSpaceType = readUInt32LE(reader, offset + 56)
+    fields.add(BoxField("red_mask", "0x%08X".format(redMask), offset + 40, 4))
+    fields.add(BoxField("green_mask", "0x%08X".format(greenMask), offset + 44, 4))
+    fields.add(BoxField("blue_mask", "0x%08X".format(blueMask), offset + 48, 4))
+    fields.add(BoxField("alpha_mask", "0x%08X".format(alphaMask), offset + 52, 4))
+    fields.add(BoxField("color_space_type", colorSpaceTypeLabel(colorSpaceType), offset + 56, 4))
+    if (colorSpaceType == 0L) {
+        fields.addAll(buildCalibratedRgbFields(reader, offset + 60, offset + 96))
+    }
+    return fields
+}
+
+private fun decodeBitmapV4Header(reader: ByteReader, offset: Long, end: Long): BoxNode {
+    if (end - offset < 108) {
+        return BoxNode(type = "BITMAPV4HEADER", offset = offset, headerSize = 0, size = end - offset, warnings = listOf("Truncated BITMAPV4HEADER"))
+    }
+    val fields = buildBitmapV4Fields(reader, offset)
+    val width = fields.first { it.name == "width" }.value
+    val height = fields.first { it.name == "height" }.value
+    val bitCount = fields.first { it.name == "bit_count" }.value
+    return BoxNode(
+        type = "BITMAPV4HEADER", offset = offset, headerSize = 0, size = 108,
         fields = fields,
         summary = "${width}x${height}, ${bitCount}-bit",
     )
