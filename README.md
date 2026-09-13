@@ -20,7 +20,7 @@
 ```
 
 ### 🖼️ Image & HDR Gain Map
-* **Deep Structure**: EXIF, Apple MakerNote, Samsung SEFD, and HEVC Grid tile outlines.
+* **Deep Structure**: EXIF, Apple MakerNote, Samsung SEFD, and HEVC Grid tile outlines. Full ICC color-profile and container-detail parsing across JPEG, PNG, WebP, and BMP.
 * **HDR Gain Map**: Dedicated viewer for ISO 21496-1, Ultra HDR, Apple MPF, and Adobe HDRGM with headroom curves, raw XMP XML inspector, and gain map image extraction.
 * **Motion Photos**: Instant detection and playback for Samsung and Google Motion Photos.
 
@@ -45,7 +45,7 @@
   <img src="docs/screenshots/unwrapMedia-promo-audio.jpg" width="880" alt="unwrapMedia Audio Waveform & Spectrogram" />
 </p>
 
-* **Waveform & Spectrogram**: High-precision interactive peak waveforms and FFT spectrograms with zoom/pan.
+* **GoldWave-style Waveform**: High-precision interactive peak waveforms with L/R channel solo, click-to-seek, and zoom/pan.
 * **Formats**: WAV, MP3, AAC/M4A, FLAC, OGG, Opus, AIFF, and headerless raw **PCM** (`.pcm`, `.raw`).
 
 ---

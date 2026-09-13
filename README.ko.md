@@ -20,7 +20,7 @@
 ```
 
 ### 🖼️ 이미지 & HDR 게인맵 (Gain Map)
-* **심층 메타데이터**: EXIF, Apple MakerNote, Samsung SEFD, HEVC 그리드 타일 오버레이.
+* **심층 메타데이터**: EXIF, Apple MakerNote, Samsung SEFD, HEVC 그리드 타일 오버레이. JPEG/PNG/WebP/BMP 전반의 ICC 색상 프로파일 및 컨테이너 상세정보 파싱.
 * **HDR 게인맵**: ISO 21496-1, Ultra HDR, Apple MPF, Adobe HDRGM 지원 (부스트 헤드룸 카드, 원본 XMP XML 뷰어, 게인맵 이미지 분리 팝업 및 저장).
 * **모션 포토(Motion Photo)**: 삼성 및 구글 방식 모션포토 자동 감지 및 재생/추출.
 
@@ -45,7 +45,7 @@
   <img src="docs/screenshots/unwrapMedia-promo-audio.jpg" width="880" alt="unwrapMedia 오디오 파형 & 스펙트로그램" />
 </p>
 
-* **파형 & 스펙트로그램**: 피크 기반 파형(Waveform) 및 FFT 스펙트로그램(Spectrogram) 줌/팬 인터랙티브 시각화.
+* **GoldWave 스타일 파형**: 피크 기반 파형(Waveform) 인터랙티브 시각화, L/R 채널 솔로, 클릭 탐색, 줌/팬 지원.
 * **지원 포맷**: WAV, MP3, AAC/M4A, FLAC, OGG, Opus, AIFF 및 헤더 없는 원시 **PCM** (`.pcm`, `.raw`).
 
 ---

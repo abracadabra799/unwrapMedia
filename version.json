@@ -1,7 +1,7 @@
 {
-  "version": "1.12.0",
-  "releaseDate": "2026-09-05",
-  "releaseNotes": "• A/V 싱크 및 타임스탬프 드리프트 정밀 분석 창 추가 (듀얼 레일 타임라인 & 편차 곡선 시각화)\n• 비트스트림 결함 & 손상 프레임 정밀 분석 창 추가 (매크로블록/픽셀 좌표 역추적 및 Hex 바이트 점프 연동)\n• 코덱뷰(Motion Vectors / QP Heatmap) 독립 팝업 창 분리 및 재생 연동\n• 백그라운드 프로세스 및 메모리 라이프사이클 누수 방지 강화",
+  "version": "1.13.0",
+  "releaseDate": "2026-09-13",
+  "releaseNotes": "• 미디어 구조 트리 상세정보 파싱 대폭 강화: JPEG(ICC 프로파일/삼성 SEFD), PNG(감마·색공간·ICC·팔레트), WebP(ICC·XMP·애니메이션·알파채널, LE 파싱 버그 수정), BMP(V4/V5 헤더 포함 색공간·감마·ICC) 전 이미지 포맷에 걸쳐 오프셋/이름만 보이던 노드에 상세 필드 채움\n• 오디오 플레이어를 GoldWave 스타일 파형 플레이어로 전면 개편 (L/R 채널 솔로, 확대/축소, 클릭 탐색)\n• 비디오 플레이어 오디오 트랙 재생 지원(오디오 마스터 클럭 동기화) 및 A/V 싱크·드리프트 정밀 분석 창 추가\n• 미디어 비교 분석기에 파일 드래그 앤 드롭 지원, 대용량 이미지 비교 시 파일 중복 읽기 제거로 열기 속도 개선\n• Windows 임베디드 AI CLI 터미널 추가 (한글 폰트, 클릭 가능한 로그인 URL, 재시작 버튼)",
   "windowsUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest",
   "macUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest"
 }
