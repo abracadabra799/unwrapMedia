@@ -1329,7 +1329,9 @@ class MediaSummaryBuilderTest {
                 BoxField("width", "100", 0, 4),
                 BoxField("height", "50", 0, 4),
                 BoxField("bit_count", "24", 0, 2),
-                BoxField("compression", "0", 0, 4),
+                // BmpWalker.kt now resolves compression to its name directly (see
+                // Phase 4 BMP detail-parsing plan) -- buildBmpDetail forwards this value as-is.
+                BoxField("compression", "None (BI_RGB)", 0, 4),
             ),
         )
         val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(fileHeader, infoHeader))
@@ -1350,7 +1352,9 @@ class MediaSummaryBuilderTest {
                 BoxField("width", "100", 0, 4),
                 BoxField("height", "50", 0, 4),
                 BoxField("bit_count", "8", 0, 2),
-                BoxField("compression", "1", 0, 4),
+                // BmpWalker.kt now resolves compression to its name directly (see
+                // Phase 4 BMP detail-parsing plan) -- buildBmpDetail forwards this value as-is.
+                BoxField("compression", "RLE 8-bit (BI_RLE8)", 0, 4),
             ),
         )
         val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(fileHeader, infoHeader))
