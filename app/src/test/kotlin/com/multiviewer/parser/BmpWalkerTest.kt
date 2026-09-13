@@ -369,6 +369,11 @@ class BmpWalkerTest {
             assertEquals("2.1.0", v5.fields.first { it.name == "version" }.value)
             assertEquals("mntr", v5.fields.first { it.name == "profile_class" }.value)
             assertEquals(0, v5.warnings.size)
+            // BMP's own declared profile-data size (offset+116, "128") and the ICC header's
+            // own internal profile_size (its first 4 bytes, "142 bytes") are different fields
+            // with different units -- they must stay distinguishable, not collide on one name.
+            assertEquals("128", v5.fields.first { it.name == "profile_data_size" }.value)
+            assertEquals("142 bytes", v5.fields.first { it.name == "profile_size" }.value)
         }
     }
 

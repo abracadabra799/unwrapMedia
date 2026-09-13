@@ -249,7 +249,7 @@ private fun buildImageDetail(root: BoxNode): SummarySection? {
             fields.add(SummaryField("Height", height))
         }
     } else if (isBmp) {
-        val infoHeader = root.children.find { it.type == "BITMAPINFOHEADER" }
+        val infoHeader = root.children.find { it.type == "BITMAPINFOHEADER" || it.type == "BITMAPV4HEADER" || it.type == "BITMAPV5HEADER" }
         val width = infoHeader?.fields?.find { it.name == "width" }?.value
         val height = infoHeader?.fields?.find { it.name == "height" }?.value?.toIntOrNull()
         if (width != null && height != null) {
@@ -488,7 +488,7 @@ private fun buildPngDetail(root: BoxNode): SummarySection? {
 }
 
 private fun buildBmpDetail(root: BoxNode): SummarySection? {
-    val infoHeader = root.children.find { it.type == "BITMAPINFOHEADER" } ?: return null
+    val infoHeader = root.children.find { it.type == "BITMAPINFOHEADER" || it.type == "BITMAPV4HEADER" || it.type == "BITMAPV5HEADER" } ?: return null
     val fields = mutableListOf<SummaryField>()
 
     infoHeader.fields.find { it.name == "bit_count" }?.let { fields.add(SummaryField("Bit Count", "${it.value}-bit")) }

@@ -1,5 +1,7 @@
 package com.multiviewer.parser
 
+import java.util.Locale
+
 private fun readUInt16LE(reader: ByteReader, offset: Long): Int {
     val b = reader.readBytes(offset, 2)
     return (b[0].toInt() and 0xFF) or ((b[1].toInt() and 0xFF) shl 8)
@@ -15,7 +17,7 @@ private fun readUInt32LE(reader: ByteReader, offset: Long): Long {
 
 private fun readInt32LE(reader: ByteReader, offset: Long): Int = readUInt32LE(reader, offset).toInt()
 
-internal val BMP_COMPRESSION_NAMES = mapOf(
+private val BMP_COMPRESSION_NAMES = mapOf(
     0 to "None (BI_RGB)",
     1 to "RLE 8-bit (BI_RLE8)",
     2 to "RLE 4-bit (BI_RLE4)",
@@ -134,7 +136,7 @@ private fun readFxpt2Dot30(reader: ByteReader, offset: Long): Double {
 private fun formatGamma(raw: Long): String {
     val integerPart = raw shr 16
     val fractionalPart = (raw and 0xFFFF) / 65536.0
-    return "%.4f".format(integerPart + fractionalPart)
+    return "%.4f".format(Locale.US, integerPart + fractionalPart)
 }
 
 private fun buildCalibratedRgbFields(reader: ByteReader, endpointsOffset: Long, gammaOffset: Long): List<BoxField> {
@@ -151,15 +153,15 @@ private fun buildCalibratedRgbFields(reader: ByteReader, endpointsOffset: Long, 
     val gammaGreen = readUInt32LE(reader, gammaOffset + 4)
     val gammaBlue = readUInt32LE(reader, gammaOffset + 8)
     return listOf(
-        BoxField("endpoint_red_x", "%.6f".format(x1), endpointsOffset, 4),
-        BoxField("endpoint_red_y", "%.6f".format(y1), endpointsOffset + 4, 4),
-        BoxField("endpoint_red_z", "%.6f".format(z1), endpointsOffset + 8, 4),
-        BoxField("endpoint_green_x", "%.6f".format(x2), endpointsOffset + 12, 4),
-        BoxField("endpoint_green_y", "%.6f".format(y2), endpointsOffset + 16, 4),
-        BoxField("endpoint_green_z", "%.6f".format(z2), endpointsOffset + 20, 4),
-        BoxField("endpoint_blue_x", "%.6f".format(x3), endpointsOffset + 24, 4),
-        BoxField("endpoint_blue_y", "%.6f".format(y3), endpointsOffset + 28, 4),
-        BoxField("endpoint_blue_z", "%.6f".format(z3), endpointsOffset + 32, 4),
+        BoxField("endpoint_red_x", "%.6f".format(Locale.US, x1), endpointsOffset, 4),
+        BoxField("endpoint_red_y", "%.6f".format(Locale.US, y1), endpointsOffset + 4, 4),
+        BoxField("endpoint_red_z", "%.6f".format(Locale.US, z1), endpointsOffset + 8, 4),
+        BoxField("endpoint_green_x", "%.6f".format(Locale.US, x2), endpointsOffset + 12, 4),
+        BoxField("endpoint_green_y", "%.6f".format(Locale.US, y2), endpointsOffset + 16, 4),
+        BoxField("endpoint_green_z", "%.6f".format(Locale.US, z2), endpointsOffset + 20, 4),
+        BoxField("endpoint_blue_x", "%.6f".format(Locale.US, x3), endpointsOffset + 24, 4),
+        BoxField("endpoint_blue_y", "%.6f".format(Locale.US, y3), endpointsOffset + 28, 4),
+        BoxField("endpoint_blue_z", "%.6f".format(Locale.US, z3), endpointsOffset + 32, 4),
         BoxField("gamma_red", formatGamma(gammaRed), gammaOffset, 4),
         BoxField("gamma_green", formatGamma(gammaGreen), gammaOffset + 4, 4),
         BoxField("gamma_blue", formatGamma(gammaBlue), gammaOffset + 8, 4),
@@ -217,12 +219,12 @@ private fun decodeBitmapV5Header(reader: ByteReader, offset: Long, end: Long): B
     }
     val fields = buildBitmapV4Fields(reader, offset).toMutableList()
     val colorSpaceType = readUInt32LE(reader, offset + 56)
-    val intent = readUInt32LE(reader, offset + 108).toInt()
+    val intent = readUInt32LE(reader, offset + 108)
     val profileDataOffset = readUInt32LE(reader, offset + 112)
     val profileSize = readUInt32LE(reader, offset + 116)
-    fields.add(BoxField("intent", INTENT_NAMES[intent] ?: "Unknown ($intent)", offset + 108, 4))
+    fields.add(BoxField("intent", INTENT_NAMES[intent.toInt()] ?: "Unknown ($intent)", offset + 108, 4))
     fields.add(BoxField("profile_data_offset", profileDataOffset.toString(), offset + 112, 4))
-    fields.add(BoxField("profile_size", profileSize.toString(), offset + 116, 4))
+    fields.add(BoxField("profile_data_size", profileSize.toString(), offset + 116, 4))
 
     val warnings = mutableListOf<String>()
     val profileStart = offset + profileDataOffset

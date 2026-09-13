@@ -1366,6 +1366,31 @@ class MediaSummaryBuilderTest {
     }
 
     @Test
+    fun `a BITMAPV5HEADER (not just BITMAPINFOHEADER) reports Width, Height, and BMP Detail`() {
+        val fileHeader = BoxNode(type = "BITMAPFILEHEADER", offset = 0, headerSize = 0, size = 14)
+        val v5Header = BoxNode(
+            type = "BITMAPV5HEADER", offset = 0, headerSize = 0, size = 124,
+            fields = listOf(
+                BoxField("width", "100", 0, 4),
+                BoxField("height", "50", 0, 4),
+                BoxField("bit_count", "24", 0, 2),
+                BoxField("compression", "None (BI_RGB)", 0, 4),
+            ),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(fileHeader, v5Header))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val image = summary.sections.first { it.title == "Image" }
+        assertEquals("100", image.fields.first { it.label == "Width" }.value)
+        assertEquals("50", image.fields.first { it.label == "Height" }.value)
+
+        val bmpDetail = summary.sections.first { it.title == "BMP Detail" }
+        assertEquals("24-bit", bmpDetail.fields.first { it.label == "Bit Count" }.value)
+        assertEquals("None (BI_RGB)", bmpDetail.fields.first { it.label == "Compression" }.value)
+    }
+
+    @Test
     fun `a BMP with no bit_count or compression fields has no BMP Detail section`() {
         val fileHeader = BoxNode(type = "BITMAPFILEHEADER", offset = 0, headerSize = 0, size = 0)
         val infoHeader = BoxNode(
