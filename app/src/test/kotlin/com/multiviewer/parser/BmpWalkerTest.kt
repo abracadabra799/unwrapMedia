@@ -281,4 +281,131 @@ class BmpWalkerTest {
             assertEquals(listOf("Truncated BITMAPV4HEADER"), v4.warnings)
         }
     }
+
+    @Test
+    fun `BITMAPV5HEADER decodes all four named intent values`() {
+        val expected = mapOf(
+            1L to "Saturation",
+            2L to "Relative Colorimetric",
+            4L to "Perceptual",
+            8L to "Absolute Colorimetric",
+        )
+        for ((value, label) in expected) {
+            val bytes = ByteArray(138) // 14 (BITMAPFILEHEADER) + 124 (BITMAPV5HEADER)
+            bytes[0] = 'B'.code.toByte()
+            bytes[1] = 'M'.code.toByte()
+            bytes.putUInt32LE(14, 124L) // header_size
+            bytes.putInt32LE(18, 1) // width
+            bytes.putInt32LE(22, 1) // height
+            bytes.putUInt32LE(122, value) // intent
+
+            byteReaderOf(bytes, "bmp-walker-v5-intent-$value").use { reader ->
+                val nodes = parseBmpHeaders(reader, 0, bytes.size.toLong())
+                assertEquals(label, nodes[1].fields.first { it.name == "intent" }.value)
+            }
+        }
+    }
+
+    @Test
+    fun `an unrecognized intent value falls back to Unknown`() {
+        val bytes = ByteArray(138)
+        bytes[0] = 'B'.code.toByte()
+        bytes[1] = 'M'.code.toByte()
+        bytes.putUInt32LE(14, 124L)
+        bytes.putInt32LE(18, 1)
+        bytes.putInt32LE(22, 1)
+        bytes.putUInt32LE(122, 99L)
+
+        byteReaderOf(bytes, "bmp-walker-v5-intent-unknown").use { reader ->
+            val nodes = parseBmpHeaders(reader, 0, bytes.size.toLong())
+            assertEquals("Unknown (99)", nodes[1].fields.first { it.name == "intent" }.value)
+        }
+    }
+
+    @Test
+    fun `BITMAPV5HEADER with an embedded ICC profile parses its 128-byte header`() {
+        // Reuses the same 128-byte ICC.1 header bytes already verified correct
+        // by JpegWalkerTest's APP2 ICC test, and reused again by
+        // PngWalkerTest's iCCP test and WebpWalkerTest's ICCP test -- this is
+        // the fourth reuse of this exact fixture.
+        val iccHeaderBytes = byteArrayOf(
+            0x00, 0x00, 0x00, 0x8e.toByte(), // profile_size = 142
+            0x41, 0x50, 0x50, 0x4c,          // cmm_type = "APPL"
+            0x02, 0x10, 0x00, 0x00,          // version = 2.1.0
+            0x6d, 0x6e, 0x74, 0x72,          // profile_class = "mntr"
+            0x52, 0x47, 0x42, 0x20,          // data_colour_space = "RGB "
+            0x58, 0x59, 0x5a, 0x20,          // pcs = "XYZ "
+            0x07, 0xe8.toByte(), 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // date_time_created
+            0x61, 0x63, 0x73, 0x70,          // "acsp"
+            0x41, 0x50, 0x50, 0x4c,          // primary_platform = "APPL"
+            0x00, 0x00, 0x00, 0x00,          // profile_flags = 0
+            0x41, 0x50, 0x50, 0x4c,          // device_manufacturer = "APPL"
+            0x00, 0x00, 0x00, 0x00,          // device_model = (unspecified)
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // device_attributes = 0
+            0x00, 0x00, 0x00, 0x00,          // rendering_intent = 0 (Perceptual)
+            0x00, 0x00, 0xf6.toByte(), 0xd4.toByte(), // illuminant X = 0.9642
+            0x00, 0x01, 0x00, 0x00,          // illuminant Y = 1.0000
+            0x00, 0x00, 0xd3.toByte(), 0x2d, // illuminant Z = 0.8249
+            0x41, 0x50, 0x50, 0x4c,          // profile_creator = "APPL"
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // profile_id = (not set)
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 28 reserved bytes
+        )
+        val header = ByteArray(138)
+        header[0] = 'B'.code.toByte()
+        header[1] = 'M'.code.toByte()
+        header.putUInt32LE(14, 124L)
+        header.putInt32LE(18, 1)
+        header.putInt32LE(22, 1)
+        header.putUInt32LE(70, 0x4D424544L) // color_space_type = PROFILE_EMBEDDED
+        header.putUInt32LE(126, 124L) // profile_data_offset -- from dibStart, right after the 124-byte header
+        header.putUInt32LE(130, 128L) // profile_size
+
+        val bytes = header + iccHeaderBytes
+        byteReaderOf(bytes, "bmp-walker-v5-embedded-icc").use { reader ->
+            val nodes = parseBmpHeaders(reader, 0, bytes.size.toLong())
+            val v5 = nodes[1]
+            assertEquals("BITMAPV5HEADER", v5.type)
+            assertEquals("2.1.0", v5.fields.first { it.name == "version" }.value)
+            assertEquals("mntr", v5.fields.first { it.name == "profile_class" }.value)
+            assertEquals(0, v5.warnings.size)
+        }
+    }
+
+    @Test
+    fun `BITMAPV5HEADER with a linked ICC profile decodes the NUL-terminated path`() {
+        val path = "C:\\Profiles\\test.icm"
+        val pathBytes = path.toByteArray(Charsets.ISO_8859_1) + byteArrayOf(0)
+        val header = ByteArray(138)
+        header[0] = 'B'.code.toByte()
+        header[1] = 'M'.code.toByte()
+        header.putUInt32LE(14, 124L)
+        header.putInt32LE(18, 1)
+        header.putInt32LE(22, 1)
+        header.putUInt32LE(70, 0x4C494E4BL) // color_space_type = PROFILE_LINKED
+        header.putUInt32LE(126, 124L)
+        header.putUInt32LE(130, pathBytes.size.toLong())
+
+        val bytes = header + pathBytes
+        byteReaderOf(bytes, "bmp-walker-v5-linked-icc").use { reader ->
+            val nodes = parseBmpHeaders(reader, 0, bytes.size.toLong())
+            val v5 = nodes[1]
+            assertEquals(path, v5.fields.first { it.name == "linked_profile_path" }.value)
+        }
+    }
+
+    @Test
+    fun `a truncated BITMAPV5HEADER produces a warning and no fields`() {
+        val bytes = ByteArray(14 + 100) // header_size claims 124, but only 100 bytes follow
+        bytes[0] = 'B'.code.toByte()
+        bytes[1] = 'M'.code.toByte()
+        bytes.putUInt32LE(14, 124L)
+
+        byteReaderOf(bytes, "bmp-walker-v5-truncated").use { reader ->
+            val nodes = parseBmpHeaders(reader, 0, bytes.size.toLong())
+            val v5 = nodes[1]
+            assertEquals(0, v5.fields.size)
+            assertEquals(listOf("Truncated BITMAPV5HEADER"), v5.warnings)
+        }
+    }
 }

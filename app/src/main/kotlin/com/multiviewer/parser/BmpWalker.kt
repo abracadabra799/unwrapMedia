@@ -42,6 +42,7 @@ fun parseBmpHeaders(reader: ByteReader, start: Long, end: Long): List<BoxNode> {
         when (headerSize) {
             40L -> decodeBitmapInfoHeader(reader, dibStart, end)
             108L -> decodeBitmapV4Header(reader, dibStart, end)
+            124L -> decodeBitmapV5Header(reader, dibStart, end)
             else -> BoxNode(
                 type = "DIBHEADER", offset = dibStart, headerSize = 0, size = minOf(headerSize, end - dibStart),
                 fields = listOf(BoxField("header_size", headerSize.toString(), dibStart, 4)),
@@ -196,6 +197,64 @@ private fun decodeBitmapV4Header(reader: ByteReader, offset: Long, end: Long): B
     return BoxNode(
         type = "BITMAPV4HEADER", offset = offset, headerSize = 0, size = 108,
         fields = fields,
+        summary = "${width}x${height}, ${bitCount}-bit",
+    )
+}
+
+private val INTENT_NAMES = mapOf(
+    1 to "Saturation",
+    2 to "Relative Colorimetric",
+    4 to "Perceptual",
+    8 to "Absolute Colorimetric",
+)
+
+private const val PROFILE_EMBEDDED = 0x4D424544L
+private const val PROFILE_LINKED = 0x4C494E4BL
+
+private fun decodeBitmapV5Header(reader: ByteReader, offset: Long, end: Long): BoxNode {
+    if (end - offset < 124) {
+        return BoxNode(type = "BITMAPV5HEADER", offset = offset, headerSize = 0, size = end - offset, warnings = listOf("Truncated BITMAPV5HEADER"))
+    }
+    val fields = buildBitmapV4Fields(reader, offset).toMutableList()
+    val colorSpaceType = readUInt32LE(reader, offset + 56)
+    val intent = readUInt32LE(reader, offset + 108).toInt()
+    val profileDataOffset = readUInt32LE(reader, offset + 112)
+    val profileSize = readUInt32LE(reader, offset + 116)
+    fields.add(BoxField("intent", INTENT_NAMES[intent] ?: "Unknown ($intent)", offset + 108, 4))
+    fields.add(BoxField("profile_data_offset", profileDataOffset.toString(), offset + 112, 4))
+    fields.add(BoxField("profile_size", profileSize.toString(), offset + 116, 4))
+
+    val warnings = mutableListOf<String>()
+    val profileStart = offset + profileDataOffset
+    when (colorSpaceType) {
+        PROFILE_EMBEDDED -> {
+            if (profileSize >= 128 && profileStart + 128 <= end) {
+                val headerBytes = reader.readBytes(profileStart, 128)
+                fields.addAll(decodeIccProfileHeader(headerBytes, profileStart))
+            } else {
+                warnings.add("Embedded ICC profile too short or out of range to parse")
+            }
+        }
+        PROFILE_LINKED -> {
+            val maxLen = minOf(260L, end - profileStart).toInt()
+            if (maxLen > 0) {
+                val nameBytes = reader.readBytes(profileStart, maxLen)
+                val nullIndex = nameBytes.indexOf(0)
+                val pathLength = if (nullIndex >= 0) nullIndex else nameBytes.size
+                val path = String(nameBytes, 0, pathLength, Charsets.ISO_8859_1)
+                fields.add(BoxField("linked_profile_path", path, profileStart, pathLength.toLong()))
+            } else {
+                warnings.add("Linked ICC profile path is out of range")
+            }
+        }
+    }
+
+    val width = fields.first { it.name == "width" }.value
+    val height = fields.first { it.name == "height" }.value
+    val bitCount = fields.first { it.name == "bit_count" }.value
+    return BoxNode(
+        type = "BITMAPV5HEADER", offset = offset, headerSize = 0, size = 124,
+        fields = fields, warnings = warnings,
         summary = "${width}x${height}, ${bitCount}-bit",
     )
 }
