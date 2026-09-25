@@ -51,7 +51,7 @@ parsed tree contains a `"sefd"` node, opens it.
 
 | File | Change |
 |---|---|
-| `app/src/main/kotlin/com/multiviewer/parser/SefdBoxDecoder.kt` | Promote `MARKER_UTC_TIMESTAMP`, `MARKER_MCC`, `decodeFieldText`, `isJsonShaped`, `readUInt16LE`, `readUInt32LE` from `private` to `internal` so `SefIntegrityAnalyzer.kt` (same package) can reuse them instead of duplicating. No behavior change. |
+| `app/src/main/kotlin/com/multiviewer/parser/SefdBoxDecoder.kt` | Promote `MARKER_UTC_TIMESTAMP`, `MARKER_MCC`, `decodeFieldText`, `isJsonShaped` from `private` to `internal` so `SefIntegrityAnalyzer.kt` (same package) can reuse them instead of duplicating. `readUInt16LE`/`readUInt32LE` stay `private` (see Task 1). No behavior change. |
 | `app/src/main/kotlin/com/multiviewer/parser/SefIntegrityAnalyzer.kt` | New — the analyzer: data model, structural checks (Task 1), semantic checks (Task 2). |
 | `app/src/main/kotlin/com/multiviewer/parser/MccCountryNames.kt` | New — the ITU E.212 MCC→country table (Task 2). |
 | `app/src/test/kotlin/com/multiviewer/parser/SefIntegrityAnalyzerTest.kt` | New — unit tests (Tasks 1-2). |
@@ -78,10 +78,14 @@ parsed tree contains a `"sefd"` node, opens it.
   and window UI Task 3 builds against are already final).
 - Consumes (after promotion below): `SefdBoxDecoder`'s `MARKER_UTC_TIMESTAMP`,
   `MARKER_MCC`, `decodeFieldText(bytes: ByteArray): String?`,
-  `isJsonShaped(text: String): Boolean`, `readUInt16LE(reader: ByteReader, offset: Long): Int`,
-  `readUInt32LE(reader: ByteReader, offset: Long): Long` — all `internal`.
+  `isJsonShaped(text: String): Boolean` — all `internal`.
+- Produces (in `SefIntegrityAnalyzer.kt` itself, private, NOT promoted from
+  `SefdBoxDecoder.kt` — see the note on Step 1 below):
+  `private fun readUInt16LE(reader: ByteReader, offset: Long): Int`,
+  `private fun readUInt32LE(reader: ByteReader, offset: Long): Long`.
 
-- [ ] **Step 1: Promote `SefdBoxDecoder.kt`'s internals to `internal`**
+- [ ] **Step 1: Promote `SefdBoxDecoder.kt`'s internals to `internal`
+  (NOT its `readUInt16LE`/`readUInt32LE`)**
 
 In `app/src/main/kotlin/com/multiviewer/parser/SefdBoxDecoder.kt`, change:
 ```kotlin
@@ -93,12 +97,28 @@ to:
 internal const val MARKER_UTC_TIMESTAMP = 0x0a01
 internal const val MARKER_MCC = 0x0aa1
 ```
-And change the four `private fun` declarations for `decodeFieldText`,
-`isJsonShaped`, `readUInt16LE`, `readUInt32LE` to `internal fun` (leave
-`prettyPrintJson` `private` — it's not reused by the analyzer). This is a
-pure visibility change, no logic touched; run `./gradlew test --tests
-"com.multiviewer.parser.SefdBoxDecoderTest"` afterward to confirm zero
-behavior change (expected: all existing tests still pass unchanged).
+And change `decodeFieldText` and `isJsonShaped`'s `private fun` to
+`internal fun` (leave `prettyPrintJson` `private` — it's not reused by the
+analyzer).
+
+**Do NOT touch `readUInt16LE`/`readUInt32LE`'s visibility.** Kotlin's
+top-level `private` is file-scoped, but `internal` is module-scoped —
+`SefdBoxDecoder.kt`'s `readUInt16LE`/`readUInt32LE` share their exact name
+and signature with file-private functions of the same name already
+declared in 7 other files in this package (`AsfWalker.kt`, `AviWalker.kt`,
+`BmpWalker.kt`, `FlacWalker.kt`, `GifWalker.kt`, `OggWalker.kt`,
+`WavWalker.kt` — this codebase's established, if imperfect, convention for
+these trivial 2-3 line little-endian readers is a fresh file-local copy per
+file, not a shared one; a prior phase's final review already flagged this
+duplication as a known, deliberately-deferred cleanup, not something to fix
+here). Promoting either to `internal` produces "Conflicting overloads"
+compile errors across all 7 of those files. `SefIntegrityAnalyzer.kt` gets
+its own private copy instead — see Step 4.
+
+This step is a visibility-only change for the 4 identifiers it does touch;
+run `./gradlew test --tests "com.multiviewer.parser.SefdBoxDecoderTest"`
+afterward to confirm zero behavior change (expected: all existing tests
+still pass unchanged).
 
 - [ ] **Step 2: Write the failing tests**
 
@@ -324,6 +344,24 @@ Create `app/src/main/kotlin/com/multiviewer/parser/SefIntegrityAnalyzer.kt`:
 ```kotlin
 package com.multiviewer.parser
 
+// Local copies, not shared with SefdBoxDecoder.kt's identically-named/signed private functions --
+// see this plan's Task 1 Step 1 note: promoting either to `internal` would collide with 7 other
+// files in this package that each already declare their own file-private function of this exact
+// name/signature, since Kotlin's `private` is file-scoped but `internal` is module-scoped. This
+// file joins that same established (if duplicative) per-file-copy convention rather than fighting it.
+private fun readUInt16LE(reader: ByteReader, offset: Long): Int {
+    val bytes = reader.readBytes(offset, 2)
+    return ((bytes[1].toInt() and 0xFF) shl 8) or (bytes[0].toInt() and 0xFF)
+}
+
+private fun readUInt32LE(reader: ByteReader, offset: Long): Long {
+    val bytes = reader.readBytes(offset, 4)
+    return ((bytes[3].toLong() and 0xFF) shl 24) or
+        ((bytes[2].toLong() and 0xFF) shl 16) or
+        ((bytes[1].toLong() and 0xFF) shl 8) or
+        (bytes[0].toLong() and 0xFF)
+}
+
 enum class SefIntegritySeverity {
     PASS, INFO, WARNING, CRITICAL, SKIPPED
 }
@@ -525,9 +563,13 @@ unexplained gaps between them (INFO only -- Samsung's format may
 legitimately pad between blocks).
 
 Promotes SefdBoxDecoder's MARKER_UTC_TIMESTAMP/MARKER_MCC/decodeFieldText/
-isJsonShaped/readUInt16LE/readUInt32LE from private to internal so this
-new analyzer (same package) can reuse them rather than duplicating --
-visibility-only change, no behavior change (SefdBoxDecoderTest unaffected).
+isJsonShaped from private to internal so this new analyzer (same package)
+can reuse them rather than duplicating -- visibility-only change, no
+behavior change (SefdBoxDecoderTest unaffected). readUInt16LE/readUInt32LE
+are NOT promoted -- they'd collide with 7 other files in this package that
+already declare their own identically-named/signed file-private copies
+(private is file-scoped, internal is module-scoped); this analyzer adds
+its own private copy instead, joining that same established convention.
 
 See docs/superpowers/specs/2026-09-26-sef-integrity-check-design.md"
 ```
