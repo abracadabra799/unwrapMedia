@@ -37,6 +37,7 @@ import kotlin.system.exitProcess
 import com.multiviewer.parser.EmbeddedVideo
 import com.multiviewer.parser.MotionPhotoBuilder
 import com.multiviewer.parser.extractEmbeddedVideo
+import com.multiviewer.parser.findFirst
 import com.multiviewer.ui.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerButton
@@ -390,6 +391,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var aiPromptWindowOpen by remember { mutableStateOf(false) }
         var avSyncWindowOpen by remember { mutableStateOf(false) }
         var bitstreamCorruptionWindowOpen by remember { mutableStateOf(false) }
+        var sefIntegrityWindowOpen by remember { mutableStateOf(false) }
         var aboutWindowOpen by remember { mutableStateOf(false) }
         var updateWindowOpen by remember { mutableStateOf(false) }
         var hasUpdateAvailable by remember { mutableStateOf(false) }
@@ -497,6 +499,12 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     enabled = isVideo,
                     shortcut = KeyShortcut(Key.B, meta = true, shift = true),
                     onClick = { bitstreamCorruptionWindowOpen = true },
+                )
+                val hasSefData = currentTab?.root?.let { root -> findFirst(root) { it.type == "sefd" } } != null
+                Item(
+                    I18n.menuSefIntegrityCheck(language),
+                    enabled = hasSefData,
+                    onClick = { sefIntegrityWindowOpen = true },
                 )
                 Item(
                     I18n.menuViewFrameIntervals(language),
@@ -780,6 +788,21 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     )
                 } else {
                     bitstreamCorruptionWindowOpen = false
+                }
+            }
+            if (sefIntegrityWindowOpen) {
+                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                val sefdNode = currentTab?.root?.let { root -> findFirst(root) { it.type == "sefd" } }
+                if (sefdNode != null && currentTab != null) {
+                    SefIntegrityWindow(
+                        file = currentTab.file,
+                        sefdOffset = sefdNode.offset,
+                        sefdHeaderSize = sefdNode.headerSize,
+                        sefdSize = sefdNode.size,
+                        onCloseRequest = { sefIntegrityWindowOpen = false },
+                    )
+                } else {
+                    sefIntegrityWindowOpen = false
                 }
             }
             if (aboutWindowOpen) {
