@@ -185,8 +185,215 @@ object SefIntegrityAnalyzer {
             fieldBlocks.add(SefFieldBlock(e.index, e.marker, name, dataStart, dataLength))
         }
 
-        // Task 2 appends semantic checks here, iterating `fieldBlocks`.
+        for (fb in fieldBlocks) {
+            semantic.add(
+                when {
+                    fb.marker == MARKER_UTC_TIMESTAMP -> checkUtcTimestamp(reader, fb)
+                    fb.marker == MARKER_MCC -> checkMcc(reader, fb)
+                    fb.name == "MotionPhoto_Data" && fb.dataLength == 12 -> checkMotionPhotoData(reader, fb, fileLength)
+                    else -> checkTextOrJson(reader, fb)
+                },
+            )
+        }
 
         return finish()
+    }
+}
+
+private const val PLAUSIBLE_EPOCH_MIN = 946684800L // 2000-01-01T00:00:00Z
+private const val ONE_YEAR_SECONDS = 365L * 24 * 3600
+
+private fun formatEpoch(epochSeconds: Long): String =
+    java.time.Instant.ofEpochSecond(epochSeconds)
+        .atZone(java.time.ZoneOffset.UTC)
+        .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss 'UTC'"))
+
+private fun checkUtcTimestamp(reader: ByteReader, fb: SefFieldBlock): SefCheckResult {
+    val dataBytes = reader.readBytes(fb.dataStart, fb.dataLength)
+    val text = decodeFieldText(dataBytes)
+    val epoch = text?.trim()?.toLongOrNull()
+    if (epoch == null) {
+        return SefCheckResult(SefIntegritySeverity.CRITICAL, "Entry #${fb.entryIndex} UTC timestamp", "Value \"$text\" is not a parseable integer epoch")
+    }
+    val maxEpoch = System.currentTimeMillis() / 1000 + ONE_YEAR_SECONDS
+    val formatted = formatEpoch(epoch)
+    return if (epoch in PLAUSIBLE_EPOCH_MIN..maxEpoch) {
+        SefCheckResult(SefIntegritySeverity.PASS, "Entry #${fb.entryIndex} UTC timestamp", "$formatted is within a plausible range")
+    } else {
+        SefCheckResult(SefIntegritySeverity.WARNING, "Entry #${fb.entryIndex} UTC timestamp", "$formatted is outside the plausible range (2000-01-01 to 1 year from now)")
+    }
+}
+
+private fun checkMcc(reader: ByteReader, fb: SefFieldBlock): SefCheckResult {
+    val dataBytes = reader.readBytes(fb.dataStart, fb.dataLength)
+    val text = decodeFieldText(dataBytes)?.trim()
+    val mcc = text?.toIntOrNull()
+    if (mcc == null || text.length != 3) {
+        return SefCheckResult(SefIntegritySeverity.CRITICAL, "Entry #${fb.entryIndex} MCC format", "Value \"$text\" is not a 3-digit number")
+    }
+    val country = MCC_COUNTRY_NAMES[mcc]
+    return if (country != null) {
+        SefCheckResult(SefIntegritySeverity.PASS, "Entry #${fb.entryIndex} MCC", "$mcc is a valid code ($country) [ITU E.212 Annex A]")
+    } else {
+        SefCheckResult(SefIntegritySeverity.WARNING, "Entry #${fb.entryIndex} MCC", "$mcc is 3 digits but not in the current ITU E.212 Annex A assignment table")
+    }
+}
+
+private fun checkMotionPhotoData(reader: ByteReader, fb: SefFieldBlock, fileLength: Long): SefCheckResult {
+    val videoOffset = reader.readUInt32(fb.dataStart + 4)
+    val videoLength = reader.readUInt32(fb.dataStart + 8)
+    val end = videoOffset + videoLength
+    return if (end <= fileLength) {
+        SefCheckResult(SefIntegritySeverity.PASS, "Entry #${fb.entryIndex} MotionPhoto_Data bounds", "video_offset=$videoOffset + video_length=$videoLength = $end, within file length $fileLength")
+    } else {
+        SefCheckResult(SefIntegritySeverity.CRITICAL, "Entry #${fb.entryIndex} MotionPhoto_Data bounds", "video_offset=$videoOffset + video_length=$videoLength = $end, EXCEEDS file length $fileLength")
+    }
+}
+
+private fun checkTextOrJson(reader: ByteReader, fb: SefFieldBlock): SefCheckResult {
+    val dataBytes = reader.readBytes(fb.dataStart, fb.dataLength)
+    val text = decodeFieldText(dataBytes)
+    return when {
+        text == null -> SefCheckResult(SefIntegritySeverity.PASS, "Entry #${fb.entryIndex} (${fb.name}) encoding", "${fb.dataLength} bytes, binary (not UTF-8 text) -- no text validation applicable")
+        isJsonShaped(text) -> {
+            val jsonError = validateJsonSyntax(text)
+            if (jsonError == null) {
+                SefCheckResult(SefIntegritySeverity.PASS, "Entry #${fb.entryIndex} (${fb.name}) JSON syntax", "Valid JSON (${text.length} chars)")
+            } else {
+                SefCheckResult(SefIntegritySeverity.CRITICAL, "Entry #${fb.entryIndex} (${fb.name}) JSON syntax", "Malformed JSON: $jsonError")
+            }
+        }
+        else -> SefCheckResult(SefIntegritySeverity.PASS, "Entry #${fb.entryIndex} (${fb.name}) encoding", "Valid UTF-8 text (${text.length} chars)")
+    }
+}
+
+// Minimal, dependency-free strict JSON syntax validator -- returns null if [text] is valid JSON, or a
+// human-readable error (with a 0-based character index) otherwise. Distinct from SefdBoxDecoder's
+// prettyPrintJson, which only balances {}/[] depth and would accept syntactically invalid JSON (a
+// trailing comma, an unquoted key, an unterminated string) as long as the brackets happen to balance.
+internal fun validateJsonSyntax(text: String): String? = JsonSyntaxValidator(text.trim()).validate()
+
+private class JsonSyntaxValidator(private val s: String) {
+    private var i = 0
+
+    fun validate(): String? {
+        skipWs()
+        val err = parseValue()
+        if (err != null) return err
+        skipWs()
+        if (i != s.length) return "trailing content after JSON value at position $i"
+        return null
+    }
+
+    private fun error(msg: String) = "$msg at position $i"
+    private fun skipWs() { while (i < s.length && s[i].isWhitespace()) i++ }
+
+    private fun parseValue(): String? {
+        if (i >= s.length) return error("unexpected end of input")
+        return when (s[i]) {
+            '{' -> parseObject()
+            '[' -> parseArray()
+            '"' -> parseString()
+            't' -> parseLiteral("true")
+            'f' -> parseLiteral("false")
+            'n' -> parseLiteral("null")
+            else -> parseNumber()
+        }
+    }
+
+    private fun parseLiteral(literal: String): String? {
+        if (i + literal.length > s.length || s.substring(i, i + literal.length) != literal) return error("expected \"$literal\"")
+        i += literal.length
+        return null
+    }
+
+    private fun parseObject(): String? {
+        i++
+        skipWs()
+        if (i < s.length && s[i] == '}') { i++; return null }
+        while (true) {
+            skipWs()
+            if (i >= s.length || s[i] != '"') return error("expected string key")
+            parseString()?.let { return it }
+            skipWs()
+            if (i >= s.length || s[i] != ':') return error("expected ':'")
+            i++
+            skipWs()
+            parseValue()?.let { return it }
+            skipWs()
+            if (i >= s.length) return error("unterminated object")
+            when (s[i]) {
+                ',' -> { i++; continue }
+                '}' -> { i++; return null }
+                else -> return error("expected ',' or '}'")
+            }
+        }
+    }
+
+    private fun parseArray(): String? {
+        i++
+        skipWs()
+        if (i < s.length && s[i] == ']') { i++; return null }
+        while (true) {
+            skipWs()
+            parseValue()?.let { return it }
+            skipWs()
+            if (i >= s.length) return error("unterminated array")
+            when (s[i]) {
+                ',' -> { i++; continue }
+                ']' -> { i++; return null }
+                else -> return error("expected ',' or ']'")
+            }
+        }
+    }
+
+    private fun parseString(): String? {
+        i++
+        while (i < s.length) {
+            when (val c = s[i]) {
+                '"' -> { i++; return null }
+                '\\' -> {
+                    i++
+                    if (i >= s.length) return error("unterminated escape")
+                    when (s[i]) {
+                        '"', '\\', '/', 'b', 'f', 'n', 'r', 't' -> i++
+                        'u' -> {
+                            if (i + 4 >= s.length) return error("incomplete \\u escape")
+                            for (k in 1..4) {
+                                val hc = s[i + k].lowercaseChar()
+                                if (!hc.isDigit() && hc !in 'a'..'f') return error("invalid \\u escape hex digit")
+                            }
+                            i += 5
+                        }
+                        else -> return error("invalid escape character")
+                    }
+                }
+                else -> {
+                    if (c.code < 0x20) return error("unescaped control character in string")
+                    i++
+                }
+            }
+        }
+        return error("unterminated string")
+    }
+
+    private fun parseNumber(): String? {
+        val start = i
+        if (i < s.length && s[i] == '-') i++
+        if (i >= s.length || !s[i].isDigit()) return error("expected digit")
+        if (s[i] == '0') { i++ } else { while (i < s.length && s[i].isDigit()) i++ }
+        if (i < s.length && s[i] == '.') {
+            i++
+            if (i >= s.length || !s[i].isDigit()) return error("expected digit after decimal point")
+            while (i < s.length && s[i].isDigit()) i++
+        }
+        if (i < s.length && (s[i] == 'e' || s[i] == 'E')) {
+            i++
+            if (i < s.length && (s[i] == '+' || s[i] == '-')) i++
+            if (i >= s.length || !s[i].isDigit()) return error("expected digit in exponent")
+            while (i < s.length && s[i].isDigit()) i++
+        }
+        if (i == start) return error("invalid value")
+        return null
     }
 }

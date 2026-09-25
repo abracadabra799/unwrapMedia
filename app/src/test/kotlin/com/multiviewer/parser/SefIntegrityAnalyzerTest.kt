@@ -206,4 +206,95 @@ class SefIntegrityAnalyzerTest {
             assertEquals(SefIntegritySeverity.CRITICAL, markerCheck.severity)
         }
     }
+
+    @Test
+    fun `a plausible UTC timestamp passes and an implausible one WARNs`() {
+        val plausible = buildSefTrailer(listOf(SefTestField(MARKER_UTC_TIMESTAMP, "TimeStamp", "1700000000".toByteArray())))
+        byteReaderOf(plausible, "sef-timestamp-ok").use { reader ->
+            val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, plausible.size.toLong(), plausible.size.toLong())
+            val check = report.semanticChecks.first { it.label.contains("UTC timestamp") }
+            assertEquals(SefIntegritySeverity.PASS, check.severity)
+            assertTrue(check.detail.contains("2023")) // 1700000000 epoch -> 2023-11-14
+        }
+
+        val implausible = buildSefTrailer(listOf(SefTestField(MARKER_UTC_TIMESTAMP, "TimeStamp", "9999999999".toByteArray())))
+        byteReaderOf(implausible, "sef-timestamp-bad").use { reader ->
+            val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, implausible.size.toLong(), implausible.size.toLong())
+            val check = report.semanticChecks.first { it.label.contains("UTC timestamp") }
+            assertEquals(SefIntegritySeverity.WARNING, check.severity)
+        }
+    }
+
+    @Test
+    fun `a valid MCC maps to its ITU country name and an unmapped one WARNs`() {
+        val valid = buildSefTrailer(listOf(SefTestField(MARKER_MCC, "MCC", "450".toByteArray())))
+        byteReaderOf(valid, "sef-mcc-valid").use { reader ->
+            val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, valid.size.toLong(), valid.size.toLong())
+            val check = report.semanticChecks.first { it.label.contains("MCC") && !it.label.contains("format") }
+            assertEquals(SefIntegritySeverity.PASS, check.severity)
+            assertTrue(check.detail.contains("Korea (Republic of)"))
+        }
+
+        val unmapped = buildSefTrailer(listOf(SefTestField(MARKER_MCC, "MCC", "999".toByteArray())))
+        byteReaderOf(unmapped, "sef-mcc-unmapped").use { reader ->
+            val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, unmapped.size.toLong(), unmapped.size.toLong())
+            val check = report.semanticChecks.first { it.label.contains("MCC") && !it.label.contains("format") }
+            assertEquals(SefIntegritySeverity.WARNING, check.severity)
+        }
+    }
+
+    @Test
+    fun `well-formed JSON passes strict validation and malformed JSON is CRITICAL`() {
+        val validJson = """{"key":"value","n":42}"""
+        val trailer1 = buildSefTrailer(listOf(SefTestField(0x0c01, "ReEditData", validJson.toByteArray())))
+        byteReaderOf(trailer1, "sef-json-valid").use { reader ->
+            val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, trailer1.size.toLong(), trailer1.size.toLong())
+            val check = report.semanticChecks.first { it.label.contains("JSON syntax") }
+            assertEquals(SefIntegritySeverity.PASS, check.severity)
+        }
+
+        val malformedJson = """{"key":"value",}""" // trailing comma -- invalid JSON
+        val trailer2 = buildSefTrailer(listOf(SefTestField(0x0c01, "ReEditData", malformedJson.toByteArray())))
+        byteReaderOf(trailer2, "sef-json-malformed").use { reader ->
+            val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, trailer2.size.toLong(), trailer2.size.toLong())
+            val check = report.semanticChecks.first { it.label.contains("JSON syntax") }
+            assertEquals(SefIntegritySeverity.CRITICAL, check.severity)
+        }
+    }
+
+    @Test
+    fun `MotionPhoto_Data bounds check passes within the file and fails past it`() {
+        val payloadOk = "mpv2".toByteArray() + ByteArray(8).also {
+            it[3] = 10 // video_offset = 10 (big-endian uint32)
+            it[7] = 5  // video_length = 5 (big-endian uint32)
+        }
+        val trailerOk = buildSefTrailer(listOf(SefTestField(0x0d01, "MotionPhoto_Data", payloadOk)))
+        byteReaderOf(trailerOk, "sef-mp-ok").use { reader ->
+            val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, trailerOk.size.toLong(), 1000L)
+            val check = report.semanticChecks.first { it.label.contains("MotionPhoto_Data") }
+            assertEquals(SefIntegritySeverity.PASS, check.severity)
+        }
+
+        val payloadBad = "mpv2".toByteArray() + ByteArray(8).also {
+            it[0] = 0x7F.toByte() // video_offset = a huge number
+            it[1] = 0xFF.toByte()
+            it[2] = 0xFF.toByte()
+            it[3] = 0xFF.toByte()
+        }
+        val trailerBad = buildSefTrailer(listOf(SefTestField(0x0d01, "MotionPhoto_Data", payloadBad)))
+        byteReaderOf(trailerBad, "sef-mp-bad").use { reader ->
+            val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, trailerBad.size.toLong(), 1000L)
+            val check = report.semanticChecks.first { it.label.contains("MotionPhoto_Data") }
+            assertEquals(SefIntegritySeverity.CRITICAL, check.severity)
+        }
+    }
+
+    @Test
+    fun `validateJsonSyntax accepts nested well-formed JSON and rejects specific malformations`() {
+        assertEquals(null, validateJsonSyntax("""{"a":[1,2,3],"b":{"c":true,"d":null}}"""))
+        assertTrue(validateJsonSyntax("""{"a":1,}""") != null) // trailing comma
+        assertTrue(validateJsonSyntax("""{a:1}""") != null) // unquoted key
+        assertTrue(validateJsonSyntax("""{"a":"unterminated""") != null) // unterminated string
+        assertTrue(validateJsonSyntax("""[1,2""") != null) // unterminated array
+    }
 }
