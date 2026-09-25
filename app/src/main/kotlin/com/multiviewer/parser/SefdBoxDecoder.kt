@@ -2,8 +2,8 @@ package com.multiviewer.parser
 
 // Known Samsung SEFD trailer field markers (per ExifTool's Samsung.pm trailer
 // table) whose values this decoder interprets semantically instead of showing raw.
-private const val MARKER_UTC_TIMESTAMP = 0x0a01
-private const val MARKER_MCC = 0x0aa1
+internal const val MARKER_UTC_TIMESTAMP = 0x0a01
+internal const val MARKER_MCC = 0x0aa1
 
 object SefdBoxDecoder : BoxDecoder {
     override fun decode(
@@ -163,7 +163,7 @@ object SefdBoxDecoder : BoxDecoder {
 // JSON values) that a byte-range check misclassifies as binary. Returns null for
 // anything that isn't valid, safely-printable text, so genuinely binary data still
 // falls through to the existing "N bytes (binary)" display.
-private fun decodeFieldText(bytes: ByteArray): String? {
+internal fun decodeFieldText(bytes: ByteArray): String? {
     val text = try {
         Charsets.UTF_8.newDecoder()
             .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
@@ -179,7 +179,7 @@ private fun decodeFieldText(bytes: ByteArray): String? {
     return if (hasDisallowedControlChars) null else text
 }
 
-private fun isJsonShaped(text: String): Boolean {
+internal fun isJsonShaped(text: String): Boolean {
     val trimmed = text.trim().trimEnd(Char(0)).trim()
     return (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
         (trimmed.startsWith("[") && trimmed.endsWith("]"))
