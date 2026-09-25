@@ -72,6 +72,7 @@ object SefIntegrityAnalyzer {
             structural.add(SefCheckResult(SefIntegritySeverity.CRITICAL, "SEFT tail magic", "Expected \"SEFT\" at offset ${payloadEnd - 4}, found \"$sefMagic\""))
             structural.add(SefCheckResult(SefIntegritySeverity.SKIPPED, "SEFH header magic", "Skipped -- depends on SEFT tail magic"))
             structural.add(SefCheckResult(SefIntegritySeverity.SKIPPED, "Directory entry count", "Skipped -- depends on SEFT tail magic"))
+            semantic.add(SefCheckResult(SefIntegritySeverity.SKIPPED, "Semantic checks", "Skipped -- depends on SEFT tail magic"))
             return finish()
         }
         structural.add(SefCheckResult(SefIntegritySeverity.PASS, "SEFT tail magic", "\"SEFT\" found at offset ${payloadEnd - 4}"))
@@ -83,6 +84,7 @@ object SefIntegrityAnalyzer {
             structural.add(SefCheckResult(SefIntegritySeverity.CRITICAL, "SEFH header position", "Computed position $sefhPosition (from sef_size=$sefSize) is out of bounds [$payloadStart, ${payloadEnd - 12}]"))
             structural.add(SefCheckResult(SefIntegritySeverity.SKIPPED, "SEFH header magic", "Skipped -- depends on SEFH header position"))
             structural.add(SefCheckResult(SefIntegritySeverity.SKIPPED, "Directory entry count", "Skipped -- depends on SEFH header position"))
+            semantic.add(SefCheckResult(SefIntegritySeverity.SKIPPED, "Semantic checks", "Skipped -- depends on SEFH header position"))
             return finish()
         }
         structural.add(SefCheckResult(SefIntegritySeverity.PASS, "SEFH header position", "Computed position $sefhPosition (from sef_size=$sefSize) is within bounds [$payloadStart, ${payloadEnd - 12}]"))
@@ -91,6 +93,7 @@ object SefIntegrityAnalyzer {
         if (sefhMagic != "SEFH") {
             structural.add(SefCheckResult(SefIntegritySeverity.CRITICAL, "SEFH header magic", "Expected \"SEFH\" at offset $sefhPosition, found \"$sefhMagic\""))
             structural.add(SefCheckResult(SefIntegritySeverity.SKIPPED, "Directory entry count", "Skipped -- depends on SEFH header magic"))
+            semantic.add(SefCheckResult(SefIntegritySeverity.SKIPPED, "Semantic checks", "Skipped -- depends on SEFH header magic"))
             return finish()
         }
         structural.add(SefCheckResult(SefIntegritySeverity.PASS, "SEFH header magic", "\"SEFH\" found at offset $sefhPosition"))
@@ -152,7 +155,7 @@ object SefIntegrityAnalyzer {
         structural.add(
             if (gaps.isEmpty())
                 SefCheckResult(SefIntegritySeverity.PASS, "Field block gaps", "No gaps between consecutive field blocks")
-                else
+            else
                 SefCheckResult(SefIntegritySeverity.INFO, "Field block gaps", gaps.joinToString("; ")),
         )
 
@@ -161,6 +164,7 @@ object SefIntegrityAnalyzer {
             val markerLabel = "0x" + e.marker.toString(16).padStart(4, '0')
             if (e.blockEnd - e.blockStart < 8) {
                 structural.add(SefCheckResult(SefIntegritySeverity.CRITICAL, "Entry #${e.index} block header", "Block is ${e.blockEnd - e.blockStart} bytes, too short for its own 8-byte header"))
+                semantic.add(SefCheckResult(SefIntegritySeverity.SKIPPED, "Entry #${e.index} semantic check", "Skipped -- depends on Entry #${e.index} block header"))
                 continue
             }
             val blockMarker = readUInt16LE(reader, e.blockStart + 2)
@@ -174,6 +178,7 @@ object SefIntegrityAnalyzer {
             val nameOffset = e.blockStart + 8
             if (nameOffset + nameSize > e.blockEnd) {
                 structural.add(SefCheckResult(SefIntegritySeverity.CRITICAL, "Entry #${e.index} name_size", "name_size=$nameSize runs past the end of its block"))
+                semantic.add(SefCheckResult(SefIntegritySeverity.SKIPPED, "Entry #${e.index} semantic check", "Skipped -- depends on Entry #${e.index} name_size"))
                 continue
             }
             structural.add(SefCheckResult(SefIntegritySeverity.PASS, "Entry #${e.index} name_size", "name_size=$nameSize fits within block"))
@@ -190,7 +195,11 @@ object SefIntegrityAnalyzer {
                 when {
                     fb.marker == MARKER_UTC_TIMESTAMP -> checkUtcTimestamp(reader, fb)
                     fb.marker == MARKER_MCC -> checkMcc(reader, fb)
-                    fb.name == "MotionPhoto_Data" && fb.dataLength == 12 -> checkMotionPhotoData(reader, fb, fileLength)
+                    fb.name == "MotionPhoto_Data" ->
+                        if (fb.dataLength == 12)
+                            checkMotionPhotoData(reader, fb, fileLength)
+                        else
+                            SefCheckResult(SefIntegritySeverity.WARNING, "Entry #${fb.entryIndex} MotionPhoto_Data bounds", "Expected exactly 12 bytes, found ${fb.dataLength} -- cannot verify bounds")
                     else -> checkTextOrJson(reader, fb)
                 },
             )
@@ -211,13 +220,21 @@ private fun formatEpoch(epochSeconds: Long): String =
 private fun checkUtcTimestamp(reader: ByteReader, fb: SefFieldBlock): SefCheckResult {
     val dataBytes = reader.readBytes(fb.dataStart, fb.dataLength)
     val text = decodeFieldText(dataBytes)
-    val epoch = text?.trim()?.toLongOrNull()
+    if (text == null) {
+        return SefCheckResult(SefIntegritySeverity.CRITICAL, "Entry #${fb.entryIndex} UTC timestamp", "Field data is not decodable as UTF-8 text")
+    }
+    val epoch = text.trim().toLongOrNull()
     if (epoch == null) {
         return SefCheckResult(SefIntegritySeverity.CRITICAL, "Entry #${fb.entryIndex} UTC timestamp", "Value \"$text\" is not a parseable integer epoch")
     }
     val maxEpoch = System.currentTimeMillis() / 1000 + ONE_YEAR_SECONDS
-    val formatted = formatEpoch(epoch)
-    return if (epoch in PLAUSIBLE_EPOCH_MIN..maxEpoch) {
+    val inPlausibleRange = epoch in PLAUSIBLE_EPOCH_MIN..maxEpoch
+    val formatted = try {
+        formatEpoch(epoch)
+    } catch (_: java.time.DateTimeException) {
+        return SefCheckResult(SefIntegritySeverity.CRITICAL, "Entry #${fb.entryIndex} UTC timestamp", "Epoch value $epoch cannot be represented as a valid date")
+    }
+    return if (inPlausibleRange) {
         SefCheckResult(SefIntegritySeverity.PASS, "Entry #${fb.entryIndex} UTC timestamp", "$formatted is within a plausible range")
     } else {
         SefCheckResult(SefIntegritySeverity.WARNING, "Entry #${fb.entryIndex} UTC timestamp", "$formatted is outside the plausible range (2000-01-01 to 1 year from now)")
@@ -226,8 +243,12 @@ private fun checkUtcTimestamp(reader: ByteReader, fb: SefFieldBlock): SefCheckRe
 
 private fun checkMcc(reader: ByteReader, fb: SefFieldBlock): SefCheckResult {
     val dataBytes = reader.readBytes(fb.dataStart, fb.dataLength)
-    val text = decodeFieldText(dataBytes)?.trim()
-    val mcc = text?.toIntOrNull()
+    val rawText = decodeFieldText(dataBytes)
+    if (rawText == null) {
+        return SefCheckResult(SefIntegritySeverity.CRITICAL, "Entry #${fb.entryIndex} MCC format", "Field data is not decodable as UTF-8 text")
+    }
+    val text = rawText.trim()
+    val mcc = text.toIntOrNull()
     if (mcc == null || text.length != 3) {
         return SefCheckResult(SefIntegritySeverity.CRITICAL, "Entry #${fb.entryIndex} MCC format", "Value \"$text\" is not a 3-digit number")
     }
@@ -275,6 +296,8 @@ internal fun validateJsonSyntax(text: String): String? = JsonSyntaxValidator(tex
 
 private class JsonSyntaxValidator(private val s: String) {
     private var i = 0
+    private var depth = 0
+    private val MAX_DEPTH = 512
 
     fun validate(): String? {
         skipWs()
@@ -308,41 +331,45 @@ private class JsonSyntaxValidator(private val s: String) {
     }
 
     private fun parseObject(): String? {
+        depth++
+        if (depth > MAX_DEPTH) return error("nesting too deep (max $MAX_DEPTH)")
         i++
         skipWs()
-        if (i < s.length && s[i] == '}') { i++; return null }
+        if (i < s.length && s[i] == '}') { i++; depth--; return null }
         while (true) {
             skipWs()
-            if (i >= s.length || s[i] != '"') return error("expected string key")
-            parseString()?.let { return it }
+            if (i >= s.length || s[i] != '"') { depth--; return error("expected string key") }
+            parseString()?.let { depth--; return it }
             skipWs()
-            if (i >= s.length || s[i] != ':') return error("expected ':'")
+            if (i >= s.length || s[i] != ':') { depth--; return error("expected ':'") }
             i++
             skipWs()
-            parseValue()?.let { return it }
+            parseValue()?.let { depth--; return it }
             skipWs()
-            if (i >= s.length) return error("unterminated object")
+            if (i >= s.length) { depth--; return error("unterminated object") }
             when (s[i]) {
                 ',' -> { i++; continue }
-                '}' -> { i++; return null }
-                else -> return error("expected ',' or '}'")
+                '}' -> { i++; depth--; return null }
+                else -> { depth--; return error("expected ',' or '}'") }
             }
         }
     }
 
     private fun parseArray(): String? {
+        depth++
+        if (depth > MAX_DEPTH) return error("nesting too deep (max $MAX_DEPTH)")
         i++
         skipWs()
-        if (i < s.length && s[i] == ']') { i++; return null }
+        if (i < s.length && s[i] == ']') { i++; depth--; return null }
         while (true) {
             skipWs()
-            parseValue()?.let { return it }
+            parseValue()?.let { depth--; return it }
             skipWs()
-            if (i >= s.length) return error("unterminated array")
+            if (i >= s.length) { depth--; return error("unterminated array") }
             when (s[i]) {
                 ',' -> { i++; continue }
-                ']' -> { i++; return null }
-                else -> return error("expected ',' or ']'")
+                ']' -> { i++; depth--; return null }
+                else -> { depth--; return error("expected ',' or ']'") }
             }
         }
     }

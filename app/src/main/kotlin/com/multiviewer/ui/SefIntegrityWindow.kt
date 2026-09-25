@@ -9,10 +9,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -85,11 +85,20 @@ private fun CheckSection(title: String, checks: List<SefCheckResult>) {
 }
 
 @Composable
-fun SefIntegrityWindow(file: File, sefdOffset: Long, sefdHeaderSize: Int, sefdSize: Long, onCloseRequest: () -> Unit) {
-    var report by remember { mutableStateOf<SefIntegrityReport?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
+fun SefIntegrityWindow(
+    file: File,
+    sefdOffset: Long,
+    sefdHeaderSize: Int,
+    sefdSize: Long,
+    themeMode: ThemeMode = ThemeMode.DARK,
+    onCloseRequest: () -> Unit,
+) {
+    var report by remember(file) { mutableStateOf<SefIntegrityReport?>(null) }
+    var isLoading by remember(file) { mutableStateOf(true) }
+    var error by remember(file) { mutableStateOf<String?>(null) }
 
-    remember {
+    LaunchedEffect(file) {
+        isLoading = true
         try {
             ByteReader.open(file).use { reader ->
                 report = SefIntegrityAnalyzer.analyze(reader, sefdOffset, sefdHeaderSize, sefdSize, file.length())
@@ -97,25 +106,25 @@ fun SefIntegrityWindow(file: File, sefdOffset: Long, sefdHeaderSize: Int, sefdSi
         } catch (e: Exception) {
             error = e.message ?: e.toString()
         }
-        true
+        isLoading = false
     }
 
-    Window(onCloseRequest = onCloseRequest, state = rememberWindowState(width = 640.dp, height = 720.dp), title = "SEF Integrity Check") {
-        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    Window(onCloseRequest = onCloseRequest, state = rememberWindowState(width = 640.dp, height = 720.dp), title = "SEF 무결성 검사 - ${file.name}") {
+        Column(modifier = Modifier.fillMaxSize().background(AppColors.Background).padding(16.dp)) {
             val currentReport = report
             when {
-                error != null -> Text("Error: $error", color = Color.Red)
-                currentReport == null -> Text("Analyzing...")
+                error != null -> Text("오류: $error", color = Color.Red)
+                isLoading || currentReport == null -> Text("분석 중...")
                 else -> {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         SeverityBadge(currentReport.overallSeverity)
                         val issueCount = (currentReport.structuralChecks + currentReport.semanticChecks)
                             .count { it.severity == SefIntegritySeverity.WARNING || it.severity == SefIntegritySeverity.CRITICAL }
-                        Text("$issueCount issue(s) found", fontSize = 13.sp)
+                        Text("${issueCount}개 문제 발견", fontSize = 13.sp)
                     }
                     LazyColumn(modifier = Modifier.fillMaxSize().padding(top = 8.dp)) {
-                        item { CheckSection("구조적 검사 (Structural Checks)", currentReport.structuralChecks) }
-                        item { CheckSection("필드별 의미론 검사 (Semantic Checks)", currentReport.semanticChecks) }
+                        item { CheckSection("구조적 검사", currentReport.structuralChecks) }
+                        item { CheckSection("필드별 의미론 검사", currentReport.semanticChecks) }
                     }
                 }
             }

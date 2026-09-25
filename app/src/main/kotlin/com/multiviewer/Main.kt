@@ -799,6 +799,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                         sefdOffset = sefdNode.offset,
                         sefdHeaderSize = sefdNode.headerSize,
                         sefdSize = sefdNode.size,
+                        themeMode = themeMode,
                         onCloseRequest = { sefIntegrityWindowOpen = false },
                     )
                 } else {

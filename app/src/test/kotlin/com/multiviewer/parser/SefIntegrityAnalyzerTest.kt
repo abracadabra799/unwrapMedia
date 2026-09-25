@@ -102,6 +102,9 @@ class SefIntegrityAnalyzerTest {
             val seftCheck = report.structuralChecks.first { it.label == "SEFT tail magic" }
             assertEquals(SefIntegritySeverity.CRITICAL, seftCheck.severity)
             assertTrue(report.structuralChecks.any { it.severity == SefIntegritySeverity.SKIPPED })
+            // Semantic Checks must not silently render empty on a corrupted trailer -- a SKIPPED
+            // entry should appear there too, distinguishable from "everything passed".
+            assertTrue(report.semanticChecks.any { it.severity == SefIntegritySeverity.SKIPPED })
         }
     }
 
@@ -244,6 +247,16 @@ class SefIntegrityAnalyzerTest {
     }
 
     @Test
+    fun `MCC 450 and 467 -- the historically-swapped South-North Korea pair -- map correctly, plus spot-checks`() {
+        // This whole feature exists to get 450/467 right (they were swapped in an earlier,
+        // wrong table) -- verified against MccCountryNames.kt's own header comment and table.
+        assertEquals("Korea (Republic of)", MCC_COUNTRY_NAMES[450])
+        assertEquals("Democratic People's Republic of Korea", MCC_COUNTRY_NAMES[467])
+        assertEquals("United States of America", MCC_COUNTRY_NAMES[310])
+        assertEquals("China (People's Republic of)", MCC_COUNTRY_NAMES[460])
+    }
+
+    @Test
     fun `well-formed JSON passes strict validation and malformed JSON is CRITICAL`() {
         val validJson = """{"key":"value","n":42}"""
         val trailer1 = buildSefTrailer(listOf(SefTestField(0x0c01, "ReEditData", validJson.toByteArray())))
@@ -296,5 +309,79 @@ class SefIntegrityAnalyzerTest {
         assertTrue(validateJsonSyntax("""{a:1}""") != null) // unquoted key
         assertTrue(validateJsonSyntax("""{"a":"unterminated""") != null) // unterminated string
         assertTrue(validateJsonSyntax("""[1,2""") != null) // unterminated array
+    }
+
+    @Test
+    fun `validateJsonSyntax rejects a deeply-nested JSON-shaped input without throwing StackOverflowError`() {
+        val deeplyNested = "[".repeat(2000)
+        val error = validateJsonSyntax(deeplyNested)
+        assertTrue(error != null)
+    }
+
+    @Test
+    fun `a name_size overrun is CRITICAL and skips that entry's semantic check (SKIPPED, not silently absent)`() {
+        // Single-field trailer, same shape as the "missing SEFH magic" test: header(8) + "X\0"(2) +
+        // data(1 byte) = 11-byte block. blockStart is 0 for the only/first block, so name_size lives
+        // at blockStart+4=4 and blockEnd=11; nameOffset=blockStart+8=8, so any nameSize > 3 overruns.
+        val trailer = buildSefTrailer(listOf(SefTestField(0x0b01, "X", byteArrayOf(1)))).copyOf()
+        trailer.putUInt32LE(4, 999L) // name_size now runs far past the 11-byte block
+        byteReaderOf(trailer, "sef-name-size-overrun").use { reader ->
+            val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, trailer.size.toLong(), trailer.size.toLong())
+            val nameSizeCheck = report.structuralChecks.first { it.label == "Entry #1 name_size" }
+            assertEquals(SefIntegritySeverity.CRITICAL, nameSizeCheck.severity)
+            // The field's value never gets a semantic check -- it must show as SKIPPED, not be
+            // silently absent from the Semantic Checks section.
+            assertTrue(
+                report.semanticChecks.any {
+                    it.severity == SefIntegritySeverity.SKIPPED && it.label.contains("Entry #1")
+                },
+            )
+        }
+    }
+
+    @Test
+    fun `a declared directory entry count larger than what's actually there is CRITICAL`() {
+        // Two-field trailer (same shape as the overlap/gap tests): dir starts right after both
+        // blocks, at sefhPosition = block1Size + block2Size. The declared count field sits at
+        // sefhPosition+8.
+        val trailer = buildSefTrailer(
+            listOf(
+                SefTestField(0x0b01, "A", "aa".toByteArray()),
+                SefTestField(0x0b02, "B", "bb".toByteArray()),
+            ),
+        ).copyOf()
+        val block1Size = 8 + ("A".toByteArray().size + 1) + 2
+        val block2Size = 8 + ("B".toByteArray().size + 1) + 2
+        val sefhPosition = block1Size + block2Size
+        trailer.putUInt32LE(sefhPosition + 8, 5L) // declare 5 entries when only 2 actually exist
+        byteReaderOf(trailer, "sef-count-mismatch").use { reader ->
+            val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, trailer.size.toLong(), trailer.size.toLong())
+            val countCheck = report.structuralChecks.first { it.label == "Directory entry count" }
+            assertEquals(SefIntegritySeverity.CRITICAL, countCheck.severity)
+            assertTrue(countCheck.detail.contains("5"))
+            assertTrue(countCheck.detail.contains("2"))
+        }
+    }
+
+    @Test
+    fun `a SEFH position computed out of bounds is CRITICAL and skips both SEFH magic and directory count`() {
+        // Well-formed single-field trailer, then corrupt SEFT's sef_size field (at trailer.size-8)
+        // to an absurdly large value so sefhPosition = payloadEnd - 8 - sefSize goes deeply negative.
+        val trailer = buildSefTrailer(listOf(SefTestField(0x0b01, "X", byteArrayOf(1)))).copyOf()
+        trailer.putUInt32LE(trailer.size - 8, 999_999_999L)
+        byteReaderOf(trailer, "sef-sefh-position-oob").use { reader ->
+            val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, trailer.size.toLong(), trailer.size.toLong())
+            assertEquals(SefIntegritySeverity.CRITICAL, report.overallSeverity)
+            val positionCheck = report.structuralChecks.first { it.label == "SEFH header position" }
+            assertEquals(SefIntegritySeverity.CRITICAL, positionCheck.severity)
+            assertEquals(
+                SefIntegritySeverity.SKIPPED,
+                report.structuralChecks.first { it.label == "SEFH header magic" }.severity,
+            )
+            assertEquals(
+                SefIntegritySeverity.SKIPPED,
+                report.structuralChecks.first { it.label == "Directory entry count" }.severity,
+            )
+        }
     }
 }
