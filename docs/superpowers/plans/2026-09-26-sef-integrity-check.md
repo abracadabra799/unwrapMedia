@@ -306,8 +306,13 @@ class SefIntegrityAnalyzerTest {
         val block2Size = 8 + ("B".toByteArray().size + 1) + 2
         val dirStart = block1Size + block2Size
         val entry1Pos = dirStart + 12
-        // Shrink entry #1's declared size so a gap opens up before entry #2 (still fully in-bounds).
-        trailer.putUInt32LE(entry1Pos + 8, (block1Size - 3).toLong())
+        // Shrink entry #1's declared size by 1 byte so a 1-byte gap opens up before entry #2.
+        // Must shrink by at most 2: block1's own header+name needs nameOffset(8)+nameSize(2)=10
+        // bytes minimum, and block1Size is 12, so shrinking by 3+ would trip an unrelated
+        // "name_size runs past end of block" CRITICAL instead of the gap this test targets
+        // (an off-by-enough bug caught by Task 1's implementer during a prior attempt at this
+        // exact plan -- verify this arithmetic yourself before trusting it further).
+        trailer.putUInt32LE(entry1Pos + 8, (block1Size - 1).toLong())
         byteReaderOf(trailer, "sef-gap").use { reader ->
             val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, trailer.size.toLong(), trailer.size.toLong())
             val gapCheck = report.structuralChecks.first { it.label == "Field block gaps" }
