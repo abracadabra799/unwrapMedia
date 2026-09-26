@@ -1588,15 +1588,57 @@ private fun VisualDiffView(language: AppLanguage, infoA: CompareMediaInfo?, info
                     }
                     VisualCompareMode.DIFF_HEATMAP -> {
                         val diffBitmap = remember(displayBitmapA, displayBitmapB) { computeDiffBitmap(displayBitmapA, displayBitmapB) }
+                        var metrics by remember(infoA.file, infoB.file) { mutableStateOf<StillImageQualityMetrics?>(null) }
+                        var metricsLoading by remember(infoA.file, infoB.file) { mutableStateOf(false) }
+                        var metricsFailed by remember(infoA.file, infoB.file) { mutableStateOf(false) }
+                        val captureMismatches = remember(infoA, infoB) { captureConditionMismatches(extractMetadataDiffRows(infoA, infoB)) }
+
+                        LaunchedEffect(infoA.file, infoB.file, isVideoCompare) {
+                            if (isVideoCompare) return@LaunchedEffect
+                            metricsLoading = true
+                            metricsFailed = false
+                            val result = withContext(Dispatchers.IO) { computeStillImageQualityMetrics(infoA.file, infoB.file) }
+                            metrics = result
+                            metricsFailed = result == null
+                            metricsLoading = false
+                        }
+
                         if (diffBitmap != null) {
                             Box(modifier = Modifier.fillMaxSize().padding(8.dp), contentAlignment = Alignment.Center) {
                                 androidx.compose.foundation.Image(bitmap = diffBitmap, contentDescription = "Diff Heatmap", modifier = Modifier.fillMaxSize())
-                                Text(
-                                    if (language == AppLanguage.KO) "🔍 차이점 마스크 (변화가 있는 픽셀이 밝게 표시됨)" else "🔍 Diff Mask (Changed pixels highlighted)",
-                                    modifier = Modifier.align(Alignment.BottomCenter).background(Color.Black.copy(alpha = 0.7f)).padding(6.dp),
-                                    color = Color.Yellow,
-                                    fontSize = 11.sp,
-                                )
+                                Column(
+                                    modifier = Modifier.align(Alignment.BottomCenter).background(Color.Black.copy(alpha = 0.7f)).padding(8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                ) {
+                                    Text(
+                                        if (language == AppLanguage.KO) "🔍 차이점 마스크 (변화가 있는 픽셀이 밝게 표시됨)" else "🔍 Diff Mask (Changed pixels highlighted)",
+                                        color = Color.Yellow,
+                                        fontSize = 11.sp,
+                                    )
+                                    if (!isVideoCompare) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            val metricsText = when {
+                                                metricsLoading -> if (language == AppLanguage.KO) "PSNR/SSIM 계산 중..." else "Computing PSNR/SSIM..."
+                                                metricsFailed -> if (language == AppLanguage.KO) "PSNR/SSIM 계산 실패" else "PSNR/SSIM computation failed"
+                                                metrics != null -> "PSNR: ${"%.2f".format(metrics!!.psnrDb)} dB | SSIM: ${"%.4f".format(metrics!!.ssim)}"
+                                                else -> ""
+                                            }
+                                            if (metricsText.isNotEmpty()) {
+                                                Text(metricsText, color = Color.White, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                            }
+                                            if (captureMismatches.isNotEmpty()) {
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    if (language == AppLanguage.KO) "⚠️ 촬영조건 다름" else "⚠️ Capture conditions differ",
+                                                    color = Color(0xFFFFB74D),
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
