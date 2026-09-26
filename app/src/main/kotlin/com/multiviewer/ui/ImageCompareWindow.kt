@@ -54,6 +54,7 @@ import androidx.compose.ui.window.rememberWindowState
 import com.multiviewer.parser.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.EventQueue
@@ -199,6 +200,15 @@ fun ImageCompareWindow(
 
     var infoA by remember { mutableStateOf<CompareMediaInfo?>(null) }
     var infoB by remember { mutableStateOf<CompareMediaInfo?>(null) }
+
+    // Hoisted once here (instead of computed independently in MetadataDiffView and
+    // VisualDiffView) so extractMetadataDiffRows's file I/O -- motion-photo/SEF probing via
+    // ByteReader.open -- runs a single time per file pair, not once per tab.
+    val captureMismatches = remember(infoA, infoB) {
+        val a = infoA
+        val b = infoB
+        if (a == null || b == null || a.isVideo || b.isVideo) emptyList() else captureConditionMismatches(extractMetadataDiffRows(a, b))
+    }
 
     fun loadInfo(file: File?, onLoaded: (CompareMediaInfo?) -> Unit) {
         if (file == null || !file.exists()) {
@@ -418,8 +428,8 @@ fun ImageCompareWindow(
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     when (selectedTab) {
                         MediaCompareTab.STRUCTURE -> StructureDiffView(language, infoA, infoB)
-                        MediaCompareTab.METADATA -> MetadataDiffView(language, infoA, infoB)
-                        MediaCompareTab.VISUAL -> VisualDiffView(language, infoA, infoB)
+                        MediaCompareTab.METADATA -> MetadataDiffView(language, infoA, infoB, captureMismatches)
+                        MediaCompareTab.VISUAL -> VisualDiffView(language, infoA, infoB, captureMismatches)
                         MediaCompareTab.HEX -> HexDiffView(language, fileA, fileB)
                     }
                 }
@@ -1247,7 +1257,7 @@ internal fun computeStructureDiff(rootA: BoxNode?, rootB: BoxNode?): List<Struct
 // -------------------------------------------------------------------------------------------------
 
 @Composable
-private fun MetadataDiffView(language: AppLanguage, infoA: CompareMediaInfo?, infoB: CompareMediaInfo?) {
+private fun MetadataDiffView(language: AppLanguage, infoA: CompareMediaInfo?, infoB: CompareMediaInfo?, captureMismatches: List<String>) {
     if (infoA == null || infoB == null) {
         EmptyComparePlaceholder(language)
         return
@@ -1258,9 +1268,6 @@ private fun MetadataDiffView(language: AppLanguage, infoA: CompareMediaInfo?, in
 
     val allRows = remember(infoA, infoB) {
         extractMetadataDiffRows(infoA, infoB)
-    }
-    val captureMismatches = remember(allRows, infoA, infoB) {
-        if (infoA.isVideo || infoB.isVideo) emptyList() else captureConditionMismatches(allRows)
     }
 
     val filteredRows = remember(allRows, onlyDiffs, searchQuery) {
@@ -1422,8 +1429,13 @@ private val CAPTURE_CONDITION_LABELS = setOf("ISO", "Exposure Time", "F-Number",
 // images (as opposed to any other metadata difference, e.g. file name or GPS, which doesn't).
 // Two label spellings exist for the same underlying value across MediaSummaryBuilder.kt's two
 // summary-building code paths ("F-Number" vs "Aperture") -- both are recognized.
+// One side missing the field is *unknown*, not *matching* -- suppressing the warning here is
+// deliberate, not accidental; don't "fix" this back to flagging one-sided presence as a mismatch.
 internal fun captureConditionMismatches(rows: List<MetadataDiffRow>): List<String> {
-    return rows.filter { it.key in CAPTURE_CONDITION_LABELS && it.isDifferent }.map { it.key }.distinct()
+    return rows.filter {
+        it.key in CAPTURE_CONDITION_LABELS && it.isDifferent &&
+            it.valueA.isNotBlank() && it.valueB.isNotBlank()
+    }.map { it.key }.distinct()
 }
 
 private fun extractSefNames(root: BoxNode?): List<String> {
@@ -1437,7 +1449,7 @@ private fun extractSefNames(root: BoxNode?): List<String> {
 // -------------------------------------------------------------------------------------------------
 
 @Composable
-private fun VisualDiffView(language: AppLanguage, infoA: CompareMediaInfo?, infoB: CompareMediaInfo?) {
+private fun VisualDiffView(language: AppLanguage, infoA: CompareMediaInfo?, infoB: CompareMediaInfo?, captureMismatches: List<String>) {
     if (infoA == null || infoB == null) {
         EmptyComparePlaceholder(language)
         return
@@ -1496,15 +1508,16 @@ private fun VisualDiffView(language: AppLanguage, infoA: CompareMediaInfo?, info
     var metrics by remember(infoA.file, infoB.file) { mutableStateOf<StillImageQualityMetrics?>(null) }
     var metricsLoading by remember(infoA.file, infoB.file) { mutableStateOf(false) }
     var metricsFailed by remember(infoA.file, infoB.file) { mutableStateOf(false) }
-    val captureMismatches = remember(infoA, infoB) {
-        if (isVideoCompare) emptyList() else captureConditionMismatches(extractMetadataDiffRows(infoA, infoB))
-    }
+    // Latched true once Diff Heatmap mode has actually been selected for this file pair, so the
+    // PSNR/SSIM ffmpeg passes below don't run on every Visual-tab entry -- only when the mode that
+    // actually needs them has been opened at least once.
+    var metricsRequested by remember(infoA.file, infoB.file) { mutableStateOf(false) }
 
-    LaunchedEffect(infoA.file, infoB.file, isVideoCompare) {
-        if (isVideoCompare) return@LaunchedEffect
+    LaunchedEffect(infoA.file, infoB.file, isVideoCompare, metricsRequested) {
+        if (isVideoCompare || !metricsRequested) return@LaunchedEffect
         metricsLoading = true
         metricsFailed = false
-        val result = withContext(Dispatchers.IO) { computeStillImageQualityMetrics(infoA.file, infoB.file) }
+        val result = withContext(Dispatchers.IO) { computeStillImageQualityMetrics(infoA.file, infoB.file) { !isActive } }
         metrics = result
         metricsFailed = result == null
         metricsLoading = false
@@ -1590,6 +1603,7 @@ private fun VisualDiffView(language: AppLanguage, infoA: CompareMediaInfo?, info
                     Text(if (language == AppLanguage.KO) "미디어 프레임 디코딩 중..." else "Decoding media frames...", fontSize = 12.sp, color = Color.White)
                 }
             } else {
+                if (mode == VisualCompareMode.DIFF_HEATMAP) metricsRequested = true
                 when (mode) {
                     VisualCompareMode.SPLIT_WIPER -> {
                         WiperCanvas(displayBitmapA, displayBitmapB, wiperPos, onWiperChanged = { wiperPos = it })

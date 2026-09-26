@@ -299,10 +299,10 @@ data class StillImageQualityMetrics(val psnrDb: Double, val ssim: Double)
 // either pass fails (matches runPsnrPass/runSsimPass's existing null-on-failure contract).
 // Blocking -- callers must invoke this off the UI thread, matching this file's existing
 // isVmafAvailable/runXPass convention.
-fun computeStillImageQualityMetrics(fileA: File, fileB: File): StillImageQualityMetrics? {
+fun computeStillImageQualityMetrics(fileA: File, fileB: File, isCancelled: () -> Boolean = { false }): StillImageQualityMetrics? {
     val autoScale = !resolutionsMatch(fileA, fileB)
-    val psnrResult = runPsnrPass(fileA, fileB, onProgress = { _, _ -> }, isCancelled = { false }, autoScale = autoScale) ?: return null
-    val ssimResult = runSsimPass(fileA, fileB, onProgress = { _, _ -> }, isCancelled = { false }, autoScale = autoScale) ?: return null
+    val psnrResult = runPsnrPass(fileA, fileB, onProgress = { _, _ -> }, isCancelled = isCancelled, autoScale = autoScale) ?: return null
+    val ssimResult = runSsimPass(fileA, fileB, onProgress = { _, _ -> }, isCancelled = isCancelled, autoScale = autoScale) ?: return null
     return StillImageQualityMetrics(psnrDb = psnrResult.statistics.mean, ssim = ssimResult.statistics.mean)
 }
 

@@ -154,4 +154,13 @@ class ImageCompareMetadataTest {
         )
         assertEquals(listOf("ISO"), captureConditionMismatches(rows))
     }
+
+    @Test
+    fun `captureConditionMismatches does not flag a field that is simply missing on one side`() {
+        val rows = listOf(
+            MetadataDiffRow("Exif", "ISO", "100", "", isDifferent = true),
+            MetadataDiffRow("Exif", "F-Number", "", "2.2", isDifferent = true),
+        )
+        assertEquals(emptyList(), captureConditionMismatches(rows))
+    }
 }
