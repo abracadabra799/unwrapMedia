@@ -221,4 +221,44 @@ class MotionPhotoIntegrityAnalyzerTest {
     fun `analyzeDecodability returns empty when there is no video`() {
         assertEquals(emptyList(), analyzeDecodability(File.createTempFile("no-video-test", ".bin").apply { deleteOnExit() }, null))
     }
+
+    private fun generateRealClip(suffix: String): File {
+        val file = File.createTempFile("motion-photo-decode-test-$suffix-", ".mp4")
+        file.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=10:duration=1",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", file.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+        return file
+    }
+
+    private fun embeddedVideoCoveringWholeFile(file: File) =
+        com.multiviewer.parser.EmbeddedVideo(start = 0L, end = file.length(), extension = "mp4")
+
+    @Test
+    fun `analyzeDecodability reports PASS for a real valid video`() {
+        val clip = generateRealClip("valid")
+        val checks = analyzeDecodability(clip, embeddedVideoCoveringWholeFile(clip))
+        assertEquals(1, checks.size)
+        assertEquals(SefIntegritySeverity.PASS, checks.single().severity)
+    }
+
+    @Test
+    fun `analyzeDecodability reports CRITICAL for a video with corrupted frame data even when the container is intact`() {
+        val clip = generateRealClip("corrupt-base")
+        val corrupted = File.createTempFile("motion-photo-decode-test-corrupted-", ".mp4")
+        corrupted.deleteOnExit()
+        clip.copyTo(corrupted, overwrite = true)
+        // Zero out a chunk well past the (faststart-relocated) moov atom, landing inside the
+        // actual frame data -- this must NOT touch container framing, matching the exact
+        // "concealed decode error" case exit-code-alone missed.
+        java.io.RandomAccessFile(corrupted, "rw").use { raf ->
+            val offset = corrupted.length() - 3000
+            raf.seek(offset)
+            raf.write(ByteArray(2000))
+        }
+        val checks = analyzeDecodability(corrupted, embeddedVideoCoveringWholeFile(corrupted))
+        assertEquals(1, checks.size)
+        assertEquals(SefIntegritySeverity.CRITICAL, checks.single().severity)
+    }
 }

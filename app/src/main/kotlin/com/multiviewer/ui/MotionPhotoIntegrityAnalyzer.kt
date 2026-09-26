@@ -87,7 +87,7 @@ internal fun analyzeGoogleXmpSection(root: BoxNode, reader: ByteReader): List<Se
     return checks
 }
 
-// Verifies an Apple/QuickTime-style embedded video (an "mpvd" or "EmbeddedVideoData" box, used by
+// Verifies a HEIC-style embedded video (an "mpvd" or "EmbeddedVideoData" box, used by
 // this app's HEIC motion-photo path) is positioned within the file and has a real ftyp child --
 // the same box shape findEmbeddedVideo already reads to extract the video, but this reports on
 // its structural validity instead of just extracting it.
@@ -109,9 +109,10 @@ internal fun analyzeAppleMpvdSection(root: BoxNode, fileLength: Long): List<SefC
 }
 
 // Format-independent: extracts whichever video findEmbeddedVideo resolved (any of the 3 formats)
-// to a temp file and runs a real ffprobe on it, to catch corruption/truncation that pure
+// to a temp file and runs a real ffmpeg decode pass on it, to catch corruption/truncation that pure
 // offset/length arithmetic can't -- every other check in this file validates declared *positions*,
-// this is the only one that validates the actual bytes decode.
+// this is the only one that validates the actual bytes decode. `-f null -` forces genuine frame
+// decoding; ffprobe alone only reads container metadata and would miss frame-level corruption.
 internal fun analyzeDecodability(file: File, video: com.multiviewer.parser.EmbeddedVideo?): List<SefCheckResult> {
     if (video == null) return emptyList()
     val temp = File.createTempFile("motion-photo-decode-check", ".${video.extension}")
@@ -135,10 +136,13 @@ internal fun analyzeDecodability(file: File, video: com.multiviewer.parser.Embed
             listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "임베디드 비디오 디코딩 확인", "ffmpeg 실행이 시간 초과되었습니다"))
         } else {
             val exitCode = process.waitFor()
-            if (exitCode == 0) {
+            if (exitCode == 0 && output.isEmpty()) {
                 listOf(SefCheckResult(SefIntegritySeverity.PASS, "임베디드 비디오 디코딩 확인", "ffmpeg으로 전체 비디오 디코딩에 성공했습니다"))
             } else {
-                listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "임베디드 비디오 디코딩 확인", "ffmpeg가 실패했습니다 (exit=$exitCode): $output"))
+                // Truncate: a badly corrupted video can produce 100+ lines of decoder errors, which would
+                // otherwise blow out this single report row.
+                val truncated = if (output.length > 2000) output.take(2000) + "... (truncated)" else output
+                listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "임베디드 비디오 디코딩 확인", "ffmpeg가 디코딩 오류를 보고했습니다 (exit=$exitCode): $truncated"))
             }
         }
     } catch (e: Exception) {
@@ -151,7 +155,7 @@ internal fun analyzeDecodability(file: File, video: com.multiviewer.parser.Embed
 // Top-level orchestrator: opens exactly ONE ByteReader for the whole analysis (SEF delegation,
 // Google XMP checks, and findEmbeddedVideo all share it) -- this project has already had to fix
 // redundant-ByteReader.open bugs twice, so this never opens a second reader per section. Blocking
-// (file I/O + one ffprobe subprocess call): callers must invoke via withContext(Dispatchers.IO).
+// (file I/O + one ffmpeg subprocess call): callers must invoke via withContext(Dispatchers.IO).
 object MotionPhotoIntegrityAnalyzer {
     fun analyze(file: File, root: BoxNode): MotionPhotoIntegrityReport {
         return ByteReader.open(file).use { reader ->
