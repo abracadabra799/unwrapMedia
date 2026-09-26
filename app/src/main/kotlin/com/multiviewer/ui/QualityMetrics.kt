@@ -289,6 +289,23 @@ fun runSsimPass(
     }
 }
 
+data class StillImageQualityMetrics(val psnrDb: Double, val ssim: Double)
+
+// Computes PSNR and SSIM between two still images by reusing the same ffmpeg psnr/ssim filter
+// passes already used for video -- ffmpeg treats a still image file as a 1-frame video natively,
+// so no new metric math is needed here. A still-image pass always produces exactly one
+// MetricFrameSample; computeStatistics already handles a 1-element list correctly
+// (min=max=mean=median), so .statistics.mean is simply the one PSNR/SSIM value. Returns null if
+// either pass fails (matches runPsnrPass/runSsimPass's existing null-on-failure contract).
+// Blocking -- callers must invoke this off the UI thread, matching this file's existing
+// isVmafAvailable/runXPass convention.
+fun computeStillImageQualityMetrics(fileA: File, fileB: File, isCancelled: () -> Boolean = { false }): StillImageQualityMetrics? {
+    val autoScale = !resolutionsMatch(fileA, fileB)
+    val psnrResult = runPsnrPass(fileA, fileB, onProgress = { _, _ -> }, isCancelled = isCancelled, autoScale = autoScale) ?: return null
+    val ssimResult = runSsimPass(fileA, fileB, onProgress = { _, _ -> }, isCancelled = isCancelled, autoScale = autoScale) ?: return null
+    return StillImageQualityMetrics(psnrDb = psnrResult.statistics.mean, ssim = ssimResult.statistics.mean)
+}
+
 // Checks whether the resolved ffmpeg binary was built with libvmaf support, by looking for
 // "libvmaf" in `ffmpeg -filters` output (verified: a --enable-libvmaf build lists a "libvmaf"
 // filter line). Blocking -- callers must invoke this off the UI thread. Performs no caching itself;

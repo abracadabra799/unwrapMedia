@@ -54,6 +54,7 @@ import androidx.compose.ui.window.rememberWindowState
 import com.multiviewer.parser.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.EventQueue
@@ -199,6 +200,18 @@ fun ImageCompareWindow(
 
     var infoA by remember { mutableStateOf<CompareMediaInfo?>(null) }
     var infoB by remember { mutableStateOf<CompareMediaInfo?>(null) }
+
+    // Hoisted once here (instead of computed independently in MetadataDiffView and
+    // VisualDiffView) so extractMetadataDiffRows's file I/O -- motion-photo/SEF probing via
+    // ByteReader.open -- runs a single time per file pair, not once per tab.
+    val metadataRows = remember(infoA, infoB) {
+        val a = infoA
+        val b = infoB
+        if (a == null || b == null) emptyList() else extractMetadataDiffRows(a, b)
+    }
+    val captureMismatches = remember(metadataRows, infoA, infoB) {
+        if (infoA?.isVideo != false || infoB?.isVideo != false) emptyList() else captureConditionMismatches(metadataRows)
+    }
 
     fun loadInfo(file: File?, onLoaded: (CompareMediaInfo?) -> Unit) {
         if (file == null || !file.exists()) {
@@ -418,8 +431,8 @@ fun ImageCompareWindow(
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     when (selectedTab) {
                         MediaCompareTab.STRUCTURE -> StructureDiffView(language, infoA, infoB)
-                        MediaCompareTab.METADATA -> MetadataDiffView(language, infoA, infoB)
-                        MediaCompareTab.VISUAL -> VisualDiffView(language, infoA, infoB)
+                        MediaCompareTab.METADATA -> MetadataDiffView(language, infoA, infoB, metadataRows, captureMismatches)
+                        MediaCompareTab.VISUAL -> VisualDiffView(language, infoA, infoB, captureMismatches)
                         MediaCompareTab.HEX -> HexDiffView(language, fileA, fileB)
                     }
                 }
@@ -1247,7 +1260,13 @@ internal fun computeStructureDiff(rootA: BoxNode?, rootB: BoxNode?): List<Struct
 // -------------------------------------------------------------------------------------------------
 
 @Composable
-private fun MetadataDiffView(language: AppLanguage, infoA: CompareMediaInfo?, infoB: CompareMediaInfo?) {
+private fun MetadataDiffView(
+    language: AppLanguage,
+    infoA: CompareMediaInfo?,
+    infoB: CompareMediaInfo?,
+    metadataRows: List<MetadataDiffRow>,
+    captureMismatches: List<String>,
+) {
     if (infoA == null || infoB == null) {
         EmptyComparePlaceholder(language)
         return
@@ -1256,18 +1275,34 @@ private fun MetadataDiffView(language: AppLanguage, infoA: CompareMediaInfo?, in
     var onlyDiffs by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
 
-    val allRows = remember(infoA, infoB) {
-        extractMetadataDiffRows(infoA, infoB)
-    }
-
-    val filteredRows = remember(allRows, onlyDiffs, searchQuery) {
-        allRows.filter { row ->
+    val filteredRows = remember(metadataRows, onlyDiffs, searchQuery) {
+        metadataRows.filter { row ->
             (!onlyDiffs || row.isDifferent) &&
                 (searchQuery.isBlank() || row.key.contains(searchQuery, ignoreCase = true) || row.valueA.contains(searchQuery, ignoreCase = true) || row.valueB.contains(searchQuery, ignoreCase = true))
         }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        if (captureMismatches.isNotEmpty()) {
+            Surface(
+                color = Color(0xFFEF6C00).copy(alpha = 0.18f),
+                shape = RoundedCornerShape(6.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF6C00)),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            ) {
+                Text(
+                    if (language == AppLanguage.KO) {
+                        "⚠️ 촬영조건이 다릅니다: ${captureMismatches.joinToString(", ")} — 화질 비교 결과가 왜곡될 수 있습니다"
+                    } else {
+                        "⚠️ Capture conditions differ: ${captureMismatches.joinToString(", ")} — quality comparison may be misleading"
+                    },
+                    modifier = Modifier.padding(8.dp),
+                    color = Color(0xFFEF6C00),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        }
         Row(
             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1393,6 +1428,21 @@ internal fun extractMetadataDiffRows(infoA: CompareMediaInfo, infoB: CompareMedi
     return rows
 }
 
+private val CAPTURE_CONDITION_LABELS = setOf("ISO", "Exposure Time", "F-Number", "Aperture", "Focal Length", "White Balance")
+
+// Fields whose mismatch specifically invalidates a pixel-level quality comparison between two
+// images (as opposed to any other metadata difference, e.g. file name or GPS, which doesn't).
+// Two label spellings exist for the same underlying value across MediaSummaryBuilder.kt's two
+// summary-building code paths ("F-Number" vs "Aperture") -- both are recognized.
+// One side missing the field is *unknown*, not *matching* -- suppressing the warning here is
+// deliberate, not accidental; don't "fix" this back to flagging one-sided presence as a mismatch.
+internal fun captureConditionMismatches(rows: List<MetadataDiffRow>): List<String> {
+    return rows.filter {
+        it.key in CAPTURE_CONDITION_LABELS && it.isDifferent &&
+            it.valueA.isNotBlank() && it.valueB.isNotBlank()
+    }.map { it.key }.distinct()
+}
+
 private fun extractSefNames(root: BoxNode?): List<String> {
     if (root == null) return emptyList()
     val sefd = findFirst(root) { it.type == "sefd" } ?: return emptyList()
@@ -1404,7 +1454,7 @@ private fun extractSefNames(root: BoxNode?): List<String> {
 // -------------------------------------------------------------------------------------------------
 
 @Composable
-private fun VisualDiffView(language: AppLanguage, infoA: CompareMediaInfo?, infoB: CompareMediaInfo?) {
+private fun VisualDiffView(language: AppLanguage, infoA: CompareMediaInfo?, infoB: CompareMediaInfo?, captureMismatches: List<String>) {
     if (infoA == null || infoB == null) {
         EmptyComparePlaceholder(language)
         return
@@ -1459,6 +1509,31 @@ private fun VisualDiffView(language: AppLanguage, infoA: CompareMediaInfo?, info
 
     val displayBitmapA = frameBitmapA ?: infoA.bitmap
     val displayBitmapB = frameBitmapB ?: infoB.bitmap
+
+    var metrics by remember(infoA.file, infoB.file) { mutableStateOf<StillImageQualityMetrics?>(null) }
+    var metricsLoading by remember(infoA.file, infoB.file) { mutableStateOf(false) }
+    var metricsFailed by remember(infoA.file, infoB.file) { mutableStateOf(false) }
+    // Latched true once Diff Heatmap mode has actually been selected for this file pair, so the
+    // PSNR/SSIM ffmpeg passes below don't run on every Visual-tab entry -- only when the mode that
+    // actually needs them has been opened at least once.
+    var metricsRequested by remember(infoA.file, infoB.file) { mutableStateOf(false) }
+
+    // Side-effect, not an inline composition-time write: setting metricsRequested directly in the
+    // `when (mode)` block below would be a backwards write (reading it via this LaunchedEffect's
+    // key list in the same composition pass that wrote it).
+    LaunchedEffect(mode, infoA.file, infoB.file) {
+        if (mode == VisualCompareMode.DIFF_HEATMAP) metricsRequested = true
+    }
+
+    LaunchedEffect(infoA.file, infoB.file, isVideoCompare, metricsRequested) {
+        if (isVideoCompare || !metricsRequested) return@LaunchedEffect
+        metricsLoading = true
+        metricsFailed = false
+        val result = withContext(Dispatchers.IO) { computeStillImageQualityMetrics(infoA.file, infoB.file) { !isActive } }
+        metrics = result
+        metricsFailed = result == null
+        metricsLoading = false
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         // Mode Selector Bar
@@ -1555,15 +1630,43 @@ private fun VisualDiffView(language: AppLanguage, infoA: CompareMediaInfo?, info
                     }
                     VisualCompareMode.DIFF_HEATMAP -> {
                         val diffBitmap = remember(displayBitmapA, displayBitmapB) { computeDiffBitmap(displayBitmapA, displayBitmapB) }
+
                         if (diffBitmap != null) {
                             Box(modifier = Modifier.fillMaxSize().padding(8.dp), contentAlignment = Alignment.Center) {
                                 androidx.compose.foundation.Image(bitmap = diffBitmap, contentDescription = "Diff Heatmap", modifier = Modifier.fillMaxSize())
-                                Text(
-                                    if (language == AppLanguage.KO) "🔍 차이점 마스크 (변화가 있는 픽셀이 밝게 표시됨)" else "🔍 Diff Mask (Changed pixels highlighted)",
-                                    modifier = Modifier.align(Alignment.BottomCenter).background(Color.Black.copy(alpha = 0.7f)).padding(6.dp),
-                                    color = Color.Yellow,
-                                    fontSize = 11.sp,
-                                )
+                                Column(
+                                    modifier = Modifier.align(Alignment.BottomCenter).background(Color.Black.copy(alpha = 0.7f)).padding(8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                ) {
+                                    Text(
+                                        if (language == AppLanguage.KO) "🔍 차이점 마스크 (변화가 있는 픽셀이 밝게 표시됨)" else "🔍 Diff Mask (Changed pixels highlighted)",
+                                        color = Color.Yellow,
+                                        fontSize = 11.sp,
+                                    )
+                                    if (!isVideoCompare) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            val metricsText = when {
+                                                metricsLoading -> if (language == AppLanguage.KO) "PSNR/SSIM 계산 중..." else "Computing PSNR/SSIM..."
+                                                metricsFailed -> if (language == AppLanguage.KO) "PSNR/SSIM 계산 실패" else "PSNR/SSIM computation failed"
+                                                metrics != null -> "PSNR: ${"%.2f".format(metrics!!.psnrDb)} dB | SSIM: ${"%.4f".format(metrics!!.ssim)}"
+                                                else -> ""
+                                            }
+                                            if (metricsText.isNotEmpty()) {
+                                                Text(metricsText, color = Color.White, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                            }
+                                            if (captureMismatches.isNotEmpty()) {
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    if (language == AppLanguage.KO) "⚠️ 촬영조건 다름" else "⚠️ Capture conditions differ",
+                                                    color = Color(0xFFFFB74D),
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1585,6 +1688,7 @@ private fun SideBySideCompareView(
     var scale by remember(bitmapA, bitmapB) { mutableStateOf(1f) }
     var offset by remember(bitmapA, bitmapB) { mutableStateOf(Offset.Zero) }
     var paneSize by remember { mutableStateOf(Size.Zero) }
+    var hoverNativePixel by remember(bitmapA, bitmapB) { mutableStateOf<Pair<Int, Int>?>(null) }
     // What ContentScale.Fit actually draws in each pane -- pan is bounded against this rather than
     // the pane-sized layer, so a letterboxed image can't be dragged out of view (see clampPanOffset).
     // The two panes share one scale/offset but can hold differently-shaped images, so each pane
@@ -1612,6 +1716,15 @@ private fun SideBySideCompareView(
                         scale = newScale
                         offset = clampPanOffset(rawOffset, paneSize, newScale, fittedSizeA)
                         event.changes.forEach { it.consume() }
+                    }
+                    .onPointerEvent(PointerEventType.Move, pass = PointerEventPass.Initial) { event ->
+                        val pos = event.changes.firstOrNull()?.position
+                        hoverNativePixel = pos?.let {
+                            screenPointToNativePixel(it, paneSize, Size(bitmapA.width.toFloat(), bitmapA.height.toFloat()), scale, offset)
+                        }
+                    }
+                    .onPointerEvent(PointerEventType.Exit, pass = PointerEventPass.Initial) {
+                        hoverNativePixel = null
                     }
                     .pointerInput(bitmapA, bitmapB) {
                         detectDragGestures { change, dragAmount ->
@@ -1687,6 +1800,15 @@ private fun SideBySideCompareView(
                         offset = clampPanOffset(rawOffset, paneSize, newScale, fittedSizeB)
                         event.changes.forEach { it.consume() }
                     }
+                    .onPointerEvent(PointerEventType.Move, pass = PointerEventPass.Initial) { event ->
+                        val pos = event.changes.firstOrNull()?.position
+                        hoverNativePixel = pos?.let {
+                            screenPointToNativePixel(it, paneSize, Size(bitmapB.width.toFloat(), bitmapB.height.toFloat()), scale, offset)
+                        }
+                    }
+                    .onPointerEvent(PointerEventType.Exit, pass = PointerEventPass.Initial) {
+                        hoverNativePixel = null
+                    }
                     .pointerInput(bitmapA, bitmapB) {
                         detectDragGestures { change, dragAmount ->
                             change.consume()
@@ -1742,6 +1864,31 @@ private fun SideBySideCompareView(
                     color = Color.White,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Medium,
+                )
+            }
+        }
+
+        hoverNativePixel?.let { (nx, ny) ->
+            val skiaA = bitmapA.asSkiaBitmap()
+            val skiaB = bitmapB.asSkiaBitmap()
+            val colorA = if (nx < skiaA.width && ny < skiaA.height) skiaA.getColor(nx, ny) else null
+            val colorB = if (nx < skiaB.width && ny < skiaB.height) skiaB.getColor(nx, ny) else null
+            Surface(
+                color = Color.Black.copy(alpha = 0.75f),
+                shape = RoundedCornerShape(4.dp),
+                border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.3f)),
+                modifier = Modifier.align(Alignment.BottomStart).padding(8.dp),
+            ) {
+                Text(
+                    buildString {
+                        append("(%d, %d)  ".format(nx, ny))
+                        colorA?.let { append("A: #%06X  ".format(it and 0xFFFFFF)) }
+                        colorB?.let { append("B: #%06X".format(it and 0xFFFFFF)) }
+                    },
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
                 )
             }
         }
@@ -1818,6 +1965,34 @@ private fun WiperCanvas(
             center = Offset(splitX, h / 2f),
         )
     }
+}
+
+// Maps a pointer position (in box-local coordinates -- the same space Compose pointer events
+// already report relative to the Box they're attached to) through the fitted-content + user-zoom/
+// pan transform this view's graphicsLayer applies, down to a native pixel coordinate in the
+// displayed bitmap -- or null if the pointer is outside the drawn image (a letterbox bar, or an
+// unmeasured box). Uses the same (pointerPos - offset) / scale inversion `panToPoint`
+// (PixelInspectorPreview.kt) already establishes to recover a pre-zoom, box-local content point;
+// this additionally subtracts the letterbox origin and divides by fitScale to reach native pixels.
+// Hand-verified: at scale=1/offset=Zero with no letterboxing this is the identity mapping; with a
+// 200x100 image letterboxed into a 100x100 box, the box center (50,50) correctly resolves to the
+// native center (100,50), and a point in the letterbox margin resolves to null; at scale=2 with an
+// arbitrary pan (offset=(-50,-25)), pointer (60,40) resolves to native (110,15), and forward-
+// transforming (110,15) through the same formula (screenX = offset.x + scale*(letterboxX0 +
+// nativeX*fitScale)) returns exactly (60,40), confirming the inversion round-trips correctly.
+internal fun screenPointToNativePixel(pointerPos: Offset, boxSize: Size, nativeSize: Size, scale: Float, offset: Offset): Pair<Int, Int>? {
+    if (nativeSize.width <= 0f || nativeSize.height <= 0f || boxSize.width <= 0f || boxSize.height <= 0f) return null
+    val contentSize = fittedContentSize(boxSize, nativeSize)
+    val fitScale = contentSize.width / nativeSize.width
+    if (fitScale <= 0f) return null
+    val letterboxX0 = (boxSize.width - contentSize.width) / 2f
+    val letterboxY0 = (boxSize.height - contentSize.height) / 2f
+    val lx = (pointerPos.x - offset.x) / scale
+    val ly = (pointerPos.y - offset.y) / scale
+    val nativeX = ((lx - letterboxX0) / fitScale).toInt()
+    val nativeY = ((ly - letterboxY0) / fitScale).toInt()
+    if (nativeX < 0 || nativeX >= nativeSize.width.toInt() || nativeY < 0 || nativeY >= nativeSize.height.toInt()) return null
+    return nativeX to nativeY
 }
 
 private fun computeDiffBitmap(bmA: ImageBitmap, bmB: ImageBitmap): ImageBitmap? {
