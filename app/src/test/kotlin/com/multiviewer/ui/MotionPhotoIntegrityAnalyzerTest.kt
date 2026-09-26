@@ -170,4 +170,55 @@ class MotionPhotoIntegrityAnalyzerTest {
             assertEquals(SefIntegritySeverity.WARNING, checks.single().severity)
         }
     }
+
+    @Test
+    fun `analyzeAppleMpvdSection returns empty when there is no mpvd box`() {
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 1000)
+        assertEquals(emptyList(), analyzeAppleMpvdSection(root, 1000))
+    }
+
+    @Test
+    fun `analyzeAppleMpvdSection reports CRITICAL when the mpvd box overruns the file`() {
+        val root = BoxNode(
+            type = "root", offset = 0, headerSize = 0, size = 1000,
+            children = listOf(BoxNode(type = "mpvd", offset = 900, headerSize = 8, size = 500)),
+        )
+        val checks = analyzeAppleMpvdSection(root, fileLength = 1000)
+        assertTrue(checks.any { it.severity == SefIntegritySeverity.CRITICAL })
+    }
+
+    @Test
+    fun `analyzeAppleMpvdSection reports PASS with the major_brand when a valid ftyp child exists`() {
+        val root = BoxNode(
+            type = "root", offset = 0, headerSize = 0, size = 1000,
+            children = listOf(
+                BoxNode(
+                    type = "mpvd", offset = 100, headerSize = 8, size = 500,
+                    children = listOf(
+                        BoxNode(
+                            type = "ftyp", offset = 108, headerSize = 8, size = 20,
+                            fields = listOf(BoxField("major_brand", "mp42", 108, 4)),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val checks = analyzeAppleMpvdSection(root, fileLength = 1000)
+        assertTrue(checks.any { it.severity == SefIntegritySeverity.PASS && it.detail.contains("mp42") })
+    }
+
+    @Test
+    fun `analyzeAppleMpvdSection reports WARNING when mpvd has no ftyp child`() {
+        val root = BoxNode(
+            type = "root", offset = 0, headerSize = 0, size = 1000,
+            children = listOf(BoxNode(type = "mpvd", offset = 100, headerSize = 8, size = 500, children = emptyList())),
+        )
+        val checks = analyzeAppleMpvdSection(root, fileLength = 1000)
+        assertTrue(checks.any { it.severity == SefIntegritySeverity.WARNING })
+    }
+
+    @Test
+    fun `analyzeDecodability returns empty when there is no video`() {
+        assertEquals(emptyList(), analyzeDecodability(File.createTempFile("no-video-test", ".bin").apply { deleteOnExit() }, null))
+    }
 }

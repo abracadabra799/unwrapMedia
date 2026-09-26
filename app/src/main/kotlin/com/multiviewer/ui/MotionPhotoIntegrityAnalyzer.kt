@@ -10,6 +10,7 @@ import com.multiviewer.parser.findFirst
 import com.multiviewer.parser.findMicroVideoOffset
 import com.multiviewer.parser.findMotionPhotoInDirectory
 import com.multiviewer.parser.parseXmpDocument
+import java.io.File
 
 enum class MotionPhotoFormat { SAMSUNG_SEF, GOOGLE_XMP, APPLE_MPVD }
 
@@ -84,4 +85,93 @@ internal fun analyzeGoogleXmpSection(root: BoxNode, reader: ByteReader): List<Se
     }
 
     return checks
+}
+
+// Verifies an Apple/QuickTime-style embedded video (an "mpvd" or "EmbeddedVideoData" box, used by
+// this app's HEIC motion-photo path) is positioned within the file and has a real ftyp child --
+// the same box shape findEmbeddedVideo already reads to extract the video, but this reports on
+// its structural validity instead of just extracting it.
+internal fun analyzeAppleMpvdSection(root: BoxNode, fileLength: Long): List<SefCheckResult> {
+    val mpvdNode = com.multiviewer.parser.findFirst(root) { it.type == "mpvd" || it.type == "EmbeddedVideoData" }
+        ?: return emptyList()
+
+    if (mpvdNode.offset < 0 || mpvdNode.offset + mpvdNode.size > fileLength) {
+        return listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "mpvd 박스 범위", "mpvd 박스가 파일 범위를 벗어납니다 (offset=${mpvdNode.offset}, size=${mpvdNode.size}, file=$fileLength)"))
+    }
+
+    val ftypChild = mpvdNode.children.find { it.type == "ftyp" }
+    return if (ftypChild == null) {
+        listOf(SefCheckResult(SefIntegritySeverity.WARNING, "mpvd 내부 ftyp", "mpvd 박스 내부에서 ftyp 자식 박스를 찾지 못했습니다"))
+    } else {
+        val majorBrand = ftypChild.fields.find { it.name == "major_brand" }?.value?.trim() ?: "알 수 없음"
+        listOf(SefCheckResult(SefIntegritySeverity.PASS, "mpvd 내부 ftyp", "major_brand=\"$majorBrand\""))
+    }
+}
+
+// Format-independent: extracts whichever video findEmbeddedVideo resolved (any of the 3 formats)
+// to a temp file and runs a real ffprobe on it, to catch corruption/truncation that pure
+// offset/length arithmetic can't -- every other check in this file validates declared *positions*,
+// this is the only one that validates the actual bytes decode.
+internal fun analyzeDecodability(file: File, video: com.multiviewer.parser.EmbeddedVideo?): List<SefCheckResult> {
+    if (video == null) return emptyList()
+    val temp = File.createTempFile("motion-photo-decode-check", ".${video.extension}")
+    return try {
+        com.multiviewer.parser.extractEmbeddedVideo(file, video, temp)
+        val process = ProcessBuilder(
+            FfmpegLocator.ffprobePath(), "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1",
+            temp.absolutePath,
+        ).redirectErrorStream(true).start()
+        val output = process.inputStream.bufferedReader().readText().trim()
+        val exitCode = process.waitFor()
+        if (exitCode == 0) {
+            listOf(SefCheckResult(SefIntegritySeverity.PASS, "임베디드 비디오 디코딩 확인", "ffprobe로 정상적으로 스트림 정보를 읽었습니다: $output"))
+        } else {
+            listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "임베디드 비디오 디코딩 확인", "ffprobe가 실패했습니다 (exit=$exitCode): $output"))
+        }
+    } catch (e: Exception) {
+        listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "임베디드 비디오 디코딩 확인", "ffprobe 실행 실패: ${e.message}"))
+    } finally {
+        temp.delete()
+    }
+}
+
+// Top-level orchestrator: opens exactly ONE ByteReader for the whole analysis (SEF delegation,
+// Google XMP checks, and findEmbeddedVideo all share it) -- this project has already had to fix
+// redundant-ByteReader.open bugs twice, so this never opens a second reader per section. Blocking
+// (file I/O + one ffprobe subprocess call): callers must invoke via withContext(Dispatchers.IO).
+object MotionPhotoIntegrityAnalyzer {
+    fun analyze(file: File, root: BoxNode): MotionPhotoIntegrityReport {
+        return ByteReader.open(file).use { reader ->
+            val sefdNode = com.multiviewer.parser.findFirst(root) { it.type == "sefd" }
+            val sefSection = sefdNode?.let { sefd ->
+                com.multiviewer.parser.SefIntegrityAnalyzer.analyze(reader, sefd.offset, sefd.headerSize, sefd.size, file.length())
+            }
+            val googleChecks = analyzeGoogleXmpSection(root, reader)
+            val appleChecks = analyzeAppleMpvdSection(root, file.length())
+            val video = try {
+                com.multiviewer.parser.findEmbeddedVideo(root, reader)
+            } catch (e: Exception) {
+                null
+            }
+            val decodeChecks = analyzeDecodability(file, video)
+
+            val detectedFormats = buildList {
+                if (sefdNode != null) add(MotionPhotoFormat.SAMSUNG_SEF)
+                if (googleChecks.isNotEmpty()) add(MotionPhotoFormat.GOOGLE_XMP)
+                if (appleChecks.isNotEmpty()) add(MotionPhotoFormat.APPLE_MPVD)
+            }
+
+            val allSeverities = (sefSection?.let { it.structuralChecks + it.semanticChecks } ?: emptyList()) +
+                googleChecks + appleChecks + decodeChecks
+            val overall = when {
+                allSeverities.any { it.severity == SefIntegritySeverity.CRITICAL } -> SefIntegritySeverity.CRITICAL
+                allSeverities.any { it.severity == SefIntegritySeverity.WARNING } -> SefIntegritySeverity.WARNING
+                else -> SefIntegritySeverity.PASS
+            }
+
+            MotionPhotoIntegrityReport(detectedFormats, sefSection, googleChecks, appleChecks, decodeChecks, overall)
+        }
+    }
 }
