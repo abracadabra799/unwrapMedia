@@ -392,6 +392,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var avSyncWindowOpen by remember { mutableStateOf(false) }
         var bitstreamCorruptionWindowOpen by remember { mutableStateOf(false) }
         var sefIntegrityWindowOpen by remember { mutableStateOf(false) }
+        var motionPhotoIntegrityWindowOpen by remember { mutableStateOf(false) }
         var aboutWindowOpen by remember { mutableStateOf(false) }
         var updateWindowOpen by remember { mutableStateOf(false) }
         var hasUpdateAvailable by remember { mutableStateOf(false) }
@@ -542,6 +543,21 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     I18n.menuMotionFrameDropAnalysis(language),
                     enabled = currentTab?.embeddedVideo != null,
                     onClick = { motionPhotoFrameIntervalWindowOpen = true },
+                )
+                Separator()
+                val hasMotionPhoto = currentTab?.root?.let { r ->
+                    findFirst(r) { it.type == "sefd" } != null ||
+                        findFirst(r) { it.type == "mpvd" || it.type == "EmbeddedVideoData" } != null ||
+                        findFirst(r) {
+                            it.fields.any { f ->
+                                f.name == "xmp" && (f.value.contains("MotionPhoto", ignoreCase = true) || f.value.contains("MicroVideo", ignoreCase = true))
+                            }
+                        } != null
+                } ?: false
+                Item(
+                    I18n.menuMotionPhotoIntegrityCheck(language),
+                    enabled = hasMotionPhoto,
+                    onClick = { motionPhotoIntegrityWindowOpen = true },
                 )
             }
             Menu(I18n.menuTools(language)) {
@@ -804,6 +820,20 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     )
                 } else {
                     sefIntegrityWindowOpen = false
+                }
+            }
+            if (motionPhotoIntegrityWindowOpen) {
+                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                val currentRoot = currentTab?.root
+                if (currentRoot != null && currentTab != null) {
+                    MotionPhotoIntegrityWindow(
+                        file = currentTab.file,
+                        root = currentRoot,
+                        themeMode = themeMode,
+                        onCloseRequest = { motionPhotoIntegrityWindowOpen = false },
+                    )
+                } else {
+                    motionPhotoIntegrityWindowOpen = false
                 }
             }
             if (aboutWindowOpen) {
