@@ -1663,6 +1663,7 @@ private fun SideBySideCompareView(
     var scale by remember(bitmapA, bitmapB) { mutableStateOf(1f) }
     var offset by remember(bitmapA, bitmapB) { mutableStateOf(Offset.Zero) }
     var paneSize by remember { mutableStateOf(Size.Zero) }
+    var hoverNativePixel by remember(bitmapA, bitmapB) { mutableStateOf<Pair<Int, Int>?>(null) }
     // What ContentScale.Fit actually draws in each pane -- pan is bounded against this rather than
     // the pane-sized layer, so a letterboxed image can't be dragged out of view (see clampPanOffset).
     // The two panes share one scale/offset but can hold differently-shaped images, so each pane
@@ -1690,6 +1691,15 @@ private fun SideBySideCompareView(
                         scale = newScale
                         offset = clampPanOffset(rawOffset, paneSize, newScale, fittedSizeA)
                         event.changes.forEach { it.consume() }
+                    }
+                    .onPointerEvent(PointerEventType.Move, pass = PointerEventPass.Initial) { event ->
+                        val pos = event.changes.firstOrNull()?.position
+                        hoverNativePixel = pos?.let {
+                            screenPointToNativePixel(it, paneSize, Size(bitmapA.width.toFloat(), bitmapA.height.toFloat()), scale, offset)
+                        }
+                    }
+                    .onPointerEvent(PointerEventType.Exit, pass = PointerEventPass.Initial) {
+                        hoverNativePixel = null
                     }
                     .pointerInput(bitmapA, bitmapB) {
                         detectDragGestures { change, dragAmount ->
@@ -1765,6 +1775,15 @@ private fun SideBySideCompareView(
                         offset = clampPanOffset(rawOffset, paneSize, newScale, fittedSizeB)
                         event.changes.forEach { it.consume() }
                     }
+                    .onPointerEvent(PointerEventType.Move, pass = PointerEventPass.Initial) { event ->
+                        val pos = event.changes.firstOrNull()?.position
+                        hoverNativePixel = pos?.let {
+                            screenPointToNativePixel(it, paneSize, Size(bitmapB.width.toFloat(), bitmapB.height.toFloat()), scale, offset)
+                        }
+                    }
+                    .onPointerEvent(PointerEventType.Exit, pass = PointerEventPass.Initial) {
+                        hoverNativePixel = null
+                    }
                     .pointerInput(bitmapA, bitmapB) {
                         detectDragGestures { change, dragAmount ->
                             change.consume()
@@ -1820,6 +1839,31 @@ private fun SideBySideCompareView(
                     color = Color.White,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Medium,
+                )
+            }
+        }
+
+        hoverNativePixel?.let { (nx, ny) ->
+            val skiaA = bitmapA.asSkiaBitmap()
+            val skiaB = bitmapB.asSkiaBitmap()
+            val colorA = if (nx < skiaA.width && ny < skiaA.height) skiaA.getColor(nx, ny) else null
+            val colorB = if (nx < skiaB.width && ny < skiaB.height) skiaB.getColor(nx, ny) else null
+            Surface(
+                color = Color.Black.copy(alpha = 0.75f),
+                shape = RoundedCornerShape(4.dp),
+                border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.3f)),
+                modifier = Modifier.align(Alignment.BottomStart).padding(8.dp),
+            ) {
+                Text(
+                    buildString {
+                        append("(%d, %d)  ".format(nx, ny))
+                        colorA?.let { append("A: #%06X  ".format(it and 0xFFFFFF)) }
+                        colorB?.let { append("B: #%06X".format(it and 0xFFFFFF)) }
+                    },
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
                 )
             }
         }
@@ -1896,6 +1940,34 @@ private fun WiperCanvas(
             center = Offset(splitX, h / 2f),
         )
     }
+}
+
+// Maps a pointer position (in box-local coordinates -- the same space Compose pointer events
+// already report relative to the Box they're attached to) through the fitted-content + user-zoom/
+// pan transform this view's graphicsLayer applies, down to a native pixel coordinate in the
+// displayed bitmap -- or null if the pointer is outside the drawn image (a letterbox bar, or an
+// unmeasured box). Uses the same (pointerPos - offset) / scale inversion `panToPoint`
+// (PixelInspectorPreview.kt) already establishes to recover a pre-zoom, box-local content point;
+// this additionally subtracts the letterbox origin and divides by fitScale to reach native pixels.
+// Hand-verified: at scale=1/offset=Zero with no letterboxing this is the identity mapping; with a
+// 200x100 image letterboxed into a 100x100 box, the box center (50,50) correctly resolves to the
+// native center (100,50), and a point in the letterbox margin resolves to null; at scale=2 with an
+// arbitrary pan (offset=(-50,-25)), pointer (60,40) resolves to native (110,15), and forward-
+// transforming (110,15) through the same formula (screenX = offset.x + scale*(letterboxX0 +
+// nativeX*fitScale)) returns exactly (60,40), confirming the inversion round-trips correctly.
+internal fun screenPointToNativePixel(pointerPos: Offset, boxSize: Size, nativeSize: Size, scale: Float, offset: Offset): Pair<Int, Int>? {
+    if (nativeSize.width <= 0f || nativeSize.height <= 0f || boxSize.width <= 0f || boxSize.height <= 0f) return null
+    val contentSize = fittedContentSize(boxSize, nativeSize)
+    val fitScale = contentSize.width / nativeSize.width
+    if (fitScale <= 0f) return null
+    val letterboxX0 = (boxSize.width - contentSize.width) / 2f
+    val letterboxY0 = (boxSize.height - contentSize.height) / 2f
+    val lx = (pointerPos.x - offset.x) / scale
+    val ly = (pointerPos.y - offset.y) / scale
+    val nativeX = ((lx - letterboxX0) / fitScale).toInt()
+    val nativeY = ((ly - letterboxY0) / fitScale).toInt()
+    if (nativeX < 0 || nativeX >= nativeSize.width.toInt() || nativeY < 0 || nativeY >= nativeSize.height.toInt()) return null
+    return nativeX to nativeY
 }
 
 private fun computeDiffBitmap(bmA: ImageBitmap, bmB: ImageBitmap): ImageBitmap? {
