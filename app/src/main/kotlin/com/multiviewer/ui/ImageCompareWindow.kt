@@ -1521,7 +1521,7 @@ private fun VisualDiffView(language: AppLanguage, infoA: CompareMediaInfo?, info
     // Side-effect, not an inline composition-time write: setting metricsRequested directly in the
     // `when (mode)` block below would be a backwards write (reading it via this LaunchedEffect's
     // key list in the same composition pass that wrote it).
-    LaunchedEffect(mode) {
+    LaunchedEffect(mode, infoA.file, infoB.file) {
         if (mode == VisualCompareMode.DIFF_HEATMAP) metricsRequested = true
     }
 
