@@ -124,26 +124,25 @@ internal fun analyzeDecodability(file: File, video: com.multiviewer.parser.Embed
         // caller.
         com.multiviewer.parser.extractEmbeddedVideo(file, video, temp)
         val processBuilder = ProcessBuilder(
-            FfmpegLocator.ffprobePath(), "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1",
-            temp.absolutePath,
+            FfmpegLocator.ffmpegPath(), "-v", "error",
+            "-i", temp.absolutePath,
+            "-f", "null", "-",
         ).redirectErrorStream(true)
         FfmpegLocator.configureEnvironment(processBuilder)
         val process = processBuilder.start()
         val output = readProcessOutputWithTimeout(process, 30) { process.inputStream.bufferedReader().readText().trim() }
         if (output == null) {
-            listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "임베디드 비디오 디코딩 확인", "ffprobe 실행이 시간 초과되었습니다"))
+            listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "임베디드 비디오 디코딩 확인", "ffmpeg 실행이 시간 초과되었습니다"))
         } else {
             val exitCode = process.waitFor()
             if (exitCode == 0) {
-                listOf(SefCheckResult(SefIntegritySeverity.PASS, "임베디드 비디오 디코딩 확인", "ffprobe로 정상적으로 스트림 정보를 읽었습니다: $output"))
+                listOf(SefCheckResult(SefIntegritySeverity.PASS, "임베디드 비디오 디코딩 확인", "ffmpeg으로 전체 비디오 디코딩에 성공했습니다"))
             } else {
-                listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "임베디드 비디오 디코딩 확인", "ffprobe가 실패했습니다 (exit=$exitCode): $output"))
+                listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "임베디드 비디오 디코딩 확인", "ffmpeg가 실패했습니다 (exit=$exitCode): $output"))
             }
         }
     } catch (e: Exception) {
-        listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "임베디드 비디오 디코딩 확인", "ffprobe 실행 실패: ${e.message}"))
+        listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "임베디드 비디오 디코딩 확인", "ffmpeg 실행 실패: ${e.message}"))
     } finally {
         temp.delete()
     }
