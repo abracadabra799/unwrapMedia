@@ -145,4 +145,13 @@ class ImageCompareMetadataTest {
         assertEquals(listOf("F-Number"), captureConditionMismatches(rowsFNumber))
         assertEquals(listOf("Aperture"), captureConditionMismatches(rowsAperture))
     }
+
+    @Test
+    fun `captureConditionMismatches deduplicates the same label appearing under multiple categories`() {
+        val rows = listOf(
+            MetadataDiffRow("Camera Info", "ISO", "100", "400", isDifferent = true),
+            MetadataDiffRow("Camera & Capture", "ISO", "100", "400", isDifferent = true),
+        )
+        assertEquals(listOf("ISO"), captureConditionMismatches(rows))
+    }
 }

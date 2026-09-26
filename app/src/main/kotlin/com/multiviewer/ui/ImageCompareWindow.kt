@@ -1259,7 +1259,9 @@ private fun MetadataDiffView(language: AppLanguage, infoA: CompareMediaInfo?, in
     val allRows = remember(infoA, infoB) {
         extractMetadataDiffRows(infoA, infoB)
     }
-    val captureMismatches = remember(allRows) { captureConditionMismatches(allRows) }
+    val captureMismatches = remember(allRows, infoA, infoB) {
+        if (infoA.isVideo || infoB.isVideo) emptyList() else captureConditionMismatches(allRows)
+    }
 
     val filteredRows = remember(allRows, onlyDiffs, searchQuery) {
         allRows.filter { row ->
@@ -1421,7 +1423,7 @@ private val CAPTURE_CONDITION_LABELS = setOf("ISO", "Exposure Time", "F-Number",
 // Two label spellings exist for the same underlying value across MediaSummaryBuilder.kt's two
 // summary-building code paths ("F-Number" vs "Aperture") -- both are recognized.
 internal fun captureConditionMismatches(rows: List<MetadataDiffRow>): List<String> {
-    return rows.filter { it.key in CAPTURE_CONDITION_LABELS && it.isDifferent }.map { it.key }
+    return rows.filter { it.key in CAPTURE_CONDITION_LABELS && it.isDifferent }.map { it.key }.distinct()
 }
 
 private fun extractSefNames(root: BoxNode?): List<String> {
