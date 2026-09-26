@@ -1493,6 +1493,23 @@ private fun VisualDiffView(language: AppLanguage, infoA: CompareMediaInfo?, info
     val displayBitmapA = frameBitmapA ?: infoA.bitmap
     val displayBitmapB = frameBitmapB ?: infoB.bitmap
 
+    var metrics by remember(infoA.file, infoB.file) { mutableStateOf<StillImageQualityMetrics?>(null) }
+    var metricsLoading by remember(infoA.file, infoB.file) { mutableStateOf(false) }
+    var metricsFailed by remember(infoA.file, infoB.file) { mutableStateOf(false) }
+    val captureMismatches = remember(infoA, infoB) {
+        if (isVideoCompare) emptyList() else captureConditionMismatches(extractMetadataDiffRows(infoA, infoB))
+    }
+
+    LaunchedEffect(infoA.file, infoB.file, isVideoCompare) {
+        if (isVideoCompare) return@LaunchedEffect
+        metricsLoading = true
+        metricsFailed = false
+        val result = withContext(Dispatchers.IO) { computeStillImageQualityMetrics(infoA.file, infoB.file) }
+        metrics = result
+        metricsFailed = result == null
+        metricsLoading = false
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         // Mode Selector Bar
         Row(
@@ -1588,20 +1605,6 @@ private fun VisualDiffView(language: AppLanguage, infoA: CompareMediaInfo?, info
                     }
                     VisualCompareMode.DIFF_HEATMAP -> {
                         val diffBitmap = remember(displayBitmapA, displayBitmapB) { computeDiffBitmap(displayBitmapA, displayBitmapB) }
-                        var metrics by remember(infoA.file, infoB.file) { mutableStateOf<StillImageQualityMetrics?>(null) }
-                        var metricsLoading by remember(infoA.file, infoB.file) { mutableStateOf(false) }
-                        var metricsFailed by remember(infoA.file, infoB.file) { mutableStateOf(false) }
-                        val captureMismatches = remember(infoA, infoB) { captureConditionMismatches(extractMetadataDiffRows(infoA, infoB)) }
-
-                        LaunchedEffect(infoA.file, infoB.file, isVideoCompare) {
-                            if (isVideoCompare) return@LaunchedEffect
-                            metricsLoading = true
-                            metricsFailed = false
-                            val result = withContext(Dispatchers.IO) { computeStillImageQualityMetrics(infoA.file, infoB.file) }
-                            metrics = result
-                            metricsFailed = result == null
-                            metricsLoading = false
-                        }
 
                         if (diffBitmap != null) {
                             Box(modifier = Modifier.fillMaxSize().padding(8.dp), contentAlignment = Alignment.Center) {
