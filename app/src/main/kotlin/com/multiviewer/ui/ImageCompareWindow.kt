@@ -1259,6 +1259,7 @@ private fun MetadataDiffView(language: AppLanguage, infoA: CompareMediaInfo?, in
     val allRows = remember(infoA, infoB) {
         extractMetadataDiffRows(infoA, infoB)
     }
+    val captureMismatches = remember(allRows) { captureConditionMismatches(allRows) }
 
     val filteredRows = remember(allRows, onlyDiffs, searchQuery) {
         allRows.filter { row ->
@@ -1268,6 +1269,26 @@ private fun MetadataDiffView(language: AppLanguage, infoA: CompareMediaInfo?, in
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        if (captureMismatches.isNotEmpty()) {
+            Surface(
+                color = Color(0xFFEF6C00).copy(alpha = 0.18f),
+                shape = RoundedCornerShape(6.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF6C00)),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            ) {
+                Text(
+                    if (language == AppLanguage.KO) {
+                        "⚠️ 촬영조건이 다릅니다: ${captureMismatches.joinToString(", ")} — 화질 비교 결과가 왜곡될 수 있습니다"
+                    } else {
+                        "⚠️ Capture conditions differ: ${captureMismatches.joinToString(", ")} — quality comparison may be misleading"
+                    },
+                    modifier = Modifier.padding(8.dp),
+                    color = Color(0xFFEF6C00),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        }
         Row(
             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1391,6 +1412,16 @@ internal fun extractMetadataDiffRows(infoA: CompareMediaInfo, infoB: CompareMedi
     }
 
     return rows
+}
+
+private val CAPTURE_CONDITION_LABELS = setOf("ISO", "Exposure Time", "F-Number", "Aperture", "Focal Length", "White Balance")
+
+// Fields whose mismatch specifically invalidates a pixel-level quality comparison between two
+// images (as opposed to any other metadata difference, e.g. file name or GPS, which doesn't).
+// Two label spellings exist for the same underlying value across MediaSummaryBuilder.kt's two
+// summary-building code paths ("F-Number" vs "Aperture") -- both are recognized.
+internal fun captureConditionMismatches(rows: List<MetadataDiffRow>): List<String> {
+    return rows.filter { it.key in CAPTURE_CONDITION_LABELS && it.isDifferent }.map { it.key }
 }
 
 private fun extractSefNames(root: BoxNode?): List<String> {

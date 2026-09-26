@@ -117,4 +117,32 @@ class ImageCompareMetadataTest {
         assertEquals(16, diffs[1].startRow)
         assertEquals(256L, diffs[1].startOffset)
     }
+
+    @Test
+    fun `captureConditionMismatches returns empty when nothing capture-related differs`() {
+        val rows = listOf(
+            MetadataDiffRow("General", "File Name", "a.jpg", "b.jpg", isDifferent = true),
+            MetadataDiffRow("Exif", "ISO", "100", "100", isDifferent = false),
+        )
+        assertEquals(emptyList(), captureConditionMismatches(rows))
+    }
+
+    @Test
+    fun `captureConditionMismatches returns the differing capture-condition labels`() {
+        val rows = listOf(
+            MetadataDiffRow("Exif", "ISO", "100", "400", isDifferent = true),
+            MetadataDiffRow("Exif", "Exposure Time", "1/60", "1/60", isDifferent = false),
+            MetadataDiffRow("Exif", "F-Number", "1.8", "2.2", isDifferent = true),
+            MetadataDiffRow("General", "File Name", "a.jpg", "b.jpg", isDifferent = true),
+        )
+        assertEquals(listOf("ISO", "F-Number"), captureConditionMismatches(rows))
+    }
+
+    @Test
+    fun `captureConditionMismatches recognizes both aperture label spellings`() {
+        val rowsFNumber = listOf(MetadataDiffRow("Exif", "F-Number", "1.8", "2.2", isDifferent = true))
+        val rowsAperture = listOf(MetadataDiffRow("Camera", "Aperture", "f/1.8", "f/2.2", isDifferent = true))
+        assertEquals(listOf("F-Number"), captureConditionMismatches(rowsFNumber))
+        assertEquals(listOf("Aperture"), captureConditionMismatches(rowsAperture))
+    }
 }
