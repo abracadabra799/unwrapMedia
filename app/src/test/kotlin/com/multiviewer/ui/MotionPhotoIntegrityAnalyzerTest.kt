@@ -1,0 +1,173 @@
+package com.multiviewer.ui
+
+import com.multiviewer.parser.BoxField
+import com.multiviewer.parser.BoxNode
+import com.multiviewer.parser.ByteReader
+import com.multiviewer.parser.SefIntegritySeverity
+import java.io.File
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+// Builds a temp file of `totalSize` zero bytes with the literal ASCII "ftyp" placed so that
+// reading 4 bytes at (ftypBoxStart + 4) returns "ftyp" -- matching correctMp4StartOffset's own
+// read pattern (box size field, then 4-byte box type).
+private fun tempFileWithFtypAt(ftypBoxStart: Long, totalSize: Long): File {
+    val bytes = ByteArray(totalSize.toInt())
+    "ftyp".toByteArray(Charsets.US_ASCII).copyInto(bytes, (ftypBoxStart + 4).toInt())
+    val tmp = File.createTempFile("motion-photo-integrity-test", ".bin")
+    tmp.deleteOnExit()
+    tmp.writeBytes(bytes)
+    return tmp
+}
+
+private fun tempFileWithNoFtyp(totalSize: Long): File {
+    val tmp = File.createTempFile("motion-photo-integrity-test-noftyp", ".bin")
+    tmp.deleteOnExit()
+    tmp.writeBytes(ByteArray(totalSize.toInt()))
+    return tmp
+}
+
+private fun googleDirectoryXmp(declaredLength: Long): String = """
+    <x:xmpmeta xmlns:x="adobe:ns:meta/">
+      <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+        <rdf:Description
+            xmlns:Container="http://ns.google.com/photos/1.0/container/"
+            xmlns:Item="http://ns.google.com/photos/1.0/container/item/"
+            xmlns:GCamera="http://ns.google.com/photos/1.0/camera/"
+            GCamera:MotionPhoto="1">
+          <Container:Directory>
+            <rdf:Seq>
+              <rdf:li rdf:parseType="Resource">
+                <Container:Item Item:Semantic="Primary" Item:Mime="image/jpeg"/>
+              </rdf:li>
+              <rdf:li rdf:parseType="Resource">
+                <Container:Item Item:Semantic="MotionPhoto" Item:Mime="video/mp4" Item:Length="$declaredLength"/>
+              </rdf:li>
+            </rdf:Seq>
+          </Container:Directory>
+        </rdf:Description>
+      </rdf:RDF>
+    </x:xmpmeta>
+""".trimIndent()
+
+private fun googleMicroVideoXmp(declaredOffset: Long): String = """
+    <x:xmpmeta xmlns:x="adobe:ns:meta/">
+      <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+        <rdf:Description
+            xmlns:GCamera="http://ns.google.com/photos/1.0/camera/"
+            GCamera:MicroVideo="1"
+            GCamera:MicroVideoVersion="1"
+            GCamera:MicroVideoOffset="$declaredOffset"/>
+      </rdf:RDF>
+    </x:xmpmeta>
+""".trimIndent()
+
+private fun rootWithXmp(xmpText: String, fileSize: Long): BoxNode = BoxNode(
+    type = "root", offset = 0, headerSize = 0, size = fileSize,
+    children = listOf(
+        BoxNode(
+            type = "APP1", offset = 2, headerSize = 4, size = xmpText.length.toLong(),
+            fields = listOf(BoxField("xmp", xmpText, 2, xmpText.length.toLong())),
+        ),
+    ),
+)
+
+class MotionPhotoIntegrityAnalyzerTest {
+    @Test
+    fun `analyzeGoogleXmpSection returns empty when there is no XMP at all`() {
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 1000)
+        val file = tempFileWithNoFtyp(1000)
+        ByteReader.open(file).use { reader ->
+            assertEquals(emptyList(), analyzeGoogleXmpSection(root, reader))
+        }
+    }
+
+    @Test
+    fun `analyzeGoogleXmpSection returns empty when XMP exists but has no motion-photo markers`() {
+        val xmp = """<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description/></rdf:RDF></x:xmpmeta>"""
+        val file = tempFileWithNoFtyp(1000)
+        val root = rootWithXmp(xmp, 1000)
+        ByteReader.open(file).use { reader ->
+            assertEquals(emptyList(), analyzeGoogleXmpSection(root, reader))
+        }
+    }
+
+    @Test
+    fun `analyzeGoogleXmpSection reports PASS when the declared Directory Length exactly matches the real ftyp position`() {
+        val fileSize = 1000L
+        val declaredLength = 200L
+        val approxStart = fileSize - declaredLength
+        val file = tempFileWithFtypAt(approxStart, fileSize)
+        val root = rootWithXmp(googleDirectoryXmp(declaredLength), fileSize)
+        ByteReader.open(file).use { reader ->
+            val checks = analyzeGoogleXmpSection(root, reader)
+            assertTrue(checks.any { it.severity == SefIntegritySeverity.INFO && it.detail.contains("Directory") })
+            assertTrue(checks.any { it.severity == SefIntegritySeverity.PASS })
+            assertTrue(checks.none { it.severity == SefIntegritySeverity.WARNING || it.severity == SefIntegritySeverity.CRITICAL })
+        }
+    }
+
+    @Test
+    fun `analyzeGoogleXmpSection reports WARNING when the real ftyp is found only after correction`() {
+        val fileSize = 1000L
+        val declaredLength = 200L
+        val approxStart = fileSize - declaredLength // 800
+        val realStart = approxStart + 5 // off by 5 bytes, still within the +-1024 search window
+        val file = tempFileWithFtypAt(realStart, fileSize)
+        val root = rootWithXmp(googleDirectoryXmp(declaredLength), fileSize)
+        ByteReader.open(file).use { reader ->
+            val checks = analyzeGoogleXmpSection(root, reader)
+            assertTrue(checks.any { it.severity == SefIntegritySeverity.WARNING && it.detail.contains("5") })
+        }
+    }
+
+    @Test
+    fun `analyzeGoogleXmpSection reports CRITICAL when no ftyp is found anywhere in the search window`() {
+        val fileSize = 1000L
+        val declaredLength = 200L
+        val file = tempFileWithNoFtyp(fileSize)
+        val root = rootWithXmp(googleDirectoryXmp(declaredLength), fileSize)
+        ByteReader.open(file).use { reader ->
+            val checks = analyzeGoogleXmpSection(root, reader)
+            assertTrue(checks.any { it.severity == SefIntegritySeverity.CRITICAL })
+        }
+    }
+
+    @Test
+    fun `analyzeGoogleXmpSection reports CRITICAL when the declared length exceeds the file size`() {
+        val fileSize = 1000L
+        val file = tempFileWithNoFtyp(fileSize)
+        val root = rootWithXmp(googleDirectoryXmp(declaredLength = 5000L), fileSize)
+        ByteReader.open(file).use { reader ->
+            val checks = analyzeGoogleXmpSection(root, reader)
+            assertTrue(checks.any { it.severity == SefIntegritySeverity.CRITICAL })
+        }
+    }
+
+    @Test
+    fun `analyzeGoogleXmpSection detects the legacy MicroVideo schema and still verifies the offset`() {
+        val fileSize = 1000L
+        val declaredOffset = 200L
+        val approxStart = fileSize - declaredOffset
+        val file = tempFileWithFtypAt(approxStart, fileSize)
+        val root = rootWithXmp(googleMicroVideoXmp(declaredOffset), fileSize)
+        ByteReader.open(file).use { reader ->
+            val checks = analyzeGoogleXmpSection(root, reader)
+            assertTrue(checks.any { it.severity == SefIntegritySeverity.INFO && it.detail.contains("MicroVideo") })
+            assertTrue(checks.any { it.severity == SefIntegritySeverity.PASS })
+        }
+    }
+
+    @Test
+    fun `analyzeGoogleXmpSection reports WARNING when the XMP text has motion-photo markers but fails to parse`() {
+        val xmp = "MotionPhoto <this is not <<valid xml"
+        val file = tempFileWithNoFtyp(1000)
+        val root = rootWithXmp(xmp, 1000)
+        ByteReader.open(file).use { reader ->
+            val checks = analyzeGoogleXmpSection(root, reader)
+            assertEquals(1, checks.size)
+            assertEquals(SefIntegritySeverity.WARNING, checks.single().severity)
+        }
+    }
+}
