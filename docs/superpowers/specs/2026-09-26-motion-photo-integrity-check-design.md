@@ -8,16 +8,26 @@
 A new menu, "모션포토 정합성 검사" ("Motion Photo Integrity Check"), that
 validates a motion photo's embedded-video reference across all three formats
 this app already recognizes — Samsung SEF, Google's XMP-based Motion
-Photo/MicroVideo, and Apple/QuickTime-style `mpvd` — in one unified report,
-rather than requiring the user to already know which format a given file
-uses and open a format-specific tool.
+Photo/MicroVideo, and HEIC's `mpvd` embedded-video box — in one unified
+report, rather than requiring the user to already know which format a given
+file uses and open a format-specific tool.
+
+**Naming note:** `mpvd` is not Apple-specific in this app's real-world usage
+— confirmed against `MotionPhotoBuilder.kt`: its HEIC motion-photo writer
+(`createSamsungHeicMotionPhoto`) writes an `mpvd` box too, not a `sefd`
+trailer (SEF is JPEG-only in this app's real-world file support). The
+internal `MotionPhotoFormat.APPLE_MPVD` enum name is a pre-existing
+identifier and not worth renaming, but every user-facing label refers to it
+as "HEIC 임베디드 비디오 (mpvd)," never "Apple," to avoid misattributing
+Samsung's own HEIC output.
 
 ## Background: what's already there (verified by reading the code, not assumed)
 
 - **Three formats, one shared detector.** `MotionPhotoExtractor.kt`'s
   `findEmbeddedVideo(root, reader)` already locates the embedded video for
-  all three: an `mpvd`/`EmbeddedVideoData` box (Apple/QuickTime-style), a
-  Samsung SEF `MotionPhoto_Data` field block (via `sefd`), or a Google XMP
+  all three: an `mpvd`/`EmbeddedVideoData` box (HEIC's embedded-video
+  convention), a Samsung SEF `MotionPhoto_Data` field block (via `sefd`),
+  or a Google XMP
   reference (`Container:Directory`'s `Item:Semantic="MotionPhoto"`+`Length`,
   or the legacy `GCamera:MicroVideoOffset` attribute) — falling back through
   them in that order. `extractEmbeddedVideo(source, video, destination)`
@@ -44,7 +54,7 @@ uses and open a format-specific tool.
   covering for are indistinguishable from outside. This feature adds a
   diagnostic path that reports the correction as a finding instead of
   quietly applying it.
-- **No existing check for the Apple/QuickTime `mpvd` box's own position or
+- **No existing check for HEIC's `mpvd` box's own position or
   child structure**, or for the "MotionPhoto vs MicroVideo" XMP schema
   version actually present in a given file — `findGoogleMotionPhotoVideo`
   handles both schemas for extraction purposes but doesn't surface which
@@ -155,7 +165,7 @@ helpers from `MotionPhotoExtractor.kt`:
    nothing at all in the ±1024-byte window, `CRITICAL` (video effectively
    missing or the reference is badly wrong).
 
-**Apple/QuickTime `mpvd`**:
+**HEIC `mpvd`**:
 1. `findFirst(root) { it.type == "mpvd" || it.type == "EmbeddedVideoData"
    }`. Absent → empty list, not a finding.
 2. Bounds-check the node's `offset`/`size` against the real file length —

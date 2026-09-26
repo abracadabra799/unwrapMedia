@@ -4,7 +4,7 @@
 
 **Goal:** A new "모션포토 정합성 검사" menu that validates a motion photo's
 embedded-video reference across all three formats this app recognizes
-(Samsung SEF, Google XMP MotionPhoto/MicroVideo, Apple/QuickTime `mpvd`) in
+(Samsung SEF, Google XMP MotionPhoto/MicroVideo, HEIC `mpvd`) in
 one unified report.
 
 **Architecture:** New `app/src/main/kotlin/com/multiviewer/ui/MotionPhotoIntegrityAnalyzer.kt`
@@ -793,6 +793,19 @@ private fun MotionPhotoCheckSection(title: String, checks: List<SefCheckResult>)
     checks.forEach { MotionPhotoCheckRow(it) }
 }
 
+// "mpvd" is not Apple-specific in this app's real-world usage -- it's the box this app's own
+// MotionPhotoBuilder.createSamsungHeicMotionPhoto writes for ANY HEIC motion photo, Samsung
+// included (confirmed against MotionPhotoBuilder.kt: its HEIC path writes an "mpvd" box, not a
+// "sefd" trailer -- SEF is JPEG-only in this app's real-world file support). The MotionPhotoFormat
+// enum constant stays APPLE_MPVD (an internal identifier, already committed in Task 1 -- not worth
+// reopening for a naming nuance), but user-facing text must not say "Apple/QuickTime", since that
+// would misattribute Samsung's own HEIC output to Apple.
+private fun motionPhotoFormatLabel(format: MotionPhotoFormat): String = when (format) {
+    MotionPhotoFormat.SAMSUNG_SEF -> "삼성 SEF"
+    MotionPhotoFormat.GOOGLE_XMP -> "구글 모션포토 (XMP)"
+    MotionPhotoFormat.APPLE_MPVD -> "HEIC 임베디드 비디오 (mpvd)"
+}
+
 @Composable
 fun MotionPhotoIntegrityWindow(
     file: File,
@@ -824,7 +837,7 @@ fun MotionPhotoIntegrityWindow(
                 else -> {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         MotionPhotoSeverityBadge(currentReport.overallSeverity)
-                        Text("감지된 형식: ${currentReport.detectedFormats.joinToString(", ")}", fontSize = 13.sp)
+                        Text("감지된 형식: ${currentReport.detectedFormats.joinToString(", ") { motionPhotoFormatLabel(it) }}", fontSize = 13.sp)
                     }
                     LazyColumn(modifier = Modifier.fillMaxSize().padding(top = 8.dp)) {
                         currentReport.sefSection?.let { sef ->
@@ -832,7 +845,7 @@ fun MotionPhotoIntegrityWindow(
                             item { MotionPhotoCheckSection("Samsung SEF - 필드별 의미론 검사", sef.semanticChecks) }
                         }
                         item { MotionPhotoCheckSection("구글 모션포토 (XMP)", currentReport.googleXmpChecks) }
-                        item { MotionPhotoCheckSection("애플/QuickTime (mpvd)", currentReport.appleMpvdChecks) }
+                        item { MotionPhotoCheckSection(motionPhotoFormatLabel(MotionPhotoFormat.APPLE_MPVD), currentReport.appleMpvdChecks) }
                         item { MotionPhotoCheckSection("임베디드 비디오 디코딩 확인", currentReport.decodeChecks) }
                     }
                 }
