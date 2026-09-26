@@ -116,19 +116,31 @@ internal fun analyzeDecodability(file: File, video: com.multiviewer.parser.Embed
     if (video == null) return emptyList()
     val temp = File.createTempFile("motion-photo-decode-check", ".${video.extension}")
     return try {
+        // extractEmbeddedVideo opens its own separate ByteReader on `file` internally (brief, "copy
+        // bytes out" one-shot open+close via .use{}) -- a documented, accepted exception to this
+        // analyzer's "one shared ByteReader for the whole analysis" constraint, not the redundant-
+        // reopen-per-tab pattern that constraint exists to prevent. Not worth changing
+        // extractEmbeddedVideo's shared File-based signature (used elsewhere in the app) for this one
+        // caller.
         com.multiviewer.parser.extractEmbeddedVideo(file, video, temp)
-        val process = ProcessBuilder(
+        val processBuilder = ProcessBuilder(
             FfmpegLocator.ffprobePath(), "-v", "error",
             "-show_entries", "format=duration",
             "-of", "default=noprint_wrappers=1",
             temp.absolutePath,
-        ).redirectErrorStream(true).start()
-        val output = process.inputStream.bufferedReader().readText().trim()
-        val exitCode = process.waitFor()
-        if (exitCode == 0) {
-            listOf(SefCheckResult(SefIntegritySeverity.PASS, "임베디드 비디오 디코딩 확인", "ffprobe로 정상적으로 스트림 정보를 읽었습니다: $output"))
+        ).redirectErrorStream(true)
+        FfmpegLocator.configureEnvironment(processBuilder)
+        val process = processBuilder.start()
+        val output = readProcessOutputWithTimeout(process, 30) { process.inputStream.bufferedReader().readText().trim() }
+        if (output == null) {
+            listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "임베디드 비디오 디코딩 확인", "ffprobe 실행이 시간 초과되었습니다"))
         } else {
-            listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "임베디드 비디오 디코딩 확인", "ffprobe가 실패했습니다 (exit=$exitCode): $output"))
+            val exitCode = process.waitFor()
+            if (exitCode == 0) {
+                listOf(SefCheckResult(SefIntegritySeverity.PASS, "임베디드 비디오 디코딩 확인", "ffprobe로 정상적으로 스트림 정보를 읽었습니다: $output"))
+            } else {
+                listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "임베디드 비디오 디코딩 확인", "ffprobe가 실패했습니다 (exit=$exitCode): $output"))
+            }
         }
     } catch (e: Exception) {
         listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "임베디드 비디오 디코딩 확인", "ffprobe 실행 실패: ${e.message}"))
