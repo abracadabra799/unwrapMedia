@@ -39,6 +39,7 @@ object I18n {
     fun menuAvSyncAnalysis(lang: AppLanguage) = if (lang == AppLanguage.KO) "A/V 싱크 및 드리프트 정밀 분석" else "A/V Sync & Drift Analysis"
     fun menuBitstreamCorruption(lang: AppLanguage) = if (lang == AppLanguage.KO) "비트스트림 결함 및 손상 프레임 정밀 분석" else "Bitstream Corruption & Damage Analysis"
     fun menuSefIntegrityCheck(lang: AppLanguage) = if (lang == AppLanguage.KO) "SEF 무결성 검사" else "SEF Integrity Check"
+    fun menuMotionPhotoIntegrityCheck(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 정합성 검사" else "Motion Photo Integrity Check"
 
     // Menu: Motion Photo
     fun menuMotionPhoto(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토" else "Motion Photo"

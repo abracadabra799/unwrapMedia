@@ -49,14 +49,14 @@ fun extractEmbeddedVideo(source: File, video: EmbeddedVideo, destination: File) 
     }
 }
 
-private data class DirectoryVideoInfo(val length: Long, val mimeType: String?)
+internal data class DirectoryVideoInfo(val length: Long, val mimeType: String?)
 
 // How far around the XMP-declared length's implied start offset to search for the video's real
 // "ftyp" box. Some camera vendors' Directory:Length (e.g. Oppo, observed off by ~190 bytes) isn't
 // exactly "bytes from end of file to the video's first byte" -- trusting it verbatim can land a
 // few hundred bytes into the middle of the moov/mdat structure, which ffmpeg then rejects outright
 // ("moov atom not found") instead of just being imprecise.
-private const val MP4_START_SEARCH_WINDOW = 1024L
+internal const val MP4_START_SEARCH_WINDOW = 1024L
 
 private fun findGoogleMotionPhotoVideo(root: BoxNode, reader: ByteReader?): EmbeddedVideo? {
     val xmpText = findFirst(root) { it.fields.any { field -> field.name == "xmp" } }
@@ -81,7 +81,7 @@ private fun findGoogleMotionPhotoVideo(root: BoxNode, reader: ByteReader?): Embe
 // Searches a bounded window around the XMP-derived offset for the video's actual "ftyp" box
 // (4-byte box size, then the literal ASCII "ftyp") and returns that exact offset when found.
 // Falls back to the original, uncorrected offset if nothing turns up nearby.
-private fun correctMp4StartOffset(reader: ByteReader, approxStart: Long): Long {
+internal fun correctMp4StartOffset(reader: ByteReader, approxStart: Long): Long {
     val searchStart = (approxStart - MP4_START_SEARCH_WINDOW).coerceAtLeast(0)
     val searchEnd = approxStart + MP4_START_SEARCH_WINDOW
     var pos = searchStart
@@ -97,7 +97,7 @@ private fun correctMp4StartOffset(reader: ByteReader, approxStart: Long): Long {
     return approxStart
 }
 
-private fun parseXmpDocument(xmpText: String): Document {
+internal fun parseXmpDocument(xmpText: String): Document {
     val factory = DocumentBuilderFactory.newInstance()
     factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
     factory.isNamespaceAware = true
@@ -111,7 +111,7 @@ private fun parseXmpDocument(xmpText: String): Document {
     return builder.parse(InputSource(StringReader(xmpText)))
 }
 
-private fun findMotionPhotoInDirectory(document: Document): DirectoryVideoInfo? {
+internal fun findMotionPhotoInDirectory(document: Document): DirectoryVideoInfo? {
     val items = document.getElementsByTagNameNS("*", "li")
     for (i in 0 until items.length) {
         val li = items.item(i) as? Element ?: continue
@@ -123,7 +123,7 @@ private fun findMotionPhotoInDirectory(document: Document): DirectoryVideoInfo? 
     return null
 }
 
-private fun findMicroVideoOffset(document: Document): Long? {
+internal fun findMicroVideoOffset(document: Document): Long? {
     val descriptions = document.getElementsByTagNameNS("*", "Description")
     for (i in 0 until descriptions.length) {
         val description = descriptions.item(i) as? Element ?: continue
@@ -132,7 +132,7 @@ private fun findMicroVideoOffset(document: Document): Long? {
     return null
 }
 
-private fun findPropertyValue(element: Element, localName: String): String? {
+internal fun findPropertyValue(element: Element, localName: String): String? {
     val attributes = element.attributes
     for (i in 0 until attributes.length) {
         val attribute = attributes.item(i)
