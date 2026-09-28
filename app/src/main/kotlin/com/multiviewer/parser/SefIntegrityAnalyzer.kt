@@ -97,7 +97,6 @@ object SefIntegrityAnalyzer {
         if (sefMagic != "SEFT") {
             structural.add(SefCheckResult(SefIntegritySeverity.CRITICAL, "SEFT tail magic", "Expected \"SEFT\" at offset ${payloadEnd - 4}, found \"$sefMagic\""))
             structural.add(SefCheckResult(SefIntegritySeverity.SKIPPED, "SEFH header magic", "Skipped -- depends on SEFT tail magic"))
-            structural.add(SefCheckResult(SefIntegritySeverity.SKIPPED, "Directory entry count", "Skipped -- depends on SEFT tail magic"))
             semantic.add(SefCheckResult(SefIntegritySeverity.SKIPPED, "Semantic checks", "Skipped -- depends on SEFT tail magic"))
             return finish()
         }
@@ -109,7 +108,6 @@ object SefIntegrityAnalyzer {
         if (sefhPosition < payloadStart || sefhPosition + 12 > payloadEnd) {
             structural.add(SefCheckResult(SefIntegritySeverity.CRITICAL, "SEFH header position", "Computed position $sefhPosition (from sef_size=$sefSize) is out of bounds [$payloadStart, ${payloadEnd - 12}]"))
             structural.add(SefCheckResult(SefIntegritySeverity.SKIPPED, "SEFH header magic", "Skipped -- depends on SEFH header position"))
-            structural.add(SefCheckResult(SefIntegritySeverity.SKIPPED, "Directory entry count", "Skipped -- depends on SEFH header position"))
             semantic.add(SefCheckResult(SefIntegritySeverity.SKIPPED, "Semantic checks", "Skipped -- depends on SEFH header position"))
             return finish()
         }
@@ -118,7 +116,6 @@ object SefIntegrityAnalyzer {
         val sefhMagic = reader.readFourCC(sefhPosition)
         if (sefhMagic != "SEFH") {
             structural.add(SefCheckResult(SefIntegritySeverity.CRITICAL, "SEFH header magic", "Expected \"SEFH\" at offset $sefhPosition, found \"$sefhMagic\""))
-            structural.add(SefCheckResult(SefIntegritySeverity.SKIPPED, "Directory entry count", "Skipped -- depends on SEFH header magic"))
             semantic.add(SefCheckResult(SefIntegritySeverity.SKIPPED, "Semantic checks", "Skipped -- depends on SEFH header magic"))
             return finish()
         }
