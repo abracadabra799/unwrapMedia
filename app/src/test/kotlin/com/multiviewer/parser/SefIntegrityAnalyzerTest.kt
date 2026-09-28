@@ -89,6 +89,7 @@ class SefIntegrityAnalyzerTest {
             // Both entries individually present, not collapsed
             assertEquals(2, report.directoryEntries.size)
             assertTrue(report.directoryEntries.all { it.status == SefIntegritySeverity.PASS })
+            assertTrue(report.structuralChecks.none { it.label.contains("Entry #") || it.label == "Directory entry count" })
         }
     }
 
@@ -265,6 +266,7 @@ class SefIntegrityAnalyzerTest {
             val row = report.directoryEntries.single()
             assertEquals(false, row.markerMatches)
             assertEquals(SefIntegritySeverity.CRITICAL, row.status)
+            assertTrue(report.semanticChecks.any { it.label.contains("Entry #1") && it.severity != SefIntegritySeverity.SKIPPED })
         }
     }
 
@@ -417,6 +419,8 @@ class SefIntegrityAnalyzerTest {
             val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, trailer.size.toLong(), trailer.size.toLong())
             assertEquals(5L, report.declaredEntryCount)
             assertEquals(2, report.directoryEntries.size)
+            assertEquals(SefIntegritySeverity.CRITICAL, report.overallSeverity)
+            assertEquals(SefIntegritySeverity.CRITICAL, report.declaredEntryCountSeverity)
         }
     }
 

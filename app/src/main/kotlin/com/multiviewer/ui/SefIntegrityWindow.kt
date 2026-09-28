@@ -90,12 +90,7 @@ private fun CheckSection(title: String, checks: List<SefCheckResult>) {
 }
 
 @Composable
-private fun DirectoryEntryCountSummary(declaredCount: Long?, foundCount: Int) {
-    val severity = when {
-        declaredCount == null -> SefIntegritySeverity.SKIPPED
-        declaredCount == foundCount.toLong() -> SefIntegritySeverity.PASS
-        else -> SefIntegritySeverity.CRITICAL
-    }
+private fun DirectoryEntryCountSummary(declaredCount: Long?, foundCount: Int, severity: SefIntegritySeverity) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -153,9 +148,9 @@ private fun DirectoryEntryTableRow(row: SefDirectoryEntryRow) {
 }
 
 @Composable
-private fun DirectoryEntryTable(declaredCount: Long?, entries: List<SefDirectoryEntryRow>) {
+private fun DirectoryEntryTable(declaredCount: Long?, entries: List<SefDirectoryEntryRow>, countSeverity: SefIntegritySeverity) {
     Text("SEFH 디렉토리 엔트리", fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
-    DirectoryEntryCountSummary(declaredCount, entries.size)
+    DirectoryEntryCountSummary(declaredCount, entries.size, countSeverity)
     if (entries.isEmpty()) return
     val scrollState = rememberScrollState()
     Column(modifier = Modifier.horizontalScroll(scrollState)) {
@@ -199,12 +194,14 @@ fun SefIntegrityWindow(
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         SeverityBadge(currentReport.overallSeverity)
                         val issueCount = (currentReport.structuralChecks + currentReport.semanticChecks)
-                            .count { it.severity == SefIntegritySeverity.WARNING || it.severity == SefIntegritySeverity.CRITICAL }
+                            .count { it.severity == SefIntegritySeverity.WARNING || it.severity == SefIntegritySeverity.CRITICAL } +
+                            currentReport.directoryEntries.count { it.status == SefIntegritySeverity.CRITICAL } +
+                            (if (currentReport.declaredEntryCountSeverity == SefIntegritySeverity.CRITICAL) 1 else 0)
                         Text("${issueCount}개 문제 발견", fontSize = 13.sp)
                     }
                     LazyColumn(modifier = Modifier.fillMaxSize().padding(top = 8.dp)) {
                         item { CheckSection("구조적 검사", currentReport.structuralChecks) }
-                        item { DirectoryEntryTable(currentReport.declaredEntryCount, currentReport.directoryEntries) }
+                        item { DirectoryEntryTable(currentReport.declaredEntryCount, currentReport.directoryEntries, currentReport.declaredEntryCountSeverity) }
                         item { CheckSection("필드별 의미론 검사", currentReport.semanticChecks) }
                     }
                 }

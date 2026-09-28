@@ -178,11 +178,13 @@ object MotionPhotoIntegrityAnalyzer {
                 if (appleChecks.isNotEmpty()) add(MotionPhotoFormat.APPLE_MPVD)
             }
 
-            val allSeverities = (sefSection?.let { it.structuralChecks + it.semanticChecks } ?: emptyList()) +
-                googleChecks + appleChecks + decodeChecks
+            val allSeverities = (sefSection?.let { it.structuralChecks + it.semanticChecks }?.map { it.severity } ?: emptyList()) +
+                (sefSection?.directoryEntries?.map { it.status } ?: emptyList()) +
+                (sefSection?.let { listOf(it.declaredEntryCountSeverity) } ?: emptyList()) +
+                (googleChecks + appleChecks + decodeChecks).map { it.severity }
             val overall = when {
-                allSeverities.any { it.severity == SefIntegritySeverity.CRITICAL } -> SefIntegritySeverity.CRITICAL
-                allSeverities.any { it.severity == SefIntegritySeverity.WARNING } -> SefIntegritySeverity.WARNING
+                allSeverities.any { it == SefIntegritySeverity.CRITICAL } -> SefIntegritySeverity.CRITICAL
+                allSeverities.any { it == SefIntegritySeverity.WARNING } -> SefIntegritySeverity.WARNING
                 else -> SefIntegritySeverity.PASS
             }
 

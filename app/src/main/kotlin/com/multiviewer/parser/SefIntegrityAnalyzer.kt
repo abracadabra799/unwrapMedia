@@ -53,6 +53,7 @@ data class SefIntegrityReport(
     // distinguishes "couldn't read the count" from "genuinely declares 0 entries".
     val declaredEntryCount: Long?,
     val directoryEntries: List<SefDirectoryEntryRow>,
+    val declaredEntryCountSeverity: SefIntegritySeverity,
 )
 
 private fun overallSeverityOf(severities: List<SefIntegritySeverity>): SefIntegritySeverity {
@@ -83,10 +84,17 @@ object SefIntegrityAnalyzer {
         var declaredEntryCount: Long? = null
         var directoryEntries: List<SefDirectoryEntryRow> = emptyList()
 
-        fun finish() = SefIntegrityReport(
-            overallSeverityOf((structural + semantic).map { it.severity } + directoryEntries.map { it.status }),
-            structural, semantic, declaredEntryCount, directoryEntries,
-        )
+        fun finish(): SefIntegrityReport {
+            val countSeverity = when {
+                declaredEntryCount == null -> SefIntegritySeverity.SKIPPED
+                declaredEntryCount == directoryEntries.size.toLong() -> SefIntegritySeverity.PASS
+                else -> SefIntegritySeverity.CRITICAL
+            }
+            return SefIntegrityReport(
+                overallSeverityOf((structural + semantic).map { it.severity } + directoryEntries.map { it.status } + listOf(countSeverity)),
+                structural, semantic, declaredEntryCount, directoryEntries, countSeverity,
+            )
+        }
 
         if (payloadEnd - payloadStart < 12) {
             structural.add(SefCheckResult(SefIntegritySeverity.CRITICAL, "Trailer size", "Trailer is ${payloadEnd - payloadStart} bytes, too short to contain a SEFH/SEFT trailer (minimum 12 bytes)"))
