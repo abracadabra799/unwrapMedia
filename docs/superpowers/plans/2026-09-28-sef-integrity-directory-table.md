@@ -287,6 +287,39 @@ data class SefIntegrityReport(
 )
 ```
 
+**Critical: `overallSeverityOf` must also see `directoryEntries`' statuses.** The
+per-entry CRITICAL checks (out-of-bounds, marker mismatch, name_size
+overrun) are being REMOVED from `structural` in this task — their
+severity now lives only in each row's `status` field. Without this next
+change, `overallSeverity` would stop reflecting those failures entirely
+(a trailer with only an out-of-bounds entry would wrongly compute
+`overallSeverity = PASS`) — a real regression, not just a cosmetic
+change. Find:
+```kotlin
+private fun overallSeverityOf(results: List<SefCheckResult>): SefIntegritySeverity {
+    val severities = results.map { it.severity }
+    return when {
+        SefIntegritySeverity.CRITICAL in severities -> SefIntegritySeverity.CRITICAL
+        SefIntegritySeverity.WARNING in severities -> SefIntegritySeverity.WARNING
+        else -> SefIntegritySeverity.PASS
+    }
+}
+```
+Replace with:
+```kotlin
+private fun overallSeverityOf(severities: List<SefIntegritySeverity>): SefIntegritySeverity {
+    return when {
+        SefIntegritySeverity.CRITICAL in severities -> SefIntegritySeverity.CRITICAL
+        SefIntegritySeverity.WARNING in severities -> SefIntegritySeverity.WARNING
+        else -> SefIntegritySeverity.PASS
+    }
+}
+```
+(Signature changed from `List<SefCheckResult>` to `List<SefIntegritySeverity>`
+so the caller can combine `SefCheckResult` severities with
+`SefDirectoryEntryRow` statuses in one list — see the `finish()` change
+right below, its only call site.)
+
 Find:
 ```kotlin
         val payloadStart = offset + headerSize
@@ -302,7 +335,10 @@ Replace with:
         var declaredEntryCount: Long? = null
         var directoryEntries: List<SefDirectoryEntryRow> = emptyList()
 
-        fun finish() = SefIntegrityReport(overallSeverityOf(structural + semantic), structural, semantic, declaredEntryCount, directoryEntries)
+        fun finish() = SefIntegrityReport(
+            overallSeverityOf((structural + semantic).map { it.severity } + directoryEntries.map { it.status }),
+            structural, semantic, declaredEntryCount, directoryEntries,
+        )
 ```
 
 Find the entire block from `val declaredCount = readUInt32LE(reader, sefhPosition + 8)` through the end of the `for (e in inBoundsEntries) { ... }` loop that builds `fieldBlocks` (this spans the directory-walking loop, the old "Directory entry count" check, the old per-entry bounds-check loop, the overlap/gap checks, and the old marker-match/name_size loop):
