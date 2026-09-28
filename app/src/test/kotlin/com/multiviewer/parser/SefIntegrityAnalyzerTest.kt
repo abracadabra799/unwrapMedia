@@ -87,8 +87,8 @@ class SefIntegrityAnalyzerTest {
             assertTrue(report.structuralChecks.isNotEmpty())
             assertTrue(report.structuralChecks.none { it.severity == SefIntegritySeverity.CRITICAL })
             // Both entries individually present, not collapsed
-            assertTrue(report.structuralChecks.any { it.label.contains("Entry #1") })
-            assertTrue(report.structuralChecks.any { it.label.contains("Entry #2") })
+            assertEquals(2, report.directoryEntries.size)
+            assertTrue(report.directoryEntries.all { it.status == SefIntegritySeverity.PASS })
         }
     }
 
@@ -119,7 +119,7 @@ class SefIntegrityAnalyzerTest {
             assertEquals(SefIntegritySeverity.CRITICAL, report.overallSeverity)
             assertEquals(SefIntegritySeverity.PASS, report.structuralChecks.first { it.label == "SEFT tail magic" }.severity)
             assertEquals(SefIntegritySeverity.CRITICAL, report.structuralChecks.first { it.label == "SEFH header magic" }.severity)
-            assertTrue(report.structuralChecks.any { it.label == "Directory entry count" && it.severity == SefIntegritySeverity.SKIPPED })
+            assertEquals(null, report.declaredEntryCount)
         }
     }
 
@@ -142,11 +142,68 @@ class SefIntegrityAnalyzerTest {
         byteReaderOf(trailer, "sef-oob-entry").use { reader ->
             val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, trailer.size.toLong(), trailer.size.toLong())
             assertEquals(SefIntegritySeverity.CRITICAL, report.overallSeverity)
-            val entry1 = report.structuralChecks.first { it.label.contains("Entry #1") }
-            val entry2 = report.structuralChecks.first { it.label.contains("Entry #2") }
-            assertEquals(SefIntegritySeverity.PASS, entry1.severity)
-            assertEquals(SefIntegritySeverity.CRITICAL, entry2.severity)
-            assertTrue(entry2.detail.contains("exceeds trailer bounds"))
+            val entry1 = report.directoryEntries.first { it.entryIndex == 1 }
+            val entry2 = report.directoryEntries.first { it.entryIndex == 2 }
+            assertEquals(SefIntegritySeverity.PASS, entry1.status)
+            assertEquals(SefIntegritySeverity.CRITICAL, entry2.status)
+            assertEquals(false, entry2.inBounds)
+        }
+    }
+
+    @Test
+    fun `directoryEntries reports the exact declared offset, length, and computed data range for a well-formed entry`() {
+        val trailer = buildSefTrailer(listOf(SefTestField(0x0b01, "Hello", "world".toByteArray())))
+        byteReaderOf(trailer, "sef-row-values").use { reader ->
+            val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, trailer.size.toLong(), trailer.size.toLong())
+            val row = report.directoryEntries.single()
+            assertEquals(1, row.entryIndex)
+            assertEquals("0x0b01", row.markerHex)
+            assertEquals("Hello", row.name)
+            assertEquals(true, row.inBounds)
+            assertEquals(true, row.markerMatches)
+            assertEquals(SefIntegritySeverity.PASS, row.status)
+            // The whole single-block trailer starts at byte 0 and ends at the SEFH position --
+            // computedDataStart/End must exactly bound that one block.
+            assertEquals(0L, row.computedDataStart)
+            assertEquals(row.computedDataStart + row.declaredLength, row.computedDataEnd)
+        }
+    }
+
+    @Test
+    fun `directoryEntries marks an out-of-bounds entry with null name and null markerMatches (unreachable)`() {
+        val trailer = buildSefTrailer(
+            listOf(
+                SefTestField(0x0b01, "Good", "ok".toByteArray()),
+                SefTestField(0x0c01, "Bad", "x".toByteArray()),
+            ),
+        ).copyOf()
+        val block1Size = 8 + ("Good".toByteArray().size + 1) + 2
+        val block2Size = 8 + ("Bad".toByteArray().size + 1) + 1
+        val dirStart = block1Size + block2Size
+        val entry2Pos = dirStart + 12 + 12
+        trailer.putUInt32LE(entry2Pos + 4, 999_999L)
+        byteReaderOf(trailer, "sef-row-oob").use { reader ->
+            val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, trailer.size.toLong(), trailer.size.toLong())
+            val badRow = report.directoryEntries.first { it.entryIndex == 2 }
+            assertEquals(false, badRow.inBounds)
+            assertEquals(null, badRow.name)
+            assertEquals(null, badRow.markerMatches)
+            assertEquals(SefIntegritySeverity.CRITICAL, badRow.status)
+        }
+    }
+
+    @Test
+    fun `declaredEntryCount matches directoryEntries size for a well-formed trailer`() {
+        val trailer = buildSefTrailer(
+            listOf(
+                SefTestField(0x0b01, "A", "aa".toByteArray()),
+                SefTestField(0x0b02, "B", "bb".toByteArray()),
+            ),
+        )
+        byteReaderOf(trailer, "sef-count-match").use { reader ->
+            val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, trailer.size.toLong(), trailer.size.toLong())
+            assertEquals(2L, report.declaredEntryCount)
+            assertEquals(2, report.directoryEntries.size)
         }
     }
 
@@ -205,8 +262,9 @@ class SefIntegrityAnalyzerTest {
         trailer.putUInt16LE(2, 0x9999) // block's own marker now disagrees with its directory entry (0x0b01)
         byteReaderOf(trailer, "sef-marker-mismatch").use { reader ->
             val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, trailer.size.toLong(), trailer.size.toLong())
-            val markerCheck = report.structuralChecks.first { it.label.contains("marker match") }
-            assertEquals(SefIntegritySeverity.CRITICAL, markerCheck.severity)
+            val row = report.directoryEntries.single()
+            assertEquals(false, row.markerMatches)
+            assertEquals(SefIntegritySeverity.CRITICAL, row.status)
         }
     }
 
@@ -327,8 +385,9 @@ class SefIntegrityAnalyzerTest {
         trailer.putUInt32LE(4, 999L) // name_size now runs far past the 11-byte block
         byteReaderOf(trailer, "sef-name-size-overrun").use { reader ->
             val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, trailer.size.toLong(), trailer.size.toLong())
-            val nameSizeCheck = report.structuralChecks.first { it.label == "Entry #1 name_size" }
-            assertEquals(SefIntegritySeverity.CRITICAL, nameSizeCheck.severity)
+            val row = report.directoryEntries.single()
+            assertEquals(SefIntegritySeverity.CRITICAL, row.status)
+            assertEquals(null, row.name)
             // The field's value never gets a semantic check -- it must show as SKIPPED, not be
             // silently absent from the Semantic Checks section.
             assertTrue(
@@ -356,10 +415,8 @@ class SefIntegrityAnalyzerTest {
         trailer.putUInt32LE(sefhPosition + 8, 5L) // declare 5 entries when only 2 actually exist
         byteReaderOf(trailer, "sef-count-mismatch").use { reader ->
             val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, trailer.size.toLong(), trailer.size.toLong())
-            val countCheck = report.structuralChecks.first { it.label == "Directory entry count" }
-            assertEquals(SefIntegritySeverity.CRITICAL, countCheck.severity)
-            assertTrue(countCheck.detail.contains("5"))
-            assertTrue(countCheck.detail.contains("2"))
+            assertEquals(5L, report.declaredEntryCount)
+            assertEquals(2, report.directoryEntries.size)
         }
     }
 
@@ -378,10 +435,7 @@ class SefIntegrityAnalyzerTest {
                 SefIntegritySeverity.SKIPPED,
                 report.structuralChecks.first { it.label == "SEFH header magic" }.severity,
             )
-            assertEquals(
-                SefIntegritySeverity.SKIPPED,
-                report.structuralChecks.first { it.label == "Directory entry count" }.severity,
-            )
+            assertEquals(null, report.declaredEntryCount)
         }
     }
 }

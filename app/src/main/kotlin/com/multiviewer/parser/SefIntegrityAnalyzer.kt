@@ -28,14 +28,34 @@ data class SefCheckResult(
     val detail: String,
 )
 
+data class SefDirectoryEntryRow(
+    val entryIndex: Int,
+    val markerHex: String,
+    // null when the entry's name couldn't be read: out of bounds, too short for its own 8-byte
+    // header, or name_size overruns the block.
+    val name: String?,
+    val declaredOffset: Long,
+    val declaredLength: Long,
+    val computedDataStart: Long,
+    val computedDataEnd: Long,
+    val inBounds: Boolean,
+    // null when unreachable (out of bounds, or too short for its own header) -- there was no
+    // block to read a marker from at all.
+    val markerMatches: Boolean?,
+    val status: SefIntegritySeverity,
+)
+
 data class SefIntegrityReport(
     val overallSeverity: SefIntegritySeverity,
     val structuralChecks: List<SefCheckResult>,
     val semanticChecks: List<SefCheckResult>,
+    // null when the SEFH entry count was never reached (SEFT/SEFH itself failed validation) --
+    // distinguishes "couldn't read the count" from "genuinely declares 0 entries".
+    val declaredEntryCount: Long?,
+    val directoryEntries: List<SefDirectoryEntryRow>,
 )
 
-private fun overallSeverityOf(results: List<SefCheckResult>): SefIntegritySeverity {
-    val severities = results.map { it.severity }
+private fun overallSeverityOf(severities: List<SefIntegritySeverity>): SefIntegritySeverity {
     return when {
         SefIntegritySeverity.CRITICAL in severities -> SefIntegritySeverity.CRITICAL
         SefIntegritySeverity.WARNING in severities -> SefIntegritySeverity.WARNING
@@ -60,7 +80,13 @@ object SefIntegrityAnalyzer {
         val payloadStart = offset + headerSize
         val payloadEnd = offset + size
 
-        fun finish() = SefIntegrityReport(overallSeverityOf(structural + semantic), structural, semantic)
+        var declaredEntryCount: Long? = null
+        var directoryEntries: List<SefDirectoryEntryRow> = emptyList()
+
+        fun finish() = SefIntegrityReport(
+            overallSeverityOf((structural + semantic).map { it.severity } + directoryEntries.map { it.status }),
+            structural, semantic, declaredEntryCount, directoryEntries,
+        )
 
         if (payloadEnd - payloadStart < 12) {
             structural.add(SefCheckResult(SefIntegritySeverity.CRITICAL, "Trailer size", "Trailer is ${payloadEnd - payloadStart} bytes, too short to contain a SEFH/SEFT trailer (minimum 12 bytes)"))
@@ -99,6 +125,7 @@ object SefIntegrityAnalyzer {
         structural.add(SefCheckResult(SefIntegritySeverity.PASS, "SEFH header magic", "\"SEFH\" found at offset $sefhPosition"))
 
         val declaredCount = readUInt32LE(reader, sefhPosition + 8)
+        declaredEntryCount = declaredCount
 
         data class DirEntry(val index: Int, val marker: Int, val blockStart: Long, val blockEnd: Long, val inBounds: Boolean)
         val dirEntries = mutableListOf<DirEntry>()
@@ -115,23 +142,6 @@ object SefIntegrityAnalyzer {
             val blockStart = sefhPosition - entryOffset
             val blockEnd = blockStart + entrySize
             dirEntries.add(DirEntry(idx, entryMarker, blockStart, blockEnd, blockStart >= payloadStart && blockEnd <= payloadEnd))
-        }
-
-        structural.add(
-            if (entriesFound < declaredCount)
-                SefCheckResult(SefIntegritySeverity.CRITICAL, "Directory entry count", "SEFH declares $declaredCount entries but only $entriesFound were found before running out of trailer space")
-            else
-                SefCheckResult(SefIntegritySeverity.PASS, "Directory entry count", "SEFH declares $declaredCount entries, $entriesFound found"),
-        )
-
-        for (e in dirEntries) {
-            val markerLabel = "0x" + e.marker.toString(16).padStart(4, '0')
-            structural.add(
-                if (e.inBounds)
-                    SefCheckResult(SefIntegritySeverity.PASS, "Entry #${e.index} (marker $markerLabel)", "offset=${sefhPosition - e.blockStart}, size=${e.blockEnd - e.blockStart} -- within bounds")
-                else
-                    SefCheckResult(SefIntegritySeverity.CRITICAL, "Entry #${e.index} (marker $markerLabel)", "computed range [${e.blockStart}, ${e.blockEnd}) exceeds trailer bounds [$payloadStart, $payloadEnd) -- field block skipped"),
-            )
         }
 
         val inBoundsEntries = dirEntries.filter { it.inBounds }
@@ -160,35 +170,40 @@ object SefIntegrityAnalyzer {
         )
 
         val fieldBlocks = mutableListOf<SefFieldBlock>()
-        for (e in inBoundsEntries) {
+        val directoryEntryRows = mutableListOf<SefDirectoryEntryRow>()
+        for (e in dirEntries) {
             val markerLabel = "0x" + e.marker.toString(16).padStart(4, '0')
+            val declaredOffset = sefhPosition - e.blockStart
+            val declaredLength = e.blockEnd - e.blockStart
+
+            if (!e.inBounds) {
+                directoryEntryRows.add(SefDirectoryEntryRow(e.index, markerLabel, null, declaredOffset, declaredLength, e.blockStart, e.blockEnd, false, null, SefIntegritySeverity.CRITICAL))
+                continue
+            }
             if (e.blockEnd - e.blockStart < 8) {
-                structural.add(SefCheckResult(SefIntegritySeverity.CRITICAL, "Entry #${e.index} block header", "Block is ${e.blockEnd - e.blockStart} bytes, too short for its own 8-byte header"))
+                directoryEntryRows.add(SefDirectoryEntryRow(e.index, markerLabel, null, declaredOffset, declaredLength, e.blockStart, e.blockEnd, true, null, SefIntegritySeverity.CRITICAL))
                 semantic.add(SefCheckResult(SefIntegritySeverity.SKIPPED, "Entry #${e.index} semantic check", "Skipped -- depends on Entry #${e.index} block header"))
                 continue
             }
             val blockMarker = readUInt16LE(reader, e.blockStart + 2)
-            structural.add(
-                if (blockMarker == e.marker)
-                    SefCheckResult(SefIntegritySeverity.PASS, "Entry #${e.index} marker match", "Block's own marker $markerLabel matches its directory entry")
-                else
-                    SefCheckResult(SefIntegritySeverity.CRITICAL, "Entry #${e.index} marker match", "Directory marker $markerLabel does not match block's own marker 0x${blockMarker.toString(16).padStart(4, '0')}"),
-            )
+            val markerMatches = blockMarker == e.marker
             val nameSize = readUInt32LE(reader, e.blockStart + 4)
             val nameOffset = e.blockStart + 8
             if (nameOffset + nameSize > e.blockEnd) {
-                structural.add(SefCheckResult(SefIntegritySeverity.CRITICAL, "Entry #${e.index} name_size", "name_size=$nameSize runs past the end of its block"))
+                directoryEntryRows.add(SefDirectoryEntryRow(e.index, markerLabel, null, declaredOffset, declaredLength, e.blockStart, e.blockEnd, true, markerMatches, SefIntegritySeverity.CRITICAL))
                 semantic.add(SefCheckResult(SefIntegritySeverity.SKIPPED, "Entry #${e.index} semantic check", "Skipped -- depends on Entry #${e.index} name_size"))
                 continue
             }
-            structural.add(SefCheckResult(SefIntegritySeverity.PASS, "Entry #${e.index} name_size", "name_size=$nameSize fits within block"))
             val nameBytes = reader.readBytes(nameOffset, nameSize.toInt())
             val name = String(nameBytes, Charsets.UTF_8).trimEnd(Char(0))
+            val status = if (markerMatches) SefIntegritySeverity.PASS else SefIntegritySeverity.CRITICAL
+            directoryEntryRows.add(SefDirectoryEntryRow(e.index, markerLabel, name, declaredOffset, declaredLength, e.blockStart, e.blockEnd, true, markerMatches, status))
             val fieldHeaderSize = (8 + nameSize).toInt()
             val dataStart = e.blockStart + fieldHeaderSize
             val dataLength = (e.blockEnd - dataStart).toInt()
             fieldBlocks.add(SefFieldBlock(e.index, e.marker, name, dataStart, dataLength))
         }
+        directoryEntries = directoryEntryRows
 
         for (fb in fieldBlocks) {
             semantic.add(
