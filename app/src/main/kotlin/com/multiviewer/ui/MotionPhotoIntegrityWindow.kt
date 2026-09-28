@@ -137,6 +137,23 @@ fun MotionPhotoIntegrityWindow(
                     LazyColumn(modifier = Modifier.fillMaxSize().padding(top = 8.dp)) {
                         currentReport.sefSection?.let { sef ->
                             item { MotionPhotoCheckSection("Samsung SEF - 구조적 검사", sef.structuralChecks) }
+                            item {
+                                val countLabel = "SEFH 선언 엔트리 수"
+                                val countDetail = if (sef.declaredEntryCount == null) {
+                                    "확인 불가 (상위 검사 실패)"
+                                } else {
+                                    "선언: ${sef.declaredEntryCount}개, 실제 발견: ${sef.directoryEntries.size}개"
+                                }
+                                val entryChecks = listOf(SefCheckResult(sef.declaredEntryCountSeverity, countLabel, countDetail)) +
+                                    sef.directoryEntries.map { row ->
+                                        SefCheckResult(
+                                            row.status,
+                                            "Entry #${row.entryIndex}${row.name?.let { " ($it)" } ?: ""} (marker ${row.markerHex})",
+                                            "declared offset=${row.declaredOffset}, length=${row.declaredLength}, 실제 위치=${row.computedDataStart}~${row.computedDataEnd}, 범위 내=${row.inBounds}, 마커 일치=${row.markerMatches}",
+                                        )
+                                    }
+                                MotionPhotoCheckSection("Samsung SEF - 디렉토리 엔트리", entryChecks)
+                            }
                             item { MotionPhotoCheckSection("Samsung SEF - 필드별 의미론 검사", sef.semanticChecks) }
                         }
                         item { MotionPhotoCheckSection("구글 모션포토 (XMP)", currentReport.googleXmpChecks) }
