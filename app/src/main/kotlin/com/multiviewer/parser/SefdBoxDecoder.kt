@@ -129,8 +129,10 @@ object SefdBoxDecoder : BoxDecoder {
             val displayValue = if (isJsonShaped(decodedText)) prettyPrintJson(decodedText) else decodedText
             val fields = mutableListOf(markerField, BoxField("value", displayValue, dataStart, dataLength.toLong()))
             if (directoryMarker == MARKER_UTC_TIMESTAMP) {
-                decodedText.trim().toLongOrNull()?.let { epochSeconds ->
-                    val formatted = java.time.Instant.ofEpochSecond(epochSeconds)
+                // Milliseconds-since-epoch, not seconds -- confirmed against real Samsung device
+                // files (see SefIntegrityAnalyzer.kt's checkUtcTimestamp for the same fix/rationale).
+                decodedText.trim().toLongOrNull()?.let { epochMillis ->
+                    val formatted = java.time.Instant.ofEpochMilli(epochMillis)
                         .atZone(java.time.ZoneOffset.UTC)
                         .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss 'UTC'"))
                     fields.add(BoxField("timestamp_utc", formatted, dataStart, dataLength.toLong()))

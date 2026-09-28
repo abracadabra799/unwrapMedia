@@ -229,11 +229,16 @@ object SefIntegrityAnalyzer {
     }
 }
 
-private const val PLAUSIBLE_EPOCH_MIN = 946684800L // 2000-01-01T00:00:00Z
-private const val ONE_YEAR_SECONDS = 365L * 24 * 3600
+private const val PLAUSIBLE_EPOCH_MIN_MS = 946684800000L // 2000-01-01T00:00:00Z, in milliseconds
+private const val ONE_YEAR_MS = 365L * 24 * 3600 * 1000
 
-private fun formatEpoch(epochSeconds: Long): String =
-    java.time.Instant.ofEpochSecond(epochSeconds)
+// Image_UTC_Data is milliseconds-since-epoch, not seconds -- confirmed against real Samsung
+// device files (e.g. a raw value of 1784372679960 corresponds to 2026, matching the file's real
+// capture date; interpreting the same value as seconds lands in the year 58506). This was wrong
+// in the original implementation and produced a bogus "outside plausible range" WARNING on every
+// real SEF file tested, regardless of how genuinely valid the timestamp was.
+private fun formatEpoch(epochMillis: Long): String =
+    java.time.Instant.ofEpochMilli(epochMillis)
         .atZone(java.time.ZoneOffset.UTC)
         .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss 'UTC'"))
 
@@ -247,8 +252,8 @@ private fun checkUtcTimestamp(reader: ByteReader, fb: SefFieldBlock): SefCheckRe
     if (epoch == null) {
         return SefCheckResult(SefIntegritySeverity.CRITICAL, "Entry #${fb.entryIndex} UTC timestamp", "Value \"$text\" is not a parseable integer epoch")
     }
-    val maxEpoch = System.currentTimeMillis() / 1000 + ONE_YEAR_SECONDS
-    val inPlausibleRange = epoch in PLAUSIBLE_EPOCH_MIN..maxEpoch
+    val maxEpoch = System.currentTimeMillis() + ONE_YEAR_MS
+    val inPlausibleRange = epoch in PLAUSIBLE_EPOCH_MIN_MS..maxEpoch
     val formatted = try {
         formatEpoch(epoch)
     } catch (_: java.time.DateTimeException) {

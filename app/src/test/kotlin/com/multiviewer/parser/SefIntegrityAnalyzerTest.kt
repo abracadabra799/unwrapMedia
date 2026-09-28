@@ -272,15 +272,20 @@ class SefIntegrityAnalyzerTest {
 
     @Test
     fun `a plausible UTC timestamp passes and an implausible one WARNs`() {
-        val plausible = buildSefTrailer(listOf(SefTestField(MARKER_UTC_TIMESTAMP, "TimeStamp", "1700000000".toByteArray())))
+        // Image_UTC_Data is milliseconds-since-epoch (confirmed against real Samsung device
+        // files -- see SefIntegrityAnalyzer.kt's checkUtcTimestamp comment). 1700000000000 ms is
+        // the same 2023-11-14 moment as the old (incorrect) seconds-based test value.
+        val plausible = buildSefTrailer(listOf(SefTestField(MARKER_UTC_TIMESTAMP, "TimeStamp", "1700000000000".toByteArray())))
         byteReaderOf(plausible, "sef-timestamp-ok").use { reader ->
             val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, plausible.size.toLong(), plausible.size.toLong())
             val check = report.semanticChecks.first { it.label.contains("UTC timestamp") }
             assertEquals(SefIntegritySeverity.PASS, check.severity)
-            assertTrue(check.detail.contains("2023")) // 1700000000 epoch -> 2023-11-14
+            assertTrue(check.detail.contains("2023")) // 1700000000000 ms epoch -> 2023-11-14
         }
 
-        val implausible = buildSefTrailer(listOf(SefTestField(MARKER_UTC_TIMESTAMP, "TimeStamp", "9999999999".toByteArray())))
+        // 9999999999999 ms -> ~year 2286, far enough past "now + 1 year" to stay implausible
+        // regardless of which real "now" this test runs on.
+        val implausible = buildSefTrailer(listOf(SefTestField(MARKER_UTC_TIMESTAMP, "TimeStamp", "9999999999999".toByteArray())))
         byteReaderOf(implausible, "sef-timestamp-bad").use { reader ->
             val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, implausible.size.toLong(), implausible.size.toLong())
             val check = report.semanticChecks.first { it.label.contains("UTC timestamp") }
