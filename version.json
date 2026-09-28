@@ -1,7 +1,7 @@
 {
-  "version": "1.14.0",
-  "releaseDate": "2026-09-27",
-  "releaseNotes": "• 미디어 비교 분석기(Diff Heatmap)에 정지 이미지 PSNR/SSIM 수치 표시 추가, 촬영조건(ISO/노출/조리개/초점거리/화이트밸런스) 불일치 경고 배너 및 배지 추가\n• 사이드바이사이드 비교 모드에 커서 위치 픽셀 RGB 값 실시간 표시 기능 추가\n• 모션포토 정합성 검사 메뉴 신설: 삼성 SEF, 구글 XMP(MotionPhoto/MicroVideo), HEIC 임베디드 비디오(mpvd) 3가지 형식 통합 검증, 실제 ffmpeg 디코딩을 통한 손상 검증 포함\n• SEF 무결성 검사 메뉴 신설: 삼성 SEF 트레일러 데이터의 구조적/의미론적 정합성 검증 (SEFH/SEFT, MCC 국가 코드, JSON 문법 등)",
+  "version": "1.15.0",
+  "releaseDate": "2026-09-28",
+  "releaseNotes": "• SEF 무결성 검사 창에 SEFH 디렉토리 엔트리 표 추가: 엔트리별 이름/마커/선언된 오프셋·길이/실제 계산된 위치/범위 내 여부/마커 일치 여부를 한눈에 확인, 선언된 엔트리 수 대비 실제 발견 개수 요약줄 포함\n• SEF/모션포토 정합성 검사 창의 텍스트가 다크 테마에서 보이지 않던 문제 수정 (Material2→Material3 컴포넌트 전환)",
   "windowsUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest",
   "macUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest"
 }
