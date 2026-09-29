@@ -546,7 +546,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 )
                 Separator()
                 val hasMotionPhoto = currentTab?.root?.let { r ->
-                    findFirst(r) { it.type == "sefd" } != null ||
+                    (findFirst(r) { it.type == "sefd" }?.children?.any { it.type == "MotionPhoto_Data" } == true) ||
                         findFirst(r) { it.type == "mpvd" || it.type == "EmbeddedVideoData" } != null ||
                         findFirst(r) {
                             it.fields.any { f ->

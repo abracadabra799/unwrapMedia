@@ -220,6 +220,11 @@ object SefIntegrityAnalyzer {
                             checkMotionPhotoData(reader, fb, fileLength)
                         else
                             SefCheckResult(SefIntegritySeverity.WARNING, "Entry #${fb.entryIndex} MotionPhoto_Data bounds", "Expected exactly 12 bytes, found ${fb.dataLength} -- cannot verify bounds")
+                    fb.name == "MotionPhoto_AutoPlay" ->
+                        if (fb.dataLength == 12)
+                            checkMotionPhotoAutoPlay(reader, fb, fileLength)
+                        else
+                            SefCheckResult(SefIntegritySeverity.WARNING, "Entry #${fb.entryIndex} MotionPhoto_AutoPlay bounds", "Expected exactly 12 bytes, found ${fb.dataLength} -- cannot verify bounds")
                     else -> checkTextOrJson(reader, fb)
                 },
             )
@@ -293,6 +298,20 @@ private fun checkMotionPhotoData(reader: ByteReader, fb: SefFieldBlock, fileLeng
         SefCheckResult(SefIntegritySeverity.PASS, "Entry #${fb.entryIndex} MotionPhoto_Data bounds", "video_offset=$videoOffset + video_length=$videoLength = $end, within file length $fileLength")
     } else {
         SefCheckResult(SefIntegritySeverity.CRITICAL, "Entry #${fb.entryIndex} MotionPhoto_Data bounds", "video_offset=$videoOffset + video_length=$videoLength = $end, EXCEEDS file length $fileLength")
+    }
+}
+
+// Mirrors checkMotionPhotoData exactly -- MotionPhoto_AutoPlay (the preview clip) uses the same
+// 12-byte offset+length pointer shape when present, but unlike MotionPhoto_Data it's optional, so
+// this is only ever invoked for entries that actually exist.
+private fun checkMotionPhotoAutoPlay(reader: ByteReader, fb: SefFieldBlock, fileLength: Long): SefCheckResult {
+    val videoOffset = reader.readUInt32(fb.dataStart + 4)
+    val videoLength = reader.readUInt32(fb.dataStart + 8)
+    val end = videoOffset + videoLength
+    return if (end <= fileLength) {
+        SefCheckResult(SefIntegritySeverity.PASS, "Entry #${fb.entryIndex} MotionPhoto_AutoPlay bounds", "video_offset=$videoOffset + video_length=$videoLength = $end, within file length $fileLength")
+    } else {
+        SefCheckResult(SefIntegritySeverity.CRITICAL, "Entry #${fb.entryIndex} MotionPhoto_AutoPlay bounds", "video_offset=$videoOffset + video_length=$videoLength = $end, EXCEEDS file length $fileLength")
     }
 }
 

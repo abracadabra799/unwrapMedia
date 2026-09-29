@@ -250,7 +250,12 @@ object MotionPhotoIntegrityAnalyzer {
             val decodeChecks = analyzeDecodability(file, video)
 
             val detectedFormats = buildList {
-                if (sefdNode != null) add(MotionPhotoFormat.SAMSUNG_SEF)
+                // MotionPhoto_Data is mandatory for a file to actually BE a SEF motion photo --
+                // MotionPhoto_AutoPlay/MotionPhoto_Version are optional. A bare sefd box (ordinary
+                // SEF-tagged EXIF metadata, no motion video at all) must not count as "detected".
+                if (sefSection?.directoryEntries?.any { it.name == "MotionPhoto_Data" } == true) {
+                    add(MotionPhotoFormat.SAMSUNG_SEF)
+                }
                 if (googleChecks.isNotEmpty()) add(MotionPhotoFormat.GOOGLE_XMP)
                 if (appleChecks.isNotEmpty()) add(MotionPhotoFormat.APPLE_MPVD)
             }
