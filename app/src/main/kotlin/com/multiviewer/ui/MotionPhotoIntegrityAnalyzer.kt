@@ -255,13 +255,23 @@ object MotionPhotoIntegrityAnalyzer {
                 // MotionPhoto_Data is mandatory for a file to actually BE a SEF motion photo --
                 // MotionPhoto_AutoPlay/MotionPhoto_Version are optional. A bare sefd box (ordinary
                 // SEF-tagged EXIF metadata, no motion video at all) must not count as "detected".
-                // Exception: a structurally CRITICAL SEF trailer (SEFT/SEFH magic missing, position
-                // out of bounds, etc.) can never enumerate directory entries at all -- MotionPhoto_Data
-                // could never be found even if it's genuinely a corrupted motion photo. Treating this
-                // as "detected, and here's why it's broken" (rather than "not detected") keeps the
-                // integrity report reachable for the exact files it exists to diagnose.
-                val sefStructurallyCritical = sefSection?.structuralChecks?.any { it.severity == SefIntegritySeverity.CRITICAL } == true
-                if (sefSection?.directoryEntries?.any { it.name == "MotionPhoto_Data" } == true || sefStructurallyCritical) {
+                // Exception: a SEF trailer whose own report is CRITICAL for reasons that would prevent
+                // MotionPhoto_Data from ever being found -- whole-trailer corruption (SEFT/SEFH magic
+                // missing, position out of bounds: directoryEntries comes back empty), a specific
+                // corrupted entry (name unreadable: directoryEntries has a CRITICAL row), or a
+                // truncated directory (declaredEntryCountSeverity CRITICAL: entries beyond what was
+                // found, possibly including MotionPhoto_Data itself, were never read). Deliberately
+                // NOT sefSection's overall severity, which also folds in semanticChecks (e.g. a
+                // malformed-JSON field elsewhere in an ordinary, non-motion-photo SEF trailer) and
+                // would reintroduce the false-positive detection Task 2 fixed. Treating a file that
+                // matches any of these as "detected, and here's why it's broken" (rather than "not
+                // detected") keeps the integrity report reachable for the files it exists to diagnose.
+                val sefEntriesUntrustworthy = sefSection != null && (
+                    sefSection.structuralChecks.any { it.severity == SefIntegritySeverity.CRITICAL } ||
+                        sefSection.directoryEntries.any { it.status == SefIntegritySeverity.CRITICAL } ||
+                        sefSection.declaredEntryCountSeverity == SefIntegritySeverity.CRITICAL
+                )
+                if (sefSection?.directoryEntries?.any { it.name == "MotionPhoto_Data" } == true || sefEntriesUntrustworthy) {
                     add(MotionPhotoFormat.SAMSUNG_SEF)
                 }
                 if (googleChecks.isNotEmpty()) add(MotionPhotoFormat.GOOGLE_XMP)
