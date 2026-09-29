@@ -89,6 +89,45 @@ class MotionPhotoBuilderTest {
     }
 
     @Test
+    fun `injectMotionPhotoXmpIntoJpeg merges an existing XMP instead of discarding it`() {
+        val existingXmp = """<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:tiff="http://ns.adobe.com/tiff/1.0/" tiff:Make="SomeCamera"/></rdf:RDF></x:xmpmeta>"""
+        val existingXmpApp1 = MotionPhotoBuilder.buildApp1XmpSegment(existingXmp)
+        val sampleJpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte()) + existingXmpApp1 + byteArrayOf(0xFF.toByte(), 0xD9.toByte())
+
+        val injected = MotionPhotoBuilder.injectMotionPhotoXmpIntoJpeg(sampleJpeg, 99999L)
+        val injectedText = String(injected, Charsets.UTF_8)
+
+        assertTrue(injectedText.contains("tiff:Make=\"SomeCamera\""), "Expected the original tiff:Make to survive")
+        assertTrue(injectedText.contains("GCamera:MotionPhoto=\"1\""))
+        // Exactly one XMP APP1 segment in the output -- the old one was replaced, not duplicated
+        assertEquals(1, Regex("http://ns\\.adobe\\.com/xap/1\\.0/").findAll(injectedText).count())
+    }
+
+    @Test
+    fun `injectMotionPhotoXmpIntoJpeg places the merged XMP after Exif when both an existing XMP and Exif are present`() {
+        val exifApp1 = byteArrayOf(
+            0xFF.toByte(), 0xE1.toByte(), 0x00.toByte(), 0x08.toByte(),
+            'E'.code.toByte(), 'x'.code.toByte(), 'i'.code.toByte(), 'f'.code.toByte(), 0x00.toByte(), 0x00.toByte(),
+        )
+        val existingXmp = """<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:tiff="http://ns.adobe.com/tiff/1.0/" tiff:Make="SomeCamera"/></rdf:RDF></x:xmpmeta>"""
+        val existingXmpApp1 = MotionPhotoBuilder.buildApp1XmpSegment(existingXmp)
+        val sampleJpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte()) + exifApp1 + existingXmpApp1 + byteArrayOf(0xFF.toByte(), 0xD9.toByte())
+
+        val injected = MotionPhotoBuilder.injectMotionPhotoXmpIntoJpeg(sampleJpeg, 99999L)
+
+        // Exif is still the very first marker after SOI
+        assertEquals(0xFF.toByte(), injected[2])
+        assertEquals(0xE1.toByte(), injected[3])
+        assertEquals('E'.code.toByte(), injected[6])
+        // The merged XMP (not Exif) follows immediately after
+        val xmpPos = 2 + exifApp1.size
+        assertEquals(0xFF.toByte(), injected[xmpPos])
+        assertEquals(0xE1.toByte(), injected[xmpPos + 1])
+        val injectedText = String(injected, Charsets.UTF_8)
+        assertTrue(injectedText.contains("tiff:Make=\"SomeCamera\""))
+    }
+
+    @Test
     fun `createGoogleMotionPhoto merges real image and video into standard Samsung SEF and Google Motion Photo`() {
         val imageFile = File.createTempFile("motion-build-image-", ".jpg")
         imageFile.deleteOnExit()

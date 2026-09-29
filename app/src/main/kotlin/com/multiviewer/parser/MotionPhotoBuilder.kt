@@ -761,9 +761,6 @@ object MotionPhotoBuilder {
             "Invalid JPEG bytes: missing SOI marker (0xFFD8)"
         }
 
-        val xmpText = buildGoogleMotionPhotoXmp(videoOffsetFromEof, primaryPadding, presentationTimestampUs, version)
-        val app1Segment = buildApp1XmpSegment(xmpText)
-
         // Check if there is an Exif APP1 immediately after SOI
         var insertPos = 2
         if (jpegBytes.size >= 8 &&
@@ -780,6 +777,44 @@ object MotionPhotoBuilder {
                 insertPos += totalExifSegSize
             }
         }
+
+        // First pass: scan for an existing XMP APP1 (anywhere after insertPos) and capture its text,
+        // without mutating anything yet -- mergeMotionPhotoXmp needs this before we can build the
+        // segment we're about to insert at insertPos.
+        var existingXmpText: String? = null
+        run {
+            var scanPos = insertPos
+            while (scanPos < jpegBytes.size - 1) {
+                val b0 = jpegBytes[scanPos].toInt() and 0xFF
+                val b1 = jpegBytes[scanPos + 1].toInt() and 0xFF
+                if (b0 == 0xFF && b1 == 0xDA) break // start of scan data -- no more markers
+                if (b0 != 0xFF || scanPos + 4 > jpegBytes.size) break
+                val segLen = ((jpegBytes[scanPos + 2].toInt() and 0xFF) shl 8) or (jpegBytes[scanPos + 3].toInt() and 0xFF)
+                val totalSegSize = 2 + segLen
+                if (scanPos + totalSegSize > jpegBytes.size) break
+                if (b1 == 0xE1) {
+                    val payloadStart = scanPos + 4
+                    val hasXmpPrefix = (scanPos + totalSegSize >= payloadStart + XMP_IDENTIFIER.size) &&
+                        jpegBytes.copyOfRange(payloadStart, payloadStart + XMP_IDENTIFIER.size).contentEquals(XMP_IDENTIFIER)
+                    if (hasXmpPrefix) {
+                        val textStart = payloadStart + XMP_IDENTIFIER.size + 1 // +1 for the NUL after the identifier
+                        val textEnd = scanPos + totalSegSize
+                        if (textStart in 0..textEnd && textEnd <= jpegBytes.size) {
+                            existingXmpText = String(jpegBytes, textStart, textEnd - textStart, Charsets.UTF_8)
+                        }
+                        break
+                    }
+                }
+                if (b1 in 0xD0..0xD7 || b1 == 0x01) {
+                    scanPos += 2
+                    continue
+                }
+                scanPos += totalSegSize
+            }
+        }
+
+        val xmpText = mergeMotionPhotoXmp(existingXmpText, videoOffsetFromEof, primaryPadding, presentationTimestampUs, version, "image/jpeg")
+        val app1Segment = buildApp1XmpSegment(xmpText)
 
         val out = ByteArrayOutputStream(jpegBytes.size + app1Segment.size)
         out.write(jpegBytes, 0, insertPos)
