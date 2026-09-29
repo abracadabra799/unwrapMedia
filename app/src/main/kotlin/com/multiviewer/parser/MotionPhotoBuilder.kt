@@ -788,7 +788,17 @@ object MotionPhotoBuilder {
                 val b0 = jpegBytes[scanPos].toInt() and 0xFF
                 val b1 = jpegBytes[scanPos + 1].toInt() and 0xFF
                 if (b0 == 0xFF && b1 == 0xDA) break // start of scan data -- no more markers
-                if (b0 != 0xFF || scanPos + 4 > jpegBytes.size) break
+                if (b0 != 0xFF) break
+                // Length-less markers (restart markers D0-D7, TEM 01) never carry a 2-byte length
+                // field -- check for them BEFORE attempting to read one, matching the rewrite pass
+                // below. Reading a length for these would misinterpret the two bytes that follow
+                // (arbitrary marker-stream content, not a length) and could skip past a real XMP
+                // segment.
+                if (b1 in 0xD0..0xD7 || b1 == 0x01) {
+                    scanPos += 2
+                    continue
+                }
+                if (scanPos + 4 > jpegBytes.size) break
                 val segLen = ((jpegBytes[scanPos + 2].toInt() and 0xFF) shl 8) or (jpegBytes[scanPos + 3].toInt() and 0xFF)
                 val totalSegSize = 2 + segLen
                 if (scanPos + totalSegSize > jpegBytes.size) break
@@ -804,10 +814,6 @@ object MotionPhotoBuilder {
                         }
                         break
                     }
-                }
-                if (b1 in 0xD0..0xD7 || b1 == 0x01) {
-                    scanPos += 2
-                    continue
                 }
                 scanPos += totalSegSize
             }
