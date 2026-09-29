@@ -143,6 +143,10 @@ internal fun DirectoryEntryTableRow(row: SefDirectoryEntryRow) {
 
 @Composable
 internal fun DirectoryEntryTable(declaredCount: Long?, entries: List<SefDirectoryEntryRow>, countSeverity: SefIntegritySeverity, title: String = "SEFH 디렉토리 엔트리", showCountSummary: Boolean = true) {
+    // When the summary line is suppressed (the filtered motion-photo-fields call site) AND there
+    // are no rows to show, rendering just a bare title with nothing under it reads as broken UI --
+    // matches CheckSection's own empty-list early-return for the same reason.
+    if (entries.isEmpty() && !showCountSummary) return
     Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
     if (showCountSummary) {
         DirectoryEntryCountSummary(declaredCount, entries.size, countSeverity)

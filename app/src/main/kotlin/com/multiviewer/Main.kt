@@ -546,7 +546,13 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 )
                 Separator()
                 val hasMotionPhoto = currentTab?.root?.let { r ->
-                    (findFirst(r) { it.type == "sefd" }?.children?.any { it.type == "MotionPhoto_Data" } == true) ||
+                    (findFirst(r) { it.type == "sefd" }?.let { sefd ->
+                        // Mirrors MotionPhotoIntegrityAnalyzer.kt's detectedFormats gate: MotionPhoto_Data
+                        // is mandatory for an intact trailer, but a structurally broken one (warnings
+                        // non-empty -- SefdBoxDecoder bails with no children in that case) must still
+                        // enable the menu so its CRITICAL diagnosis stays reachable.
+                        sefd.children.any { it.type == "MotionPhoto_Data" } || sefd.warnings.isNotEmpty()
+                    } == true) ||
                         findFirst(r) { it.type == "mpvd" || it.type == "EmbeddedVideoData" } != null ||
                         findFirst(r) {
                             it.fields.any { f ->

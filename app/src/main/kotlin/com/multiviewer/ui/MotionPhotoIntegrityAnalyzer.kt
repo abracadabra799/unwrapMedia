@@ -231,7 +231,9 @@ internal fun analyzeDecodability(file: File, video: com.multiviewer.parser.Embed
 // Top-level orchestrator: opens exactly ONE ByteReader for the whole analysis (SEF delegation,
 // Google XMP checks, and findEmbeddedVideo all share it) -- this project has already had to fix
 // redundant-ByteReader.open bugs twice, so this never opens a second reader per section. Blocking
-// (file I/O + one ffmpeg subprocess call): callers must invoke via withContext(Dispatchers.IO).
+// (file I/O plus up to two ffmpeg/ffprobe subprocess calls -- probeVideoDurationUs and
+// analyzeDecodability each extract and invoke their own subprocess): callers must invoke via
+// withContext(Dispatchers.IO).
 object MotionPhotoIntegrityAnalyzer {
     fun analyze(file: File, root: BoxNode): MotionPhotoIntegrityReport {
         return ByteReader.open(file).use { reader ->
@@ -253,7 +255,13 @@ object MotionPhotoIntegrityAnalyzer {
                 // MotionPhoto_Data is mandatory for a file to actually BE a SEF motion photo --
                 // MotionPhoto_AutoPlay/MotionPhoto_Version are optional. A bare sefd box (ordinary
                 // SEF-tagged EXIF metadata, no motion video at all) must not count as "detected".
-                if (sefSection?.directoryEntries?.any { it.name == "MotionPhoto_Data" } == true) {
+                // Exception: a structurally CRITICAL SEF trailer (SEFT/SEFH magic missing, position
+                // out of bounds, etc.) can never enumerate directory entries at all -- MotionPhoto_Data
+                // could never be found even if it's genuinely a corrupted motion photo. Treating this
+                // as "detected, and here's why it's broken" (rather than "not detected") keeps the
+                // integrity report reachable for the exact files it exists to diagnose.
+                val sefStructurallyCritical = sefSection?.structuralChecks?.any { it.severity == SefIntegritySeverity.CRITICAL } == true
+                if (sefSection?.directoryEntries?.any { it.name == "MotionPhoto_Data" } == true || sefStructurallyCritical) {
                     add(MotionPhotoFormat.SAMSUNG_SEF)
                 }
                 if (googleChecks.isNotEmpty()) add(MotionPhotoFormat.GOOGLE_XMP)
