@@ -80,7 +80,7 @@ fun MotionPhotoIntegrityWindow(
                             // 2. SEF 모션포토 관련 필드 (MotionPhoto_Data/AutoPlay/Version only)
                             item {
                                 val motionPhotoEntries = sef.directoryEntries.filter { it.name?.startsWith("MotionPhoto") == true }
-                                DirectoryEntryTable(sef.declaredEntryCount, motionPhotoEntries, sef.declaredEntryCountSeverity, title = "SEF 모션포토 관련 필드")
+                                DirectoryEntryTable(sef.declaredEntryCount, motionPhotoEntries, sef.declaredEntryCountSeverity, title = "SEF 모션포토 관련 필드", showCountSummary = false)
                             }
                             item {
                                 val motionPhotoSemanticChecks = sef.semanticChecks.filter { it.label.contains("MotionPhoto") }
