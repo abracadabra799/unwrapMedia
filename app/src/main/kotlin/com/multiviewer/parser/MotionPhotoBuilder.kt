@@ -257,6 +257,146 @@ object MotionPhotoBuilder {
     }
 
     /**
+     * Merges motion-photo attributes into an existing XMP document instead of building a fresh
+     * one from scratch -- preserves every other attribute/element the original XMP carried (gain
+     * map parameters, camera metadata, anything else), so "모션포토 생성" no longer destroys XMP
+     * that was already there.
+     *
+     * @param existingXmpText The image's existing XMP text, or null if it has none.
+     * @param videoOffsetOrLength JPEG: distance in bytes from EOF to the video's first byte.
+     *   HEIC: same distance-from-EOF convention as buildGoogleMotionPhotoHeicXmp.
+     * @param precedingItemPaddingBytes The byte gap between the end of whichever Directory item
+     *   ends up immediately before the new MotionPhoto item, and the start of the video bytes --
+     *   same role as buildGoogleMotionPhotoXmp's `primaryPadding`, generalized: when an existing
+     *   Directory already has other items (e.g. GainMap), this padding is applied to the item that
+     *   was previously last, not necessarily to Primary.
+     * @param primaryMimeType Only used when synthesizing a fresh Container:Directory (no existing
+     *   one to append to) -- "image/jpeg" or "image/heic".
+     */
+    internal fun mergeMotionPhotoXmp(
+        existingXmpText: String?,
+        videoOffsetOrLength: Long,
+        precedingItemPaddingBytes: Long,
+        presentationTimestampUs: Long,
+        version: MotionPhotoFormatVersion,
+        primaryMimeType: String,
+    ): String {
+        val freshBuild = if (primaryMimeType == "image/heic") {
+            val hasGainMap = existingXmpText?.contains("GainMap") == true
+            buildGoogleMotionPhotoHeicXmp(videoOffsetOrLength, hasGainMap, presentationTimestampUs, version)
+        } else {
+            buildGoogleMotionPhotoXmp(videoOffsetOrLength, precedingItemPaddingBytes, presentationTimestampUs, version)
+        }
+        if (existingXmpText == null) return freshBuild
+
+        return try {
+            val document = parseXmpDocument(existingXmpText)
+            val rdfNs = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+            val descriptions = document.getElementsByTagNameNS(rdfNs, "Description")
+            val description = descriptions.item(0) as? org.w3c.dom.Element ?: return freshBuild
+
+            val xmlnsNs = "http://www.w3.org/2000/xmlns/"
+            val gCameraNs = "http://ns.google.com/photos/1.0/camera/"
+            val containerNs = "http://ns.google.com/photos/1.0/container/"
+            val itemNs = "http://ns.google.com/photos/1.0/container/item/"
+
+            fun ensureNamespace(prefix: String, uri: String) {
+                if (description.getAttributeNS(xmlnsNs, prefix).isEmpty()) {
+                    description.setAttributeNS(xmlnsNs, "xmlns:$prefix", uri)
+                }
+            }
+            ensureNamespace("GCamera", gCameraNs)
+
+            if (version == MotionPhotoFormatVersion.V1_MICRO_VIDEO) {
+                description.setAttributeNS(gCameraNs, "GCamera:MicroVideo", "1")
+                description.setAttributeNS(gCameraNs, "GCamera:MicroVideoVersion", "1")
+                description.setAttributeNS(gCameraNs, "GCamera:MicroVideoOffset", videoOffsetOrLength.toString())
+                description.setAttributeNS(gCameraNs, "GCamera:MicroVideoPresentationTimestampUs", presentationTimestampUs.toString())
+                return serializeXmpDocument(document)
+            }
+
+            description.setAttributeNS(gCameraNs, "GCamera:MotionPhoto", "1")
+            description.setAttributeNS(gCameraNs, "GCamera:MotionPhotoVersion", "1")
+            description.setAttributeNS(gCameraNs, "GCamera:MotionPhotoPresentationTimestampUs", presentationTimestampUs.toString())
+            ensureNamespace("Container", containerNs)
+            ensureNamespace("Item", itemNs)
+
+            val existingDirectory = run {
+                val children = description.childNodes
+                (0 until children.length)
+                    .mapNotNull { children.item(it) as? org.w3c.dom.Element }
+                    .find { it.namespaceURI == containerNs && it.localName == "Directory" }
+            }
+
+            fun newMotionPhotoLi(): org.w3c.dom.Element {
+                val li = document.createElementNS(rdfNs, "rdf:li")
+                li.setAttributeNS(rdfNs, "rdf:parseType", "Resource")
+                val item = document.createElementNS(containerNs, "Container:Item")
+                item.setAttributeNS(itemNs, "Item:Mime", "video/mp4")
+                item.setAttributeNS(itemNs, "Item:Semantic", "MotionPhoto")
+                item.setAttributeNS(itemNs, "Item:Length", videoOffsetOrLength.toString())
+                item.setAttributeNS(itemNs, "Item:Padding", "0")
+                li.appendChild(item)
+                return li
+            }
+
+            if (existingDirectory != null) {
+                val seq = run {
+                    val children = existingDirectory.childNodes
+                    (0 until children.length)
+                        .mapNotNull { children.item(it) as? org.w3c.dom.Element }
+                        .find { it.namespaceURI == rdfNs && it.localName == "Seq" }
+                } ?: return freshBuild
+
+                val liElements = run {
+                    val children = seq.childNodes
+                    (0 until children.length)
+                        .mapNotNull { children.item(it) as? org.w3c.dom.Element }
+                        .filter { it.namespaceURI == rdfNs && it.localName == "li" }
+                }
+                val lastLi = liElements.lastOrNull()
+                val lastItem = lastLi?.let { li ->
+                    val children = li.childNodes
+                    (0 until children.length)
+                        .mapNotNull { children.item(it) as? org.w3c.dom.Element }
+                        .find { it.namespaceURI == containerNs && it.localName == "Item" }
+                }
+                lastItem?.setAttributeNS(itemNs, "Item:Padding", precedingItemPaddingBytes.toString())
+
+                seq.appendChild(newMotionPhotoLi())
+            } else {
+                val directory = document.createElementNS(containerNs, "Container:Directory")
+                val seq = document.createElementNS(rdfNs, "rdf:Seq")
+
+                val primaryLi = document.createElementNS(rdfNs, "rdf:li")
+                primaryLi.setAttributeNS(rdfNs, "rdf:parseType", "Resource")
+                val primaryItem = document.createElementNS(containerNs, "Container:Item")
+                primaryItem.setAttributeNS(itemNs, "Item:Semantic", "Primary")
+                primaryItem.setAttributeNS(itemNs, "Item:Mime", primaryMimeType)
+                primaryItem.setAttributeNS(itemNs, "Item:Padding", precedingItemPaddingBytes.toString())
+                primaryLi.appendChild(primaryItem)
+
+                seq.appendChild(primaryLi)
+                seq.appendChild(newMotionPhotoLi())
+                directory.appendChild(seq)
+                description.appendChild(directory)
+            }
+
+            serializeXmpDocument(document)
+        } catch (e: Exception) {
+            freshBuild
+        }
+    }
+
+    private fun serializeXmpDocument(document: org.w3c.dom.Document): String {
+        val transformer = javax.xml.transform.TransformerFactory.newInstance().newTransformer()
+        transformer.setOutputProperty(javax.xml.transform.OutputKeys.OMIT_XML_DECLARATION, "yes")
+        val writer = java.io.StringWriter()
+        transformer.transform(javax.xml.transform.dom.DOMSource(document), javax.xml.transform.stream.StreamResult(writer))
+        return writer.toString()
+    }
+
+    /**
      * Constructs a complete JPEG APP1 segment (Marker + Length + XMP ID + NUL + XML Payload).
      */
     fun buildApp1XmpSegment(xmpText: String): ByteArray {

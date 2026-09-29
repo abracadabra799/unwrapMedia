@@ -3,6 +3,7 @@ package com.multiviewer.parser
 import org.junit.jupiter.api.Test
 import java.io.File
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -292,5 +293,112 @@ class MotionPhotoBuilderTest {
         emptyImg.delete()
         dummyVideo.delete()
         dummyOut.delete()
+    }
+
+    @Test
+    fun `mergeMotionPhotoXmp falls back to a fresh build when there is no existing XMP`() {
+        val merged = MotionPhotoBuilder.mergeMotionPhotoXmp(null, 1234567L, 100L, 2000000L, MotionPhotoFormatVersion.V2_MOTION_PHOTO, "image/jpeg")
+        val fresh = MotionPhotoBuilder.buildGoogleMotionPhotoXmp(1234567L, 100L, 2000000L, MotionPhotoFormatVersion.V2_MOTION_PHOTO)
+        assertEquals(fresh, merged)
+    }
+
+    @Test
+    fun `mergeMotionPhotoXmp falls back to a fresh build when the existing XMP fails to parse`() {
+        val merged = MotionPhotoBuilder.mergeMotionPhotoXmp("<not valid xml at all <<<", 1234567L, 100L, 2000000L, MotionPhotoFormatVersion.V2_MOTION_PHOTO, "image/jpeg")
+        val fresh = MotionPhotoBuilder.buildGoogleMotionPhotoXmp(1234567L, 100L, 2000000L, MotionPhotoFormatVersion.V2_MOTION_PHOTO)
+        assertEquals(fresh, merged)
+    }
+
+    @Test
+    fun `mergeMotionPhotoXmp preserves an existing plain camera XMP with no Container Directory`() {
+        val existing = """
+            <x:xmpmeta xmlns:x="adobe:ns:meta/">
+              <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+                <rdf:Description rdf:about=""
+                    xmlns:tiff="http://ns.adobe.com/tiff/1.0/"
+                  tiff:Make="SomeCamera"
+                  tiff:Model="X100"/>
+              </rdf:RDF>
+            </x:xmpmeta>
+        """.trimIndent()
+        val merged = MotionPhotoBuilder.mergeMotionPhotoXmp(existing, 5000L, 0L, 1500000L, MotionPhotoFormatVersion.V2_MOTION_PHOTO, "image/jpeg")
+
+        assertTrue(merged.contains("tiff:Make=\"SomeCamera\""), "Expected pre-existing tiff:Make to survive the merge")
+        assertTrue(merged.contains("tiff:Model=\"X100\""), "Expected pre-existing tiff:Model to survive the merge")
+        assertTrue(merged.contains("GCamera:MotionPhoto=\"1\""))
+        assertTrue(merged.contains("Item:Semantic=\"MotionPhoto\""))
+        assertTrue(merged.contains("Item:Semantic=\"Primary\""))
+        assertTrue(merged.contains("Item:Length=\"5000\""))
+    }
+
+    @Test
+    fun `mergeMotionPhotoXmp appends MotionPhoto to an existing Container Directory and recomputes the preceding item's Padding`() {
+        val existing = """
+            <x:xmpmeta xmlns:x="adobe:ns:meta/">
+              <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+                <rdf:Description rdf:about=""
+                    xmlns:hdrgm="http://ns.adobe.com/hdr-gain-map/1.0/"
+                    xmlns:Container="http://ns.google.com/photos/1.0/container/"
+                    xmlns:Item="http://ns.google.com/photos/1.0/container/item/"
+                  hdrgm:Version="1.0"
+                  hdrgm:GainMapMin="0.0"
+                  hdrgm:GainMapMax="3.5">
+                  <Container:Directory>
+                    <rdf:Seq>
+                      <rdf:li rdf:parseType="Resource">
+                        <Container:Item Item:Semantic="Primary" Item:Mime="image/jpeg" Item:Padding="0"/>
+                      </rdf:li>
+                      <rdf:li rdf:parseType="Resource">
+                        <Container:Item Item:Semantic="GainMap" Item:Mime="image/jpeg" Item:Length="9876" Item:Padding="0"/>
+                      </rdf:li>
+                    </rdf:Seq>
+                  </Container:Directory>
+                </rdf:Description>
+              </rdf:RDF>
+            </x:xmpmeta>
+        """.trimIndent()
+        val merged = MotionPhotoBuilder.mergeMotionPhotoXmp(existing, 5000L, 42L, 1500000L, MotionPhotoFormatVersion.V2_MOTION_PHOTO, "image/jpeg")
+
+        // GainMap item preserved
+        assertTrue(merged.contains("Item:Semantic=\"GainMap\""))
+        assertTrue(merged.contains("hdrgm:GainMapMin=\"0.0\""))
+        assertTrue(merged.contains("hdrgm:GainMapMax=\"3.5\""))
+        assertTrue(merged.contains("Item:Length=\"9876\""), "GainMap's own Length must not change")
+        // GainMap's Padding recomputed to the new gap (was 0, now 42 -- the bytes before the appended video).
+        // DOM serialization doesn't guarantee attribute order, so locate the whole <Container:Item .../>
+        // element by its Semantic value first, then check the Padding value within that element's text,
+        // rather than assuming Semantic precedes Padding.
+        val containerItemTags = Regex("""<Container:Item\b[^>]*/>""").findAll(merged).map { it.value }.toList()
+        val gainMapItemTag = containerItemTags.find { it.contains("Item:Semantic=\"GainMap\"") }
+        assertNotNull(gainMapItemTag, "Expected to find the GainMap Container:Item element")
+        assertTrue(
+            gainMapItemTag!!.contains("Item:Padding=\"42\""),
+            "Expected GainMap's Padding to be recomputed to the new preceding-item gap, got: $gainMapItemTag",
+        )
+        // Primary item untouched
+        val primaryItemTag = containerItemTags.find { it.contains("Item:Semantic=\"Primary\"") }
+        assertNotNull(primaryItemTag, "Expected to find the Primary Container:Item element")
+        assertTrue(primaryItemTag!!.contains("Item:Mime=\"image/jpeg\""))
+        assertTrue(primaryItemTag.contains("Item:Padding=\"0\""))
+        // MotionPhoto item appended
+        assertTrue(merged.contains("Item:Semantic=\"MotionPhoto\""))
+        assertTrue(merged.contains("Item:Length=\"5000\""))
+    }
+
+    @Test
+    fun `mergeMotionPhotoXmp overwrites this tool's own GCamera attributes if already present`() {
+        val existing = """
+            <x:xmpmeta xmlns:x="adobe:ns:meta/">
+              <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+                <rdf:Description rdf:about=""
+                    xmlns:GCamera="http://ns.google.com/photos/1.0/camera/"
+                  GCamera:MotionPhoto="1"
+                  GCamera:MotionPhotoPresentationTimestampUs="999"/>
+              </rdf:RDF>
+            </x:xmpmeta>
+        """.trimIndent()
+        val merged = MotionPhotoBuilder.mergeMotionPhotoXmp(existing, 5000L, 0L, 1500000L, MotionPhotoFormatVersion.V2_MOTION_PHOTO, "image/jpeg")
+        assertTrue(merged.contains("GCamera:MotionPhotoPresentationTimestampUs=\"1500000\""), "Expected the new timestamp to overwrite the stale one")
+        assertFalse(merged.contains("GCamera:MotionPhotoPresentationTimestampUs=\"999\""))
     }
 }
