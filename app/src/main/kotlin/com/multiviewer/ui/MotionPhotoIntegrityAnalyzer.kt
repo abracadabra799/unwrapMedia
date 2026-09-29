@@ -9,6 +9,7 @@ import com.multiviewer.parser.correctMp4StartOffset
 import com.multiviewer.parser.findFirst
 import com.multiviewer.parser.findMicroVideoOffset
 import com.multiviewer.parser.findMotionPhotoInDirectory
+import com.multiviewer.parser.findPresentationTimestampUs
 import com.multiviewer.parser.parseXmpDocument
 import java.io.File
 
@@ -29,7 +30,7 @@ data class MotionPhotoIntegrityReport(
 // silently self-heals a wrong offset via correctMp4StartOffset so extraction still works), this
 // reports the correction as a finding instead of hiding it -- the whole point of an integrity
 // check is surfacing exactly this kind of silently-tolerated inaccuracy.
-internal fun analyzeGoogleXmpSection(root: BoxNode, reader: ByteReader): List<SefCheckResult> {
+internal fun analyzeGoogleXmpSection(root: BoxNode, reader: ByteReader, videoDurationUs: Long?): List<SefCheckResult> {
     val xmpText = findFirst(root) { it.fields.any { field -> field.name == "xmp" } }
         ?.fields?.find { it.name == "xmp" }?.value
         ?: return emptyList()
@@ -73,18 +74,93 @@ internal fun analyzeGoogleXmpSection(root: BoxNode, reader: ByteReader): List<Se
     } catch (e: Exception) {
         false
     }
+    var resolvedOffset: Long? = null
     if (declaredHasFtyp) {
         checks.add(SefCheckResult(SefIntegritySeverity.PASS, "구글 모션포토 오프셋 일치", "선언된 오프셋($approxStart)에서 실제 ftyp를 확인했습니다"))
+        resolvedOffset = approxStart
     } else {
         val corrected = correctMp4StartOffset(reader, approxStart)
         if (corrected != approxStart) {
             checks.add(SefCheckResult(SefIntegritySeverity.WARNING, "구글 모션포토 오프셋 불일치", "선언된 오프셋($approxStart)이 아니라 ${corrected - approxStart}바이트 떨어진 위치($corrected)에서 실제 ftyp를 찾았습니다 -- XMP 선언값이 정확하지 않습니다"))
+            resolvedOffset = corrected
         } else {
             checks.add(SefCheckResult(SefIntegritySeverity.CRITICAL, "구글 모션포토 비디오 위치", "선언된 오프셋 근방에서 ftyp를 찾지 못했습니다 -- 비디오 데이터가 없거나 심각하게 손상되었습니다"))
         }
     }
 
+    // Item:Padding -- structural validity only (a non-negative integer); this codebase's own
+    // extraction logic doesn't use Padding for any byte-offset computation, so there's no
+    // independent cross-check to validate its exact value against.
+    fromDirectory?.padding?.let { padding ->
+        val paddingValue = padding.toLongOrNull()
+        checks.add(
+            if (paddingValue != null && paddingValue >= 0)
+                SefCheckResult(SefIntegritySeverity.PASS, "구글 모션포토 Padding", "Item:Padding=$padding")
+            else
+                SefCheckResult(SefIntegritySeverity.WARNING, "구글 모션포토 Padding", "Item:Padding=\"$padding\"은 0 이상의 정수가 아닙니다"),
+        )
+    }
+
+    // Item:Mime -- compare the declared MIME against the real resolved video's own ftyp major_brand
+    // (ftyp layout: 4-byte size, 4-byte "ftyp" tag, then major_brand -- resolvedOffset+8).
+    if (resolvedOffset != null) {
+        fromDirectory?.mimeType?.let { declaredMime ->
+            val majorBrand = try {
+                reader.readFourCC(resolvedOffset + 8)
+            } catch (e: Exception) {
+                null
+            }
+            if (majorBrand != null) {
+                val expectedMime = if (majorBrand.trim() == "qt") "video/quicktime" else "video/mp4"
+                checks.add(
+                    if (declaredMime == expectedMime)
+                        SefCheckResult(SefIntegritySeverity.PASS, "구글 모션포토 Mime", "Item:Mime=\"$declaredMime\"이 실제 컨테이너(major_brand=\"${majorBrand.trim()}\")와 일치합니다")
+                    else
+                        SefCheckResult(SefIntegritySeverity.WARNING, "구글 모션포토 Mime", "Item:Mime=\"$declaredMime\"이 실제 컨테이너(major_brand=\"${majorBrand.trim()}\", 예상 \"$expectedMime\")와 다릅니다"),
+                )
+            }
+        }
+    }
+
+    // PresentationTimestampUs -- the shutter-click moment should fall within the video's real duration.
+    val presentationTimestampUs = findPresentationTimestampUs(document)
+    if (presentationTimestampUs != null) {
+        checks.add(
+            when {
+                videoDurationUs == null -> SefCheckResult(SefIntegritySeverity.SKIPPED, "구글 모션포토 셔터 타임스탬프", "비디오 길이를 확인할 수 없어 검증을 건너뜁니다")
+                presentationTimestampUs in 0..videoDurationUs -> SefCheckResult(SefIntegritySeverity.PASS, "구글 모션포토 셔터 타임스탬프", "PresentationTimestampUs=${presentationTimestampUs}us (비디오 길이 ${videoDurationUs}us 이내)")
+                else -> SefCheckResult(SefIntegritySeverity.WARNING, "구글 모션포토 셔터 타임스탬프", "PresentationTimestampUs=${presentationTimestampUs}us 가 비디오 길이(${videoDurationUs}us) 범위를 벗어납니다")
+            },
+        )
+    }
+
     return checks
+}
+
+// Probes the resolved video's real duration (needed to validate PresentationTimestampUs falls
+// within it). Extracts to a temp file the same way analyzeDecodability does -- a second
+// extraction+ffprobe pass of the same bytes, accepted as a simplicity tradeoff on this
+// non-hot-path analyzer rather than threading a shared temp file between the two functions.
+internal fun probeVideoDurationUs(file: File, video: com.multiviewer.parser.EmbeddedVideo): Long? {
+    val temp = File.createTempFile("motion-photo-duration-probe", ".${video.extension}")
+    return try {
+        com.multiviewer.parser.extractEmbeddedVideo(file, video, temp)
+        val processBuilder = ProcessBuilder(
+            FfmpegLocator.ffprobePath(), "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "csv=p=0",
+            temp.absolutePath,
+        )
+        FfmpegLocator.configureEnvironment(processBuilder)
+        val process = processBuilder.start()
+        val output = readProcessOutputWithTimeout(process, 30) { process.inputStream.bufferedReader().readText().trim() }
+        process.waitFor()
+        output?.toDoubleOrNull()?.let { (it * 1_000_000).toLong() }
+    } catch (e: Exception) {
+        null
+    } finally {
+        temp.delete()
+    }
 }
 
 // Verifies a HEIC-style embedded video (an "mpvd" or "EmbeddedVideoData" box, used by
@@ -163,13 +239,14 @@ object MotionPhotoIntegrityAnalyzer {
             val sefSection = sefdNode?.let { sefd ->
                 com.multiviewer.parser.SefIntegrityAnalyzer.analyze(reader, sefd.offset, sefd.headerSize, sefd.size, file.length())
             }
-            val googleChecks = analyzeGoogleXmpSection(root, reader)
-            val appleChecks = analyzeAppleMpvdSection(root, file.length())
             val video = try {
                 com.multiviewer.parser.findEmbeddedVideo(root, reader)
             } catch (e: Exception) {
                 null
             }
+            val videoDurationUs = video?.let { probeVideoDurationUs(file, it) }
+            val googleChecks = analyzeGoogleXmpSection(root, reader, videoDurationUs)
+            val appleChecks = analyzeAppleMpvdSection(root, file.length())
             val decodeChecks = analyzeDecodability(file, video)
 
             val detectedFormats = buildList {

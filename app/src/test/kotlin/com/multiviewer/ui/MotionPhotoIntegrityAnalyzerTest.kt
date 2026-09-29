@@ -12,9 +12,10 @@ import kotlin.test.assertTrue
 // Builds a temp file of `totalSize` zero bytes with the literal ASCII "ftyp" placed so that
 // reading 4 bytes at (ftypBoxStart + 4) returns "ftyp" -- matching correctMp4StartOffset's own
 // read pattern (box size field, then 4-byte box type).
-private fun tempFileWithFtypAt(ftypBoxStart: Long, totalSize: Long): File {
+private fun tempFileWithFtypAt(ftypBoxStart: Long, totalSize: Long, majorBrand: String = "isom"): File {
     val bytes = ByteArray(totalSize.toInt())
     "ftyp".toByteArray(Charsets.US_ASCII).copyInto(bytes, (ftypBoxStart + 4).toInt())
+    majorBrand.toByteArray(Charsets.US_ASCII).copyInto(bytes, (ftypBoxStart + 8).toInt())
     val tmp = File.createTempFile("motion-photo-integrity-test", ".bin")
     tmp.deleteOnExit()
     tmp.writeBytes(bytes)
@@ -28,21 +29,29 @@ private fun tempFileWithNoFtyp(totalSize: Long): File {
     return tmp
 }
 
-private fun googleDirectoryXmp(declaredLength: Long): String = """
+private fun googleDirectoryXmp(
+    declaredLength: Long,
+    mime: String = "video/mp4",
+    padding: String? = null,
+    presentationTimestampUs: Long? = null,
+): String {
+    val topLevelTimestampAttr = if (presentationTimestampUs != null) "\n            GCamera:MotionPhotoPresentationTimestampUs=\"$presentationTimestampUs\"" else ""
+    val paddingAttr = if (padding != null) " Item:Padding=\"$padding\"" else ""
+    return """
     <x:xmpmeta xmlns:x="adobe:ns:meta/">
       <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
         <rdf:Description
             xmlns:Container="http://ns.google.com/photos/1.0/container/"
             xmlns:Item="http://ns.google.com/photos/1.0/container/item/"
             xmlns:GCamera="http://ns.google.com/photos/1.0/camera/"
-            GCamera:MotionPhoto="1">
+            GCamera:MotionPhoto="1"$topLevelTimestampAttr>
           <Container:Directory>
             <rdf:Seq>
               <rdf:li rdf:parseType="Resource">
                 <Container:Item Item:Semantic="Primary" Item:Mime="image/jpeg"/>
               </rdf:li>
               <rdf:li rdf:parseType="Resource">
-                <Container:Item Item:Semantic="MotionPhoto" Item:Mime="video/mp4" Item:Length="$declaredLength"/>
+                <Container:Item Item:Semantic="MotionPhoto" Item:Mime="$mime" Item:Length="$declaredLength"$paddingAttr/>
               </rdf:li>
             </rdf:Seq>
           </Container:Directory>
@@ -50,6 +59,7 @@ private fun googleDirectoryXmp(declaredLength: Long): String = """
       </rdf:RDF>
     </x:xmpmeta>
 """.trimIndent()
+}
 
 private fun googleMicroVideoXmp(declaredOffset: Long): String = """
     <x:xmpmeta xmlns:x="adobe:ns:meta/">
@@ -79,7 +89,7 @@ class MotionPhotoIntegrityAnalyzerTest {
         val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 1000)
         val file = tempFileWithNoFtyp(1000)
         ByteReader.open(file).use { reader ->
-            assertEquals(emptyList(), analyzeGoogleXmpSection(root, reader))
+            assertEquals(emptyList(), analyzeGoogleXmpSection(root, reader, null))
         }
     }
 
@@ -89,7 +99,7 @@ class MotionPhotoIntegrityAnalyzerTest {
         val file = tempFileWithNoFtyp(1000)
         val root = rootWithXmp(xmp, 1000)
         ByteReader.open(file).use { reader ->
-            assertEquals(emptyList(), analyzeGoogleXmpSection(root, reader))
+            assertEquals(emptyList(), analyzeGoogleXmpSection(root, reader, null))
         }
     }
 
@@ -101,7 +111,7 @@ class MotionPhotoIntegrityAnalyzerTest {
         val file = tempFileWithFtypAt(approxStart, fileSize)
         val root = rootWithXmp(googleDirectoryXmp(declaredLength), fileSize)
         ByteReader.open(file).use { reader ->
-            val checks = analyzeGoogleXmpSection(root, reader)
+            val checks = analyzeGoogleXmpSection(root, reader, null)
             assertTrue(checks.any { it.severity == SefIntegritySeverity.INFO && it.detail.contains("Directory") })
             assertTrue(checks.any { it.severity == SefIntegritySeverity.PASS })
             assertTrue(checks.none { it.severity == SefIntegritySeverity.WARNING || it.severity == SefIntegritySeverity.CRITICAL })
@@ -117,7 +127,7 @@ class MotionPhotoIntegrityAnalyzerTest {
         val file = tempFileWithFtypAt(realStart, fileSize)
         val root = rootWithXmp(googleDirectoryXmp(declaredLength), fileSize)
         ByteReader.open(file).use { reader ->
-            val checks = analyzeGoogleXmpSection(root, reader)
+            val checks = analyzeGoogleXmpSection(root, reader, null)
             assertTrue(checks.any { it.severity == SefIntegritySeverity.WARNING && it.detail.contains("5") })
         }
     }
@@ -129,7 +139,7 @@ class MotionPhotoIntegrityAnalyzerTest {
         val file = tempFileWithNoFtyp(fileSize)
         val root = rootWithXmp(googleDirectoryXmp(declaredLength), fileSize)
         ByteReader.open(file).use { reader ->
-            val checks = analyzeGoogleXmpSection(root, reader)
+            val checks = analyzeGoogleXmpSection(root, reader, null)
             assertTrue(checks.any { it.severity == SefIntegritySeverity.CRITICAL })
         }
     }
@@ -140,7 +150,7 @@ class MotionPhotoIntegrityAnalyzerTest {
         val file = tempFileWithNoFtyp(fileSize)
         val root = rootWithXmp(googleDirectoryXmp(declaredLength = 5000L), fileSize)
         ByteReader.open(file).use { reader ->
-            val checks = analyzeGoogleXmpSection(root, reader)
+            val checks = analyzeGoogleXmpSection(root, reader, null)
             assertTrue(checks.any { it.severity == SefIntegritySeverity.CRITICAL })
         }
     }
@@ -153,7 +163,7 @@ class MotionPhotoIntegrityAnalyzerTest {
         val file = tempFileWithFtypAt(approxStart, fileSize)
         val root = rootWithXmp(googleMicroVideoXmp(declaredOffset), fileSize)
         ByteReader.open(file).use { reader ->
-            val checks = analyzeGoogleXmpSection(root, reader)
+            val checks = analyzeGoogleXmpSection(root, reader, null)
             assertTrue(checks.any { it.severity == SefIntegritySeverity.INFO && it.detail.contains("MicroVideo") })
             assertTrue(checks.any { it.severity == SefIntegritySeverity.PASS })
         }
@@ -165,10 +175,98 @@ class MotionPhotoIntegrityAnalyzerTest {
         val file = tempFileWithNoFtyp(1000)
         val root = rootWithXmp(xmp, 1000)
         ByteReader.open(file).use { reader ->
-            val checks = analyzeGoogleXmpSection(root, reader)
+            val checks = analyzeGoogleXmpSection(root, reader, null)
             assertEquals(1, checks.size)
             assertEquals(SefIntegritySeverity.WARNING, checks.single().severity)
         }
+    }
+
+    @Test
+    fun `analyzeGoogleXmpSection reports PASS for a valid non-negative Padding`() {
+        val fileSize = 1000L
+        val declaredLength = 200L
+        val approxStart = fileSize - declaredLength
+        val file = tempFileWithFtypAt(approxStart, fileSize)
+        val root = rootWithXmp(googleDirectoryXmp(declaredLength, padding = "8"), fileSize)
+        ByteReader.open(file).use { reader ->
+            val checks = analyzeGoogleXmpSection(root, reader, null)
+            assertTrue(checks.any { it.severity == SefIntegritySeverity.PASS && it.label.contains("Padding") })
+        }
+    }
+
+    @Test
+    fun `analyzeGoogleXmpSection reports WARNING for a non-numeric Padding`() {
+        val fileSize = 1000L
+        val declaredLength = 200L
+        val approxStart = fileSize - declaredLength
+        val file = tempFileWithFtypAt(approxStart, fileSize)
+        val root = rootWithXmp(googleDirectoryXmp(declaredLength, padding = "not-a-number"), fileSize)
+        ByteReader.open(file).use { reader ->
+            val checks = analyzeGoogleXmpSection(root, reader, null)
+            assertTrue(checks.any { it.severity == SefIntegritySeverity.WARNING && it.label.contains("Padding") })
+        }
+    }
+
+    @Test
+    fun `analyzeGoogleXmpSection reports PASS when declared Mime matches the real ftyp major_brand`() {
+        val fileSize = 1000L
+        val declaredLength = 200L
+        val approxStart = fileSize - declaredLength
+        val file = tempFileWithFtypAt(approxStart, fileSize, majorBrand = "isom")
+        val root = rootWithXmp(googleDirectoryXmp(declaredLength, mime = "video/mp4"), fileSize)
+        ByteReader.open(file).use { reader ->
+            val checks = analyzeGoogleXmpSection(root, reader, null)
+            assertTrue(checks.any { it.severity == SefIntegritySeverity.PASS && it.label.contains("Mime") })
+        }
+    }
+
+    @Test
+    fun `analyzeGoogleXmpSection reports WARNING when declared Mime disagrees with the real ftyp major_brand`() {
+        val fileSize = 1000L
+        val declaredLength = 200L
+        val approxStart = fileSize - declaredLength
+        val file = tempFileWithFtypAt(approxStart, fileSize, majorBrand = "qt  ")
+        val root = rootWithXmp(googleDirectoryXmp(declaredLength, mime = "video/mp4"), fileSize)
+        ByteReader.open(file).use { reader ->
+            val checks = analyzeGoogleXmpSection(root, reader, null)
+            assertTrue(checks.any { it.severity == SefIntegritySeverity.WARNING && it.label.contains("Mime") })
+        }
+    }
+
+    @Test
+    fun `analyzeGoogleXmpSection reports PASS when PresentationTimestampUs falls within the real video duration`() {
+        val fileSize = 1000L
+        val declaredLength = 200L
+        val approxStart = fileSize - declaredLength
+        val file = tempFileWithFtypAt(approxStart, fileSize)
+        val root = rootWithXmp(googleDirectoryXmp(declaredLength, presentationTimestampUs = 500_000L), fileSize)
+        ByteReader.open(file).use { reader ->
+            val checks = analyzeGoogleXmpSection(root, reader, videoDurationUs = 1_000_000L)
+            assertTrue(checks.any { it.severity == SefIntegritySeverity.PASS && it.label.contains("셔터") })
+        }
+    }
+
+    @Test
+    fun `analyzeGoogleXmpSection reports WARNING when PresentationTimestampUs exceeds the real video duration`() {
+        val fileSize = 1000L
+        val declaredLength = 200L
+        val approxStart = fileSize - declaredLength
+        val file = tempFileWithFtypAt(approxStart, fileSize)
+        val root = rootWithXmp(googleDirectoryXmp(declaredLength, presentationTimestampUs = 5_000_000L), fileSize)
+        ByteReader.open(file).use { reader ->
+            val checks = analyzeGoogleXmpSection(root, reader, videoDurationUs = 1_000_000L)
+            assertTrue(checks.any { it.severity == SefIntegritySeverity.WARNING && it.label.contains("셔터") })
+        }
+    }
+
+    @Test
+    fun `probeVideoDurationUs returns the real duration of a real clip`() {
+        // generateRealClip (defined further down in this file, near the analyzeDecodability
+        // tests) produces a 320x240, 10fps, exactly-1-second clip via real ffmpeg.
+        val clip = generateRealClip("duration-probe")
+        val video = embeddedVideoCoveringWholeFile(clip)
+        val durationUs = probeVideoDurationUs(clip, video)
+        assertTrue(durationUs != null && durationUs in 900_000..1_100_000) // ~1s, allow encoder rounding
     }
 
     @Test

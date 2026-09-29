@@ -49,7 +49,7 @@ fun extractEmbeddedVideo(source: File, video: EmbeddedVideo, destination: File) 
     }
 }
 
-internal data class DirectoryVideoInfo(val length: Long, val mimeType: String?)
+internal data class DirectoryVideoInfo(val length: Long, val mimeType: String?, val padding: String?)
 
 // How far around the XMP-declared length's implied start offset to search for the video's real
 // "ftyp" box. Some camera vendors' Directory:Length (e.g. Oppo, observed off by ~190 bytes) isn't
@@ -118,7 +118,7 @@ internal fun findMotionPhotoInDirectory(document: Document): DirectoryVideoInfo?
         val semantic = findPropertyValue(li, "Semantic") ?: continue
         if (semantic != "MotionPhoto") continue
         val length = findPropertyValue(li, "Length")?.toLongOrNull() ?: continue
-        return DirectoryVideoInfo(length, findPropertyValue(li, "Mime"))
+        return DirectoryVideoInfo(length, findPropertyValue(li, "Mime"), findPropertyValue(li, "Padding"))
     }
     return null
 }
@@ -128,6 +128,20 @@ internal fun findMicroVideoOffset(document: Document): Long? {
     for (i in 0 until descriptions.length) {
         val description = descriptions.item(i) as? Element ?: continue
         findPropertyValue(description, "MicroVideoOffset")?.toLongOrNull()?.let { return it }
+    }
+    return null
+}
+
+// The shutter-click timestamp within the embedded video, in microseconds -- checks both the
+// current (MotionPhotoPresentationTimestampUs) and legacy (MicroVideoPresentationTimestampUs)
+// attribute names, matching findMotionPhotoInDirectory/findMicroVideoOffset's own dual-schema
+// handling elsewhere in this file.
+internal fun findPresentationTimestampUs(document: Document): Long? {
+    val descriptions = document.getElementsByTagNameNS("*", "Description")
+    for (i in 0 until descriptions.length) {
+        val description = descriptions.item(i) as? Element ?: continue
+        findPropertyValue(description, "MotionPhotoPresentationTimestampUs")?.toLongOrNull()?.let { return it }
+        findPropertyValue(description, "MicroVideoPresentationTimestampUs")?.toLongOrNull()?.let { return it }
     }
     return null
 }
