@@ -776,6 +776,177 @@ object MotionPhotoBuilder {
     }
 
     /**
+     * A HEIC XMP item located STRUCTURALLY -- i.e. by its `iinf`/`infe` registration
+     * (item_type=="mime", content_type=="application/rdf+xml", exactly how InfeBoxDecoder identifies
+     * one) and then by item_ID match against `iloc` -- with no content sniffing anywhere.
+     *
+     * @param resolvedOffset / [resolvedLength] The item's FIRST extent resolved as base_offset +
+     *   extent_offset. Only meaningful as the item's whole content when [constructionMethod] is 0 and
+     *   [extentCount] is 1; see readExistingXmpItemText.
+     */
+    internal data class HeicXmpItemLocation(
+        val itemId: Long,
+        val ilocEntryOffset: Long,
+        val extentCount: Int,
+        val constructionMethod: Int,
+        val resolvedOffset: Int,
+        val resolvedLength: Int,
+    )
+
+    /**
+     * Answers "does this HEIC already have an XMP item, and where is its iloc entry?" deterministically,
+     * from the file's own structure rather than by sniffing bytes for XMP-looking text.
+     *
+     * This replaces the findXmpExtentInHeic + findHeicXmpIlocEntry pairing for that specific question.
+     * That pairing only recognizes an XMP item when "Container" or "rdf:Description" appears within the
+     * FIRST 100 bytes of the extent, which real Adobe-style packets (a `<?xpacket begin ...?>` prefix
+     * ahead of `<x:xmpmeta`, namespace declarations after it) routinely fail -- `rdf:Description` often
+     * lands past byte 200. Mistaking "I couldn't sniff it" for "there is no XMP item" is what made the
+     * caller register a SECOND XMP item beside the original, and since readers (this app's own re-parse
+     * included) return the first match, the stale original would win.
+     */
+    internal fun findHeicXmpItemLocation(heicBytes: ByteArray): HeicXmpItemLocation? {
+        return try {
+            val meta = findMetaBoxBounds(heicBytes) ?: return null
+            val iinf = findChildBoxBounds(heicBytes, meta.payloadStart, meta.end, "iinf") ?: return null
+            val iloc = findChildBoxBounds(heicBytes, meta.payloadStart, meta.end, "iloc") ?: return null
+            val xmpItemId = findXmpItemIdInIinf(heicBytes, iinf) ?: return null
+            findIlocEntryForItemId(heicBytes, iloc, xmpItemId)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Walks iinf's infe children and returns the item_ID of the one registering an XMP payload --
+     * item_type "mime" with content_type "application/rdf+xml" (the same two fields InfeBoxDecoder
+     * reads, at the same offsets). infe versions 0 and 1 carry no item_type/content_type at all, so
+     * an item registered that way simply can't be identified here and is skipped.
+     */
+    private fun findXmpItemIdInIinf(heicBytes: ByteArray, iinf: BoxBounds): Long? {
+        val iinfVersion = heicBytes[iinf.payloadStart].toInt() and 0xFF
+        val entryCountWidth = if (iinfVersion == 0) 2 else 4
+        var mp = iinf.payloadStart + 4 + entryCountWidth
+        while (mp + 8 <= iinf.end) {
+            val childSz = ((heicBytes[mp].toInt() and 0xFF) shl 24) or ((heicBytes[mp + 1].toInt() and 0xFF) shl 16) or
+                ((heicBytes[mp + 2].toInt() and 0xFF) shl 8) or (heicBytes[mp + 3].toInt() and 0xFF)
+            if (childSz < 8 || mp + childSz > iinf.end) break
+            val childFourCC = String(heicBytes.copyOfRange(mp + 4, mp + 8), Charsets.US_ASCII)
+            val entryEnd = mp + childSz
+            if (childFourCC == "infe" && mp + 12 <= entryEnd) {
+                val infeVersion = heicBytes[mp + 8].toInt() and 0xFF
+                if (infeVersion >= 2) {
+                    val itemIdWidth = if (infeVersion >= 3) 4 else 2
+                    val itemIdOffset = mp + 12
+                    val itemTypeOffset = itemIdOffset + itemIdWidth + 2 // + item_protection_index
+                    if (itemTypeOffset + 4 <= entryEnd) {
+                        val itemType = String(heicBytes.copyOfRange(itemTypeOffset, itemTypeOffset + 4), Charsets.US_ASCII)
+                        if (itemType == "mime") {
+                            // item_name is a NUL-terminated string, then content_type is another one.
+                            var p = itemTypeOffset + 4
+                            while (p < entryEnd && heicBytes[p] != 0.toByte()) p++
+                            p++ // skip item_name's NUL
+                            val contentTypeStart = p
+                            while (p < entryEnd && heicBytes[p] != 0.toByte()) p++
+                            if (contentTypeStart <= entryEnd && p <= entryEnd) {
+                                val contentType = String(heicBytes.copyOfRange(contentTypeStart, p), Charsets.US_ASCII)
+                                if (contentType == "application/rdf+xml") {
+                                    return readUIntOfWidth(heicBytes, itemIdOffset.toLong(), itemIdWidth)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            mp = entryEnd
+        }
+        return null
+    }
+
+    /**
+     * Finds the iloc item entry whose item_ID equals [targetItemId] -- by ID, never by content -- and
+     * reports the byte offset of that entry (what repointHeicXmpItem rewrites), its extent_count,
+     * construction_method, and its first extent resolved to an absolute offset/length. Every field
+     * read is bounds checked against iloc's own box end.
+     */
+    private fun findIlocEntryForItemId(heicBytes: ByteArray, iloc: BoxBounds, targetItemId: Long): HeicXmpItemLocation? {
+        val payloadStart = iloc.payloadStart
+        if (payloadStart + 8 > iloc.end) return null
+        val version = heicBytes[payloadStart].toInt() and 0xFF
+        val offLenSz = heicBytes[payloadStart + 4].toInt() and 0xFF
+        val baseIdxSz = heicBytes[payloadStart + 5].toInt() and 0xFF
+        val offSz = offLenSz shr 4
+        val lenSz = offLenSz and 0x0F
+        val baseOffSz = baseIdxSz shr 4
+        val idxSz = baseIdxSz and 0x0F
+        val itemCountWidth = if (version < 2) 2 else 4
+        if (payloadStart + 6 + itemCountWidth > iloc.end) return null
+        val itemCount = readUIntOfWidth(heicBytes, (payloadStart + 6).toLong(), itemCountWidth).toInt()
+        val itemIdWidth = if (version < 2) 2 else 4
+        val constructionMethodWidth = if (version in 1..2) 2 else 0
+
+        var lp = payloadStart + 6 + itemCountWidth
+        for (i in 0 until itemCount) {
+            val entryStart = lp
+            if (lp + itemIdWidth + constructionMethodWidth + 2 + baseOffSz + 2 > iloc.end) return null
+            val itemId = readUIntOfWidth(heicBytes, lp.toLong(), itemIdWidth)
+            lp += itemIdWidth
+            val constructionMethod = if (constructionMethodWidth > 0) {
+                readUIntOfWidth(heicBytes, lp.toLong(), 2).toInt() and 0xF
+            } else {
+                0
+            }
+            lp += constructionMethodWidth
+            lp += 2 // data_reference_index
+            val baseOffset = readUIntOfWidth(heicBytes, lp.toLong(), baseOffSz)
+            lp += baseOffSz
+            val extentCount = readUIntOfWidth(heicBytes, lp.toLong(), 2).toInt()
+            lp += 2
+            var firstExtentOffset = 0L
+            var firstExtentLength = 0L
+            for (e in 0 until extentCount) {
+                if (lp + idxSz + offSz + lenSz > iloc.end) return null
+                lp += idxSz
+                val extentOffset = readUIntOfWidth(heicBytes, lp.toLong(), offSz)
+                lp += offSz
+                val extentLength = readUIntOfWidth(heicBytes, lp.toLong(), lenSz)
+                lp += lenSz
+                if (e == 0) {
+                    firstExtentOffset = extentOffset
+                    firstExtentLength = extentLength
+                }
+            }
+            if (itemId == targetItemId) {
+                return HeicXmpItemLocation(
+                    itemId = itemId,
+                    ilocEntryOffset = entryStart.toLong(),
+                    extentCount = extentCount,
+                    constructionMethod = constructionMethod,
+                    resolvedOffset = (baseOffset + firstExtentOffset).toInt(),
+                    resolvedLength = firstExtentLength.toInt(),
+                )
+            }
+        }
+        return null
+    }
+
+    /**
+     * Reads an existing XMP item's current text so mergeMotionPhotoXmp can preserve it, or null when
+     * the item's bytes can't be recovered here: construction_method=1 is idat-relative (resolving it
+     * needs real idat-box support, out of scope) and a multi-extent item would need reassembly. In
+     * both cases the merge degrades to a fresh build -- the item is still repointed correctly, only
+     * the pre-existing attributes are lost -- which is strictly better than the alternative of
+     * registering a competing duplicate item.
+     */
+    private fun readExistingXmpItemText(heicBytes: ByteArray, loc: HeicXmpItemLocation): String? {
+        if (loc.constructionMethod != 0 || loc.extentCount != 1) return null
+        if (loc.resolvedOffset < 0 || loc.resolvedLength <= 0) return null
+        if (loc.resolvedOffset + loc.resolvedLength > heicBytes.size) return null
+        return String(heicBytes, loc.resolvedOffset, loc.resolvedLength, Charsets.UTF_8)
+            .trimEnd(' ', Char(0), '\n', '\r')
+    }
+
+    /**
      * Repoints an existing HEIC XMP item's iloc extent to freshly-appended bytes, instead of
      * overwriting its original byte range in place (which only works when the new content happens
      * to fit in the original allocation -- practically never true once the XMP is being merged
@@ -937,10 +1108,51 @@ object MotionPhotoBuilder {
         val iloc = findChildBoxBounds(heicBytes, meta.payloadStart, meta.end, "iloc") ?: return heicBytes
         val ilocHeader = findIlocHeaderFields(heicBytes) ?: return heicBytes
 
+        // These three boxes are grown below via patchBoxSize, which increments the ordinary 4-byte
+        // size field -- never valid for the 64-bit-size (size==1) or extends-to-EOF (size==0) forms.
+        // findMetaBoxBounds/findChildBoxBounds already reject those, but re-assert it here so this
+        // function's byte safety doesn't rest on a distant helper's internal detail.
+        if (readUIntOfWidth(heicBytes, meta.start.toLong(), 4) < 8L) return heicBytes
+        if (readUIntOfWidth(heicBytes, iinf.start.toLong(), 4) < 8L) return heicBytes
+        if (readUIntOfWidth(heicBytes, iloc.start.toLong(), 4) < 8L) return heicBytes
+
+        // iinf and iloc may appear in EITHER order inside meta -- ISOBMFF imposes no ordering and
+        // real encoders do emit iloc first. Each new entry is always appended at the end of its OWN
+        // box, so in byte order the two insertion points are (firstBox.end, secondBox.end); assuming
+        // iinf-before-iloc would make the "copy the region between them" step a negative-length copy
+        // (an uncaught IndexOutOfBoundsException all the way up through createMotionPhoto).
+        val iinfFirst = iinf.start < iloc.start
+        val firstBox = if (iinfFirst) iinf else iloc
+        val secondBox = if (iinfFirst) iloc else iinf
+        // They must be disjoint siblings; overlapping/nested shapes aren't safe to operate on.
+        if (firstBox.end > secondBox.start) return heicBytes
+
         val existingItemIds = collectInfeItemIds(heicBytes, iinf)
+        // iloc carries its OWN item_count -- a different field in a different box from iinf's infe
+        // count. They're normally equal, but nothing structurally guarantees it (an item can have an
+        // infe with no iloc entry, or the reverse, in a malformed file), and the offset-shift
+        // correction pass at the end of this function is bounded specifically by the PRE-growth ILOC
+        // item count. Read it from iloc directly rather than substituting the infe-derived count: an
+        // undercount would stop the shift walk early and leave the primary image's own extent
+        // pointing into the middle of the grown meta box (corrupting the visible image), while an
+        // overcount would walk into the entry just appended and double-shift its already-correct
+        // offset. If the two counts disagree the premise doesn't hold at all, so bail out unchanged.
+        val ilocItemCountWidth = if (ilocHeader.version < 2) 2 else 4
+        if (iloc.payloadStart + 6 + ilocItemCountWidth > iloc.end) return heicBytes
+        val ilocItemCount = readUIntOfWidth(heicBytes, (iloc.payloadStart + 6).toLong(), ilocItemCountWidth).toInt()
+        if (ilocItemCount != existingItemIds.size) return heicBytes
+
         val newItemId = (existingItemIds.maxOrNull() ?: 0L) + 1
+        // ISO/IEC 14496-12: ItemInfoEntry's item_ID is 16-bit for versions 0, 1 AND 2; only version 3
+        // widens it to 32-bit. (iloc's item_ID width is tied to ILOC's own version, independently.)
         val infeVersion = if (newItemId > 0xFFFF) 3 else 2
-        val itemIdWidth = if (infeVersion == 2) 2 else 4
+        val itemIdWidth = if (infeVersion >= 3) 4 else 2
+        // The same ID has to be written into iloc too, in whatever width ILOC's version dictates. If
+        // it doesn't fit there it would be silently truncated -- and a truncated ID can collide with
+        // a real existing item, which is worse than not attaching the XMP at all.
+        val ilocItemIdWidth = if (ilocHeader.version < 2) 2 else 4
+        if (ilocItemIdWidth == 2 && newItemId > 0xFFFF) return heicBytes
+        if (newItemId > 0xFFFFFFFFL) return heicBytes
 
         // Build the new infe box: FullBox header(4) + item_ID(itemIdWidth) + item_protection_index(2)
         // + item_type(4) + item_name(NUL) + content_type(NUL) -- item_type="mime", no item_name,
@@ -960,25 +1172,21 @@ object MotionPhotoBuilder {
         infeBuf.put(contentType)
         val infeBytes = infeBuf.array()
 
+        // iloc entry size: item_ID + [construction_method if v1/2] + data_reference_index(2)
+        // + base_offset(baseOffsetSize) + extent_count(2) + 1 extent * (indexSize + offsetSize + lengthSize)
+        val constructionMethodW = if (ilocHeader.version in 1..2) 2 else 0
+        val ilocEntrySize = ilocItemIdWidth + constructionMethodW + 2 + ilocHeader.baseOffsetSize + 2 +
+            (ilocHeader.indexSize + ilocHeader.offsetSize + ilocHeader.lengthSize)
+
         // New mdat for the XMP bytes -- placed after the (about to be rewritten) base bytes, before
         // mpvd/sefd, mirroring repointHeicXmpItem's convention.
-        val baseSizeAfterGrowth = heicBytes.size + infeBytes.size + run {
-            // iloc entry size: item_ID + [construction_method if v1/2] + data_reference_index(2)
-            // + base_offset(baseOffsetSize) + extent_count(2) + 1 extent * (indexSize + offsetSize + lengthSize)
-            val itemIdW = if (ilocHeader.version < 2) 2 else 4
-            val constructionMethodW = if (ilocHeader.version in 1..2) 2 else 0
-            itemIdW + constructionMethodW + 2 + ilocHeader.baseOffsetSize + 2 + (ilocHeader.indexSize + ilocHeader.offsetSize + ilocHeader.lengthSize)
-        }
-        val newMdatOffset = baseSizeAfterGrowth.toLong()
+        val newMdatOffset = (heicBytes.size + infeBytes.size + ilocEntrySize).toLong()
         val newMdatPayloadOffset = newMdatOffset + 8
         val newMdatSize = 8L + xmpBytes.size
 
         // Build the new iloc item entry with those exact same field widths.
-        val itemIdW = if (ilocHeader.version < 2) 2 else 4
-        val constructionMethodW = if (ilocHeader.version in 1..2) 2 else 0
-        val ilocEntrySize = itemIdW + constructionMethodW + 2 + ilocHeader.baseOffsetSize + 2 + (ilocHeader.indexSize + ilocHeader.offsetSize + ilocHeader.lengthSize)
         val ilocEntryBuf = ByteBuffer.allocate(ilocEntrySize).order(ByteOrder.BIG_ENDIAN)
-        if (itemIdW == 2) ilocEntryBuf.putShort(newItemId.toShort()) else ilocEntryBuf.putInt(newItemId.toInt())
+        if (ilocItemIdWidth == 2) ilocEntryBuf.putShort(newItemId.toShort()) else ilocEntryBuf.putInt(newItemId.toInt())
         if (constructionMethodW == 2) ilocEntryBuf.putShort(0) // construction_method = 0 (absolute offset)
         ilocEntryBuf.putShort(0) // data_reference_index
         putUIntOfWidth(ilocEntryBuf, ilocHeader.baseOffsetSize, 0L) // base_offset
@@ -988,10 +1196,12 @@ object MotionPhotoBuilder {
         putUIntOfWidth(ilocEntryBuf, ilocHeader.lengthSize, xmpBytes.size.toLong())
         val ilocEntryBytes = ilocEntryBuf.array()
 
-        // Assemble: everything up to iinf's end, then the new infe, then everything from iinf's end
-        // to iloc's end, then the new iloc entry, then everything after iloc's end (still within the
-        // original file) -- with box-size/count fields patched, and pre-existing absolute offsets
-        // past the old meta end shifted by the total growth.
+        // Assemble: everything up to the first of the two boxes' end, then that box's new entry, then
+        // everything from there to the second box's end, then the second box's new entry, then
+        // everything after (still within the original file) -- with box-size/count fields patched,
+        // and pre-existing absolute offsets past the old meta end shifted by the total growth.
+        val firstInsert = if (iinfFirst) infeBytes else ilocEntryBytes
+        val secondInsert = if (iinfFirst) ilocEntryBytes else infeBytes
         val growth = (infeBytes.size + ilocEntryBytes.size).toLong()
         val result = ByteArray(heicBytes.size + growth.toInt() + newMdatSize.toInt())
         var w = 0
@@ -999,29 +1209,38 @@ object MotionPhotoBuilder {
             System.arraycopy(heicBytes, from, result, w, to - from)
             w += (to - from)
         }
-        copyRange(0, iinf.end)
-        System.arraycopy(infeBytes, 0, result, w, infeBytes.size); w += infeBytes.size
-        copyRange(iinf.end, iloc.end)
-        System.arraycopy(ilocEntryBytes, 0, result, w, ilocEntryBytes.size); w += ilocEntryBytes.size
-        copyRange(iloc.end, heicBytes.size)
+        copyRange(0, firstBox.end)
+        System.arraycopy(firstInsert, 0, result, w, firstInsert.size); w += firstInsert.size
+        copyRange(firstBox.end, secondBox.end)
+        System.arraycopy(secondInsert, 0, result, w, secondInsert.size); w += secondInsert.size
+        copyRange(secondBox.end, heicBytes.size)
         val mdatBuf = ByteBuffer.wrap(result, w, newMdatSize.toInt()).order(ByteOrder.BIG_ENDIAN)
         mdatBuf.putInt(newMdatSize.toInt())
         mdatBuf.put("mdat".toByteArray(Charsets.US_ASCII))
         mdatBuf.put(xmpBytes)
         w += newMdatSize.toInt()
 
-        // Patch box sizes: iinf, iloc, meta all grew by `growth`. iloc's growth is ilocEntryBytes.size
-        // only (infe doesn't touch iloc's own size); iinf's growth is infeBytes.size only.
-        patchBoxSize(result, iinf.start, infeBytes.size.toLong())
-        patchBoxSize(result, iloc.start + infeBytes.size, ilocEntryBytes.size.toLong()) // iloc shifted forward by infeBytes.size once inserted
+        // Box starts in `result`: the box that comes FIRST doesn't move (nothing was inserted before
+        // it); the one that comes SECOND shifts forward by exactly the first one's insertion, which
+        // landed at firstBox.end <= secondBox.start. meta.start precedes both, so it never moves.
+        val iinfStartAfter = if (iinfFirst) iinf.start else iinf.start + ilocEntryBytes.size
+        val ilocStartAfter = if (iinfFirst) iloc.start + infeBytes.size else iloc.start
+
+        // Patch box sizes: meta grew by `growth`; iinf only by infeBytes.size and iloc only by
+        // ilocEntryBytes.size (neither new entry touches the other box's own size).
+        patchBoxSize(result, iinfStartAfter, infeBytes.size.toLong())
+        patchBoxSize(result, ilocStartAfter, ilocEntryBytes.size.toLong())
         patchBoxSize(result, meta.start, growth)
-        patchInfeItemCount(result, iinf.start)
-        patchIlocItemCount(result, iloc.start + infeBytes.size)
+        patchInfeItemCount(result, iinfStartAfter)
+        patchIlocItemCount(result, ilocStartAfter)
 
         // Shift every pre-existing construction_method=0 extent whose absolute offset was past the
-        // OLD end of meta, by `growth` -- existingItemIds.size is the item count BEFORE the new
-        // entry was appended above, so the newly-appended entry (already correct) is never touched.
-        shiftAbsoluteIlocOffsetsPastMeta(result, iloc.start + infeBytes.size, meta.end.toLong(), growth, existingItemIds.size)
+        // OLD end of meta, by `growth`. `ilocItemCount` is iloc's OWN item count from BEFORE the new
+        // entry was appended above, so the newly-appended entry (already carrying its correct final
+        // offset) is never visited. `ilocEndAfter` bounds the walk at the grown iloc box's real end
+        // so it can never spill into whatever box follows, whatever the count says.
+        val ilocEndAfter = ilocStartAfter + (iloc.end - iloc.start) + ilocEntryBytes.size
+        shiftAbsoluteIlocOffsetsPastMeta(result, ilocStartAfter, ilocEndAfter, meta.end.toLong(), growth, ilocItemCount)
 
         return result
     }
@@ -1036,7 +1255,18 @@ object MotionPhotoBuilder {
             val fourCC = String(heicBytes.copyOfRange(pos + 4, pos + 8), Charsets.US_ASCII)
             val boxLen = if (size == 1L) ByteBuffer.wrap(heicBytes, pos + 8, 8).long else if (size == 0L) (heicBytes.size - pos).toLong() else size
             if (pos + boxLen > heicBytes.size || boxLen < 8) return null
-            if (fourCC == "meta") return BoxBounds(pos, pos + 12, (pos + boxLen).toInt())
+            if (fourCC == "meta") {
+                // The returned payloadStart (pos + 12 = 4-byte size + 4-byte type + 4-byte FullBox
+                // version/flags) is only correct for the ordinary 32-bit-size box header, and
+                // patchBoxSize -- which every caller of these bounds relies on to grow the box --
+                // increments that same 4-byte size field. The ISOBMFF 64-bit-size form (size==1, real
+                // length in the next 8 bytes, payload 8 bytes further along) and the
+                // extends-to-EOF form (size==0, the 4-byte field holding no real length at all) both
+                // break those two assumptions. Any real-world `meta` is far too small to need either,
+                // so treat them as explicitly unsupported instead of silently mis-parsing/corrupting.
+                if (size == 0L || size == 1L) return null
+                return BoxBounds(pos, pos + 12, (pos + boxLen).toInt())
+            }
             pos += boxLen.toInt()
         }
         return null
@@ -1048,6 +1278,10 @@ object MotionPhotoBuilder {
             val childSz = ((heicBytes[mp].toInt() and 0xFF) shl 24) or ((heicBytes[mp + 1].toInt() and 0xFF) shl 16) or
                 ((heicBytes[mp + 2].toInt() and 0xFF) shl 8) or (heicBytes[mp + 3].toInt() and 0xFF)
             val childFourCC = String(heicBytes.copyOfRange(mp + 4, mp + 8), Charsets.US_ASCII)
+            // `childSz < 8` also rejects the two box-size forms this code can't handle -- the 64-bit
+            // form (literal size field == 1) and the extends-to-EOF form (== 0) -- since the returned
+            // payloadStart assumes the ordinary 8-byte header and patchBoxSize patches the ordinary
+            // 4-byte size field. See findMetaBoxBounds' matching guard.
             if (childSz < 8 || mp + childSz > parentEnd) return null
             if (childFourCC == fourCCTarget) return BoxBounds(mp, mp + 8, mp + childSz)
             mp += childSz
@@ -1068,7 +1302,10 @@ object MotionPhotoBuilder {
                 ((heicBytes[mp + 2].toInt() and 0xFF) shl 8) or (heicBytes[mp + 3].toInt() and 0xFF)
             if (childSz < 8 || mp + childSz > iinf.end) break
             val infeVersion = heicBytes[mp + 8].toInt() and 0xFF
-            val itemIdWidth = if (infeVersion == 2) 2 else 4
+            // ISO/IEC 14496-12: ItemInfoEntry's item_ID is 16-bit for versions 0, 1 AND 2 -- only
+            // version 3 widens it to 32-bit. Treating "not version 2" as 4 bytes mis-reads every
+            // version 0/1 entry (and would then feed a garbage maximum into the new-ID choice).
+            val itemIdWidth = if (infeVersion >= 3) 4 else 2
             val itemIdOffset = mp + 12
             val itemId = if (itemIdWidth == 2) {
                 ((heicBytes[itemIdOffset].toLong() and 0xFF) shl 8) or (heicBytes[itemIdOffset + 1].toLong() and 0xFF)
@@ -1132,8 +1369,10 @@ object MotionPhotoBuilder {
      * `delta` to any construction_method=0 extent whose absolute offset was >= `oldMetaEnd` (i.e.
      * it pointed past where meta used to end, before this growth).
      *
-     * `existingItemCount` MUST be the item count from before the new item was appended -- the
-     * caller must capture it before calling patchIlocItemCount/appending the new entry. This is
+     * `existingItemCount` MUST be ILOC's OWN item count from before the new item was appended -- the
+     * caller must capture it (from iloc's item_count field, NOT from iinf's infe count: different
+     * box, different field, no structural guarantee they agree) before calling
+     * patchIlocItemCount/appending the new entry. This is
      * deliberately NOT read from iloc's own (already-incremented) item_count field: this function
      * runs AFTER the new entry has already been appended with its correct, final, post-growth
      * offset, and iloc's entries are stored in a flat list where "the last entry" is only knowable
@@ -1148,8 +1387,24 @@ object MotionPhotoBuilder {
      * silently read from the wrong place if this were broken and happened to still resolve to
      * something parseable) -- rely on the explicit `existingItemCount` contract, not on that test
      * alone, when reviewing this function.
+     *
+     * `ilocEnd` is the (post-growth) end of iloc's own box. Every field read/written here is bounds
+     * checked against it, so a wrong `existingItemCount` can at worst stop the walk early -- it can
+     * never march past iloc and start adding `delta` into whatever box happens to follow.
+     *
+     * Known limitation (pre-existing, unchanged): only offsets at/after `oldMetaEnd` are shifted, so
+     * a construction_method=0 extent pointing INSIDE meta but after the insertion points would not
+     * be corrected. Absolute-offset extents into meta don't occur in practice (meta-internal item
+     * data lives in `idat` and is referenced with construction_method=1, which is exempt anyway).
      */
-    private fun shiftAbsoluteIlocOffsetsPastMeta(bytes: ByteArray, ilocStart: Int, oldMetaEnd: Long, delta: Long, existingItemCount: Int) {
+    private fun shiftAbsoluteIlocOffsetsPastMeta(
+        bytes: ByteArray,
+        ilocStart: Int,
+        ilocEnd: Int,
+        oldMetaEnd: Long,
+        delta: Long,
+        existingItemCount: Int,
+    ) {
         val header = findIlocHeaderFields(bytes) ?: return
         val payloadStart = ilocStart + 8
         val itemCountWidth = if (header.version < 2) 2 else 4
@@ -1158,6 +1413,8 @@ object MotionPhotoBuilder {
         val itemIdWidth = if (header.version < 2) 2 else 4
         val constructionMethodWidth = if (header.version in 1..2) 2 else 0
         for (i in 0 until itemCount) {
+            // Every fixed-width field of this entry's head must fit inside iloc before it's touched.
+            if (pos + itemIdWidth + constructionMethodWidth + 2 + header.baseOffsetSize + 2 > ilocEnd) return
             pos += itemIdWidth
             val constructionMethod = if (constructionMethodWidth > 0) {
                 (((bytes[pos].toInt() and 0xFF) shl 8) or (bytes[pos + 1].toInt() and 0xFF)) and 0xF
@@ -1170,6 +1427,7 @@ object MotionPhotoBuilder {
             val extentCount = ((bytes[pos].toInt() and 0xFF) shl 8) or (bytes[pos + 1].toInt() and 0xFF)
             pos += 2
             for (e in 0 until extentCount) {
+                if (pos + header.indexSize + header.offsetSize + header.lengthSize > ilocEnd) return
                 if (header.indexSize > 0) pos += header.indexSize
                 val offsetFieldPos = pos
                 if (constructionMethod == 0) {
@@ -1378,6 +1636,59 @@ object MotionPhotoBuilder {
     }
 
     /**
+     * Produces the base HEIC bytes with motion-photo XMP attached -- either merged into the file's
+     * EXISTING XMP item (repointed to freshly-appended bytes) or, only when the file genuinely has no
+     * XMP at all, as a brand-new registered item.
+     *
+     * The "does an XMP item already exist" question is answered structurally first
+     * (findHeicXmpItemLocation: iinf item_type/content_type, then iloc by item_ID). Content sniffing
+     * is used only as a secondary probe for files whose XMP item can't be identified structurally
+     * (an infe version 0/1 registration, or a non-standard content_type): if XMP bytes are present but
+     * their iloc entry can't be pinned down, this returns the base bytes UNTOUCHED.
+     *
+     * That last part matters. The previous behavior -- fall back to registering a NEW item -- left the
+     * original XMP item still registered in iinf/iloc, earlier in the list, as an orphaned duplicate.
+     * Readers that return the first match (this app's own re-parse included) would then read the STALE
+     * original and never see the motion-photo attributes, silently defeating the merge. A no-op is
+     * strictly better: no data loss, no misleading duplicate, worst case just "no new XMP".
+     */
+    private fun buildHeicBaseWithMotionPhotoXmp(
+        baseHeicBytes: ByteArray,
+        videoOffsetFromEof: Long,
+        syncTimestampUs: Long,
+        version: MotionPhotoFormatVersion,
+    ): ByteArray {
+        fun mergedBytes(existingXmpText: String?): ByteArray =
+            mergeMotionPhotoXmp(existingXmpText, videoOffsetFromEof, 0L, syncTimestampUs, version, "image/heic")
+                .toByteArray(Charsets.UTF_8)
+
+        val structuralItem = findHeicXmpItemLocation(baseHeicBytes)
+        if (structuralItem != null) {
+            val existingXmpText = readExistingXmpItemText(baseHeicBytes, structuralItem)
+            return repointHeicXmpItem(
+                baseHeicBytes,
+                structuralItem.itemId,
+                structuralItem.ilocEntryOffset,
+                structuralItem.extentCount,
+                mergedBytes(existingXmpText),
+            ) ?: baseHeicBytes
+        }
+
+        val contentExtent = findXmpExtentInHeic(baseHeicBytes)
+        if (contentExtent != null) {
+            val (xmpStart, xmpLen) = contentExtent
+            val entry = findHeicXmpIlocEntry(baseHeicBytes, xmpStart, xmpLen) ?: return baseHeicBytes
+            val (itemId, entryOffset, extentCount) = entry
+            val existingXmpText = String(baseHeicBytes, xmpStart, xmpLen, Charsets.UTF_8)
+                .trimEnd(' ', Char(0), '\n', '\r')
+            return repointHeicXmpItem(baseHeicBytes, itemId, entryOffset, extentCount, mergedBytes(existingXmpText))
+                ?: baseHeicBytes
+        }
+
+        return createHeicXmpItem(baseHeicBytes, mergedBytes(null))
+    }
+
+    /**
      * Synthesizes a Samsung Galaxy HEIC Motion Photo file (.heic).
      */
     fun createSamsungHeicMotionPhoto(
@@ -1396,13 +1707,27 @@ object MotionPhotoBuilder {
         val rawHeicBytes = imageFile.readBytes()
         val (baseHeicBytes, preservedSefBlocks) = extractExistingHeicBoxesAndSef(rawHeicBytes)
 
-        // 1. mpvd box calculation
-        val mpvdOffset = baseHeicBytes.size.toLong()
-        val mpvdSize = 8L + videoFile.length()
-        val videoStartOffset = mpvdOffset + 8L
         val videoLength = videoFile.length()
 
-        // 2. Build SEF Blocks for HEIC
+        // --- Ordering note (load-bearing) -------------------------------------------------------
+        // The base HEIC GROWS in step 3 below, when the XMP item is repointed/created (both paths
+        // append bytes; neither is an in-place same-size overwrite). The SEF MotionPhoto_Data block's
+        // `video_offset` is an ABSOLUTE file offset, so it must be computed from the POST-growth base
+        // size -- computing it from baseHeicBytes.size leaves it short by exactly the growth amount,
+        // and Samsung Gallery, which navigates to the video through that pointer, mislocates the
+        // video. (This app's own checker/extractor resolve the video structurally via the `mpvd` box
+        // instead, so they never notice -- hence no test caught it.)
+        //
+        // But step 3 itself needs `videoOffsetFromEof` for the XMP text. That is NOT circular:
+        // videoOffsetFromEof = videoLength + sefdBoxSize, and sefdBoxSize depends only on the SEF
+        // blocks' own BYTE SIZES -- never on where in the file they land. MotionPhoto_Data's size in
+        // particular is fixed (block header + 12-byte payload) regardless of what offset value it
+        // carries. So the order is: size everything (steps 1-2) -> merge the XMP and learn the final
+        // base size (step 3) -> compute the real mpvd/video offsets and patch them into the
+        // already-sized block (steps 4-5) -> emit the directory/headers (steps 6-9).
+        // ---------------------------------------------------------------------------------------
+
+        // 1. Build SEF Blocks for HEIC
         val allSefBlocks = preservedSefBlocks.toMutableList()
 
         // Block: MotionPhoto_Version ("mpv3")
@@ -1416,11 +1741,13 @@ object MotionPhotoBuilder {
         val vBlockBytes = vHeaderBuf.array() + vPayloadBytes
         allSefBlocks.add(PreservedSefBlock("MotionPhoto_Version", SEF_MARKER_MOTION_PHOTO_VERSION, 0x0000, vBlockBytes))
 
-        // Block: MotionPhoto_Data (12-byte pointer payload: "mpv2" + videoStartOffset + videoLength)
+        // Block: MotionPhoto_Data (12-byte pointer payload: "mpv2" + videoStartOffset + videoLength).
+        // video_offset goes in as a placeholder and is patched in step 5, once the final base-HEIC
+        // size is known -- see the ordering note above. The block's SIZE is unaffected by the value.
         val dNameBytes = "MotionPhoto_Data".toByteArray(Charsets.UTF_8)
         val dPayloadBuf = ByteBuffer.allocate(12).order(ByteOrder.BIG_ENDIAN)
         dPayloadBuf.put("mpv2".toByteArray(Charsets.US_ASCII))
-        dPayloadBuf.putInt(videoStartOffset.toInt())
+        dPayloadBuf.putInt(0) // video_offset -- patched in step 5
         dPayloadBuf.putInt(videoLength.toInt())
 
         val dHeaderBuf = ByteBuffer.allocate(8 + dNameBytes.size).order(ByteOrder.LITTLE_ENDIAN)
@@ -1428,15 +1755,47 @@ object MotionPhotoBuilder {
         dHeaderBuf.putShort(SEF_MARKER_MOTION_PHOTO_DATA.toShort())
         dHeaderBuf.putInt(dNameBytes.size)
         dHeaderBuf.put(dNameBytes)
-        val dBlockBytes = dHeaderBuf.array() + dPayloadBuf.array()
+        val dBlockHeaderBytes = dHeaderBuf.array()
+        val dBlockBytes = dBlockHeaderBytes + dPayloadBuf.array()
+        // Position of the video_offset field inside dBlockBytes: block header, then "mpv2" (4 bytes).
+        val videoOffsetFieldPos = dBlockHeaderBytes.size + 4
         allSefBlocks.add(PreservedSefBlock("MotionPhoto_Data", SEF_MARKER_MOTION_PHOTO_DATA, 0x0000, dBlockBytes))
 
-        // 3. Build SEFH Directory Table
+        // 2. SEF directory / trailer sizes -- a function of the blocks' own byte sizes only, never of
+        //    where in the file they end up, which is what makes step 3 possible before step 4.
         val totalBlockBytesSize = allSefBlocks.sumOf { it.bytes.size.toLong() }
         val sefDirSize = 12 + allSefBlocks.size * 12
         val seftTailSize = 8
         val sefPayloadSize = totalBlockBytesSize + sefDirSize + seftTailSize
+        val sefdBoxSize = 8L + sefPayloadSize
 
+        // 3. Merge into (or create) the XMP item. videoOffsetFromEof is the distance from EOF back to
+        //    the video's first byte: everything after the video is the sefd box, so it's
+        //    videoLength + sefdBoxSize -- independent of where the video itself starts.
+        val videoOffsetFromEof = videoLength + sefdBoxSize
+        val videoDurationUs = extractVideoDurationUs(videoFile)
+        val syncTimestampUs = resolvePresentationTimestampUs(presentationTimestampUs, videoDurationUs)
+        val updatedBaseHeicBytes = try {
+            buildHeicBaseWithMotionPhotoXmp(baseHeicBytes, videoOffsetFromEof, syncTimestampUs, version)
+        } catch (e: Exception) {
+            // Hard global constraint: an XMP merge failure must NEVER abort motion-photo creation.
+            // Any unexpected exception out of the whole iinf/iloc box-surgery subsystem falls back to
+            // the untouched base bytes -- the output still gets its mpvd video and SEF trailer, it
+            // just doesn't gain the new XMP.
+            baseHeicBytes
+        }
+
+        // 4. mpvd box calculation -- from the POST-growth base size (see the ordering note above).
+        val mpvdOffset = updatedBaseHeicBytes.size.toLong()
+        val mpvdSize = 8L + videoLength
+        val videoStartOffset = mpvdOffset + 8L
+
+        // 5. Patch the now-known absolute video offset into the MotionPhoto_Data block. dBlockBytes is
+        //    the very array the PreservedSefBlock added above holds, so this reaches the bytes written
+        //    out in step 9.
+        writeUIntOfWidth(dBlockBytes, videoOffsetFieldPos.toLong(), 4, videoStartOffset)
+
+        // 6. Build SEFH Directory Table
         val sefDirBuf = ByteBuffer.allocate(sefDirSize).order(ByteOrder.LITTLE_ENDIAN)
         sefDirBuf.put("SEFH".toByteArray(Charsets.US_ASCII))
         sefDirBuf.putInt(SEF_VERSION)
@@ -1452,42 +1811,21 @@ object MotionPhotoBuilder {
             accumOffset -= blkLen
         }
 
-        // 4. Build SEFT Tail (8 bytes)
+        // 7. Build SEFT Tail (8 bytes)
         val seftBuf = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN)
         seftBuf.putInt(sefDirSize)
         seftBuf.put("SEFT".toByteArray(Charsets.US_ASCII))
 
-        // 5. mpvd Header (8 bytes)
+        // 8. mpvd + sefd box headers (8 bytes each)
         val mpvdHeaderBuf = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN)
         mpvdHeaderBuf.putInt(mpvdSize.toInt())
         mpvdHeaderBuf.put("mpvd".toByteArray(Charsets.US_ASCII))
 
-        // 6. sefd Box Header (8 bytes)
-        val sefdBoxSize = 8L + sefPayloadSize
         val sefdHeaderBuf = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN)
         sefdHeaderBuf.putInt(sefdBoxSize.toInt())
         sefdHeaderBuf.put("sefd".toByteArray(Charsets.US_ASCII))
 
-        // 7. Merge or create the XMP item with video offset from EOF: videoLength + sefdBoxSize and duration
-        val videoOffsetFromEof = videoLength + sefdBoxSize
-        val videoDurationUs = extractVideoDurationUs(videoFile)
-        val syncTimestampUs = resolvePresentationTimestampUs(presentationTimestampUs, videoDurationUs)
-        val existingXmpExtent = findXmpExtentInHeic(baseHeicBytes)
-        val updatedBaseHeicBytes = if (existingXmpExtent != null) {
-            val (xmpStart, xmpLen) = existingXmpExtent
-            val existingXmpText = String(baseHeicBytes, xmpStart, xmpLen, Charsets.UTF_8).trimEnd(' ', ' ', '\n', '\r')
-            val itemLocation = findHeicXmpIlocEntry(baseHeicBytes, xmpStart, xmpLen)
-            val mergedXmpBytes = mergeMotionPhotoXmp(existingXmpText, videoOffsetFromEof, 0L, syncTimestampUs, version, "image/heic").toByteArray(Charsets.UTF_8)
-            val repointed = itemLocation?.let { (itemId, entryOffset, extentCount) ->
-                repointHeicXmpItem(baseHeicBytes, itemId, entryOffset, extentCount, mergedXmpBytes)
-            }
-            repointed ?: createHeicXmpItem(baseHeicBytes, mergeMotionPhotoXmp(null, videoOffsetFromEof, 0L, syncTimestampUs, version, "image/heic").toByteArray(Charsets.UTF_8))
-        } else {
-            val freshXmpBytes = mergeMotionPhotoXmp(null, videoOffsetFromEof, 0L, syncTimestampUs, version, "image/heic").toByteArray(Charsets.UTF_8)
-            createHeicXmpItem(baseHeicBytes, freshXmpBytes)
-        }
-
-        // 8. Write complete Motion Photo HEIC file
+        // 9. Write complete Motion Photo HEIC file
         FileOutputStream(outputFile).use { out ->
             out.write(updatedBaseHeicBytes)
             out.write(mpvdHeaderBuf.array())
