@@ -741,6 +741,15 @@ object MotionPhotoBuilder {
         mdatBuf.put("mdat".toByteArray(Charsets.US_ASCII))
         mdatBuf.put(mergedXmpBytes)
 
+        // Capture the OLD field values before overwriting them below -- needed for the cleanup pass
+        // further down, and reading them directly from these exact, already-known, ID-scoped
+        // positions is deterministic (no re-resolution/content-sniffing needed), unlike a generic
+        // byte-scan that isn't tied to this specific item.
+        val oldConstructionMethod = if (constructionMethodFieldPos >= 0) readUIntOfWidth(heicBytes, constructionMethodFieldPos.toLong(), 2).toInt() else 0
+        val oldBaseOffset = readUIntOfWidth(heicBytes, baseOffsetFieldPos.toLong(), baseOffSz)
+        val oldExtentOffset = readUIntOfWidth(heicBytes, extentOffsetFieldPos.toLong(), offSz)
+        val oldExtentLength = readUIntOfWidth(heicBytes, extentLengthFieldPos.toLong(), lenSz)
+
         if (constructionMethodFieldPos >= 0) {
             writeUIntOfWidth(result, constructionMethodFieldPos.toLong(), 2, 0L)
         }
@@ -749,20 +758,24 @@ object MotionPhotoBuilder {
         writeUIntOfWidth(result, extentLengthFieldPos.toLong(), lenSz, mergedXmpBytes.size.toLong())
 
         // Best-effort: clear the item's OLD extent bytes now that iloc no longer references them, so
-        // the pre-merge XMP doesn't linger as an unreferenced duplicate elsewhere in the file --
-        // otherwise a content-sniffing consumer (e.g. findXmpExtentInHeic's own pattern-scan fallback,
-        // used when its primary iloc walk doesn't recognize an extent's content as XMP-shaped) could
-        // mistake the stale copy for the current XMP. Resolving the OLD extent reuses the already
-        // -validated findXmpExtentInHeic walk against the pre-repoint bytes (where the original XMP's
-        // real content still satisfies its content heuristic) rather than re-deriving it from
-        // construction_method/base_offset by hand, which would need real `idat`-box resolution for
-        // idat-relative items -- out of scope here (this function only ever repoints to an
-        // absolute-offset location, never reads from idat). Purely cosmetic cleanup: this old range
-        // is already unreferenced by any box, so leaving it as-is on a lookup miss changes nothing
-        // structurally, just like today's behavior.
-        findXmpExtentInHeic(heicBytes)?.let { (oldStart, oldLen) ->
-            for (i in oldStart until (oldStart + oldLen)) {
-                result[i] = 0
+        // the pre-merge XMP doesn't linger as an unreferenced duplicate elsewhere in the file -- a
+        // later re-parse (e.g. findXmpExtentInHeic's own content-sniff, which real fresh-built XMP
+        // can miss on its structured iloc walk since "rdf:Description"/"Container" can land past its
+        // 100-byte sample cap, falling through to a whole-file pattern scan) could otherwise mistake
+        // the stale duplicate for the current XMP. Only handled for the common construction_method=0
+        // (absolute offset) case, where the old location is known exactly and unambiguously from the
+        // very field values this function already reads/overwrites above -- no content-sniffing or
+        // re-resolution involved. construction_method=1 (idat-relative) old items are left untouched:
+        // resolving their true byte position needs a real idat box lookup, out of scope here (this
+        // function only ever repoints TO an absolute-offset location, never reads FROM idat) --
+        // skipping cleanup for that case changes nothing structurally, matching today's behavior.
+        if (oldConstructionMethod == 0) {
+            val oldStart = (oldBaseOffset + oldExtentOffset).toInt()
+            val oldEnd = oldStart + oldExtentLength.toInt()
+            if (oldStart in 0..heicBytes.size && oldEnd in oldStart..heicBytes.size) {
+                for (i in oldStart until oldEnd) {
+                    result[i] = 0
+                }
             }
         }
 
@@ -809,6 +822,15 @@ object MotionPhotoBuilder {
             val shift = (widthBytes - 1 - i) * 8
             bytes[(offset + i).toInt()] = ((value shr shift) and 0xFF).toByte()
         }
+    }
+
+    /** Reads an unsigned big-endian integer of the given byte width at the given position. widthBytes of 0 reads as 0. */
+    private fun readUIntOfWidth(bytes: ByteArray, offset: Long, widthBytes: Int): Long {
+        var value = 0L
+        for (i in 0 until widthBytes) {
+            value = (value shl 8) or (bytes[(offset + i).toInt()].toLong() and 0xFF)
+        }
+        return value
     }
 
     /**

@@ -446,7 +446,10 @@ class MotionPhotoBuilderTest {
         val existingXmp = """<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:tiff="http://ns.adobe.com/tiff/1.0/" tiff:Make="SomeCamera"/></rdf:RDF></x:xmpmeta>"""
         val fixture = HeicMetaFixture.build(xmpText = existingXmp)
 
-        val mergedXmpBytes = "<x:xmpmeta>MUCH LONGER MERGED CONTENT THAN THE ORIGINAL SLOT ALLOWED FOR, THIS PROVES REPOINT DOESN'T NEED TO FIT IN PLACE</x:xmpmeta>".toByteArray(Charsets.UTF_8)
+        // Realistic shape (contains rdf:Description, like mergeMotionPhotoXmp's real output) so
+        // findXmpExtentInHeic's structured-walk content-sniff matches the new location directly,
+        // rather than depending on whether the old location happened to get cleaned up.
+        val mergedXmpBytes = "<x:xmpmeta><rdf:Description>MUCH LONGER MERGED CONTENT THAN THE ORIGINAL SLOT ALLOWED FOR, THIS PROVES REPOINT DOESN'T NEED TO FIT IN PLACE</rdf:Description></x:xmpmeta>".toByteArray(Charsets.UTF_8)
         val result = MotionPhotoBuilder.repointHeicXmpItem(
             fixture.heicBytes, fixture.xmpItemId, fixture.xmpIlocEntryOffset, fixture.xmpExtentCount, mergedXmpBytes,
         )
@@ -475,7 +478,12 @@ class MotionPhotoBuilderTest {
         val existingXmp = """<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:tiff="http://ns.adobe.com/tiff/1.0/" tiff:Make="SomeCamera"/></rdf:RDF></x:xmpmeta>"""
         val fixture = HeicMetaFixture.build(xmpText = existingXmp, xmpConstructionMethod = 1)
 
-        val mergedXmpBytes = "<x:xmpmeta>merged</x:xmpmeta>".toByteArray(Charsets.UTF_8)
+        // Realistic shape (contains rdf:Description) for the same reason as the test above -- the
+        // OLD item here is idat-relative, which repointHeicXmpItem deliberately does not attempt to
+        // clean up (resolving it would need real idat-box support, out of scope), so this test must
+        // not depend on the old bytes being erased; the new content needs to content-sniff-match on
+        // its own via the structured walk.
+        val mergedXmpBytes = "<x:xmpmeta><rdf:Description>merged</rdf:Description></x:xmpmeta>".toByteArray(Charsets.UTF_8)
         val result = MotionPhotoBuilder.repointHeicXmpItem(
             fixture.heicBytes, fixture.xmpItemId, fixture.xmpIlocEntryOffset, fixture.xmpExtentCount, mergedXmpBytes,
         )
@@ -483,7 +491,7 @@ class MotionPhotoBuilderTest {
         val reExtent = MotionPhotoBuilder.findXmpExtentInHeic(result)
         assertNotNull(reExtent)
         val (xmpStart, xmpLen) = reExtent
-        assertEquals("<x:xmpmeta>merged</x:xmpmeta>", String(result, xmpStart, xmpLen, Charsets.UTF_8))
+        assertEquals("<x:xmpmeta><rdf:Description>merged</rdf:Description></x:xmpmeta>", String(result, xmpStart, xmpLen, Charsets.UTF_8))
     }
 
     @Test
