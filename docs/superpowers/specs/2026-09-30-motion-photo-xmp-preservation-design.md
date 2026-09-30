@@ -277,3 +277,67 @@ entry with known offset/length, `iinf`, `iloc`) — parallel in spirit to
 decode both the still-embedded original image (ImageIO/ffmpeg) and the
 newly-appended video (ffmpeg) to confirm neither was corrupted — the
 final safety net for "XMP got fixed but the image broke" class of bugs.
+
+## Amendment (2026-10-01): single `mdat`, not a second one
+
+The sections above ("wrap the merged XMP bytes in a fresh top-level
+`mdat` box... append that new `mdat` box to the file") shipped and passed
+review as written — a second, separate `mdat` box is valid ISOBMFF. But
+real Samsung HEIC motion photos use a single `mdat`, and the user
+correctly flagged that this implementation should match that convention
+rather than rely on the spec merely permitting multiple `mdat` boxes.
+This amendment supersedes those two paragraphs (§"HEIC, existing XMP item
+present", steps 3-4; §"HEIC, no existing XMP item", the mdat-creation
+sub-step) for both the repoint and create-new-item paths:
+
+**Merge into the existing `mdat`, don't create a second one.** Locate the
+file's existing `mdat` box (the first one, if more than one is somehow
+present — real files have exactly one) and append the new/merged XMP
+bytes to the END of its payload, growing that box in place (patch its own
+`size` field by the appended length) instead of appending a brand-new
+`mdat` box elsewhere in the file. The new/repointed item's `iloc` extent
+then points at "the old end of the existing `mdat`'s payload" rather than
+"the payload start of a freshly-appended `mdat`".
+
+**Box order is not fixed — `mdat` can precede `meta`.** Real Apple-encoded
+HEIC commonly orders top-level boxes as `ftyp, mdat, meta` (mdat first,
+for streaming-friendly layout), not the `ftyp, meta, mdat` order this
+project's own synthetic test fixtures happen to use. Whichever of
+`meta`/`mdat` grows, if the OTHER one is positioned later in the file, it
+must shift by the same amount — and if it's positioned earlier, it does
+not move at all. This is symmetric with (and generalizes) the existing
+`iinf`-before-or-after-`iloc` handling inside `meta` (Task 4, Finding 5)
+one level up, now between `meta` and `mdat` themselves.
+
+**Implementation approach:** generalize the existing "shift every
+absolute-offset `iloc` extent whose position is `>= cutoff` by `delta`"
+pass (currently named for shifting past `meta`'s old end) into a
+box-order-agnostic utility usable for either insertion point, and apply
+it twice, in the insertions' real file order:
+
+1. Determine whether `meta` or `mdat` comes first in the file.
+2. Perform the `meta`-growth insertion (new `infe`/`iloc` entries, for the
+   create-new-item path only — the repoint path doesn't grow `meta` at
+   all) and its shift pass, using `meta`'s own old end as the cutoff —
+   exactly as today, this naturally shifts `mdat` only if `mdat` comes
+   after `meta`.
+3. Perform the `mdat`-growth insertion (append the XMP bytes to `mdat`'s
+   payload end) and a second shift pass, using `mdat`'s (now
+   correctly-positioned, per step 2) old end as the cutoff — this shifts
+   `meta` (and anything else past that point) only if `meta` comes after
+   `mdat`.
+4. The item's own new `iloc` extent (constructed fresh in step 3, after
+   `mdat`'s final growth point is known) needs no shift correction itself
+   — same "compute after all preceding growth is known" discipline
+   already used for the single-`mdat`-insertion design.
+
+The repoint path (existing XMP item) only ever performs step 3 (no `meta`
+growth) — so for that path, the "which of `meta`/`mdat` is first" question
+only matters for whether the rewritten item's own extent's implied
+absolute position needs no further correction (it doesn't — it's computed
+fresh, after the one and only growth point, same as before).
+
+**Testing implication:** `HeicMetaFixture` needs an `mdatBeforeMeta`
+parameter (mirroring the existing `ilocBeforeIinf`) so both physical
+orderings get real regression coverage, not just `iinf`/`iloc`'s relative
+order within `meta`.
