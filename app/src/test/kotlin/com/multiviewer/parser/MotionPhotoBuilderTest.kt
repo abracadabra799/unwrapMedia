@@ -623,6 +623,46 @@ class MotionPhotoBuilderTest {
     }
 
     @Test
+    fun `createHeicXmpItem shifts a primary item whose iloc entry uses a non-zero base_offset`() {
+        // Final review found the offset-shift-correction pass compared/shifted extent_offset alone,
+        // never reading base_offset -- an item's real absolute position is base_offset+extent_offset,
+        // and an encoder that sets a shared base_offset (e.g. pointing at mdat's start) while keeping
+        // each entry's own extent_offset small/relative would silently never trip the "needs shifting"
+        // check, leaving the primary image pointing at the wrong (pre-growth) location. Both shapes
+        // are valid ISOBMFF; this is the corruption-class regression check for that specific gap.
+        // base_offset must be small enough that extent_offset (= primaryItemOffset - primaryBaseOffset)
+        // stays a valid non-negative value well under the file's real meta-end -- a base_offset larger
+        // than primaryItemOffset would underflow extent_offset into a huge wrapped unsigned value that
+        // trivially exceeds meta's end regardless of whether base_offset is accounted for, silently
+        // defeating this exact negative control (confirmed by hand: the first version of this test used
+        // 1000L, which is larger than this fixture's real primaryItemOffset, and passed even with the
+        // base_offset-reading fix reverted).
+        val primaryBaseOffset = 50L
+        val fixture = HeicMetaFixture.build(xmpText = null, primaryBaseOffset = primaryBaseOffset)
+        assertTrue(primaryBaseOffset < fixture.primaryItemOffset, "Test premise: base_offset must be smaller than the primary item's real offset")
+        val newXmpBytes = NEW_XMP_PACKET.toByteArray(Charsets.UTF_8)
+        val result = MotionPhotoBuilder.createHeicXmpItem(fixture.heicBytes, newXmpBytes)
+
+        val metaGrowth = result.size - fixture.heicBytes.size - 8 - newXmpBytes.size
+        assertTrue(metaGrowth > 0, "Expected meta to grow -- otherwise a missing shift couldn't be observed")
+
+        val before = readIlocEntries(fixture.heicBytes).getValue(HeicMetaFixture.PRIMARY_ITEM_ID)
+        val after = readIlocEntries(result).getValue(HeicMetaFixture.PRIMARY_ITEM_ID)
+        assertEquals(primaryBaseOffset, before.baseOffset, "Fixture must actually have written a non-zero base_offset")
+        assertTrue(before.extents[0].first >= 0, "Test premise: extent_offset must not have underflowed")
+        assertTrue(
+            after.resolveBytes(result).contentEquals(fixture.primaryItemBytes),
+            "The primary item's iloc entry (base_offset=${after.baseOffset}, extent_offset=${after.extents[0].first}) " +
+                "must still resolve to its original bytes after meta grew by $metaGrowth",
+        )
+        assertEquals(
+            before.absoluteStart() + metaGrowth,
+            after.absoluteStart(),
+            "Primary item's resolved absolute offset (base_offset+extent_offset) must have shifted forward by exactly meta's growth ($metaGrowth)",
+        )
+    }
+
+    @Test
     fun `createHeicXmpItem bails out when iloc's item_count disagrees with iinf's infe count`() {
         // iloc's item_count and iinf's infe count are different fields in different boxes; nothing
         // structurally guarantees they agree. The offset-shift-correction pass is bounded by the

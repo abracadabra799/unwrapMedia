@@ -1301,6 +1301,15 @@ object MotionPhotoBuilder {
             val childSz = ((heicBytes[mp].toInt() and 0xFF) shl 24) or ((heicBytes[mp + 1].toInt() and 0xFF) shl 16) or
                 ((heicBytes[mp + 2].toInt() and 0xFF) shl 8) or (heicBytes[mp + 3].toInt() and 0xFF)
             if (childSz < 8 || mp + childSz > iinf.end) break
+            val childFourCC = String(heicBytes, mp + 4, 4, Charsets.US_ASCII)
+            if (childFourCC != "infe") {
+                // A free/skip padding box (or any other child type) inside iinf is legal ISOBMFF --
+                // skip it rather than mis-reading its bytes as an infe's version/item_ID fields,
+                // which would inflate the count and could feed a garbage value into the new-ID
+                // selection below.
+                mp += childSz
+                continue
+            }
             val infeVersion = heicBytes[mp + 8].toInt() and 0xFF
             // ISO/IEC 14496-12: ItemInfoEntry's item_ID is 16-bit for versions 0, 1 AND 2 -- only
             // version 3 widens it to 32-bit. Treating "not version 2" as 4 bytes mis-reads every
@@ -1423,6 +1432,8 @@ object MotionPhotoBuilder {
             }
             pos += constructionMethodWidth
             pos += 2 // data_reference_index
+            var baseOffset = 0L
+            for (b in 0 until header.baseOffsetSize) baseOffset = (baseOffset shl 8) or (bytes[pos + b].toLong() and 0xFF)
             pos += header.baseOffsetSize
             val extentCount = ((bytes[pos].toInt() and 0xFF) shl 8) or (bytes[pos + 1].toInt() and 0xFF)
             pos += 2
@@ -1431,10 +1442,17 @@ object MotionPhotoBuilder {
                 if (header.indexSize > 0) pos += header.indexSize
                 val offsetFieldPos = pos
                 if (constructionMethod == 0) {
-                    var current = 0L
-                    for (b in 0 until header.offsetSize) current = (current shl 8) or (bytes[offsetFieldPos + b].toLong() and 0xFF)
-                    if (current >= oldMetaEnd) {
-                        writeUIntOfWidth(bytes, offsetFieldPos.toLong(), header.offsetSize, current + delta)
+                    // The item's real absolute position is base_offset + extent_offset, not
+                    // extent_offset alone -- an encoder that sets a shared base_offset (e.g. pointing
+                    // at mdat's start) and keeps extent_offset small/relative would otherwise never
+                    // trip the ">= oldMetaEnd" check here even though the item genuinely needs
+                    // shifting, silently leaving it pointing at the wrong (pre-growth) location.
+                    var extentOffset = 0L
+                    for (b in 0 until header.offsetSize) extentOffset = (extentOffset shl 8) or (bytes[offsetFieldPos + b].toLong() and 0xFF)
+                    if (baseOffset + extentOffset >= oldMetaEnd) {
+                        // Shifting extent_offset alone (leaving base_offset untouched) moves the
+                        // resolved total by the same delta -- no need to also rewrite base_offset.
+                        writeUIntOfWidth(bytes, offsetFieldPos.toLong(), header.offsetSize, extentOffset + delta)
                     }
                 }
                 pos += header.offsetSize

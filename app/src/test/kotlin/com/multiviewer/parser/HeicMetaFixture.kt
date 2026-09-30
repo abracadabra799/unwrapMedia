@@ -32,6 +32,8 @@ object HeicMetaFixture {
         val primaryIlocEntryOffset: Long,
         /** The construction_method written into the primary item's iloc entry. */
         val primaryConstructionMethod: Int,
+        /** The base_offset written into the primary item's iloc entry (0 unless requested via `primaryBaseOffset`). */
+        val primaryBaseOffset: Long,
     )
 
     const val PRIMARY_ITEM_ID = 1L
@@ -47,6 +49,13 @@ object HeicMetaFixture {
      * @param ilocBeforeIinf Emit `iloc` BEFORE `iinf` inside meta. ISOBMFF imposes no ordering on
      *   meta's children and real encoders do emit iloc first, so box surgery that appends to both
      *   must work either way. Defaults to false (iinf first) to leave existing callers unaffected.
+     * @param primaryBaseOffset Non-zero exercises encoders that set iloc's shared base_offset field
+     *   (e.g. to mdat's own start) and keep each entry's own extent_offset small/relative to it,
+     *   rather than encoding the full absolute position directly in extent_offset -- both are valid
+     *   ISOBMFF shapes. When non-zero, iloc's base_offset_size becomes 4 and the primary item's
+     *   extent_offset is written as (primaryItemOffset - primaryBaseOffset) so the two fields still
+     *   resolve to the real absolute position; the XMP item's own base_offset stays 0 regardless
+     *   (it has its own dedicated construction_method/extent-count test coverage already).
      */
     fun build(
         xmpText: String?,
@@ -54,6 +63,7 @@ object HeicMetaFixture {
         xmpExtentCount: Int = 1,
         primaryConstructionMethod: Int = 0,
         ilocBeforeIinf: Boolean = false,
+        primaryBaseOffset: Long = 0L,
     ): Result {
         val primaryItemBytes = ByteArray(16) { (it + 1).toByte() }
 
@@ -82,16 +92,19 @@ object HeicMetaFixture {
         // item count).
 
         val itemCount = if (xmpText != null) 2 else 1
+        val baseOffsetSize = if (primaryBaseOffset != 0L) 4 else 0
         // iloc payload layout (version=1): version(1)+flags(3)+offset/length sizes(1)+base/index sizes(1)+
         // item_count(2) = 8 bytes header, then one entry per item. Each entry (offsetSize=4,lengthSize=4,
-        // baseOffsetSize=0,indexSize=0): item_ID(2)+construction_method(2)+data_reference_index(2)+
-        // extent_count(2)+extentCount*(offset(4)+length(4)) -- i.e. 8 fixed bytes + extentCount*8. The
-        // primary item always has exactly 1 extent (16 bytes); the XMP item (if present) has
+        // baseOffsetSize as above,indexSize=0): item_ID(2)+construction_method(2)+data_reference_index(2)+
+        // base_offset(baseOffsetSize)+extent_count(2)+extentCount*(offset(4)+length(4)) -- i.e.
+        // 8+baseOffsetSize fixed bytes + extentCount*8. base_offset_size is a single field in iloc's own
+        // header, so it applies uniformly to every entry, not just the one that actually uses a non-zero
+        // value. The primary item always has exactly 1 extent (16 bytes); the XMP item (if present) has
         // xmpExtentCount extents, which is NOT necessarily 1 -- must be sized per-item, not by a single
         // shared per-entry constant, or a multi-extent XMP item's entry is undersized and the loloc box's
         // declared size no longer matches what's actually written (silent corruption of everything after it).
-        val primaryEntrySize = 8 + 1 * 8 // 16
-        val xmpEntrySize = if (xmpText != null) 8 + xmpExtentCount * 8 else 0
+        val primaryEntrySize = 8 + baseOffsetSize + 1 * 8 // 16 + baseOffsetSize
+        val xmpEntrySize = if (xmpText != null) 8 + baseOffsetSize + xmpExtentCount * 8 else 0
         val ilocPayloadSize = 8 + primaryEntrySize + xmpEntrySize
         val ilocBoxSize = 8 + ilocPayloadSize
         val iinfEntrySize = { contentTypeLen: Int -> 8 + 4 + 2 + 2 + 4 + 1 + contentTypeLen + 1 } // infe box: header(8)+FullBox(4)+item_ID(2,v2)+protidx(2)+type(4)+name NUL(1)+content_type+NUL
@@ -134,17 +147,22 @@ object HeicMetaFixture {
             payload.write(1) // version = 1 (supports construction_method)
             payload.write(byteArrayOf(0, 0, 0)) // flags
             payload.write(0x44) // offset_size=4, length_size=4
-            payload.write(0x00) // base_offset_size=0, index_size=0
+            payload.write((baseOffsetSize shl 4) or 0x00) // base_offset_size as computed above, index_size=0
             writeU16(payload, itemCount)
 
             // `extents` is one (offset, length) pair per extent -- for a real multi-extent item these
             // must describe distinct, contiguous, non-overlapping sub-ranges that concatenate back to
             // the item's full bytes (matching how a real HEIC reader reassembles a split item), not the
-            // same range repeated extentCount times.
-            fun writeEntry(itemId: Long, constructionMethod: Int, extents: List<Pair<Long, Long>>) {
+            // same range repeated extentCount times. `baseOffset` is written once per entry (base_offset
+            // is per-entry even though its WIDTH, base_offset_size, is a single iloc-wide field) --
+            // each extent's own `offset` in `extents` must already be relative to this entry's
+            // `baseOffset` (i.e. the caller has done `absolute - baseOffset`), matching how a real
+            // decoder resolves an item's final position as `baseOffset + extent.offset`.
+            fun writeEntry(itemId: Long, constructionMethod: Int, baseOffset: Long, extents: List<Pair<Long, Long>>) {
                 writeU16(payload, itemId.toInt())
                 writeU16(payload, constructionMethod)
                 writeU16(payload, 0) // data_reference_index
+                if (baseOffsetSize > 0) writeU32(payload, baseOffset.toInt())
                 writeU16(payload, extents.size)
                 for ((offset, length) in extents) {
                     writeU32(payload, offset.toInt())
@@ -154,7 +172,10 @@ object HeicMetaFixture {
             // Same relative-to-iloc's-box-start convention as the XMP entry below; converted to an
             // absolute file offset once ilocBytes' final size is known.
             primaryIlocEntryOffsetHolder[0] = (8 /* iloc box header */ + payload.size()).toLong()
-            writeEntry(PRIMARY_ITEM_ID, primaryConstructionMethod, listOf(primaryItemOffset to primaryItemBytes.size.toLong()))
+            writeEntry(
+                PRIMARY_ITEM_ID, primaryConstructionMethod, primaryBaseOffset,
+                listOf((primaryItemOffset - primaryBaseOffset) to primaryItemBytes.size.toLong()),
+            )
             if (xmpText != null) {
                 // Record this entry's byte offset relative to iloc's own BOX start (i.e. including
                 // iloc's own 8-byte size+fourcc header, which isn't part of `payload` here) -- fixed
@@ -171,7 +192,7 @@ object HeicMetaFixture {
                     chunkStart += chunkLen
                     extent
                 }
-                writeEntry(XMP_ITEM_ID, xmpConstructionMethod, xmpExtents)
+                writeEntry(XMP_ITEM_ID, xmpConstructionMethod, 0L, xmpExtents)
             }
             val payloadBytes = payload.toByteArray()
             writeU32(ilocOut, 8 + payloadBytes.size)
@@ -225,6 +246,7 @@ object HeicMetaFixture {
             existingItemCount = itemCount,
             primaryIlocEntryOffset = ilocAbsoluteStart + primaryIlocEntryOffsetHolder[0],
             primaryConstructionMethod = primaryConstructionMethod,
+            primaryBaseOffset = primaryBaseOffset,
         )
     }
 
