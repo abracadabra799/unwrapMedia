@@ -28,12 +28,33 @@ object HeicMetaFixture {
         val primaryItemLength: Long,
         val primaryItemBytes: ByteArray,
         val existingItemCount: Int,
+        /** Absolute file offset of the PRIMARY item's own fixed-width iloc entry (its item_ID field). */
+        val primaryIlocEntryOffset: Long,
+        /** The construction_method written into the primary item's iloc entry. */
+        val primaryConstructionMethod: Int,
     )
 
-    private const val PRIMARY_ITEM_ID = 1L
-    private const val XMP_ITEM_ID = 2L
+    const val PRIMARY_ITEM_ID = 1L
+    const val XMP_ITEM_ID = 2L
 
-    fun build(xmpText: String?, xmpConstructionMethod: Int = 0, xmpExtentCount: Int = 1): Result {
+    /**
+     * @param primaryConstructionMethod construction_method to write into the PRIMARY item's iloc
+     *   entry. Defaults to 0 (absolute offset -- what every real encoder emits and what all existing
+     *   callers assume). Set to 1 to exercise createHeicXmpItem's idat-relative exemption in the
+     *   offset-shift-correction pass: such an entry's offset must NOT be shifted when meta grows.
+     *   Note the primary bytes are always physically written into mdat regardless; only the entry's
+     *   own construction_method field changes, exactly as with xmpConstructionMethod.
+     * @param ilocBeforeIinf Emit `iloc` BEFORE `iinf` inside meta. ISOBMFF imposes no ordering on
+     *   meta's children and real encoders do emit iloc first, so box surgery that appends to both
+     *   must work either way. Defaults to false (iinf first) to leave existing callers unaffected.
+     */
+    fun build(
+        xmpText: String?,
+        xmpConstructionMethod: Int = 0,
+        xmpExtentCount: Int = 1,
+        primaryConstructionMethod: Int = 0,
+        ilocBeforeIinf: Boolean = false,
+    ): Result {
         val primaryItemBytes = ByteArray(16) { (it + 1).toByte() }
 
         val ftyp = byteArrayOf(
@@ -107,6 +128,7 @@ object HeicMetaFixture {
 
         val ilocOut = ByteArrayOutputStream()
         val xmpIlocEntryOffsetHolder = LongArray(1)
+        val primaryIlocEntryOffsetHolder = LongArray(1)
         run {
             val payload = ByteArrayOutputStream()
             payload.write(1) // version = 1 (supports construction_method)
@@ -129,7 +151,10 @@ object HeicMetaFixture {
                     writeU32(payload, length.toInt())
                 }
             }
-            writeEntry(PRIMARY_ITEM_ID, 0, listOf(primaryItemOffset to primaryItemBytes.size.toLong()))
+            // Same relative-to-iloc's-box-start convention as the XMP entry below; converted to an
+            // absolute file offset once ilocBytes' final size is known.
+            primaryIlocEntryOffsetHolder[0] = (8 /* iloc box header */ + payload.size()).toLong()
+            writeEntry(PRIMARY_ITEM_ID, primaryConstructionMethod, listOf(primaryItemOffset to primaryItemBytes.size.toLong()))
             if (xmpText != null) {
                 // Record this entry's byte offset relative to iloc's own BOX start (i.e. including
                 // iloc's own 8-byte size+fourcc header, which isn't part of `payload` here) -- fixed
@@ -161,8 +186,13 @@ object HeicMetaFixture {
         metaOut.write(byteArrayOf(0, 0, 0, 0)) // FullBox version/flags
         metaOut.write(hdlrBox)
         metaOut.write(pitmBox)
-        metaOut.write(iinfBytes)
-        metaOut.write(ilocBytes)
+        if (ilocBeforeIinf) {
+            metaOut.write(ilocBytes)
+            metaOut.write(iinfBytes)
+        } else {
+            metaOut.write(iinfBytes)
+            metaOut.write(ilocBytes)
+        }
         val metaBytes = metaOut.toByteArray()
         check(metaBytes.size == metaBoxSize) { "Fixture internal size mismatch: computed $metaBoxSize, built ${metaBytes.size}" }
 
@@ -173,9 +203,13 @@ object HeicMetaFixture {
 
         val allBytes = ftyp + metaBytes + mdatOut.toByteArray()
 
-        // iloc is the last child written into meta (hdlr, pitm, iinf, iloc in that order -- see the
-        // metaOut assembly above), so iloc's box start is exactly metaBytes' end minus iloc's own size.
-        val ilocAbsoluteStart = (ftyp.size + metaBoxSize - ilocBytes.size).toLong()
+        // meta's children are laid out as: FullBox(4), hdlr, pitm, then iinf/iloc in whichever order
+        // ilocBeforeIinf selects -- so iloc's box start is meta's payload start plus everything
+        // written ahead of it.
+        val ilocAbsoluteStart = (
+            ftyp.size + 12 /* meta size+type+FullBox */ + hdlrBox.size + pitmBox.size +
+                (if (ilocBeforeIinf) 0 else iinfBytes.size)
+            ).toLong()
 
         return Result(
             heicBytes = allBytes,
@@ -189,6 +223,8 @@ object HeicMetaFixture {
             primaryItemLength = primaryItemBytes.size.toLong(),
             primaryItemBytes = primaryItemBytes,
             existingItemCount = itemCount,
+            primaryIlocEntryOffset = ilocAbsoluteStart + primaryIlocEntryOffsetHolder[0],
+            primaryConstructionMethod = primaryConstructionMethod,
         )
     }
 

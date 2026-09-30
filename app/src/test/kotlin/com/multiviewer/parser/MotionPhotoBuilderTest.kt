@@ -504,44 +504,74 @@ class MotionPhotoBuilderTest {
     }
 
     @Test
-    fun `createHeicXmpItem registers a new item without disturbing the existing primary item's bytes`() {
+    fun `createHeicXmpItem keeps the primary item's own iloc entry resolving to its original bytes`() {
         val fixture = HeicMetaFixture.build(xmpText = null) // no XMP item in this fixture at all
 
-        val newXmpBytes = "<x:xmpmeta>brand new</x:xmpmeta>".toByteArray(Charsets.UTF_8)
+        val newXmpBytes = NEW_XMP_PACKET.toByteArray(Charsets.UTF_8)
         val result = MotionPhotoBuilder.createHeicXmpItem(fixture.heicBytes, newXmpBytes)
 
-        // The primary item's bytes must resolve to the exact same content at the exact same offset
-        // as before -- the single most important regression check for this function.
-        // The primary item's mdat sits immediately after meta's old end (this fixture always builds
-        // it that way -- see HeicMetaFixture), and meta legitimately grows here (one new infe entry
-        // plus one new iloc entry are inserted into it), which necessarily pushes every byte from the
-        // old mdat onward -- including the primary item's own pixel bytes -- forward in the file by
-        // that same growth. The growth amount is derivable purely from the two files' sizes (no
-        // content-sniffing, no re-implementing createHeicXmpItem's internal arithmetic): the total
-        // size delta minus the freshly-appended XMP mdat (8-byte header + payload) accounts for
-        // exactly the growth of iinf/iloc/meta.
-        val totalGrowth = result.size - fixture.heicBytes.size - 8 - newXmpBytes.size
-        val expectedPrimaryOffset = fixture.primaryItemOffset.toInt() + totalGrowth
-        val primaryBytesAfter = result.copyOfRange(
-            expectedPrimaryOffset,
-            expectedPrimaryOffset + fixture.primaryItemLength.toInt(),
-        )
+        // THE regression check the design spec calls out: "the pre-existing primary-image item's
+        // `iloc` offset, after the insertion, still resolves to the exact same original bytes".
+        //
+        // That means reading the primary item's ACTUAL iloc entry fields (base_offset +
+        // extent_offset + extent_length) out of the PRODUCED bytes and resolving them -- not reading
+        // raw bytes at a position derived from the overall file-size delta. The latter passes even
+        // with the offset-shift-correction pass entirely removed, because the primary's bytes
+        // physically move via the straight byte copy regardless of whether the iloc entry that
+        // describes their position was updated to match.
+        val entriesBefore = readIlocEntries(fixture.heicBytes)
+        val entriesAfter = readIlocEntries(result)
+
+        val primaryAfter = entriesAfter[HeicMetaFixture.PRIMARY_ITEM_ID]
+        assertNotNull(primaryAfter, "Expected the primary item's iloc entry to still be registered")
+        assertEquals(0, primaryAfter.constructionMethod, "Primary item must still be an absolute-offset item")
+        assertEquals(1, primaryAfter.extents.size, "Primary item's extent list must not have changed shape")
         assertTrue(
-            primaryBytesAfter.contentEquals(fixture.primaryItemBytes),
-            "Primary item's bytes must survive byte-for-byte, correctly shifted forward by meta's growth ($totalGrowth bytes)",
+            primaryAfter.resolveBytes(result).contentEquals(fixture.primaryItemBytes),
+            "The primary item's iloc entry must resolve to its original bytes byte-for-byte; " +
+                "it resolves to ${primaryAfter.resolveBytes(result).toList()} instead",
         )
 
-        // Re-parse with this app's own HEIC understanding and find the new XMP item.
+        // ...and the entry must genuinely have been REWRITTEN, by exactly meta's growth -- otherwise
+        // the assertion above could be passing for the wrong reason (e.g. a fixture where nothing
+        // needed to move).
+        val metaGrowth = result.size - fixture.heicBytes.size - 8 - newXmpBytes.size
+        assertTrue(metaGrowth > 0, "Expected meta to have grown (one new infe + one new iloc entry)")
+        val primaryBefore = entriesBefore.getValue(HeicMetaFixture.PRIMARY_ITEM_ID)
+        assertEquals(
+            primaryBefore.absoluteStart() + metaGrowth,
+            primaryAfter.absoluteStart(),
+            "Primary item's resolved absolute offset must have been shifted forward by exactly meta's growth ($metaGrowth)",
+        )
+        assertEquals(primaryBefore.extents[0].second, primaryAfter.extents[0].second, "Primary item's extent_length must not change")
+
+        // The new XMP item: registered with a non-colliding item_ID, and its own iloc entry resolves
+        // to exactly the bytes handed in.
+        assertEquals(fixture.existingItemCount + 1, entriesAfter.size, "Expected exactly one new iloc item entry")
+        val newEntry = entriesAfter.values.last()
+        assertTrue(
+            newEntry.itemId !in entriesBefore.keys,
+            "New item's item_ID (${newEntry.itemId}) must not collide with any pre-existing item ${entriesBefore.keys}",
+        )
+        assertEquals(0, newEntry.constructionMethod, "New XMP item must be registered as an absolute-offset item")
+        assertTrue(newEntry.resolveBytes(result).contentEquals(newXmpBytes), "New XMP item's iloc entry must resolve to the XMP bytes")
+
+        // Finally, this app's own HEIC reader must find it via its structured meta/iloc walk.
         val reExtent = MotionPhotoBuilder.findXmpExtentInHeic(result)
         assertNotNull(reExtent)
         val (xmpStart, xmpLen) = reExtent
-        assertEquals("<x:xmpmeta>brand new</x:xmpmeta>", String(result, xmpStart, xmpLen, Charsets.UTF_8))
+        assertEquals(NEW_XMP_PACKET, String(result, xmpStart, xmpLen, Charsets.UTF_8))
     }
 
     @Test
     fun `createHeicXmpItem picks an item_ID that does not collide with any existing item`() {
         val fixture = HeicMetaFixture.build(xmpText = null)
-        val newXmpBytes = "<x:xmpmeta/>".toByteArray(Charsets.UTF_8)
+        // A realistic packet shape (carries a literal rdf:Description, like mergeMotionPhotoXmp's own
+        // output) so findXmpExtentInHeic's STRUCTURED meta/iloc walk can match it. A bare
+        // "<x:xmpmeta/>" matches neither "Container" nor "rdf:Description" and is under its 20-byte
+        // minimum, so the walk silently falls through to a whole-file raw pattern scan -- which only
+        // proves some bytes were appended somewhere, not that the item is registered and locatable.
+        val newXmpBytes = NEW_XMP_PACKET.toByteArray(Charsets.UTF_8)
         val result = MotionPhotoBuilder.createHeicXmpItem(fixture.heicBytes, newXmpBytes)
 
         // Re-parsing must still find exactly the primary item plus the new XMP item -- no item_ID
@@ -555,6 +585,351 @@ class MotionPhotoBuilderTest {
         val iinfNode = findFirst(metaNode) { it.type == "iinf" }
         assertNotNull(iinfNode)
         assertEquals(fixture.existingItemCount + 1, iinfNode.children.size, "Expected exactly one new infe entry to be added")
+
+        // The new infe's item_ID must match the new iloc entry's item_ID, and both must be distinct
+        // from every pre-existing item -- the actual anti-collision claim, checked on real fields.
+        val infeItemIds = iinfNode.children.map { infe -> infe.fields.first { it.name == "item_ID" }.value.toLong() }
+        assertEquals(infeItemIds.size, infeItemIds.distinct().size, "infe item_IDs must be unique: $infeItemIds")
+        assertEquals(infeItemIds.toSortedSet(), readIlocEntries(result).keys.toSortedSet(), "iinf and iloc must register the same item_ID set")
+
+        // And the structured walk locates the new item's content via iloc (not via the fallback scan).
+        val reExtent = MotionPhotoBuilder.findXmpExtentInHeic(result)
+        assertNotNull(reExtent)
+        assertEquals(NEW_XMP_PACKET, String(result, reExtent.first, reExtent.second, Charsets.UTF_8))
+    }
+
+    @Test
+    fun `createHeicXmpItem leaves an idat-relative primary item's iloc offset unshifted`() {
+        // construction_method=1 is idat-relative: its "offset" is an offset into the idat box, not an
+        // absolute file offset, so meta growing must NOT change it. This exercises the exemption in
+        // createHeicXmpItem's own offset-shift-correction pass (previously only covered for
+        // repointHeicXmpItem's separate idat path).
+        val fixture = HeicMetaFixture.build(xmpText = null, primaryConstructionMethod = 1)
+        val newXmpBytes = NEW_XMP_PACKET.toByteArray(Charsets.UTF_8)
+        val result = MotionPhotoBuilder.createHeicXmpItem(fixture.heicBytes, newXmpBytes)
+
+        val metaGrowth = result.size - fixture.heicBytes.size - 8 - newXmpBytes.size
+        assertTrue(metaGrowth > 0, "Expected meta to grow -- otherwise a missing exemption couldn't be observed")
+
+        val before = readIlocEntries(fixture.heicBytes).getValue(HeicMetaFixture.PRIMARY_ITEM_ID)
+        val after = readIlocEntries(result).getValue(HeicMetaFixture.PRIMARY_ITEM_ID)
+        assertEquals(1, after.constructionMethod, "Fixture must actually have written construction_method=1")
+        assertEquals(
+            before.extents[0].first,
+            after.extents[0].first,
+            "An idat-relative (construction_method=1) extent_offset must be left untouched when meta grows by $metaGrowth",
+        )
+        assertEquals(before.baseOffset, after.baseOffset, "An idat-relative entry's base_offset must be left untouched too")
+    }
+
+    @Test
+    fun `createHeicXmpItem bails out when iloc's item_count disagrees with iinf's infe count`() {
+        // iloc's item_count and iinf's infe count are different fields in different boxes; nothing
+        // structurally guarantees they agree. The offset-shift-correction pass is bounded by the
+        // PRE-growth ILOC count specifically, so if the two disagree the premise is broken: an
+        // undercount would leave the primary image's extent pointing into the grown meta box, an
+        // overcount would double-shift the freshly-appended entry. Bail out unchanged instead.
+        val fixture = HeicMetaFixture.build(xmpText = null)
+        val corrupted = fixture.heicBytes.copyOf()
+        val itemCountPos = fixture.primaryIlocEntryOffset.toInt() - 2 // entries start right after item_count (u16, iloc v1)
+        assertEquals(1, ((corrupted[itemCountPos].toInt() and 0xFF) shl 8) or (corrupted[itemCountPos + 1].toInt() and 0xFF))
+        corrupted[itemCountPos + 1] = 2 // claim 2 items while iinf still registers only 1
+
+        val result = MotionPhotoBuilder.createHeicXmpItem(corrupted, NEW_XMP_PACKET.toByteArray(Charsets.UTF_8))
+        assertTrue(result.contentEquals(corrupted), "Expected createHeicXmpItem to return the input untouched on an iinf/iloc count mismatch")
+    }
+
+    @Test
+    fun `createHeicXmpItem bails out when the new item_ID would not fit in iloc's item_ID width`() {
+        // iloc version 1 writes item_ID in 2 bytes. If the highest existing item_ID is already 0xFFFF,
+        // the next ID (0x10000) cannot be written there -- silently truncating it to 0x0000 would
+        // collide with a real item. (infe's item_ID width follows infe's OWN version rules, which is
+        // why the two widths have to be checked separately.)
+        val fixture = HeicMetaFixture.build(xmpText = null)
+        val bytes = fixture.heicBytes.copyOf()
+
+        // Raise the primary item's ID to 0xFFFF in both boxes. Both fields are 2 bytes wide here, so
+        // this is a size-preserving in-place patch -- no offsets move.
+        val infeIndex = indexOfAscii(bytes, "infe")
+        assertTrue(infeIndex >= 0, "Expected to find an infe box in the fixture")
+        val infeItemIdPos = infeIndex + 8 // "infe" at boxStart+4, item_ID at boxStart+12
+        assertEquals(HeicMetaFixture.PRIMARY_ITEM_ID.toInt(), ((bytes[infeItemIdPos].toInt() and 0xFF) shl 8) or (bytes[infeItemIdPos + 1].toInt() and 0xFF))
+        bytes[infeItemIdPos] = 0xFF.toByte()
+        bytes[infeItemIdPos + 1] = 0xFF.toByte()
+        val ilocItemIdPos = fixture.primaryIlocEntryOffset.toInt()
+        bytes[ilocItemIdPos] = 0xFF.toByte()
+        bytes[ilocItemIdPos + 1] = 0xFF.toByte()
+
+        val result = MotionPhotoBuilder.createHeicXmpItem(bytes, NEW_XMP_PACKET.toByteArray(Charsets.UTF_8))
+        assertTrue(result.contentEquals(bytes), "Expected createHeicXmpItem to bail out rather than truncate the new item_ID into a collision")
+    }
+
+    @Test
+    fun `createHeicXmpItem handles a meta box that emits iloc before iinf`() {
+        // ISOBMFF imposes no ordering on meta's children, and real encoders do emit iloc first. The
+        // "copy the region between the two boxes" step previously assumed iinf came first, making that
+        // copy a negative length -- an uncaught exception propagating out of createMotionPhoto and
+        // aborting motion-photo creation entirely.
+        val fixture = HeicMetaFixture.build(xmpText = null, ilocBeforeIinf = true)
+
+        // Premise check: the fixture really did emit iloc first, so this test can't silently be
+        // re-testing the ordinary iinf-first layout.
+        val ilocIndex = indexOfAscii(fixture.heicBytes, "iloc")
+        val iinfIndex = indexOfAscii(fixture.heicBytes, "iinf")
+        assertTrue(ilocIndex in 0 until iinfIndex, "Expected the fixture to place iloc ($ilocIndex) before iinf ($iinfIndex)")
+
+        val newXmpBytes = NEW_XMP_PACKET.toByteArray(Charsets.UTF_8)
+        val result = MotionPhotoBuilder.createHeicXmpItem(fixture.heicBytes, newXmpBytes)
+
+        assertTrue(result.size > fixture.heicBytes.size, "Expected the reversed-order file to actually be rewritten, not bailed out of")
+
+        // Same guarantees as the iinf-first case: the primary item still resolves to its own bytes,
+        // and the new XMP item is registered and locatable.
+        val entriesAfter = readIlocEntries(result)
+        val primary = entriesAfter.getValue(HeicMetaFixture.PRIMARY_ITEM_ID)
+        assertTrue(primary.resolveBytes(result).contentEquals(fixture.primaryItemBytes), "Primary item's iloc entry must still resolve to its original bytes")
+        assertEquals(fixture.existingItemCount + 1, entriesAfter.size, "Expected exactly one new iloc item entry")
+        val newEntry = entriesAfter.values.last()
+        assertTrue(newEntry.resolveBytes(result).contentEquals(newXmpBytes), "New XMP item's iloc entry must resolve to the XMP bytes")
+
+        val reExtent = MotionPhotoBuilder.findXmpExtentInHeic(result)
+        assertNotNull(reExtent, "Expected the new XMP item to be locatable via meta/iloc")
+        assertEquals(NEW_XMP_PACKET, String(result, reExtent.first, reExtent.second, Charsets.UTF_8))
+
+        // And this app's own parser still reads the rewritten meta box cleanly.
+        val tmp = File.createTempFile("heic-iloc-first-", ".heic").apply { deleteOnExit(); writeBytes(result) }
+        val root = parseFile(tmp)
+        assertNotNull(findFirst(root) { it.type == "iinf" }, "Expected iinf to still be parseable after the rewrite")
+        assertNotNull(findFirst(root) { it.type == "iloc" }, "Expected iloc to still be parseable after the rewrite")
+        tmp.delete()
+    }
+
+    @Test
+    fun `createSamsungHeicMotionPhoto merges an Adobe-style xpacket XMP in place instead of registering a duplicate item`() {
+        // The Finding-4 root case. This packet is shaped like real camera/Adobe XMP: an
+        // `<?xpacket begin ...?>` processing instruction ahead of `<x:xmpmeta`, then namespace
+        // declarations, so `rdf:Description` lands well past byte 100 of the item's extent. That
+        // defeats findXmpExtentInHeic's structured-walk content sniff (it only samples the first 100
+        // bytes and needs "Container" or "rdf:Description" in them), which used to be read as "this
+        // file has no XMP item" -- and a SECOND XMP item would be registered while the original stayed
+        // registered earlier in the list, so every reader that returns the first match would keep
+        // reading the STALE one. Locating the item structurally (iinf item_type/content_type, then
+        // iloc by item_ID) makes the sniff irrelevant.
+        val existingXmp = "<?xpacket begin=\"﻿\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>" +
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Adobe XMP Core 5.6-c148 79.164036\">" +
+            "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">" +
+            "<rdf:Description rdf:about=\"\" xmlns:tiff=\"http://ns.adobe.com/tiff/1.0/\" tiff:Make=\"SomeCamera\"/>" +
+            "</rdf:RDF></x:xmpmeta><?xpacket end=\"w\"?>"
+
+        // Confirm the premise: the content sniff really does mislocate this packet, so this test is
+        // exercising the intended scenario rather than passing for an unrelated reason.
+        val fixture = HeicMetaFixture.build(xmpText = existingXmp)
+        val sniffed = MotionPhotoBuilder.findXmpExtentInHeic(fixture.heicBytes)
+        assertNotNull(sniffed)
+        val xmpItemStart = readIlocEntries(fixture.heicBytes).getValue(HeicMetaFixture.XMP_ITEM_ID).absoluteStart()
+        assertTrue(
+            sniffed.first.toLong() != xmpItemStart,
+            "Premise check: expected the content sniff to MISS this packet's real item start ($xmpItemStart), got ${sniffed.first}",
+        )
+
+        val imageFile = File.createTempFile("heic-xpacket-", ".heic")
+        imageFile.deleteOnExit()
+        imageFile.writeBytes(fixture.heicBytes)
+
+        val videoFile = File.createTempFile("heic-xpacket-vid-", ".mp4")
+        videoFile.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=1:size=64x48:rate=10",
+            videoFile.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val outputFile = File.createTempFile("heic-xpacket-out-", ".heic")
+        outputFile.deleteOnExit()
+        MotionPhotoBuilder.createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile)
+
+        val outBytes = outputFile.readBytes()
+        val entries = readIlocEntries(outBytes)
+        assertEquals(
+            fixture.existingItemCount,
+            entries.size,
+            "Expected the EXISTING XMP item to be repointed, not a second one registered alongside it (items: ${entries.keys})",
+        )
+
+        // The one registered XMP item must resolve to the merged content: the original attribute AND
+        // the motion-photo marker.
+        val mergedXmp = String(entries.getValue(HeicMetaFixture.XMP_ITEM_ID).resolveBytes(outBytes), Charsets.UTF_8)
+        assertTrue(mergedXmp.contains("tiff:Make=\"SomeCamera\""), "Expected the original tiff:Make to survive the merge, got: $mergedXmp")
+        assertTrue(mergedXmp.contains("GCamera:MotionPhoto=\"1\""), "Expected the motion-photo marker in the merged XMP, got: $mergedXmp")
+
+        // ...and exactly one motion-photo XMP exists in the whole file, so no reader can pick a stale one.
+        assertEquals(
+            1,
+            Regex("GCamera:MotionPhoto=\"1\"").findAll(String(outBytes, Charsets.ISO_8859_1)).count(),
+            "Expected exactly one motion-photo XMP in the output file",
+        )
+
+        assertSefVideoOffsetMatchesMpvd(outputFile)
+
+        imageFile.delete()
+        videoFile.delete()
+        outputFile.delete()
+    }
+
+    @Test
+    fun `createSamsungHeicMotionPhoto leaves the file unchanged rather than duplicating an unrepointable XMP item`() {
+        // A multi-extent XMP item can't be cheaply repointed (repointHeicXmpItem returns null). The
+        // old fallback registered a brand-new item, leaving the original as an earlier, stale
+        // duplicate that readers would find first. Now the base bytes pass through untouched -- worst
+        // case "no new XMP", never a misleading duplicate -- and the motion photo is still created.
+        val existingXmp = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">" +
+            "<rdf:Description rdf:about=\"\" xmlns:tiff=\"http://ns.adobe.com/tiff/1.0/\" tiff:Make=\"SomeCamera\"/></rdf:RDF></x:xmpmeta>"
+        val fixture = HeicMetaFixture.build(xmpText = existingXmp, xmpExtentCount = 2)
+
+        val imageFile = File.createTempFile("heic-multiextent-", ".heic")
+        imageFile.deleteOnExit()
+        imageFile.writeBytes(fixture.heicBytes)
+
+        val videoFile = File.createTempFile("heic-multiextent-vid-", ".mp4")
+        videoFile.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=1:size=64x48:rate=10",
+            videoFile.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val outputFile = File.createTempFile("heic-multiextent-out-", ".heic")
+        outputFile.deleteOnExit()
+        MotionPhotoBuilder.createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile)
+
+        val outBytes = outputFile.readBytes()
+        val entries = readIlocEntries(outBytes)
+        assertEquals(fixture.existingItemCount, entries.size, "No extra XMP item may be registered (items: ${entries.keys})")
+        // The original XMP is still intact and is still the only one.
+        assertEquals(
+            existingXmp,
+            String(entries.getValue(HeicMetaFixture.XMP_ITEM_ID).resolveBytes(outBytes), Charsets.UTF_8),
+            "The original multi-extent XMP item must be left exactly as it was",
+        )
+        assertFalse(String(outBytes, Charsets.ISO_8859_1).contains("GCamera:MotionPhoto=\"1\""), "No competing motion-photo XMP may be written")
+
+        // ...and the motion photo itself was still created.
+        val root = parseFile(outputFile)
+        assertNotNull(root.children.find { it.type == "mpvd" })
+        assertNotNull(root.children.find { it.type == "sefd" })
+        ByteReader.open(outputFile).use { reader ->
+            val embeddedVideo = findEmbeddedVideo(root, reader)
+            assertNotNull(embeddedVideo)
+            assertEquals(videoFile.length(), embeddedVideo.end - embeddedVideo.start)
+        }
+        assertSefVideoOffsetMatchesMpvd(outputFile)
+
+        imageFile.delete()
+        videoFile.delete()
+        outputFile.delete()
+    }
+
+    @Test
+    fun `createSamsungHeicMotionPhoto still produces a valid motion photo when the XMP subsystem bails out`() {
+        // iloc's own item_count deliberately disagrees with iinf's infe count. createHeicXmpItem must
+        // refuse to do offset surgery on a premise that doesn't hold -- and, critically, the motion
+        // photo must still be created: "a merge failure must never abort motion-photo creation".
+        val fixture = HeicMetaFixture.build(xmpText = null)
+        val corrupted = fixture.heicBytes.copyOf()
+        // iloc's item_count is a u16 at iloc payload + 6 (version=1 in this fixture).
+        val ilocEntryOffset = fixture.primaryIlocEntryOffset.toInt()
+        val itemCountPos = ilocEntryOffset - 2 // the entry list starts immediately after item_count
+        assertEquals(1, ((corrupted[itemCountPos].toInt() and 0xFF) shl 8) or (corrupted[itemCountPos + 1].toInt() and 0xFF))
+        corrupted[itemCountPos + 1] = 2 // claim 2 items while only 1 entry is present
+
+        val imageFile = File.createTempFile("heic-bad-iloc-count-", ".heic")
+        imageFile.deleteOnExit()
+        imageFile.writeBytes(corrupted)
+
+        val videoFile = File.createTempFile("heic-bail-vid-", ".mp4")
+        videoFile.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=1:size=64x48:rate=10",
+            videoFile.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val outputFile = File.createTempFile("heic-bail-out-", ".heic")
+        outputFile.deleteOnExit()
+        MotionPhotoBuilder.createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile)
+
+        assertTrue(outputFile.length() > 0, "Motion-photo creation must not be aborted by an XMP-subsystem bail-out")
+        val root = parseFile(outputFile)
+        assertNotNull(root.children.find { it.type == "mpvd" }, "Expected a top-level mpvd box")
+        assertNotNull(root.children.find { it.type == "sefd" }, "Expected a top-level sefd box")
+        ByteReader.open(outputFile).use { reader ->
+            val embeddedVideo = findEmbeddedVideo(root, reader)
+            assertNotNull(embeddedVideo, "Expected the embedded video to still be extractable")
+            assertEquals(videoFile.length(), embeddedVideo.end - embeddedVideo.start)
+        }
+        // The base HEIC was passed through untouched, so the SEF pointer must still be exact.
+        assertSefVideoOffsetMatchesMpvd(outputFile)
+
+        imageFile.delete()
+        videoFile.delete()
+        outputFile.delete()
+    }
+
+    @Test
+    fun `createSamsungHeicMotionPhoto registers a brand-new XMP item end-to-end when the source HEIC has none`() {
+        // createHeicXmpItem's actual target scenario, through the full pipeline: a HEIC with a real
+        // meta/iinf/iloc structure but NO existing XMP item. Neither pre-existing HEIC end-to-end
+        // test reached this code path with a realistic file (one has no meta box at all, the other
+        // always has an XMP item to repoint).
+        val fixture = HeicMetaFixture.build(xmpText = null)
+        val imageFile = File.createTempFile("heic-no-xmp-", ".heic")
+        imageFile.deleteOnExit()
+        imageFile.writeBytes(fixture.heicBytes)
+
+        val videoFile = File.createTempFile("heic-create-vid-", ".mp4")
+        videoFile.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=1:size=64x48:rate=10",
+            videoFile.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val outputFile = File.createTempFile("heic-create-out-", ".heic")
+        outputFile.deleteOnExit()
+        MotionPhotoBuilder.createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile)
+
+        // (a) The motion-photo container itself is still correct and fully locatable.
+        val fileBytes = outputFile.readBytes()
+        assertEquals("SEFT", String(fileBytes.copyOfRange(fileBytes.size - 4, fileBytes.size), Charsets.US_ASCII))
+        val root = parseFile(outputFile)
+        assertNotNull(root.children.find { it.type == "mpvd" }, "Expected a top-level mpvd box")
+        val sefdNode = root.children.find { it.type == "sefd" }
+        assertNotNull(sefdNode, "Expected a top-level sefd box")
+        assertNotNull(sefdNode.children.find { it.type == "MotionPhoto_Data" }, "Expected SEFD to contain MotionPhoto_Data")
+        ByteReader.open(outputFile).use { reader ->
+            val embeddedVideo = findEmbeddedVideo(root, reader)
+            assertNotNull(embeddedVideo, "Expected the embedded video to be extractable from mpvd")
+            assertEquals("mp4", embeddedVideo.extension)
+            assertEquals(videoFile.length(), embeddedVideo.end - embeddedVideo.start)
+        }
+
+        // (b) ...and the file now ALSO has a discoverable XMP item carrying the motion-photo marker,
+        // registered by createHeicXmpItem.
+        val xmpNode = findFirst(root) { it.fields.any { f -> f.name == "xmp" } }
+        assertNotNull(xmpNode, "Expected the output HEIC to have a discoverable XMP item")
+        val xmpValue = xmpNode.fields.first { it.name == "xmp" }.value
+        assertTrue(xmpValue.contains("GCamera:MotionPhoto=\"1\""), "Expected the new XMP to carry GCamera:MotionPhoto=\"1\", got: $xmpValue")
+        assertNotNull(MotionPhotoBuilder.findXmpExtentInHeic(fileBytes), "Expected findXmpExtentInHeic to locate the new item")
+
+        // (c) The primary image item must still resolve to its original bytes in the final file.
+        val primary = readIlocEntries(fileBytes).getValue(HeicMetaFixture.PRIMARY_ITEM_ID)
+        assertTrue(
+            primary.resolveBytes(fileBytes).contentEquals(fixture.primaryItemBytes),
+            "The primary item's iloc entry must still resolve to its original bytes in the finished motion photo",
+        )
+
+        // (d) The SEF video pointer must agree with where the video actually is.
+        assertSefVideoOffsetMatchesMpvd(outputFile)
+
+        imageFile.delete()
+        videoFile.delete()
+        outputFile.delete()
     }
 
     @Test
@@ -585,8 +960,170 @@ class MotionPhotoBuilderTest {
             assertTrue(xmpValue.contains("GCamera:MotionPhoto=\"1\""))
         }
 
+        // The repoint path GROWS the base HEIC (it appends a new mdat), so this is the regression
+        // guard for the SEF video pointer having been computed from the pre-growth base size.
+        assertSefVideoOffsetMatchesMpvd(outputFile)
+
         imageFile.delete()
         videoFile.delete()
         outputFile.delete()
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Test-local helpers
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * A realistic XMP packet shape for tests that need findXmpExtentInHeic's STRUCTURED meta/iloc walk
+     * to match on its own merits: it carries a literal `rdf:Description` within the first 100 bytes of
+     * the extent and is comfortably over the walk's 20-byte minimum, matching real mergeMotionPhotoXmp
+     * output. Placeholders lacking both "Container" and "rdf:Description" make the walk fall through to
+     * a whole-file raw pattern scan, which proves nothing about iloc registration.
+     */
+    private val NEW_XMP_PACKET =
+        "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:Description rdf:about=\"\">brand new</rdf:Description></x:xmpmeta>"
+
+    /** Byte index of the first occurrence of [needle]'s ASCII bytes in [bytes], or -1. */
+    private fun indexOfAscii(bytes: ByteArray, needle: String): Int {
+        val pattern = needle.toByteArray(Charsets.US_ASCII)
+        outer@ for (i in 0..bytes.size - pattern.size) {
+            for (j in pattern.indices) {
+                if (bytes[i + j] != pattern[j]) continue@outer
+            }
+            return i
+        }
+        return -1
+    }
+
+    /** One item entry read straight out of a HEIC's meta -> iloc box. */
+    private data class TestIlocEntry(
+        val itemId: Long,
+        val entryOffset: Long,
+        val constructionMethod: Int,
+        val baseOffset: Long,
+        /** (extent_offset, extent_length) pairs, in file order. */
+        val extents: List<Pair<Long, Long>>,
+    ) {
+        /** The absolute file offset this entry's first extent resolves to. */
+        fun absoluteStart(): Long = baseOffset + extents[0].first
+
+        /** The bytes this entry actually points at, extents concatenated in order. */
+        fun resolveBytes(bytes: ByteArray): ByteArray {
+            val out = java.io.ByteArrayOutputStream()
+            for ((offset, length) in extents) {
+                out.write(bytes, (baseOffset + offset).toInt(), length.toInt())
+            }
+            return out.toByteArray()
+        }
+    }
+
+    /**
+     * Reads every meta -> iloc item entry out of raw HEIC bytes, keyed by item_ID. Deliberately an
+     * INDEPENDENT re-derivation of the ISO/IEC 14496-12 ItemLocationBox field layout rather than a
+     * call into MotionPhotoBuilder's own walkers -- the point of these tests is to cross-check what
+     * the production code wrote, which a shared reader could agree with while both are wrong.
+     */
+    private fun readIlocEntries(bytes: ByteArray): Map<Long, TestIlocEntry> {
+        fun u(pos: Int, width: Int): Long {
+            var value = 0L
+            for (i in 0 until width) value = (value shl 8) or (bytes[pos + i].toLong() and 0xFF)
+            return value
+        }
+
+        var ilocStart = -1
+        var ilocEnd = -1
+        var pos = 0
+        while (pos + 8 <= bytes.size) {
+            val size = u(pos, 4)
+            if (size < 8 || pos + size > bytes.size) break
+            val type = String(bytes, pos + 4, 4, Charsets.US_ASCII)
+            val end = (pos + size).toInt()
+            if (type == "meta") {
+                var mp = pos + 12 // size + type + FullBox version/flags
+                while (mp + 8 <= end) {
+                    val childSize = u(mp, 4)
+                    if (childSize < 8 || mp + childSize > end) break
+                    if (String(bytes, mp + 4, 4, Charsets.US_ASCII) == "iloc") {
+                        ilocStart = mp
+                        ilocEnd = (mp + childSize).toInt()
+                    }
+                    mp += childSize.toInt()
+                }
+            }
+            pos = end
+        }
+        assertTrue(ilocStart >= 0, "No meta -> iloc box found in these bytes")
+
+        val p = ilocStart + 8
+        val version = bytes[p].toInt() and 0xFF
+        val offsetSize = (bytes[p + 4].toInt() and 0xFF) shr 4
+        val lengthSize = (bytes[p + 4].toInt() and 0xFF) and 0x0F
+        val baseOffsetSize = (bytes[p + 5].toInt() and 0xFF) shr 4
+        val indexSize = (bytes[p + 5].toInt() and 0xFF) and 0x0F
+        val itemCountWidth = if (version < 2) 2 else 4
+        val itemCount = u(p + 6, itemCountWidth).toInt()
+        val itemIdWidth = if (version < 2) 2 else 4
+        val constructionMethodWidth = if (version in 1..2) 2 else 0
+
+        var lp = p + 6 + itemCountWidth
+        val entries = LinkedHashMap<Long, TestIlocEntry>()
+        repeat(itemCount) {
+            val entryOffset = lp.toLong()
+            val itemId = u(lp, itemIdWidth); lp += itemIdWidth
+            val constructionMethod = if (constructionMethodWidth > 0) (u(lp, 2).toInt() and 0x0F) else 0
+            lp += constructionMethodWidth
+            lp += 2 // data_reference_index
+            val baseOffset = u(lp, baseOffsetSize); lp += baseOffsetSize
+            val extentCount = u(lp, 2).toInt(); lp += 2
+            val extents = (0 until extentCount).map {
+                lp += indexSize
+                val extentOffset = u(lp, offsetSize); lp += offsetSize
+                val extentLength = u(lp, lengthSize); lp += lengthSize
+                extentOffset to extentLength
+            }
+            entries[itemId] = TestIlocEntry(itemId, entryOffset, constructionMethod, baseOffset, extents)
+        }
+        // If item_count and the entries actually present disagree, the box is internally inconsistent
+        // -- exactly the class of corruption these tests exist to catch.
+        assertTrue(lp <= ilocEnd, "iloc's declared item_count ($itemCount) walked past the box end: $lp > $ilocEnd")
+        assertEquals(itemCount, entries.size, "iloc contained duplicate item_IDs")
+        return entries
+    }
+
+    /**
+     * Asserts the Samsung SEF `MotionPhoto_Data` block's `video_offset` pointer -- which Samsung
+     * Gallery uses to navigate to the video -- points at the video's genuine first byte, i.e. the
+     * `mpvd` box's payload start. This app's own checker/extractor resolve the video structurally via
+     * `mpvd` and so never exercise this pointer; nothing else in the suite validates it.
+     */
+    private fun assertSefVideoOffsetMatchesMpvd(outputFile: File) {
+        val bytes = outputFile.readBytes()
+        val root = parseFile(outputFile)
+        val mpvdNode = root.children.find { it.type == "mpvd" }
+        assertNotNull(mpvdNode, "Expected a top-level mpvd box to compare the SEF pointer against")
+        val actualVideoStart = mpvdNode.offset + mpvdNode.headerSize
+
+        // SEF MotionPhoto_Data block layout:
+        // [type_code u16 LE][marker u16 LE][name_len u32 LE][name]["mpv2"][video_offset u32 BE][video_length u32 BE]
+        val blockName = "MotionPhoto_Data"
+        val nameIndex = indexOfAscii(bytes, blockName)
+        assertTrue(nameIndex >= 0, "Expected a MotionPhoto_Data SEF block in the output")
+
+        val payloadStart = nameIndex + blockName.length
+        assertEquals("mpv2", String(bytes, payloadStart, 4, Charsets.US_ASCII), "Expected the mpv2 pointer payload")
+        var declaredVideoOffset = 0L
+        for (i in 0 until 4) declaredVideoOffset = (declaredVideoOffset shl 8) or (bytes[payloadStart + 4 + i].toLong() and 0xFF)
+        var declaredVideoLength = 0L
+        for (i in 0 until 4) declaredVideoLength = (declaredVideoLength shl 8) or (bytes[payloadStart + 8 + i].toLong() and 0xFF)
+
+        assertEquals(
+            actualVideoStart,
+            declaredVideoOffset,
+            "SEF MotionPhoto_Data video_offset must point at the video's actual first byte (mpvd payload start). " +
+                "A pointer computed from the PRE-XMP-merge base size is short by exactly the merge's growth.",
+        )
+        assertEquals(mpvdNode.size - mpvdNode.headerSize, declaredVideoLength, "SEF video_length must match the mpvd payload length")
+        // And the declared offset really does land on the video's ftyp box.
+        assertEquals("ftyp", String(bytes, declaredVideoOffset.toInt() + 4, 4, Charsets.US_ASCII), "video_offset must land on the video's ftyp box")
     }
 }
