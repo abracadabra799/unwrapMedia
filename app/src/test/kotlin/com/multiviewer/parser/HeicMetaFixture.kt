@@ -1,0 +1,233 @@
+package com.multiviewer.parser
+
+import java.io.ByteArrayOutputStream
+
+/**
+ * Builds a minimal but structurally realistic HEIC byte sequence -- ftyp + meta(hdlr, pitm, iinf[+infe],
+ * iloc[+item entries], optionally one for XMP) + mdat(primary item bytes) -- for testing
+ * repointHeicXmpItem/createHeicXmpItem against something closer to a real file than
+ * MotionPhotoBuilderTest's original bare [ftyp][mdat] fixture (which has no meta/iinf/iloc at all).
+ *
+ * Lives in the test source set (not main) rather than as `internal` production code: this project's
+ * Gradle test-source-set wiring compiles all of app/src/test/kotlin as one Kotlin compilation, so a
+ * non-private top-level declaration here is already importable from any other test file in the module
+ * regardless of package (the existing `buildSefTrailer` duplication between SefIntegrityAnalyzerTest.kt
+ * and MotionPhotoIntegrityAnalyzerTest.kt is because those copies are each declared `private`, which is
+ * file-scoped, not because cross-file/cross-package test sharing doesn't work -- it does). Since this
+ * fixture and its known consumers (HeicMetaFixtureTest, MotionPhotoBuilderTest) all live in the same
+ * `com.multiviewer.parser` test package anyway, keeping it here avoids exposing test-only byte-construction
+ * code from the shipped app's main source set.
+ */
+object HeicMetaFixture {
+    data class Result(
+        val heicBytes: ByteArray,
+        val xmpItemId: Long,
+        val xmpIlocEntryOffset: Long,
+        val xmpExtentCount: Int,
+        val primaryItemOffset: Long,
+        val primaryItemLength: Long,
+        val primaryItemBytes: ByteArray,
+        val existingItemCount: Int,
+    )
+
+    private const val PRIMARY_ITEM_ID = 1L
+    private const val XMP_ITEM_ID = 2L
+
+    fun build(xmpText: String?, xmpConstructionMethod: Int = 0, xmpExtentCount: Int = 1): Result {
+        val primaryItemBytes = ByteArray(16) { (it + 1).toByte() }
+
+        val ftyp = byteArrayOf(
+            0x00, 0x00, 0x00, 0x18,
+            0x66, 0x74, 0x79, 0x70, // ftyp
+            0x6d, 0x69, 0x66, 0x31, // mif1
+            0x00, 0x00, 0x00, 0x00,
+            0x6d, 0x69, 0x66, 0x31,
+            0x68, 0x65, 0x69, 0x63, // heic
+        )
+
+        // mdat holds: [primary item bytes][xmp bytes if idat-relative is NOT used -- we always use
+        // construction_method=0 for both items in this fixture, absolute-offset, for simplicity].
+        val xmpBytes = xmpText?.toByteArray(Charsets.UTF_8)
+        val mdatPayload = primaryItemBytes + (xmpBytes ?: ByteArray(0))
+        val mdatSize = 8 + mdatPayload.size
+
+        // Item offsets are absolute file offsets; mdat's payload starts right after ftyp + meta +
+        // mdat's own 8-byte header. We need meta's total size before we can compute this, so build
+        // meta first with placeholder offsets, then patch once meta's real size is known -- simpler:
+        // compute meta's bytes first (offsets inside iloc reference the eventual mdat payload start,
+        // which we can compute analytically since ftyp/meta sizes are deterministic given a fixed
+        // item count).
+
+        val itemCount = if (xmpText != null) 2 else 1
+        // iloc header (12) + item entries. Each entry (version=1, offsetSize=4,lengthSize=4,baseOffsetSize=0,indexSize=0):
+        // item_ID(2) + construction_method(2) + data_reference_index(2) + extent_count(2) + 1*(offset(4)+length(4)) = 16 bytes/entry
+        val ilocEntrySize = 16
+        val ilocPayloadSize = 8 + itemCount * ilocEntrySize // 2(version/flags-derived: 1 byte version+3 flags+1 sizes byte+1 sizes byte+2 item_count) -- see below for exact layout
+        // Exact iloc payload layout (version=1): version(1)+flags(3)+offset/length sizes(1)+base/index sizes(1)+item_count(2) = 8 bytes header, then itemCount*16.
+        val ilocBoxSize = 8 + ilocPayloadSize
+        val iinfEntrySize = { contentTypeLen: Int -> 8 + 4 + 2 + 2 + 4 + 1 + contentTypeLen + 1 } // infe box: header(8)+FullBox(4)+item_ID(2,v2)+protidx(2)+type(4)+name NUL(1)+content_type+NUL
+        val primaryInfeSize = 8 + 4 + 2 + 2 + 4 + 1 // item_type="hvc1" or similar, no content_type needed (not mime) -- name empty
+        val xmpInfeSize = if (xmpText != null) iinfEntrySize("application/rdf+xml".length) else 0
+        val iinfPayloadSize = 6 + primaryInfeSize + xmpInfeSize // FullBox(4)+entry_count(2) = 6
+        val iinfBoxSize = 8 + iinfPayloadSize
+
+        val hdlrBox = buildHdlrBox()
+        val pitmBox = buildPitmBox(PRIMARY_ITEM_ID)
+
+        val metaPayloadSize = 4 /* FullBox */ + hdlrBox.size + pitmBox.size + iinfBoxSize + ilocBoxSize
+        val metaBoxSize = 8 + metaPayloadSize
+
+        val mdatOffset = ftyp.size + metaBoxSize
+        val mdatPayloadOffset = mdatOffset + 8
+        val primaryItemOffset = mdatPayloadOffset.toLong()
+        val xmpItemOffset = if (xmpText != null) primaryItemOffset + primaryItemBytes.size else -1L
+
+        // Now build iinf with real content_type/name.
+        val iinfOut = ByteArrayOutputStream()
+        run {
+            val payload = ByteArrayOutputStream()
+            payload.write(byteArrayOf(0, 0, 0, 0)) // FullBox version=0, flags=0
+            writeU16(payload, itemCount)
+            payload.write(buildInfeBox(PRIMARY_ITEM_ID, "hvc1", null))
+            if (xmpText != null) payload.write(buildInfeBox(XMP_ITEM_ID, "mime", "application/rdf+xml"))
+            val payloadBytes = payload.toByteArray()
+            writeU32(iinfOut, 8 + payloadBytes.size)
+            iinfOut.write("iinf".toByteArray(Charsets.US_ASCII))
+            iinfOut.write(payloadBytes)
+        }
+        val iinfBytes = iinfOut.toByteArray()
+
+        val ilocOut = ByteArrayOutputStream()
+        val xmpIlocEntryOffsetHolder = LongArray(1)
+        run {
+            val payload = ByteArrayOutputStream()
+            payload.write(1) // version = 1 (supports construction_method)
+            payload.write(byteArrayOf(0, 0, 0)) // flags
+            payload.write(0x44) // offset_size=4, length_size=4
+            payload.write(0x00) // base_offset_size=0, index_size=0
+            writeU16(payload, itemCount)
+
+            fun writeEntry(itemId: Long, constructionMethod: Int, offset: Long, length: Long, extentCount: Int) {
+                writeU16(payload, itemId.toInt())
+                writeU16(payload, constructionMethod)
+                writeU16(payload, 0) // data_reference_index
+                writeU16(payload, extentCount)
+                for (e in 0 until extentCount) {
+                    writeU32(payload, offset.toInt())
+                    writeU32(payload, length.toInt())
+                }
+            }
+            writeEntry(PRIMARY_ITEM_ID, 0, primaryItemOffset, primaryItemBytes.size.toLong(), 1)
+            if (xmpText != null) {
+                // Record this entry's byte offset relative to iloc's own BOX start (i.e. including
+                // iloc's own 8-byte size+fourcc header, which isn't part of `payload` here) -- fixed
+                // up to an absolute file offset below, once ilocBytes' final size is known.
+                xmpIlocEntryOffsetHolder[0] = (8 /* iloc box header */ + payload.size()).toLong()
+                val perExtentLen = if (xmpExtentCount > 1) (xmpBytes!!.size / xmpExtentCount) else xmpBytes!!.size
+                writeEntry(XMP_ITEM_ID, xmpConstructionMethod, xmpItemOffset, perExtentLen.toLong(), xmpExtentCount)
+            }
+            val payloadBytes = payload.toByteArray()
+            writeU32(ilocOut, 8 + payloadBytes.size)
+            ilocOut.write("iloc".toByteArray(Charsets.US_ASCII))
+            ilocOut.write(payloadBytes)
+        }
+        val ilocBytes = ilocOut.toByteArray()
+
+        val metaOut = ByteArrayOutputStream()
+        writeU32(metaOut, 8 + 4 + hdlrBox.size + pitmBox.size + iinfBytes.size + ilocBytes.size)
+        metaOut.write("meta".toByteArray(Charsets.US_ASCII))
+        metaOut.write(byteArrayOf(0, 0, 0, 0)) // FullBox version/flags
+        metaOut.write(hdlrBox)
+        metaOut.write(pitmBox)
+        metaOut.write(iinfBytes)
+        metaOut.write(ilocBytes)
+        val metaBytes = metaOut.toByteArray()
+        check(metaBytes.size == metaBoxSize) { "Fixture internal size mismatch: computed $metaBoxSize, built ${metaBytes.size}" }
+
+        val mdatOut = ByteArrayOutputStream()
+        writeU32(mdatOut, mdatSize)
+        mdatOut.write("mdat".toByteArray(Charsets.US_ASCII))
+        mdatOut.write(mdatPayload)
+
+        val allBytes = ftyp + metaBytes + mdatOut.toByteArray()
+
+        // iloc is the last child written into meta (hdlr, pitm, iinf, iloc in that order -- see the
+        // metaOut assembly above), so iloc's box start is exactly metaBytes' end minus iloc's own size.
+        val ilocAbsoluteStart = (ftyp.size + metaBoxSize - ilocBytes.size).toLong()
+
+        return Result(
+            heicBytes = allBytes,
+            xmpItemId = XMP_ITEM_ID,
+            // xmpIlocEntryOffsetHolder[0] is already relative to iloc's own box start (see the
+            // comment where it's recorded above); adding ilocAbsoluteStart converts it to an
+            // absolute file offset. No further adjustment.
+            xmpIlocEntryOffset = ilocAbsoluteStart + xmpIlocEntryOffsetHolder[0],
+            xmpExtentCount = xmpExtentCount,
+            primaryItemOffset = primaryItemOffset,
+            primaryItemLength = primaryItemBytes.size.toLong(),
+            primaryItemBytes = primaryItemBytes,
+            existingItemCount = itemCount,
+        )
+    }
+
+    private fun buildHdlrBox(): ByteArray {
+        val out = ByteArrayOutputStream()
+        // Empty, NUL-terminated handler name (the "name" field of hdlr is a null-terminated UTF-8
+        // string per ISOBMFF; an empty name is valid and this fixture doesn't need a real one).
+        val handlerName = "\u0000"
+        val payload = ByteArrayOutputStream()
+        payload.write(byteArrayOf(0, 0, 0, 0)) // FullBox
+        payload.write(byteArrayOf(0, 0, 0, 0)) // pre_defined
+        payload.write("pict".toByteArray(Charsets.US_ASCII)) // handler_type
+        payload.write(ByteArray(12)) // reserved
+        payload.write(handlerName.toByteArray(Charsets.US_ASCII))
+        val payloadBytes = payload.toByteArray()
+        writeU32(out, 8 + payloadBytes.size)
+        out.write("hdlr".toByteArray(Charsets.US_ASCII))
+        out.write(payloadBytes)
+        return out.toByteArray()
+    }
+
+    private fun buildPitmBox(primaryItemId: Long): ByteArray {
+        val out = ByteArrayOutputStream()
+        val payload = ByteArrayOutputStream()
+        payload.write(byteArrayOf(0, 0, 0, 0)) // FullBox version=0
+        writeU16(payload, primaryItemId.toInt())
+        val payloadBytes = payload.toByteArray()
+        writeU32(out, 8 + payloadBytes.size)
+        out.write("pitm".toByteArray(Charsets.US_ASCII))
+        out.write(payloadBytes)
+        return out.toByteArray()
+    }
+
+    private fun buildInfeBox(itemId: Long, itemType: String, contentType: String?): ByteArray {
+        val out = ByteArrayOutputStream()
+        val payload = ByteArrayOutputStream()
+        payload.write(byteArrayOf(2, 0, 0, 0)) // FullBox version=2, flags=0
+        writeU16(payload, itemId.toInt())
+        writeU16(payload, 0) // item_protection_index
+        payload.write(itemType.toByteArray(Charsets.US_ASCII))
+        payload.write(0) // empty item_name, NUL-terminated
+        if (contentType != null) {
+            payload.write(contentType.toByteArray(Charsets.US_ASCII))
+            payload.write(0)
+        }
+        val payloadBytes = payload.toByteArray()
+        writeU32(out, 8 + payloadBytes.size)
+        out.write("infe".toByteArray(Charsets.US_ASCII))
+        out.write(payloadBytes)
+        return out.toByteArray()
+    }
+
+    private fun writeU16(out: ByteArrayOutputStream, value: Int) {
+        out.write((value shr 8) and 0xFF)
+        out.write(value and 0xFF)
+    }
+
+    private fun writeU32(out: ByteArrayOutputStream, value: Int) {
+        out.write((value shr 24) and 0xFF)
+        out.write((value shr 16) and 0xFF)
+        out.write((value shr 8) and 0xFF)
+        out.write(value and 0xFF)
+    }
+}
