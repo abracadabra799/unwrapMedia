@@ -440,4 +440,58 @@ class MotionPhotoBuilderTest {
         assertTrue(merged.contains("GCamera:MotionPhotoPresentationTimestampUs=\"1500000\""), "Expected the new timestamp to overwrite the stale one")
         assertFalse(merged.contains("GCamera:MotionPhotoPresentationTimestampUs=\"999\""))
     }
+
+    @Test
+    fun `repointHeicXmpItem rewrites only the target item's iloc entry, nothing else moves`() {
+        val existingXmp = """<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:tiff="http://ns.adobe.com/tiff/1.0/" tiff:Make="SomeCamera"/></rdf:RDF></x:xmpmeta>"""
+        val fixture = HeicMetaFixture.build(xmpText = existingXmp)
+
+        val mergedXmpBytes = "<x:xmpmeta>MUCH LONGER MERGED CONTENT THAN THE ORIGINAL SLOT ALLOWED FOR, THIS PROVES REPOINT DOESN'T NEED TO FIT IN PLACE</x:xmpmeta>".toByteArray(Charsets.UTF_8)
+        val result = MotionPhotoBuilder.repointHeicXmpItem(
+            fixture.heicBytes, fixture.xmpItemId, fixture.xmpIlocEntryOffset, fixture.xmpExtentCount, mergedXmpBytes,
+        )
+        assertNotNull(result)
+
+        // The primary image item's own extent must resolve to the exact same original bytes --
+        // nothing about the file shifted.
+        val primaryBytesAfter = result.copyOfRange(
+            (fixture.primaryItemOffset).toInt(),
+            (fixture.primaryItemOffset + fixture.primaryItemLength).toInt(),
+        )
+        assertTrue(primaryBytesAfter.contentEquals(fixture.primaryItemBytes), "Primary item's bytes must be unchanged and at the same offset")
+        assertEquals(fixture.heicBytes.size, result.size - mergedXmpBytes.size - 8, "File should have grown by exactly the new mdat box (8-byte header + payload)")
+
+        // Re-parse with this app's own HEIC meta/iloc understanding and confirm the XMP item now
+        // resolves to the merged bytes.
+        val reExtent = MotionPhotoBuilder.findXmpExtentInHeic(result)
+        assertNotNull(reExtent)
+        val (xmpStart, xmpLen) = reExtent
+        val reXmpText = String(result, xmpStart, xmpLen, Charsets.UTF_8)
+        assertTrue(reXmpText.contains("MUCH LONGER MERGED CONTENT"))
+    }
+
+    @Test
+    fun `repointHeicXmpItem converts an idat-relative item to an absolute-offset item`() {
+        val existingXmp = """<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:tiff="http://ns.adobe.com/tiff/1.0/" tiff:Make="SomeCamera"/></rdf:RDF></x:xmpmeta>"""
+        val fixture = HeicMetaFixture.build(xmpText = existingXmp, xmpConstructionMethod = 1)
+
+        val mergedXmpBytes = "<x:xmpmeta>merged</x:xmpmeta>".toByteArray(Charsets.UTF_8)
+        val result = MotionPhotoBuilder.repointHeicXmpItem(
+            fixture.heicBytes, fixture.xmpItemId, fixture.xmpIlocEntryOffset, fixture.xmpExtentCount, mergedXmpBytes,
+        )
+        assertNotNull(result)
+        val reExtent = MotionPhotoBuilder.findXmpExtentInHeic(result)
+        assertNotNull(reExtent)
+        val (xmpStart, xmpLen) = reExtent
+        assertEquals("<x:xmpmeta>merged</x:xmpmeta>", String(result, xmpStart, xmpLen, Charsets.UTF_8))
+    }
+
+    @Test
+    fun `repointHeicXmpItem returns null for a multi-extent item, signaling fallback`() {
+        val fixture = HeicMetaFixture.build(xmpText = "<x:xmpmeta/>", xmpExtentCount = 2)
+        val result = MotionPhotoBuilder.repointHeicXmpItem(
+            fixture.heicBytes, fixture.xmpItemId, fixture.xmpIlocEntryOffset, fixture.xmpExtentCount, "irrelevant".toByteArray(),
+        )
+        assertEquals(null, result)
+    }
 }

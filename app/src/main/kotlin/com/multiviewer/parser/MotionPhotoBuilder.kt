@@ -687,6 +687,131 @@ object MotionPhotoBuilder {
     }
 
     /**
+     * Repoints an existing HEIC XMP item's iloc extent to freshly-appended bytes, instead of
+     * overwriting its original byte range in place (which only works when the new content happens
+     * to fit in the original allocation -- practically never true once the XMP is being merged
+     * rather than replaced). Per ISO/IEC 14496-12 iloc semantics, an item's data extent can point
+     * at any absolute offset in the file; there's no requirement it stay where it started. Rewrites
+     * only this one item's fixed-width iloc fields (construction_method, base_offset, extent_offset,
+     * extent_length) -- same byte count in, same byte count out, so no other box or offset in the
+     * file needs to change.
+     *
+     * @param xmpItemId The XMP item's item_ID (needed only for documentation/assertions -- not used
+     *   to re-locate anything, since ilocEntryOffset already pins the exact bytes to rewrite).
+     * @param ilocEntryOffset Absolute file offset of this item's fixed-width entry within the iloc
+     *   box (construction_method through the start of its extent list).
+     * @param existingExtentCount This item's current extent_count -- repoint only handles the
+     *   single-extent case (every real-world encoder, and this app's own writer, produces exactly
+     *   one extent per XMP item); returns null for anything else so the caller can fall back.
+     * @return The rewritten HEIC bytes, or null if this item can't be cheaply repointed (multi-extent).
+     */
+    internal fun repointHeicXmpItem(
+        heicBytes: ByteArray,
+        xmpItemId: Long,
+        ilocEntryOffset: Long,
+        existingExtentCount: Int,
+        mergedXmpBytes: ByteArray,
+    ): ByteArray? {
+        if (existingExtentCount != 1) return null
+
+        val ilocHeader = findIlocHeaderFields(heicBytes) ?: return null
+        val (ilocVersion, offSz, lenSz, baseOffSz, indexSz) = ilocHeader
+
+        var fieldPos = ilocEntryOffset.toInt()
+        fieldPos += if (ilocVersion < 2) 2 else 4 // skip item_ID
+        val constructionMethodFieldPos = if (ilocVersion in 1..2) fieldPos else -1
+        if (constructionMethodFieldPos >= 0) fieldPos += 2
+        fieldPos += 2 // skip data_reference_index
+        val baseOffsetFieldPos = fieldPos
+        fieldPos += baseOffSz
+        fieldPos += 2 // skip extent_count (unchanged, still 1)
+        if (indexSz > 0) fieldPos += indexSz
+        val extentOffsetFieldPos = fieldPos
+        fieldPos += offSz
+        val extentLengthFieldPos = fieldPos
+
+        // New mdat: appended right where the file currently ends.
+        val newMdatOffset = heicBytes.size.toLong()
+        val newMdatPayloadOffset = newMdatOffset + 8
+        val newMdatSize = 8L + mergedXmpBytes.size
+
+        val result = heicBytes.copyOf(heicBytes.size + newMdatSize.toInt())
+        val mdatBuf = ByteBuffer.wrap(result, newMdatOffset.toInt(), newMdatSize.toInt()).order(ByteOrder.BIG_ENDIAN)
+        mdatBuf.putInt(newMdatSize.toInt())
+        mdatBuf.put("mdat".toByteArray(Charsets.US_ASCII))
+        mdatBuf.put(mergedXmpBytes)
+
+        if (constructionMethodFieldPos >= 0) {
+            writeUIntOfWidth(result, constructionMethodFieldPos.toLong(), 2, 0L)
+        }
+        writeUIntOfWidth(result, baseOffsetFieldPos.toLong(), baseOffSz, 0L)
+        writeUIntOfWidth(result, extentOffsetFieldPos.toLong(), offSz, newMdatPayloadOffset)
+        writeUIntOfWidth(result, extentLengthFieldPos.toLong(), lenSz, mergedXmpBytes.size.toLong())
+
+        // Best-effort: clear the item's OLD extent bytes now that iloc no longer references them, so
+        // the pre-merge XMP doesn't linger as an unreferenced duplicate elsewhere in the file --
+        // otherwise a content-sniffing consumer (e.g. findXmpExtentInHeic's own pattern-scan fallback,
+        // used when its primary iloc walk doesn't recognize an extent's content as XMP-shaped) could
+        // mistake the stale copy for the current XMP. Resolving the OLD extent reuses the already
+        // -validated findXmpExtentInHeic walk against the pre-repoint bytes (where the original XMP's
+        // real content still satisfies its content heuristic) rather than re-deriving it from
+        // construction_method/base_offset by hand, which would need real `idat`-box resolution for
+        // idat-relative items -- out of scope here (this function only ever repoints to an
+        // absolute-offset location, never reads from idat). Purely cosmetic cleanup: this old range
+        // is already unreferenced by any box, so leaving it as-is on a lookup miss changes nothing
+        // structurally, just like today's behavior.
+        findXmpExtentInHeic(heicBytes)?.let { (oldStart, oldLen) ->
+            for (i in oldStart until (oldStart + oldLen)) {
+                result[i] = 0
+            }
+        }
+
+        return result
+    }
+
+    private data class IlocHeaderFields(val version: Int, val offsetSize: Int, val lengthSize: Int, val baseOffsetSize: Int, val indexSize: Int)
+
+    /** Locates the meta -> iloc box and reads its FullBox version and offset/length/base_offset/index field widths. */
+    private fun findIlocHeaderFields(heicBytes: ByteArray): IlocHeaderFields? {
+        var pos = 0
+        while (pos < heicBytes.size - 8) {
+            val size = ((heicBytes[pos].toLong() and 0xFF) shl 24) or ((heicBytes[pos + 1].toLong() and 0xFF) shl 16) or
+                ((heicBytes[pos + 2].toLong() and 0xFF) shl 8) or (heicBytes[pos + 3].toLong() and 0xFF)
+            val fourCC = String(heicBytes.copyOfRange(pos + 4, pos + 8), Charsets.US_ASCII)
+            val boxLen = if (size == 1L) ByteBuffer.wrap(heicBytes, pos + 8, 8).long else if (size == 0L) (heicBytes.size - pos).toLong() else size
+            if (pos + boxLen > heicBytes.size || boxLen < 8) return null
+
+            if (fourCC == "meta") {
+                val metaEnd = (pos + boxLen).toInt()
+                var mp = pos + 12
+                while (mp < metaEnd - 8) {
+                    val childSz = ((heicBytes[mp].toInt() and 0xFF) shl 24) or ((heicBytes[mp + 1].toInt() and 0xFF) shl 16) or
+                        ((heicBytes[mp + 2].toInt() and 0xFF) shl 8) or (heicBytes[mp + 3].toInt() and 0xFF)
+                    val childFourCC = String(heicBytes.copyOfRange(mp + 4, mp + 8), Charsets.US_ASCII)
+                    if (childSz < 8 || mp + childSz > metaEnd) return null
+                    if (childFourCC == "iloc") {
+                        val version = heicBytes[mp + 8].toInt() and 0xFF
+                        val offLenSz = heicBytes[mp + 12].toInt() and 0xFF
+                        val baseIdxSz = heicBytes[mp + 13].toInt() and 0xFF
+                        return IlocHeaderFields(version, offLenSz shr 4, offLenSz and 0x0F, baseIdxSz shr 4, baseIdxSz and 0x0F)
+                    }
+                    mp += childSz
+                }
+            }
+            pos += boxLen.toInt()
+        }
+        return null
+    }
+
+    /** Writes an unsigned big-endian integer of the given byte width at the given position. widthBytes of 0 is a no-op. */
+    private fun writeUIntOfWidth(bytes: ByteArray, offset: Long, widthBytes: Int, value: Long) {
+        for (i in 0 until widthBytes) {
+            val shift = (widthBytes - 1 - i) * 8
+            bytes[(offset + i).toInt()] = ((value shr shift) and 0xFF).toByte()
+        }
+    }
+
+    /**
      * Updates the Motion Photo XMP metadata item in HEIC (referenced by iloc in the meta box) in place.
      */
     fun updateHeicXmpItem(
