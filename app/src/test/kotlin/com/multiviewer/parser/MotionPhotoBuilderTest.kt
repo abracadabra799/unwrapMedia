@@ -502,4 +502,91 @@ class MotionPhotoBuilderTest {
         )
         assertEquals(null, result)
     }
+
+    @Test
+    fun `createHeicXmpItem registers a new item without disturbing the existing primary item's bytes`() {
+        val fixture = HeicMetaFixture.build(xmpText = null) // no XMP item in this fixture at all
+
+        val newXmpBytes = "<x:xmpmeta>brand new</x:xmpmeta>".toByteArray(Charsets.UTF_8)
+        val result = MotionPhotoBuilder.createHeicXmpItem(fixture.heicBytes, newXmpBytes)
+
+        // The primary item's bytes must resolve to the exact same content at the exact same offset
+        // as before -- the single most important regression check for this function.
+        // The primary item's mdat sits immediately after meta's old end (this fixture always builds
+        // it that way -- see HeicMetaFixture), and meta legitimately grows here (one new infe entry
+        // plus one new iloc entry are inserted into it), which necessarily pushes every byte from the
+        // old mdat onward -- including the primary item's own pixel bytes -- forward in the file by
+        // that same growth. The growth amount is derivable purely from the two files' sizes (no
+        // content-sniffing, no re-implementing createHeicXmpItem's internal arithmetic): the total
+        // size delta minus the freshly-appended XMP mdat (8-byte header + payload) accounts for
+        // exactly the growth of iinf/iloc/meta.
+        val totalGrowth = result.size - fixture.heicBytes.size - 8 - newXmpBytes.size
+        val expectedPrimaryOffset = fixture.primaryItemOffset.toInt() + totalGrowth
+        val primaryBytesAfter = result.copyOfRange(
+            expectedPrimaryOffset,
+            expectedPrimaryOffset + fixture.primaryItemLength.toInt(),
+        )
+        assertTrue(
+            primaryBytesAfter.contentEquals(fixture.primaryItemBytes),
+            "Primary item's bytes must survive byte-for-byte, correctly shifted forward by meta's growth ($totalGrowth bytes)",
+        )
+
+        // Re-parse with this app's own HEIC understanding and find the new XMP item.
+        val reExtent = MotionPhotoBuilder.findXmpExtentInHeic(result)
+        assertNotNull(reExtent)
+        val (xmpStart, xmpLen) = reExtent
+        assertEquals("<x:xmpmeta>brand new</x:xmpmeta>", String(result, xmpStart, xmpLen, Charsets.UTF_8))
+    }
+
+    @Test
+    fun `createHeicXmpItem picks an item_ID that does not collide with any existing item`() {
+        val fixture = HeicMetaFixture.build(xmpText = null)
+        val newXmpBytes = "<x:xmpmeta/>".toByteArray(Charsets.UTF_8)
+        val result = MotionPhotoBuilder.createHeicXmpItem(fixture.heicBytes, newXmpBytes)
+
+        // Re-parsing must still find exactly the primary item plus the new XMP item -- no item_ID
+        // collision silently corrupted or hid either one.
+        val root = parseFile(File.createTempFile("heic-newitem-", ".heic").apply {
+            deleteOnExit()
+            writeBytes(result)
+        })
+        val metaNode = findFirst(root) { it.type == "meta" }
+        assertNotNull(metaNode)
+        val iinfNode = findFirst(metaNode) { it.type == "iinf" }
+        assertNotNull(iinfNode)
+        assertEquals(fixture.existingItemCount + 1, iinfNode.children.size, "Expected exactly one new infe entry to be added")
+    }
+
+    @Test
+    fun `createSamsungHeicMotionPhoto merges existing XMP when present and creates one when absent`() {
+        val existingXmp = """<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:tiff="http://ns.adobe.com/tiff/1.0/" tiff:Make="SomeCamera"/></rdf:RDF></x:xmpmeta>"""
+        val fixtureWithXmp = HeicMetaFixture.build(xmpText = existingXmp)
+        val imageFile = File.createTempFile("heic-with-xmp-", ".heic")
+        imageFile.deleteOnExit()
+        imageFile.writeBytes(fixtureWithXmp.heicBytes)
+
+        val videoFile = File.createTempFile("heic-merge-vid-", ".mp4")
+        videoFile.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=1:size=64x48:rate=10",
+            videoFile.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val outputFile = File.createTempFile("heic-merge-out-", ".heic")
+        outputFile.deleteOnExit()
+        MotionPhotoBuilder.createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile)
+
+        val root = parseFile(outputFile)
+        ByteReader.open(outputFile).use { reader ->
+            val xmpField = findFirst(root) { it.fields.any { f -> f.name == "xmp" } }
+            assertNotNull(xmpField, "Expected the output HEIC to have a discoverable XMP item")
+            val xmpValue = xmpField.fields.find { it.name == "xmp" }!!.value
+            assertTrue(xmpValue.contains("tiff:Make=\"SomeCamera\""), "Expected the original tiff:Make to survive end-to-end")
+            assertTrue(xmpValue.contains("GCamera:MotionPhoto=\"1\""))
+        }
+
+        imageFile.delete()
+        videoFile.delete()
+        outputFile.delete()
+    }
 }
