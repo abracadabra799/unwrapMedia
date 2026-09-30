@@ -611,6 +611,11 @@ object MotionPhotoBuilder {
                                 val extentCount = ((heicBytes[lp].toInt() and 0xFF) shl 8) or (heicBytes[lp + 1].toInt() and 0xFF)
                                 lp += 2
 
+                                // Known gap: unlike repointHeicXmpItem's own field-position walk, this loop never
+                                // skips an extent_index field even when index_size > 0 (ISO/IEC 14496-12 puts
+                                // extent_index before offset/length whenever index_size > 0, for version 1/2) --
+                                // only matters for files mixing construction_method=2 items (e.g. tiled/grid
+                                // images) with other registered items, which this app hasn't needed to parse yet.
                                 for (e in 0 until extentCount) {
                                     var extentOffset = 0L
                                     for (b in 0 until offSz) {
