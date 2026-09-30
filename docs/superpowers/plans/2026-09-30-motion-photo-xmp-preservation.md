@@ -1276,7 +1276,7 @@ Replace with:
         val existingXmpExtent = findXmpExtentInHeic(baseHeicBytes)
         val updatedBaseHeicBytes = if (existingXmpExtent != null) {
             val (xmpStart, xmpLen) = existingXmpExtent
-            val existingXmpText = String(baseHeicBytes, xmpStart, xmpLen, Charsets.UTF_8).trimEnd(' ', ' ', '\n', '\r')
+            val existingXmpText = String(baseHeicBytes, xmpStart, xmpLen, Charsets.UTF_8).trimEnd(' ', ' ', '\n', '\r')
             val itemLocation = findHeicXmpIlocEntry(baseHeicBytes, xmpStart, xmpLen)
             val mergedXmpBytes = mergeMotionPhotoXmp(existingXmpText, videoOffsetFromEof, 0L, syncTimestampUs, version, "image/heic").toByteArray(Charsets.UTF_8)
             val repointed = itemLocation?.let { (itemId, entryOffset, extentCount) ->
@@ -1457,7 +1457,7 @@ class HeicMetaFixtureTest {
 
         val xmpField = findFirst(root) { it.fields.any { f -> f.name == "xmp" } }
         assertTrue(xmpField != null, "Expected this app's parser to find the fixture's XMP")
-        assertEquals("<x:xmpmeta>fixture self-test</x:xmpmeta>", xmpField.fields.find { it.name == "xmp" }!!.value.trimEnd(' ', ' '))
+        assertEquals("<x:xmpmeta>fixture self-test</x:xmpmeta>", xmpField.fields.find { it.name == "xmp" }!!.value.trimEnd(' ', ' '))
 
         val primaryBytesInFile = fixture.heicBytes.copyOfRange(fixture.primaryItemOffset.toInt(), (fixture.primaryItemOffset + fixture.primaryItemLength).toInt())
         assertTrue(primaryBytesInFile.contentEquals(fixture.primaryItemBytes), "Fixture's own recorded primaryItemBytes must match what's actually at primaryItemOffset")
