@@ -390,57 +390,79 @@ fun FolderExplorerView(
                                 else -> "🖼️"
                             }
 
-                            Surface(
-                                color = if (isCurrentTab) AppColors.Surface else AppColors.Surface.copy(alpha = 0.4f),
-                                shape = RoundedCornerShape(6.dp),
-                                border = androidx.compose.foundation.BorderStroke(
-                                    if (isSelected) 1.5.dp else 1.dp,
-                                    if (isSelected) AppColors.NeonBlue else if (isCurrentTab) AppColors.NeonGreen else AppColors.Border,
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { appState.openFile(file) },
+                            ContextMenuArea(
+                                items = {
+                                    buildList {
+                                        add(
+                                            ContextMenuItem(if (language == AppLanguage.KO) "열기" else "Open") {
+                                                appState.openFile(file)
+                                            }
+                                        )
+                                        add(
+                                            ContextMenuItem(if (language == AppLanguage.KO) "비교 A로 보내기" else "Send to Compare A") {
+                                                appState.setCompareSlotA(file)
+                                            }
+                                        )
+                                        add(
+                                            ContextMenuItem(if (language == AppLanguage.KO) "비교 B로 보내기" else "Send to Compare B") {
+                                                appState.setCompareSlotB(file)
+                                            }
+                                        )
+                                    }
+                                },
                             ) {
-                                Column(
-                                    modifier = Modifier.padding(6.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                Surface(
+                                    color = if (isCurrentTab) AppColors.Surface else AppColors.Surface.copy(alpha = 0.4f),
+                                    shape = RoundedCornerShape(6.dp),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        if (isSelected) 1.5.dp else 1.dp,
+                                        if (isSelected) AppColors.NeonBlue else if (isCurrentTab) AppColors.NeonGreen else AppColors.Border,
+                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { appState.openFile(file) },
                                 ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically,
+                                    Column(
+                                        modifier = Modifier.padding(6.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
                                     ) {
-                                        Checkbox(
-                                            checked = isSelected,
-                                            onCheckedChange = { checked ->
-                                                selectedFiles = if (checked) selectedFiles + file else selectedFiles - file
-                                            },
-                                            modifier = Modifier.size(20.dp),
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Checkbox(
+                                                checked = isSelected,
+                                                onCheckedChange = { checked ->
+                                                    selectedFiles = if (checked) selectedFiles + file else selectedFiles - file
+                                                },
+                                                modifier = Modifier.size(20.dp),
+                                            )
+                                            Text(
+                                                text = ext.uppercase(Locale.US),
+                                                fontSize = 9.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                color = AppColors.TextSecondary,
+                                            )
+                                        }
+                                        Spacer(Modifier.height(4.dp))
+                                        Text(icon, fontSize = 24.sp)
+                                        Spacer(Modifier.height(6.dp))
+                                        Text(
+                                            text = file.name,
+                                            fontSize = 10.sp,
+                                            fontWeight = if (isCurrentTab) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isCurrentTab) AppColors.NeonGreen else AppColors.TextPrimary,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                            textAlign = TextAlign.Center,
                                         )
                                         Text(
-                                            text = ext.uppercase(Locale.US),
+                                            text = formatFileSize(file.length()),
                                             fontSize = 9.sp,
-                                            fontFamily = FontFamily.Monospace,
                                             color = AppColors.TextSecondary,
                                         )
                                     }
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(icon, fontSize = 24.sp)
-                                    Spacer(Modifier.height(6.dp))
-                                    Text(
-                                        text = file.name,
-                                        fontSize = 10.sp,
-                                        fontWeight = if (isCurrentTab) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isCurrentTab) AppColors.NeonGreen else AppColors.TextPrimary,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                        textAlign = TextAlign.Center,
-                                    )
-                                    Text(
-                                        text = formatFileSize(file.length()),
-                                        fontSize = 9.sp,
-                                        color = AppColors.TextSecondary,
-                                    )
                                 }
                             }
                         }
@@ -498,6 +520,16 @@ fun FolderExplorerView(
                                     add(
                                         ContextMenuItem(if (language == AppLanguage.KO) "열기" else "Open") {
                                             appState.openFile(file)
+                                        }
+                                    )
+                                    add(
+                                        ContextMenuItem(if (language == AppLanguage.KO) "비교 A로 보내기" else "Send to Compare A") {
+                                            appState.setCompareSlotA(file)
+                                        }
+                                    )
+                                    add(
+                                        ContextMenuItem(if (language == AppLanguage.KO) "비교 B로 보내기" else "Send to Compare B") {
+                                            appState.setCompareSlotB(file)
                                         }
                                     )
                                     if (isOpened) {

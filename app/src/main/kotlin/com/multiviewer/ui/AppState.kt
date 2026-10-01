@@ -343,9 +343,25 @@ class AppState {
 
     var imageCompareWindowOpen: Boolean by mutableStateOf(false)
     var compareTargetFiles: List<File> by mutableStateOf(emptyList())
+    var compareFileA: File? by mutableStateOf(null)
+    var compareFileB: File? by mutableStateOf(null)
 
     fun openMediaCompare(files: List<File> = emptyList()) {
         compareTargetFiles = files
+        if (files.isNotEmpty()) {
+            compareFileA = files.getOrNull(0)
+            compareFileB = files.getOrNull(1)
+        }
+        imageCompareWindowOpen = true
+    }
+
+    fun setCompareSlotA(file: File) {
+        compareFileA = file
+        imageCompareWindowOpen = true
+    }
+
+    fun setCompareSlotB(file: File) {
+        compareFileB = file
         imageCompareWindowOpen = true
     }
 

@@ -775,11 +775,13 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 ImageCompareWindow(
                     appState = appState,
                     language = language,
-                    initialFileA = appState.compareTargetFiles.getOrNull(0),
-                    initialFileB = appState.compareTargetFiles.getOrNull(1),
+                    initialFileA = appState.compareFileA ?: appState.compareTargetFiles.getOrNull(0),
+                    initialFileB = appState.compareFileB ?: appState.compareTargetFiles.getOrNull(1),
                     onCloseRequest = {
                         appState.imageCompareWindowOpen = false
                         appState.compareTargetFiles = emptyList()
+                        appState.compareFileA = null
+                        appState.compareFileB = null
                     },
                 )
             }

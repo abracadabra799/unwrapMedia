@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
@@ -145,6 +146,11 @@ enum class VisualCompareMode {
     BLINK,
 }
 
+enum class CompareSlot {
+    SLOT_A,
+    SLOT_B,
+}
+
 data class CompareMediaInfo(
     val file: File,
     val root: BoxNode?,
@@ -196,6 +202,7 @@ fun ImageCompareWindow(
     var selectedTab by remember { mutableStateOf(MediaCompareTab.STRUCTURE) }
     var fileA by remember { mutableStateOf(initialFileA) }
     var fileB by remember { mutableStateOf(initialFileB) }
+    var activeSlot by remember { mutableStateOf(CompareSlot.SLOT_A) }
     // Set when a browse selected more files than a comparison can take; cleared by the next browse.
     // Without it the refusal would be invisible and look like the dialog simply did nothing.
     var tooManyPickedCount by remember { mutableStateOf<Int?>(null) }
@@ -369,7 +376,82 @@ fun ImageCompareWindow(
             )
         }
 
-        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        val activeFolder = folderA ?: folderB ?: fileA?.parentFile ?: fileB?.parentFile
+        val siblingMediaFiles = remember(activeFolder?.absolutePath) {
+            if (activeFolder != null && activeFolder.exists() && activeFolder.isDirectory) {
+                try {
+                    activeFolder.listFiles { f ->
+                        f.isFile && !f.isHidden && f.extension.lowercase(Locale.US) in ALL_SUPPORTED_MEDIA_EXTENSIONS
+                    }?.sortedBy { it.name.lowercase(Locale.US) }?.toList() ?: emptyList()
+                } catch (_: Exception) {
+                    emptyList()
+                }
+            } else emptyList()
+        }
+
+        fun navigateSlot(slot: CompareSlot, delta: Int) {
+            if (siblingMediaFiles.isEmpty()) return
+            if (slot == CompareSlot.SLOT_A) {
+                val currentIdx = siblingMediaFiles.indexOfFirst { it.absolutePath == fileA?.absolutePath }
+                val nextIdx = if (currentIdx >= 0) (currentIdx + delta).mod(siblingMediaFiles.size) else 0
+                fileA = siblingMediaFiles[nextIdx]
+                folderA = fileA?.parentFile
+            } else {
+                val currentIdx = siblingMediaFiles.indexOfFirst { it.absolutePath == fileB?.absolutePath }
+                val nextIdx = if (currentIdx >= 0) (currentIdx + delta).mod(siblingMediaFiles.size) else 0
+                fileB = siblingMediaFiles[nextIdx]
+                folderB = fileB?.parentFile
+            }
+        }
+
+        val focusRequester = remember { FocusRequester() }
+        LaunchedEffect(Unit) {
+            focusRequester.requestFocus()
+        }
+
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .focusRequester(focusRequester)
+                .focusable()
+                .onKeyEvent { keyEvent ->
+                    if (keyEvent.type != KeyEventType.KeyDown) return@onKeyEvent false
+                    when (keyEvent.key) {
+                        Key.One -> {
+                            activeSlot = CompareSlot.SLOT_A
+                            true
+                        }
+                        Key.Two -> {
+                            activeSlot = CompareSlot.SLOT_B
+                            true
+                        }
+                        Key.Tab -> {
+                            activeSlot = if (activeSlot == CompareSlot.SLOT_A) CompareSlot.SLOT_B else CompareSlot.SLOT_A
+                            true
+                        }
+                        Key.DirectionLeft -> {
+                            if (keyEvent.isShiftPressed) {
+                                navigateSlot(CompareSlot.SLOT_A, -1)
+                                navigateSlot(CompareSlot.SLOT_B, -1)
+                            } else {
+                                navigateSlot(activeSlot, -1)
+                            }
+                            true
+                        }
+                        Key.DirectionRight -> {
+                            if (keyEvent.isShiftPressed) {
+                                navigateSlot(CompareSlot.SLOT_A, 1)
+                                navigateSlot(CompareSlot.SLOT_B, 1)
+                            } else {
+                                navigateSlot(activeSlot, 1)
+                            }
+                            true
+                        }
+                        else -> false
+                    }
+                },
+            color = MaterialTheme.colorScheme.background,
+        ) {
             Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
                 // 1. Media Selection Bar (Tabs dropdown + File Pickers)
                 MediaSelectionBar(
@@ -381,6 +463,8 @@ fun ImageCompareWindow(
                     folderB = folderB,
                     infoA = infoA,
                     infoB = infoB,
+                    activeSlot = activeSlot,
+                    onSetActiveSlot = { activeSlot = it },
                     openTabFiles = appState.tabs.map { it.file },
                     // A pick can carry one slot or both (see resolveComparePick). Each slot keeps
                     // its own folder, so the two files never have to live in the same directory --
@@ -390,6 +474,8 @@ fun ImageCompareWindow(
                     onPick = ::applyPick,
                     onSelectA = { fileA = it },
                     onSelectB = { fileB = it },
+                    onNavigateSlotA = { navigateSlot(CompareSlot.SLOT_A, it) },
+                    onNavigateSlotB = { navigateSlot(CompareSlot.SLOT_B, it) },
                     onSwap = {
                         val tempFile = fileA
                         fileA = fileB
@@ -436,25 +522,19 @@ fun ImageCompareWindow(
                     when (selectedTab) {
                         MediaCompareTab.STRUCTURE -> StructureDiffView(language, infoA, infoB)
                         MediaCompareTab.METADATA -> MetadataDiffView(language, infoA, infoB, metadataRows, captureMismatches)
-                        MediaCompareTab.VISUAL -> VisualDiffView(language, infoA, infoB, captureMismatches)
+                        MediaCompareTab.VISUAL -> VisualDiffView(
+                            language = language,
+                            infoA = infoA,
+                            infoB = infoB,
+                            captureMismatches = captureMismatches,
+                            activeSlot = activeSlot,
+                            onSetActiveSlot = { activeSlot = it },
+                        )
                         MediaCompareTab.HEX -> HexDiffView(language, fileA, fileB)
                     }
                 }
 
                 // 4. FastStone Style Bottom Filmstrip (Quick File Switch)
-                val activeFolder = folderA ?: folderB ?: fileA?.parentFile ?: fileB?.parentFile
-                val siblingMediaFiles = remember(activeFolder?.absolutePath) {
-                    if (activeFolder != null && activeFolder.exists() && activeFolder.isDirectory) {
-                        try {
-                            activeFolder.listFiles { f ->
-                                f.isFile && !f.isHidden && f.extension.lowercase(Locale.US) in ALL_SUPPORTED_MEDIA_EXTENSIONS
-                            }?.sortedBy { it.name.lowercase(Locale.US) }?.toList() ?: emptyList()
-                        } catch (_: Exception) {
-                            emptyList()
-                        }
-                    } else emptyList()
-                }
-
                 if (siblingMediaFiles.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(6.dp))
                     FilmstripQuickSwitch(
@@ -609,16 +689,18 @@ private fun MediaSelectionBar(
     folderB: File?,
     infoA: CompareMediaInfo?,
     infoB: CompareMediaInfo?,
+    activeSlot: CompareSlot,
+    onSetActiveSlot: (CompareSlot) -> Unit,
     openTabFiles: List<File>,
     tooManyPickedCount: Int?,
     dragHoverSide: Boolean?,
     onPick: (ComparePick) -> Unit,
     onSelectA: (File) -> Unit,
     onSelectB: (File) -> Unit,
+    onNavigateSlotA: (Int) -> Unit,
+    onNavigateSlotB: (Int) -> Unit,
     onSwap: () -> Unit,
 ) {
-    // Multi-select is on so both sides can be chosen in one trip -- picking two files fills A and B
-    // together (see resolveComparePick). Picking one behaves as it always did.
     fun openFileDialog(title: String, targetIsA: Boolean, onPicked: (ComparePick) -> Unit) {
         val dialog = FileDialog(null as Frame?, title, FileDialog.LOAD)
         appState.lastOpenedDirectory?.let { dir ->
@@ -628,8 +710,6 @@ private fun MediaSelectionBar(
         }
         dialog.isMultipleMode = true
         dialog.isVisible = true
-        // dialog.files is empty on cancel; fall back to the single-file fields for the platforms
-        // where only those are populated (the same belt-and-braces pattern as Main.kt's open dialog).
         val picked = dialog.files?.toList()?.takeIf { it.isNotEmpty() }
             ?: listOfNotNull(dialog.file?.let { name -> dialog.directory?.let { dir -> File(dir, name) } })
         if (picked.isEmpty()) return
@@ -639,136 +719,205 @@ private fun MediaSelectionBar(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
     ) {
-      Column {
-        if (tooManyPickedCount != null) {
-            Surface(
-                color = AppColors.NeonRed.copy(alpha = 0.15f),
+        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+            if (tooManyPickedCount != null) {
+                Surface(
+                    color = AppColors.NeonRed.copy(alpha = 0.15f),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                ) {
+                    Text(
+                        text = if (language == AppLanguage.KO) {
+                            "⚠ 비교는 최대 2개까지만 선택할 수 있습니다 (${tooManyPickedCount}개 선택됨). 다시 선택해 주세요."
+                        } else {
+                            "⚠ A comparison takes at most 2 files ($tooManyPickedCount selected). Please pick again."
+                        },
+                        fontSize = 11.sp,
+                        color = AppColors.NeonRed,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    )
+                }
+            }
+
+            Row(
                 modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(
-                    text = if (language == AppLanguage.KO) {
-                        "⚠ 비교는 최대 2개까지만 선택할 수 있습니다 (${tooManyPickedCount}개 선택됨). 다시 선택해 주세요."
-                    } else {
-                        "⚠ A comparison takes at most 2 files ($tooManyPickedCount selected). Please pick again."
-                    },
-                    fontSize = 11.sp,
-                    color = AppColors.NeonRed,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                )
-            }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // Media A Selector -- bordered while a file drag hovers over the left half
-            // of the window (see attachFileDropTarget's onDragPosition wiring above).
-            Column(
-                modifier = Modifier.weight(1f).padding(4.dp).then(
-                    if (dragHoverSide == true) Modifier.border(2.dp, AppColors.NeonBlue, RoundedCornerShape(6.dp)) else Modifier
-                ),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        if (language == AppLanguage.KO) "기준 미디어 (A)" else "Reference Media (A)",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    OutlinedButton(
-                        onClick = { openFileDialog(if (language == AppLanguage.KO) "미디어 A 선택" else "Select Media A", targetIsA = true, onPicked = onPick) },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                        modifier = Modifier.height(26.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = AppColors.TextPrimary,
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                        ),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.Border),
-                        shape = RoundedCornerShape(4.dp),
-                    ) {
-                        Text(if (language == AppLanguage.KO) "📂 파일 찾기" else "📂 Browse", fontSize = 11.sp)
+                // Media A Slot Pill
+                Surface(
+                    color = if (activeSlot == CompareSlot.SLOT_A) Color(0xFF61AFEF).copy(alpha = 0.18f) else Color.Transparent,
+                    shape = RoundedCornerShape(6.dp),
+                    border = androidx.compose.foundation.BorderStroke(
+                        if (activeSlot == CompareSlot.SLOT_A || dragHoverSide == true) 1.5.dp else 1.dp,
+                        if (activeSlot == CompareSlot.SLOT_A || dragHoverSide == true) Color(0xFF61AFEF) else AppColors.Border,
+                    ),
+                    modifier = Modifier.weight(1f).clickable { onSetActiveSlot(CompareSlot.SLOT_A) },
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                color = Color(0xFF61AFEF),
+                                shape = RoundedCornerShape(3.dp),
+                                modifier = Modifier.padding(end = 6.dp),
+                            ) {
+                                Text(
+                                    text = "A (1)",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.Black,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                )
+                            }
+                            Text(
+                                text = if (language == AppLanguage.KO) "기준 미디어" else "Reference",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF61AFEF),
+                                modifier = Modifier.weight(1f),
+                            )
+                            // Slot A quick prev / next
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { onNavigateSlotA(-1) }, modifier = Modifier.size(20.dp)) {
+                                    Text("◀", fontSize = 10.sp, color = AppColors.TextSecondary)
+                                }
+                                IconButton(onClick = { onNavigateSlotA(1) }, modifier = Modifier.size(20.dp)) {
+                                    Text("▶", fontSize = 10.sp, color = AppColors.TextSecondary)
+                                }
+                                Spacer(Modifier.width(4.dp))
+                                OutlinedButton(
+                                    onClick = { openFileDialog(if (language == AppLanguage.KO) "미디어 A 선택" else "Select Media A", targetIsA = true, onPicked = onPick) },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                    modifier = Modifier.height(22.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        contentColor = AppColors.TextPrimary,
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(0.5.dp, AppColors.Border),
+                                    shape = RoundedCornerShape(4.dp),
+                                ) {
+                                    Text("📂", fontSize = 11.sp)
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.height(3.dp))
+
+                        FileDropdownOrLabel(
+                            selectedFile = fileA,
+                            selectedFolder = folderA,
+                            language = language,
+                            openTabFiles = openTabFiles,
+                            onSelect = onSelectA,
+                            onOpenBrowse = { openFileDialog(if (language == AppLanguage.KO) "미디어 A 선택" else "Select Media A", targetIsA = true, onPicked = onPick) },
+                        )
+
+                        if (infoA != null) {
+                            val typeLabel = if (infoA.isVideo) "🎬 동영상" else "🖼️ 이미지"
+                            val durStr = if (infoA.isVideo && infoA.durationSeconds > 0) " | ${"%.2f".format(infoA.durationSeconds)}s" else ""
+                            Text(
+                                "$typeLabel | ${formatSize(infoA.fileSize)} | ${infoA.file.extension.uppercase(Locale.US)}$durStr",
+                                fontSize = 10.sp,
+                                color = AppColors.TextSecondary,
+                                maxLines = 1,
+                            )
+                        }
                     }
                 }
-                Spacer(modifier = Modifier.height(4.dp))
-                FileDropdownOrLabel(
-                    selectedFile = fileA,
-                    selectedFolder = folderA,
-                    language = language,
-                    openTabFiles = openTabFiles,
-                    onSelect = onSelectA,
-                    onOpenBrowse = { openFileDialog(if (language == AppLanguage.KO) "미디어 A 선택" else "Select Media A", targetIsA = true, onPicked = onPick) },
-                )
-                if (infoA != null) {
-                    val typeLabel = if (infoA.isVideo) "🎬 동영상 (Video)" else "🖼️ 이미지 (Image)"
-                    val durStr = if (infoA.isVideo && infoA.durationSeconds > 0) " | ${"%.2f".format(infoA.durationSeconds)}s" else ""
-                    Text(
-                        "$typeLabel | ${formatSize(infoA.fileSize)} | ${infoA.file.extension.uppercase(Locale.US)}$durStr",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+
+                // Swap Button
+                IconButton(
+                    onClick = onSwap,
+                    modifier = Modifier.size(32.dp),
+                ) {
+                    Text("⇄", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = AppColors.NeonBlue)
                 }
-            }
 
-            // Swap Button
-            IconButton(onClick = onSwap, modifier = Modifier.padding(horizontal = 8.dp)) {
-                Text("⇄", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            }
+                // Media B Slot Pill
+                Surface(
+                    color = if (activeSlot == CompareSlot.SLOT_B) Color(0xFF98C379).copy(alpha = 0.18f) else Color.Transparent,
+                    shape = RoundedCornerShape(6.dp),
+                    border = androidx.compose.foundation.BorderStroke(
+                        if (activeSlot == CompareSlot.SLOT_B || dragHoverSide == false) 1.5.dp else 1.dp,
+                        if (activeSlot == CompareSlot.SLOT_B || dragHoverSide == false) Color(0xFF98C379) else AppColors.Border,
+                    ),
+                    modifier = Modifier.weight(1f).clickable { onSetActiveSlot(CompareSlot.SLOT_B) },
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                color = Color(0xFF98C379),
+                                shape = RoundedCornerShape(3.dp),
+                                modifier = Modifier.padding(end = 6.dp),
+                            ) {
+                                Text(
+                                    text = "B (2)",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.Black,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                )
+                            }
+                            Text(
+                                text = if (language == AppLanguage.KO) "비교 미디어" else "Target",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF98C379),
+                                modifier = Modifier.weight(1f),
+                            )
+                            // Slot B quick prev / next
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { onNavigateSlotB(-1) }, modifier = Modifier.size(20.dp)) {
+                                    Text("◀", fontSize = 10.sp, color = AppColors.TextSecondary)
+                                }
+                                IconButton(onClick = { onNavigateSlotB(1) }, modifier = Modifier.size(20.dp)) {
+                                    Text("▶", fontSize = 10.sp, color = AppColors.TextSecondary)
+                                }
+                                Spacer(Modifier.width(4.dp))
+                                OutlinedButton(
+                                    onClick = { openFileDialog(if (language == AppLanguage.KO) "미디어 B 선택" else "Select Media B", targetIsA = false, onPicked = onPick) },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                    modifier = Modifier.height(22.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        contentColor = AppColors.TextPrimary,
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(0.5.dp, AppColors.Border),
+                                    shape = RoundedCornerShape(4.dp),
+                                ) {
+                                    Text("📂", fontSize = 11.sp)
+                                }
+                            }
+                        }
 
-            // Media B Selector -- bordered while a file drag hovers over the right half
-            // of the window (see attachFileDropTarget's onDragPosition wiring above).
-            Column(
-                modifier = Modifier.weight(1f).padding(4.dp).then(
-                    if (dragHoverSide == false) Modifier.border(2.dp, AppColors.NeonBlue, RoundedCornerShape(6.dp)) else Modifier
-                ),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        if (language == AppLanguage.KO) "비교 미디어 (B)" else "Target Media (B)",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.secondary,
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    OutlinedButton(
-                        onClick = { openFileDialog(if (language == AppLanguage.KO) "미디어 B 선택" else "Select Media B", targetIsA = false, onPicked = onPick) },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                        modifier = Modifier.height(26.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = AppColors.TextPrimary,
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                        ),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.Border),
-                        shape = RoundedCornerShape(4.dp),
-                    ) {
-                        Text(if (language == AppLanguage.KO) "📂 파일 찾기" else "📂 Browse", fontSize = 11.sp)
+                        Spacer(Modifier.height(3.dp))
+
+                        FileDropdownOrLabel(
+                            selectedFile = fileB,
+                            selectedFolder = folderB,
+                            language = language,
+                            openTabFiles = openTabFiles,
+                            onSelect = onSelectB,
+                            onOpenBrowse = { openFileDialog(if (language == AppLanguage.KO) "미디어 B 선택" else "Select Media B", targetIsA = false, onPicked = onPick) },
+                        )
+
+                        if (infoB != null) {
+                            val typeLabel = if (infoB.isVideo) "🎬 동영상" else "🖼️ 이미지"
+                            val delta = if (infoA != null) infoB.fileSize - infoA.fileSize else 0L
+                            val deltaStr = if (delta > 0) " (+${formatSize(delta)})" else if (delta < 0) " (-${formatSize(-delta)})" else ""
+                            val durStr = if (infoB.isVideo && infoB.durationSeconds > 0) " | ${"%.2f".format(infoB.durationSeconds)}s" else ""
+                            Text(
+                                "$typeLabel | ${formatSize(infoB.fileSize)}$deltaStr | ${infoB.file.extension.uppercase(Locale.US)}$durStr",
+                                fontSize = 10.sp,
+                                color = AppColors.TextSecondary,
+                                maxLines = 1,
+                            )
+                        }
                     }
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                FileDropdownOrLabel(
-                    selectedFile = fileB,
-                    selectedFolder = folderB,
-                    language = language,
-                    openTabFiles = openTabFiles,
-                    onSelect = onSelectB,
-                    onOpenBrowse = { openFileDialog(if (language == AppLanguage.KO) "미디어 B 선택" else "Select Media B", targetIsA = false, onPicked = onPick) },
-                )
-                if (infoB != null) {
-                    val typeLabel = if (infoB.isVideo) "🎬 동영상 (Video)" else "🖼️ 이미지 (Image)"
-                    val delta = if (infoA != null) infoB.fileSize - infoA.fileSize else 0L
-                    val deltaStr = if (delta > 0) " (+${formatSize(delta)})" else if (delta < 0) " (-${formatSize(-delta)})" else ""
-                    val durStr = if (infoB.isVideo && infoB.durationSeconds > 0) " | ${"%.2f".format(infoB.durationSeconds)}s" else ""
-                    Text(
-                        "$typeLabel | ${formatSize(infoB.fileSize)}$deltaStr | ${infoB.file.extension.uppercase(Locale.US)}$durStr",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
             }
         }
-      }
     }
 }
 
@@ -1612,7 +1761,14 @@ private fun extractSefNames(root: BoxNode?): List<String> {
 // -------------------------------------------------------------------------------------------------
 
 @Composable
-private fun VisualDiffView(language: AppLanguage, infoA: CompareMediaInfo?, infoB: CompareMediaInfo?, captureMismatches: List<String>) {
+private fun VisualDiffView(
+    language: AppLanguage,
+    infoA: CompareMediaInfo?,
+    infoB: CompareMediaInfo?,
+    captureMismatches: List<String>,
+    activeSlot: CompareSlot = CompareSlot.SLOT_A,
+    onSetActiveSlot: (CompareSlot) -> Unit = {},
+) {
     if (infoA == null || infoB == null) {
         EmptyComparePlaceholder(language)
         return
@@ -1791,6 +1947,8 @@ private fun VisualDiffView(language: AppLanguage, infoA: CompareMediaInfo?, info
                             infoB = infoB,
                             labelA = if (infoA.isVideo) "Video A" else "Image A",
                             labelB = if (infoB.isVideo) "Video B" else "Image B",
+                            activeSlot = activeSlot,
+                            onSetActiveSlot = onSetActiveSlot,
                             language = language,
                         )
                     }
@@ -1915,6 +2073,8 @@ private fun SideBySideCompareView(
     infoB: CompareMediaInfo?,
     labelA: String,
     labelB: String,
+    activeSlot: CompareSlot = CompareSlot.SLOT_A,
+    onSetActiveSlot: (CompareSlot) -> Unit = {},
     language: AppLanguage,
 ) {
     var scale by remember(bitmapA, bitmapB) { mutableStateOf(1f) }
@@ -1946,6 +2106,12 @@ private fun SideBySideCompareView(
                     .weight(1f)
                     .fillMaxHeight()
                     .clipToBounds()
+                    .clickable { onSetActiveSlot(CompareSlot.SLOT_A) }
+                    .border(
+                        if (activeSlot == CompareSlot.SLOT_A) 2.dp else 1.dp,
+                        if (activeSlot == CompareSlot.SLOT_A) Color(0xFF61AFEF) else AppColors.Border.copy(alpha = 0.5f),
+                        RoundedCornerShape(4.dp),
+                    )
                     .onGloballyPositioned { paneSize = it.size.toSize() }
                     .onPointerEvent(PointerEventType.Scroll, pass = PointerEventPass.Initial) { event ->
                         val change = event.changes.firstOrNull() ?: return@onPointerEvent
@@ -2025,6 +2191,12 @@ private fun SideBySideCompareView(
                     .weight(1f)
                     .fillMaxHeight()
                     .clipToBounds()
+                    .clickable { onSetActiveSlot(CompareSlot.SLOT_B) }
+                    .border(
+                        if (activeSlot == CompareSlot.SLOT_B) 2.dp else 1.dp,
+                        if (activeSlot == CompareSlot.SLOT_B) Color(0xFF98C379) else AppColors.Border.copy(alpha = 0.5f),
+                        RoundedCornerShape(4.dp),
+                    )
                     .onGloballyPositioned { paneSize = it.size.toSize() }
                     .onPointerEvent(PointerEventType.Scroll, pass = PointerEventPass.Initial) { event ->
                         val change = event.changes.firstOrNull() ?: return@onPointerEvent
