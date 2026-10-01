@@ -40,10 +40,15 @@ object HeicMetaFixture {
         val mdatBoxSize: Long,
         /** Absolute file offset of the `meta` box's own start. */
         val metaBoxOffset: Long,
+        /** Absolute file offset of the trailing item's raw bytes (only meaningful when `extraItemAfterMdat`). */
+        val extraItemOffset: Long,
+        /** The trailing item's raw bytes as written (only meaningful when `extraItemAfterMdat`). */
+        val extraItemBytes: ByteArray,
     )
 
     const val PRIMARY_ITEM_ID = 1L
     const val XMP_ITEM_ID = 2L
+    const val EXTRA_ITEM_ID = 3L
 
     /**
      * @param primaryConstructionMethod construction_method to write into the PRIMARY item's iloc
@@ -69,6 +74,14 @@ object HeicMetaFixture {
      *   this fixture's historical default happens to put `meta` first. Box surgery that grows both
      *   boxes (createHeicXmpItem) or grows `mdat` under a later `meta` (repointHeicXmpItem) must be
      *   correct either way. Defaults to false (meta first) to leave existing callers unaffected.
+     * @param extraItemAfterMdat Registers a THIRD item (EXTRA_ITEM_ID) whose data is a small raw
+     *   blob appended at the very end of the whole file -- after ftyp, meta, AND mdat regardless of
+     *   `mdatBeforeMeta`, since this offset is `ftyp.size + metaBoxSize + mdatSize` either way
+     *   (addition is commutative in the physical ordering). This is the one absolute-offset item
+     *   this fixture can produce whose position is genuinely past `mdat`'s end, needed to exercise
+     *   repointHeicXmpItem's offset-shift-correction pass with an entry that actually crosses the
+     *   cutoff -- every other item's data lives inside `mdat` itself, so growing `mdat` never moves
+     *   them and the shift pass is a no-op for them. Defaults to false; existing callers unaffected.
      */
     fun build(
         xmpText: String?,
@@ -78,6 +91,7 @@ object HeicMetaFixture {
         ilocBeforeIinf: Boolean = false,
         primaryBaseOffset: Long = 0L,
         mdatBeforeMeta: Boolean = false,
+        extraItemAfterMdat: Boolean = false,
     ): Result {
         val primaryItemBytes = ByteArray(16) { (it + 1).toByte() }
 
@@ -105,8 +119,9 @@ object HeicMetaFixture {
         // which we can compute analytically since ftyp/meta sizes are deterministic given a fixed
         // item count).
 
-        val itemCount = if (xmpText != null) 2 else 1
+        val itemCount = 1 /* primary */ + (if (xmpText != null) 1 else 0) + (if (extraItemAfterMdat) 1 else 0)
         val baseOffsetSize = if (primaryBaseOffset != 0L) 4 else 0
+        val extraItemBytes = ByteArray(8) { (it + 100).toByte() } // arbitrary, distinct from primary/xmp bytes
         // iloc payload layout (version=1): version(1)+flags(3)+offset/length sizes(1)+base/index sizes(1)+
         // item_count(2) = 8 bytes header, then one entry per item. Each entry (offsetSize=4,lengthSize=4,
         // baseOffsetSize as above,indexSize=0): item_ID(2)+construction_method(2)+data_reference_index(2)+
@@ -119,12 +134,14 @@ object HeicMetaFixture {
         // declared size no longer matches what's actually written (silent corruption of everything after it).
         val primaryEntrySize = 8 + baseOffsetSize + 1 * 8 // 16 + baseOffsetSize
         val xmpEntrySize = if (xmpText != null) 8 + baseOffsetSize + xmpExtentCount * 8 else 0
-        val ilocPayloadSize = 8 + primaryEntrySize + xmpEntrySize
+        val extraEntrySize = if (extraItemAfterMdat) 8 + baseOffsetSize + 1 * 8 else 0 // same shape as primary: 1 extent
+        val ilocPayloadSize = 8 + primaryEntrySize + xmpEntrySize + extraEntrySize
         val ilocBoxSize = 8 + ilocPayloadSize
         val iinfEntrySize = { contentTypeLen: Int -> 8 + 4 + 2 + 2 + 4 + 1 + contentTypeLen + 1 } // infe box: header(8)+FullBox(4)+item_ID(2,v2)+protidx(2)+type(4)+name NUL(1)+content_type+NUL
         val primaryInfeSize = 8 + 4 + 2 + 2 + 4 + 1 // item_type="hvc1" or similar, no content_type needed (not mime) -- name empty
         val xmpInfeSize = if (xmpText != null) iinfEntrySize("application/rdf+xml".length) else 0
-        val iinfPayloadSize = 6 + primaryInfeSize + xmpInfeSize // FullBox(4)+entry_count(2) = 6
+        val extraInfeSize = if (extraItemAfterMdat) primaryInfeSize else 0 // same shape as primary -- no content_type needed
+        val iinfPayloadSize = 6 + primaryInfeSize + xmpInfeSize + extraInfeSize // FullBox(4)+entry_count(2) = 6
         val iinfBoxSize = 8 + iinfPayloadSize
 
         val hdlrBox = buildHdlrBox()
@@ -132,6 +149,10 @@ object HeicMetaFixture {
 
         val metaPayloadSize = 4 /* FullBox */ + hdlrBox.size + pitmBox.size + iinfBoxSize + ilocBoxSize
         val metaBoxSize = 8 + metaPayloadSize
+        // Always past BOTH meta and mdat regardless of mdatBeforeMeta -- addition is commutative in
+        // the physical ordering, so this is the one position in this fixture guaranteed to sit after
+        // mdat's end no matter which of meta/mdat comes first.
+        val extraItemOffset = (ftyp.size + metaBoxSize + mdatSize).toLong()
 
         // Top-level layout is ftyp + (meta, mdat) in whichever order mdatBeforeMeta selects. Both
         // boxes' sizes are already known analytically at this point, so each one's absolute start is
@@ -150,6 +171,7 @@ object HeicMetaFixture {
             writeU16(payload, itemCount)
             payload.write(buildInfeBox(PRIMARY_ITEM_ID, "hvc1", null))
             if (xmpText != null) payload.write(buildInfeBox(XMP_ITEM_ID, "mime", "application/rdf+xml"))
+            if (extraItemAfterMdat) payload.write(buildInfeBox(EXTRA_ITEM_ID, "hvc1", null))
             val payloadBytes = payload.toByteArray()
             writeU32(iinfOut, 8 + payloadBytes.size)
             iinfOut.write("iinf".toByteArray(Charsets.US_ASCII))
@@ -212,6 +234,9 @@ object HeicMetaFixture {
                 }
                 writeEntry(XMP_ITEM_ID, xmpConstructionMethod, 0L, xmpExtents)
             }
+            if (extraItemAfterMdat) {
+                writeEntry(EXTRA_ITEM_ID, 0, 0L, listOf(extraItemOffset to extraItemBytes.size.toLong()))
+            }
             val payloadBytes = payload.toByteArray()
             writeU32(ilocOut, 8 + payloadBytes.size)
             ilocOut.write("iloc".toByteArray(Charsets.US_ASCII))
@@ -242,7 +267,8 @@ object HeicMetaFixture {
         val mdatBytes = mdatOut.toByteArray()
         check(mdatBytes.size == mdatSize) { "Fixture internal size mismatch: computed $mdatSize, built ${mdatBytes.size}" }
 
-        val allBytes = if (mdatBeforeMeta) ftyp + mdatBytes + metaBytes else ftyp + metaBytes + mdatBytes
+        val baseBytes = if (mdatBeforeMeta) ftyp + mdatBytes + metaBytes else ftyp + metaBytes + mdatBytes
+        val allBytes = if (extraItemAfterMdat) baseBytes + extraItemBytes else baseBytes
 
         // meta's children are laid out as: FullBox(4), hdlr, pitm, then iinf/iloc in whichever order
         // ilocBeforeIinf selects -- so iloc's box start is meta's payload start plus everything
@@ -270,6 +296,8 @@ object HeicMetaFixture {
             mdatBoxOffset = mdatOffset.toLong(),
             mdatBoxSize = mdatSize.toLong(),
             metaBoxOffset = metaOffset.toLong(),
+            extraItemOffset = extraItemOffset,
+            extraItemBytes = extraItemBytes,
         )
     }
 

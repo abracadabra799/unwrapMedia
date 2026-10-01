@@ -520,6 +520,42 @@ class MotionPhotoBuilderTest {
     }
 
     @Test
+    fun `repointHeicXmpItem shifts another item's absolute offset when it sits past mdat's old end`() {
+        // Final review (round 4) found the offset-shift-correction pass inside repointHeicXmpItem
+        // was new, real behavior (the previous design appended at EOF, so nothing ever moved) with
+        // ZERO test coverage of an entry actually crossing the cutoff -- every other item in this
+        // fixture lives INSIDE mdat's own payload, so growing mdat in place never needed to shift
+        // anything, and deleting the shift-pass call outright would not fail any existing test.
+        // `extraItemAfterMdat` is the one fixture shape whose item genuinely sits past mdat's end.
+        for (mdatBeforeMeta in listOf(false, true)) {
+            val existingXmp = """<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about=""/></rdf:RDF></x:xmpmeta>"""
+            val fixture = HeicMetaFixture.build(xmpText = existingXmp, mdatBeforeMeta = mdatBeforeMeta, extraItemAfterMdat = true)
+            val before = readIlocEntries(fixture.heicBytes).getValue(HeicMetaFixture.EXTRA_ITEM_ID)
+            assertTrue(before.absoluteStart() >= fixture.mdatBoxOffset + fixture.mdatBoxSize, "Test premise (mdatBeforeMeta=$mdatBeforeMeta): the extra item must genuinely sit past mdat's end")
+
+            val mergedXmpBytes = "<x:xmpmeta><rdf:Description>MUCH LONGER MERGED CONTENT PROVING A REAL SHIFT HAPPENED</rdf:Description></x:xmpmeta>".toByteArray(Charsets.UTF_8)
+            val result = MotionPhotoBuilder.repointHeicXmpItem(
+                fixture.heicBytes, fixture.xmpItemId, fixture.xmpIlocEntryOffset, fixture.xmpExtentCount, mergedXmpBytes,
+            )
+            assertNotNull(result)
+
+            val growth = result.size - fixture.heicBytes.size
+            assertEquals(mergedXmpBytes.size, growth, "mdatBeforeMeta=$mdatBeforeMeta: file should grow by exactly the merged bytes")
+
+            val after = readIlocEntries(result).getValue(HeicMetaFixture.EXTRA_ITEM_ID)
+            assertEquals(
+                before.absoluteStart() + growth,
+                after.absoluteStart(),
+                "mdatBeforeMeta=$mdatBeforeMeta: the extra item's absolute offset (past mdat's old end) must have been shifted forward by exactly the merged XMP's growth",
+            )
+            assertTrue(
+                after.resolveBytes(result).contentEquals(fixture.extraItemBytes),
+                "mdatBeforeMeta=$mdatBeforeMeta: the extra item's bytes must still resolve correctly after the shift",
+            )
+        }
+    }
+
+    @Test
     fun `createHeicXmpItem keeps the primary item's own iloc entry resolving to its original bytes`() {
         val fixture = HeicMetaFixture.build(xmpText = null) // no XMP item in this fixture at all
 
