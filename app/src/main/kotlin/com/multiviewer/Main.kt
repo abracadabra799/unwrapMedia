@@ -15,7 +15,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.KeyShortcut
 import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isMetaPressed
@@ -26,7 +25,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.MenuBar
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
@@ -39,6 +37,13 @@ import com.multiviewer.parser.MotionPhotoBuilder
 import com.multiviewer.parser.extractEmbeddedVideo
 import com.multiviewer.parser.findFirst
 import com.multiviewer.ui.*
+import com.multiviewer.ui.menu.AppKeyShortcut
+import com.multiviewer.ui.menu.AppMenu
+import com.multiviewer.ui.menu.CustomAppMenuBar
+import com.multiviewer.ui.menu.NativeAppMenuBar
+import com.multiviewer.ui.menu.buildAppMenuBar
+import com.multiviewer.ui.menu.collectShortcuts
+import com.multiviewer.ui.menu.matches
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerEventType
@@ -306,6 +311,16 @@ fun main(args: Array<String>) {
 
 private fun runGuiApplication(args: Array<String> = emptyArray()) = application {
     val appState = remember { AppState() }
+
+    // Computed once: true on macOS (native NSMenu via NativeAppMenuBar), false on Windows/Linux
+    // (CustomAppMenuBar -- the native Win32 HMENU menu Compose would otherwise render there has no
+    // font/spacing control and looks dated). See docs/superpowers/specs/2026-09-30-platform-aware-menu-bar-design.md.
+    val isMacOS = remember { System.getProperty("os.name").lowercase().contains("mac") }
+    // Published by the menu-building code inside Window's content below (Step 3) via SideEffect,
+    // so the onKeyEvent handler (Step 5), declared as a sibling parameter of the SAME Window(...)
+    // call and therefore unable to see that content lambda's own local vals, can still look up
+    // shortcuts against the latest menu state.
+    var menuBar by remember { mutableStateOf<List<AppMenu>>(emptyList()) }
     
     // Log environment info for native library troubleshooting and initialize disk cache
     LaunchedEffect(Unit) {
@@ -349,6 +364,17 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         icon = appIcon,
         onKeyEvent = { keyEvent ->
             if (keyEvent.type == KeyEventType.KeyDown) {
+                // Windows/Linux only: the custom menu bar isn't a native OS menu, so it has no
+                // OS-level accelerator table of its own -- this is what makes its shortcuts work
+                // even while no menu is open. macOS doesn't need this: NativeAppMenuBar's native
+                // menu bar already gets shortcut dispatch for free from Cocoa's own NSMenu.
+                if (!isMacOS) {
+                    val matched = menuBar.collectShortcuts().find { (shortcut, _) -> shortcut.matches(keyEvent) }
+                    if (matched != null) {
+                        matched.second()
+                        return@Window true
+                    }
+                }
                 val isCtrlOrMeta = keyEvent.isCtrlPressed || keyEvent.isMetaPressed
                 if (isCtrlOrMeta && !keyEvent.isShiftPressed && !keyEvent.isAltPressed && keyEvent.key == Key.C) {
                     val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
@@ -399,32 +425,32 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var latestUpdateVersion by remember { mutableStateOf("") }
         // Codec view popup window mode (Motion Vectors / QP Heatmap). null = popup closed.
         var codecViewPopupWindowMode by remember { mutableStateOf<CodecViewMode?>(null) }
-        MenuBar {
-            Menu(I18n.menuFile(language)) {
+        val builtMenuBar = buildAppMenuBar {
+            appMenu(I18n.menuFile(language)) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val isVideo = currentTab?.type == MediaType.VIDEO
                 val hasVideoTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Video" } == true
                 val hasAudioTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Audio" } == true
                 val hasGainmap = currentTab != null && !currentTab.isLoading && currentTab.gainmapInfo?.hasGainmap == true
 
-                Item(I18n.menuOpen(language), shortcut = KeyShortcut(Key.O, meta = true), onClick = { showOpenFileDialog(appState) })
-                Item(I18n.menuClose(language), enabled = appState.tabs.isNotEmpty(), shortcut = KeyShortcut(Key.W, meta = true), onClick = { appState.closeTab(appState.selectedTabIndex) })
+                item(I18n.menuOpen(language), shortcut = AppKeyShortcut(Key.O, meta = true), onClick = { showOpenFileDialog(appState) })
+                item(I18n.menuClose(language), enabled = appState.tabs.isNotEmpty(), shortcut = AppKeyShortcut(Key.W, meta = true), onClick = { appState.closeTab(appState.selectedTabIndex) })
             }
             // Track extraction, previously tacked onto the end of 파일 alongside open/close.
             // The motion photo extractions stay in 모션포토: they belong with the create/analyze
             // commands for that format rather than with plain track extraction.
-            Menu(I18n.menuExtract(language)) {
+            appMenu(I18n.menuExtract(language)) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val isVideo = currentTab?.type == MediaType.VIDEO
                 val hasVideoTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Video" } == true
                 val hasAudioTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Audio" } == true
 
-                Item(
+                item(
                     I18n.menuExtractVideoTrack(language),
                     enabled = hasVideoTrack,
                     onClick = { currentTab?.let { extractVideoTrackFromCurrentFile(appState, it) } },
                 )
-                Item(
+                item(
                     I18n.menuExtractAudioTrack(language),
                     enabled = hasAudioTrack,
                     onClick = { currentTab?.let { extractAudioTrackFromCurrentFile(appState, it) } },
@@ -432,119 +458,119 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
             }
             // Every gain map command in one place -- they were split between 파일 (extract) and
             // 분석 (the two viewers), which meant hunting through two menus for one feature.
-            Menu(I18n.menuGainmap(language)) {
+            appMenu(I18n.menuGainmap(language)) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val hasGainmap = currentTab != null && !currentTab.isLoading && currentTab.gainmapInfo?.hasGainmap == true
                 val hasGainmapImage = hasGainmap && currentTab?.gainmapInfo?.hasGainmapImage == true
 
-                Item(
+                item(
                     I18n.menuViewGainmapImage(language),
                     enabled = hasGainmapImage,
-                    shortcut = KeyShortcut(Key.G, meta = true),
+                    shortcut = AppKeyShortcut(Key.G, meta = true),
                     onClick = { currentTab?.isGainmapImagePopupOpen = true },
                 )
-                Item(
+                item(
                     I18n.menuExtractGainmapImage(language),
                     enabled = hasGainmapImage,
                     onClick = { currentTab?.let { extractGainmapImage(appState, it, language) } },
                 )
-                Item(
+                item(
                     I18n.menuViewGainmapXmp(language),
                     enabled = hasGainmap,
-                    shortcut = KeyShortcut(Key.G, meta = true, shift = true),
+                    shortcut = AppKeyShortcut(Key.G, meta = true, shift = true),
                     onClick = { currentTab?.isGainmapXmpPopupOpen = true },
                 )
-                Separator()
+                separator()
                 // Not gated on hasGainmap, unlike everything above it: this lists whatever XMP the
                 // file actually holds, which is worth looking at on files with no gain map at all.
-                Item(
+                item(
                     I18n.menuViewFileXmp(language),
                     enabled = currentTab != null && !currentTab.isLoading,
                     onClick = { currentTab?.isFileXmpPopupOpen = true },
                 )
             }
-            Menu(I18n.menuAnalyze(language)) {
+            appMenu(I18n.menuAnalyze(language)) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val hasActiveFile = currentTab != null && !currentTab.isLoading && currentTab.root != null
                 val isVideo = currentTab?.type == MediaType.VIDEO
                 val hasVideoTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Video" } == true
 
-                Item(
+                item(
                     I18n.menuDumpStructure(language),
                     enabled = hasActiveFile,
-                    shortcut = KeyShortcut(Key.D, meta = true, shift = true),
+                    shortcut = AppKeyShortcut(Key.D, meta = true, shift = true),
                     onClick = { dumpStructureWindowOpen = true },
                 )
-                Item(
+                item(
                     I18n.menuCheckStructure(language),
                     enabled = hasActiveFile,
-                    shortcut = KeyShortcut(Key.C, meta = true, shift = true),
+                    shortcut = AppKeyShortcut(Key.C, meta = true, shift = true),
                     onClick = { checkStructureWindowOpen = true },
                 )
-                Separator()
-                Item(
+                separator()
+                item(
                     I18n.menuGenerateAiPrompt(language),
                     enabled = hasActiveFile,
-                    shortcut = KeyShortcut(Key.P, meta = true, shift = true),
+                    shortcut = AppKeyShortcut(Key.P, meta = true, shift = true),
                     onClick = { appState.aiPromptWindowOpen = true },
                 )
-                Separator()
-                Item(
+                separator()
+                item(
                     I18n.menuAvSyncAnalysis(language),
                     enabled = isVideo,
-                    shortcut = KeyShortcut(Key.S, meta = true, shift = true),
+                    shortcut = AppKeyShortcut(Key.S, meta = true, shift = true),
                     onClick = { avSyncWindowOpen = true },
                 )
-                Item(
+                item(
                     I18n.menuBitstreamCorruption(language),
                     enabled = isVideo,
-                    shortcut = KeyShortcut(Key.B, meta = true, shift = true),
+                    shortcut = AppKeyShortcut(Key.B, meta = true, shift = true),
                     onClick = { bitstreamCorruptionWindowOpen = true },
                 )
                 val hasSefData = currentTab?.root?.let { root -> findFirst(root) { it.type == "sefd" } } != null
-                Item(
+                item(
                     I18n.menuSefIntegrityCheck(language),
                     enabled = hasSefData,
                     onClick = { sefIntegrityWindowOpen = true },
                 )
-                Item(
+                item(
                     I18n.menuViewFrameIntervals(language),
                     enabled = hasVideoTrack,
                     onClick = { frameIntervalWindowOpen = true },
                 )
             }
-            Menu(I18n.menuMotionPhoto(language)) {
+            appMenu(I18n.menuMotionPhoto(language)) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val isImage = currentTab != null && !currentTab.isLoading && currentTab.type == MediaType.IMAGE
                 val isHeic = currentTab?.file?.extension?.lowercase(java.util.Locale.US) in setOf("heic", "heif")
-                Item(
+                item(
                     I18n.menuCreateMotionPhotoV2(language),
                     enabled = isImage,
                     onClick = { currentTab?.let { createMotionPhotoFromCurrentTab(appState, it, language, com.multiviewer.parser.MotionPhotoFormatVersion.V2_MOTION_PHOTO) } },
                 )
-                Item(
+                item(
                     I18n.menuCreateMotionPhotoV1(language),
                     enabled = isImage && !isHeic,
                     onClick = { currentTab?.let { createMotionPhotoFromCurrentTab(appState, it, language, com.multiviewer.parser.MotionPhotoFormatVersion.V1_MICRO_VIDEO) } },
                 )
-                Separator()
-                Item(
+                separator()
+                item(
                     I18n.menuExtractMotionVideo(language),
                     enabled = currentTab?.embeddedVideo != null,
                     onClick = { currentTab?.let { extractMotionPhotoVideo(appState, it) } },
                 )
-                Item(
+                item(
                     I18n.menuExtractPreviewVideo(language),
                     enabled = currentTab?.motionPhotoPreview != null,
                     onClick = { currentTab?.let { extractMotionPhotoPreviewVideo(appState, it) } },
                 )
-                Separator()
-                Item(
+                separator()
+                item(
                     I18n.menuMotionFrameDropAnalysis(language),
                     enabled = currentTab?.embeddedVideo != null,
                     onClick = { motionPhotoFrameIntervalWindowOpen = true },
                 )
-                Separator()
+                separator()
                 val hasMotionPhoto = currentTab?.root?.let { r ->
                     (findFirst(r) { it.type == "sefd" }?.let { sefd ->
                         // Mirrors MotionPhotoIntegrityAnalyzer.kt's detectedFormats gate: MotionPhoto_Data
@@ -560,19 +586,19 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                             }
                         } != null
                 } ?: false
-                Item(
+                item(
                     I18n.menuMotionPhotoIntegrityCheck(language),
                     enabled = hasMotionPhoto,
                     onClick = { motionPhotoIntegrityWindowOpen = true },
                 )
             }
-            Menu(I18n.menuTools(language)) {
-                Item(
+            appMenu(I18n.menuTools(language)) {
+                item(
                     I18n.menuCompareFiles(language),
-                    shortcut = KeyShortcut(Key.D, meta = true),
+                    shortcut = AppKeyShortcut(Key.D, meta = true),
                     onClick = { imageCompareWindowOpen = true },
                 )
-                Item(
+                item(
                     I18n.menuQualityBenchmark(language),
                     onClick = { qualityCompareWindowOpen = true },
                 )
@@ -580,8 +606,8 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
             // The "탐색" menu used to sit here. Removed as confusing: its panel toggle duplicated the
             // 구조 트리 / 폴더 탐색 tabs right below, and "탐색" read as being about the folder explorer
             // while actually holding file-stepping commands.
-            Menu(I18n.menuView(language)) {
-                CheckboxItem(
+            appMenu(I18n.menuView(language)) {
+                checkbox(
                     I18n.menuDarkTheme(language),
                     checked = themeMode == ThemeMode.DARK,
                     onCheckedChange = {
@@ -589,7 +615,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                         saveThemeMode(themeMode)
                     },
                 )
-                CheckboxItem(
+                checkbox(
                     I18n.menuLightTheme(language),
                     checked = themeMode == ThemeMode.LIGHT,
                     onCheckedChange = {
@@ -597,8 +623,8 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                         saveThemeMode(themeMode)
                     },
                 )
-                Separator()
-                CheckboxItem(
+                separator()
+                checkbox(
                     I18n.menuPixelGrid(language),
                     checked = showPixelGrid,
                     onCheckedChange = {
@@ -607,20 +633,20 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     },
                 )
                 val codecViewCurrentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
-                Item(
+                item(
                     I18n.menuMotionVectors(language),
                     enabled = codecViewCurrentTab?.type == MediaType.VIDEO &&
                         codecViewSupportedFor(CodecViewMode.MOTION_VECTORS, codecViewCurrentTab.videoCodecName),
                     onClick = { codecViewPopupWindowMode = CodecViewMode.MOTION_VECTORS },
                 )
-                Item(
+                item(
                     I18n.menuQpHeatmap(language),
                     enabled = codecViewCurrentTab?.type == MediaType.VIDEO &&
                         codecViewSupportedFor(CodecViewMode.QP_HEATMAP, codecViewCurrentTab.videoCodecName),
                     onClick = { codecViewPopupWindowMode = CodecViewMode.QP_HEATMAP },
                 )
-                Separator()
-                CheckboxItem(
+                separator()
+                checkbox(
                     I18n.menuKorean(language),
                     checked = language == AppLanguage.KO,
                     onCheckedChange = {
@@ -628,7 +654,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                         saveLanguage(language)
                     },
                 )
-                CheckboxItem(
+                checkbox(
                     I18n.menuEnglish(language),
                     checked = language == AppLanguage.EN,
                     onCheckedChange = {
@@ -637,8 +663,8 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     },
                 )
             }
-            Menu(I18n.menuHelp(language)) {
-                Item(
+            appMenu(I18n.menuHelp(language)) {
+                item(
                     I18n.menuOnlineRepo(language),
                     onClick = {
                         try {
@@ -648,12 +674,16 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                         } catch (_: Exception) {}
                     },
                 )
-                Separator()
-                Item(
+                separator()
+                item(
                     I18n.menuAbout(language),
                     onClick = { aboutWindowOpen = true },
                 )
             }
+        }
+        SideEffect { menuBar = builtMenuBar }
+        if (isMacOS) {
+            NativeAppMenuBar(builtMenuBar)
         }
 
         LaunchedEffect(Unit) {
@@ -912,7 +942,12 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     )
                 }
             }
-            Surface(modifier = Modifier.fillMaxSize(), color = AppColors.Background) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                if (!isMacOS) {
+                    CustomAppMenuBar(builtMenuBar, modifier = Modifier.fillMaxWidth())
+                    HorizontalDivider(color = AppColors.Border)
+                }
+                Surface(modifier = Modifier.weight(1f).fillMaxWidth(), color = AppColors.Background) {
                 if (appState.tabs.isEmpty()) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
@@ -1203,5 +1238,6 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
             }
           }
         }
+      }
     }
 }
