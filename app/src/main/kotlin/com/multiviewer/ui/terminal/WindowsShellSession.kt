@@ -44,6 +44,7 @@ internal class WindowsShellSession(
 
     private var process: Process? = null
     private var _ttyConnector: TtyConnector? = null
+    private var watchThread: Thread? = null
 
     val ttyConnector: TtyConnector
         get() = checkNotNull(_ttyConnector) { "start() has not created a connector" }
@@ -60,14 +61,14 @@ internal class WindowsShellSession(
             Thread {
                 runCatching { _ttyConnector?.write(PtyCliCommand.utf8Prelude() + "\r") }
             }.apply { isDaemon = true; name = "shell-prelude" }.start()
-            Thread {
+            watchThread = Thread {
                 try {
                     val code = p.waitFor()
                     ProcessManager.unregister(p)
                     state = SessionState.Exited(code)
                 } catch (_: InterruptedException) {
                 }
-            }.apply { isDaemon = true; name = "shell-watch" }.start()
+            }.apply { isDaemon = true; name = "shell-watch" }.also { it.start() }
         } catch (t: Throwable) {
             runCatching { process?.destroyForcibly() }
             process?.let { ProcessManager.unregister(it) }
@@ -76,6 +77,7 @@ internal class WindowsShellSession(
     }
 
     fun destroy() {
+        watchThread?.interrupt()
         process?.let { p ->
             // Kill the CLI the user launched (node.exe etc.) too. pty4j's
             // WinConPtyProcess.destroy() only terminates the PowerShell handle and

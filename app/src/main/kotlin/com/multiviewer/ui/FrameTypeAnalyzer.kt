@@ -105,6 +105,7 @@ fun probeFrameTypesStreaming(
         emit(FrameAnalysisProgress(emptyList(), 0, estimatedTotal, isComplete = true))
     } finally {
         ProcessManager.terminate(process)
+        process?.let { ProcessManager.unregister(it) }
     }
 }.flowOn(Dispatchers.IO)
 

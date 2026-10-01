@@ -175,6 +175,7 @@ internal class VideoAudioTrack(
                         }
                     }
                 }
+                runCatching { p.inputStream.close() }
                 ln?.stop()
                 ln?.flush()
                 ln?.close()

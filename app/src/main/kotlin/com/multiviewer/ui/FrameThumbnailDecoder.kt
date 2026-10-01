@@ -78,8 +78,9 @@ object FrameThumbnailDecoder {
             return
         }
 
+        var process: Process? = null
         try {
-            val process = ProcessBuilder(
+            val p = ProcessBuilder(
                 FfmpegLocator.ffmpegPath(), "-y",
                 "-hwaccel", "auto",
                 "-ss", startPtsSeconds.toString(),
@@ -94,6 +95,7 @@ object FrameThumbnailDecoder {
                 .also { FfmpegLocator.configureEnvironment(it) }
                 .start()
                 .also { com.multiviewer.util.ProcessManager.register(it) }
+            process = p
 
             val processedOffsets = mutableSetOf<Int>()
             val startTime = System.currentTimeMillis()
@@ -124,28 +126,33 @@ object FrameThumbnailDecoder {
                 }
             }
 
-            while (process.isAlive) {
+            while (p.isAlive) {
                 scanAndEmitNewThumbnails()
                 if (System.currentTimeMillis() - startTime > BATCH_TIMEOUT_MS) {
-                    com.multiviewer.util.ProcessManager.terminate(process)
+                    com.multiviewer.util.ProcessManager.terminate(p)
                     break
                 }
                 try {
                     Thread.sleep(25)
                 } catch (e: InterruptedException) {
-                    com.multiviewer.util.ProcessManager.terminate(process)
+                    com.multiviewer.util.ProcessManager.terminate(p)
                     break
                 }
             }
 
-            process.waitFor(2000, TimeUnit.MILLISECONDS)
-            com.multiviewer.util.ProcessManager.unregister(process)
+            p.waitFor(2000, TimeUnit.MILLISECONDS)
 
             // Final sweep to pick up any remaining frames finished just before process exit
             scanAndEmitNewThumbnails()
         } catch (e: Exception) {
             // ignore
         } finally {
+            process?.let { p ->
+                if (p.isAlive) {
+                    com.multiviewer.util.ProcessManager.terminate(p)
+                }
+                com.multiviewer.util.ProcessManager.unregister(p)
+            }
             tempDir.deleteRecursively()
         }
     }

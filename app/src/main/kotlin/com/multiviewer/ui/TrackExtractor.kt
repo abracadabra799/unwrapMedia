@@ -47,22 +47,30 @@ fun extractAudioTrack(source: File, destination: File): Boolean {
 }
 
 private fun runFfmpegExtract(vararg command: String): Boolean {
+    var process: Process? = null
     return try {
-        val process = ProcessBuilder(*command)
+        val p = ProcessBuilder(*command)
             .redirectOutput(ProcessBuilder.Redirect.DISCARD)
             .redirectError(ProcessBuilder.Redirect.DISCARD)
             .also { FfmpegLocator.configureEnvironment(it) }
             .start()
             .also { com.multiviewer.util.ProcessManager.register(it) }
-        val finished = process.waitFor(EXTRACT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        process = p
+        val finished = p.waitFor(EXTRACT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         if (!finished) {
-            com.multiviewer.util.ProcessManager.terminate(process)
+            com.multiviewer.util.ProcessManager.terminate(p)
             false
         } else {
-            com.multiviewer.util.ProcessManager.unregister(process)
-            process.exitValue() == 0
+            p.exitValue() == 0
         }
     } catch (e: Exception) {
         false
+    } finally {
+        process?.let { p ->
+            if (p.isAlive) {
+                com.multiviewer.util.ProcessManager.terminate(p)
+            }
+            com.multiviewer.util.ProcessManager.unregister(p)
+        }
     }
 }

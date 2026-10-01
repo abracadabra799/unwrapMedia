@@ -855,7 +855,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
             if (sefIntegrityWindowOpen) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val sefdNode = currentTab?.root?.let { root -> findFirst(root) { it.type == "sefd" } }
-                if (sefdNode != null && currentTab != null) {
+                if (currentTab != null && sefdNode != null) {
                     SefIntegrityWindow(
                         file = currentTab.file,
                         sefdOffset = sefdNode.offset,
@@ -871,7 +871,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
             if (motionPhotoIntegrityWindowOpen) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val currentRoot = currentTab?.root
-                if (currentRoot != null && currentTab != null) {
+                if (currentTab != null && currentRoot != null) {
                     MotionPhotoIntegrityWindow(
                         file = currentTab.file,
                         root = currentRoot,

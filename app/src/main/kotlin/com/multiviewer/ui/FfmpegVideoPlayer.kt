@@ -602,6 +602,8 @@ fun FfmpegVideoPlayer(
                     // Expected on dispose -- not an error.
                 } catch (e: Exception) {
                     System.err.println("FfmpegVideoPlayer reader thread failed: $e")
+                } finally {
+                    runCatching { process.inputStream.close() }
                 }
             }.apply { isDaemon = true }.also { it.start() }
         } else {

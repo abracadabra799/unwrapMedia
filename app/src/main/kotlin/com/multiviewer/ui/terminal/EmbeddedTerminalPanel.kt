@@ -229,7 +229,7 @@ internal fun EmbeddedTerminalPanel(
             widget?.requestFocusInWindow()
         }
     }
-    DisposableEffect(session) {
+    DisposableEffect(widget) {
         // close() on a widget that failed mid-start() can throw; disposal must not
         // propagate an exception into Compose.
         onDispose { runCatching { widget?.close() } }

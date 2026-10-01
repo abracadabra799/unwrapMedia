@@ -264,6 +264,7 @@ fun FfmpegAudioPlayer(
                 } catch (e: Exception) {
                     System.err.println("FfmpegAudioPlayer reader thread failed: $e")
                 } finally {
+                    runCatching { process.inputStream.close() }
                     line?.stop()
                     line?.flush()
                     line?.close()
