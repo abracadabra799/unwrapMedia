@@ -23,6 +23,14 @@ object MotionPhotoBuilder {
     private val XMP_IDENTIFIER = "http://ns.adobe.com/xap/1.0/".toByteArray(Charsets.US_ASCII)
     private val EXIF_PREFIX = byteArrayOf(0x45, 0x78, 0x69, 0x66, 0x00, 0x00) // "Exif\0\0"
 
+    // HEIC's Directory-item Padding fields don't describe a real, computed byte gap the way the
+    // JPEG path's primaryPadding does -- HEIC readers locate items via iloc/mdat structure, not by
+    // walking Directory + Padding offsets from a concatenated file. This constant exists purely so
+    // every HEIC XMP-building path (fresh build and merge-into-existing alike) writes the SAME
+    // placeholder value, rather than two different hardcoded numbers that look like they mean
+    // something different when they don't.
+    private const val HEIC_PRIMARY_ITEM_PADDING_BYTES = 8L
+
     // Samsung SEF (Samsung Extension Format) constants
     private const val SEF_MARKER_MOTION_PHOTO_DATA = 0x0A30
     private const val SEF_MARKER_MOTION_PHOTO_VERSION = 0x0A31
@@ -236,7 +244,7 @@ object MotionPhotoBuilder {
         sb.append("            <Container:Item\n")
         sb.append("              Item:Semantic=\"Primary\"\n")
         sb.append("              Item:Mime=\"image/heic\"\n")
-        sb.append("              Item:Padding=\"8\"/>\n")
+        sb.append("              Item:Padding=\"$HEIC_PRIMARY_ITEM_PADDING_BYTES\"/>\n")
         sb.append("          </rdf:li>\n")
         if (hasGainMap) {
             sb.append(gainMapItem)
@@ -340,6 +348,13 @@ object MotionPhotoBuilder {
                 return li
             }
 
+            fun itemChildOf(li: org.w3c.dom.Element): org.w3c.dom.Element? {
+                val children = li.childNodes
+                return (0 until children.length)
+                    .mapNotNull { children.item(it) as? org.w3c.dom.Element }
+                    .find { it.namespaceURI == containerNs && it.localName == "Item" }
+            }
+
             if (existingDirectory != null) {
                 val seq = run {
                     val children = existingDirectory.childNodes
@@ -354,16 +369,36 @@ object MotionPhotoBuilder {
                         .mapNotNull { children.item(it) as? org.w3c.dom.Element }
                         .filter { it.namespaceURI == rdfNs && it.localName == "li" }
                 }
-                val lastLi = liElements.lastOrNull()
-                val lastItem = lastLi?.let { li ->
-                    val children = li.childNodes
-                    (0 until children.length)
-                        .mapNotNull { children.item(it) as? org.w3c.dom.Element }
-                        .find { it.namespaceURI == containerNs && it.localName == "Item" }
-                }
-                lastItem?.setAttributeNS(itemNs, "Item:Padding", precedingItemPaddingBytes.toString())
 
-                seq.appendChild(newMotionPhotoLi())
+                // Re-running motion-photo creation on a file that is ALREADY a motion photo (or
+                // replacing its video) must not append a second Item:Semantic="MotionPhoto" li --
+                // every consumer (findMotionPhotoInDirectory included) resolves the FIRST match in
+                // document order, so a duplicate would leave the STALE item winning and the video
+                // this run just embedded silently unreachable from the XMP side. This tool's own
+                // MotionPhoto item (like the GCamera:* attributes above) is safe to overwrite
+                // unconditionally -- it's never something a different tool would have written.
+                val existingMotionPhotoIndex = liElements.indexOfFirst { li ->
+                    itemChildOf(li)?.getAttributeNS(itemNs, "Semantic") == "MotionPhoto"
+                }
+
+                if (existingMotionPhotoIndex >= 0) {
+                    val motionPhotoItem = itemChildOf(liElements[existingMotionPhotoIndex])
+                    motionPhotoItem?.setAttributeNS(itemNs, "Item:Mime", "video/mp4")
+                    motionPhotoItem?.setAttributeNS(itemNs, "Item:Length", videoOffsetOrLength.toString())
+                    motionPhotoItem?.setAttributeNS(itemNs, "Item:Padding", "0")
+                    // The item immediately preceding the (replaced) MotionPhoto item is still the
+                    // one whose Padding describes the gap to the video -- recompute it the same way
+                    // as the append branch below, just relative to where MotionPhoto already sits
+                    // rather than relative to the list's end.
+                    if (existingMotionPhotoIndex > 0) {
+                        itemChildOf(liElements[existingMotionPhotoIndex - 1])
+                            ?.setAttributeNS(itemNs, "Item:Padding", precedingItemPaddingBytes.toString())
+                    }
+                } else {
+                    val lastItem = liElements.lastOrNull()?.let { itemChildOf(it) }
+                    lastItem?.setAttributeNS(itemNs, "Item:Padding", precedingItemPaddingBytes.toString())
+                    seq.appendChild(newMotionPhotoLi())
+                }
             } else {
                 val directory = document.createElementNS(containerNs, "Container:Directory")
                 val seq = document.createElementNS(rdfNs, "rdf:Seq")
@@ -383,7 +418,12 @@ object MotionPhotoBuilder {
             }
 
             serializeXmpDocument(document)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // Throwable, not Exception: parseXmpDocument can throw StackOverflowError/OutOfMemoryError
+            // on a crafted/deeply-nested existing XMP document (both Error, not Exception) -- matches
+            // the Throwable catch MotionPhotoExtractor.kt's findGoogleMotionPhotoVideo and
+            // MotionPhotoIntegrityAnalyzer.kt's analyzeGoogleXmpSection already use for this exact risk
+            // on the same untrusted input. A merge failure must never abort motion-photo creation.
             freshBuild
         }
     }
@@ -414,6 +454,14 @@ object MotionPhotoBuilder {
         out.write(prefix)
         out.write(xmpBytes)
         return out.toByteArray()
+    }
+
+    /** Whether [xmpText] fits in a single JPEG APP1 segment -- mirrors [buildApp1XmpSegment]'s own size check exactly, without constructing the segment or risking its `require`. */
+    private fun fitsInApp1Segment(xmpText: String): Boolean {
+        val xmpBytes = xmpText.toByteArray(Charsets.UTF_8)
+        val payloadSize = (XMP_IDENTIFIER.size + 1) + xmpBytes.size
+        val segmentLength = 2 + payloadSize
+        return segmentLength <= 65535
     }
 
     /**
@@ -1666,37 +1714,6 @@ object MotionPhotoBuilder {
     }
 
     /**
-     * Updates the Motion Photo XMP metadata item in HEIC (referenced by iloc in the meta box) in place.
-     */
-    fun updateHeicXmpItem(
-        baseHeicBytes: ByteArray,
-        videoOffsetFromEof: Long,
-        presentationTimestampUs: Long = 1500000L,
-        version: MotionPhotoFormatVersion = MotionPhotoFormatVersion.V2_MOTION_PHOTO,
-    ): ByteArray {
-        val extent = findXmpExtentInHeic(baseHeicBytes) ?: return baseHeicBytes
-        val (xmpStart, allocatedLen) = extent
-
-        val oldXmpStr = String(baseHeicBytes.copyOfRange(xmpStart, minOf(xmpStart + allocatedLen, baseHeicBytes.size)), Charsets.UTF_8)
-        val hasGainMap = oldXmpStr.contains("GainMap")
-
-        val newXmpText = buildGoogleMotionPhotoHeicXmp(videoOffsetFromEof, hasGainMap, presentationTimestampUs, version)
-        val newXmpBytes = newXmpText.toByteArray(Charsets.UTF_8)
-
-        if (newXmpBytes.size <= allocatedLen) {
-            val result = baseHeicBytes.copyOf()
-            System.arraycopy(newXmpBytes, 0, result, xmpStart, newXmpBytes.size)
-            // Fill remainder of extent with space characters (0x20)
-            for (k in (xmpStart + newXmpBytes.size) until (xmpStart + allocatedLen)) {
-                result[k] = 0x20.toByte()
-            }
-            return result
-        }
-
-        return baseHeicBytes
-    }
-
-    /**
      * Converts a non-JPEG image file to standard JPEG byte array at high quality (95%).
      */
     fun convertImageToJpegBytes(imageFile: File): ByteArray {
@@ -1798,7 +1815,20 @@ object MotionPhotoBuilder {
             }
         }
 
-        val xmpText = mergeMotionPhotoXmp(existingXmpText, videoOffsetFromEof, primaryPadding, presentationTimestampUs, version, "image/jpeg")
+        val mergedXmpText = mergeMotionPhotoXmp(existingXmpText, videoOffsetFromEof, primaryPadding, presentationTimestampUs, version, "image/jpeg")
+        // A merge is additive (existing content plus this tool's own attributes/Directory entry), so
+        // unlike the ~900-byte fresh build, the merged text can approach or exceed a JPEG APP1
+        // segment's 65535-byte limit for a source JPEG whose own XMP was already close to it (e.g. an
+        // embedded xmp:Thumbnails image, or a large Lightroom history block) -- buildApp1XmpSegment's
+        // own `require` would then throw and abort motion-photo creation entirely, violating this
+        // feature's "a merge failure must never abort creation" constraint. Fall back to the
+        // guaranteed-small fresh build (mergeMotionPhotoXmp(null, ...), its own null-input branch) in
+        // that case rather than losing the whole file over it.
+        val xmpText = if (fitsInApp1Segment(mergedXmpText)) {
+            mergedXmpText
+        } else {
+            mergeMotionPhotoXmp(null, videoOffsetFromEof, primaryPadding, presentationTimestampUs, version, "image/jpeg")
+        }
         val app1Segment = buildApp1XmpSegment(xmpText)
 
         val out = ByteArrayOutputStream(jpegBytes.size + app1Segment.size)
@@ -1881,7 +1911,7 @@ object MotionPhotoBuilder {
         version: MotionPhotoFormatVersion,
     ): ByteArray {
         fun mergedBytes(existingXmpText: String?): ByteArray =
-            mergeMotionPhotoXmp(existingXmpText, videoOffsetFromEof, 0L, syncTimestampUs, version, "image/heic")
+            mergeMotionPhotoXmp(existingXmpText, videoOffsetFromEof, HEIC_PRIMARY_ITEM_PADDING_BYTES, syncTimestampUs, version, "image/heic")
                 .toByteArray(Charsets.UTF_8)
 
         val structuralItem = findHeicXmpItemLocation(baseHeicBytes)
