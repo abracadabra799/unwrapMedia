@@ -462,7 +462,23 @@ class MotionPhotoBuilderTest {
             (fixture.primaryItemOffset + fixture.primaryItemLength).toInt(),
         )
         assertTrue(primaryBytesAfter.contentEquals(fixture.primaryItemBytes), "Primary item's bytes must be unchanged and at the same offset")
-        assertEquals(fixture.heicBytes.size, result.size - mergedXmpBytes.size - 8, "File should have grown by exactly the new mdat box (8-byte header + payload)")
+        assertEquals(
+            fixture.heicBytes.size + mergedXmpBytes.size,
+            result.size,
+            "File should have grown by exactly the merged XMP bytes -- they go INTO the existing mdat's payload, " +
+                "so there is no second 8-byte box header",
+        )
+        assertEquals(
+            fixture.mdatBoxSize + mergedXmpBytes.size,
+            singleMdatSize(result),
+            "The one existing mdat box must have grown in place by exactly the merged XMP byte count",
+        )
+        // The repointed item resolves, through its own iloc fields, to exactly the merged bytes.
+        val repointedEntry = readIlocEntries(result).getValue(fixture.xmpItemId)
+        assertTrue(
+            repointedEntry.resolveBytes(result).contentEquals(mergedXmpBytes),
+            "The repointed XMP item's iloc entry must resolve to the merged bytes",
+        )
 
         // Re-parse with this app's own HEIC meta/iloc understanding and confirm the XMP item now
         // resolves to the merged bytes.
@@ -534,9 +550,16 @@ class MotionPhotoBuilderTest {
 
         // ...and the entry must genuinely have been REWRITTEN, by exactly meta's growth -- otherwise
         // the assertion above could be passing for the wrong reason (e.g. a fixture where nothing
-        // needed to move).
-        val metaGrowth = result.size - fixture.heicBytes.size - 8 - newXmpBytes.size
+        // needed to move). The whole file grows by meta's growth PLUS the XMP bytes; the XMP bytes go
+        // into the existing mdat's payload, so (unlike the old second-mdat design) there's no extra
+        // 8-byte box header in that total.
+        val metaGrowth = result.size - fixture.heicBytes.size - newXmpBytes.size
         assertTrue(metaGrowth > 0, "Expected meta to have grown (one new infe + one new iloc entry)")
+        assertEquals(
+            fixture.mdatBoxSize + newXmpBytes.size,
+            singleMdatSize(result),
+            "The one existing mdat box must have grown in place by exactly the new XMP byte count",
+        )
         val primaryBefore = entriesBefore.getValue(HeicMetaFixture.PRIMARY_ITEM_ID)
         assertEquals(
             primaryBefore.absoluteStart() + metaGrowth,
@@ -608,7 +631,7 @@ class MotionPhotoBuilderTest {
         val newXmpBytes = NEW_XMP_PACKET.toByteArray(Charsets.UTF_8)
         val result = MotionPhotoBuilder.createHeicXmpItem(fixture.heicBytes, newXmpBytes)
 
-        val metaGrowth = result.size - fixture.heicBytes.size - 8 - newXmpBytes.size
+        val metaGrowth = result.size - fixture.heicBytes.size - newXmpBytes.size
         assertTrue(metaGrowth > 0, "Expected meta to grow -- otherwise a missing exemption couldn't be observed")
 
         val before = readIlocEntries(fixture.heicBytes).getValue(HeicMetaFixture.PRIMARY_ITEM_ID)
@@ -643,7 +666,7 @@ class MotionPhotoBuilderTest {
         val newXmpBytes = NEW_XMP_PACKET.toByteArray(Charsets.UTF_8)
         val result = MotionPhotoBuilder.createHeicXmpItem(fixture.heicBytes, newXmpBytes)
 
-        val metaGrowth = result.size - fixture.heicBytes.size - 8 - newXmpBytes.size
+        val metaGrowth = result.size - fixture.heicBytes.size - newXmpBytes.size
         assertTrue(metaGrowth > 0, "Expected meta to grow -- otherwise a missing shift couldn't be observed")
 
         val before = readIlocEntries(fixture.heicBytes).getValue(HeicMetaFixture.PRIMARY_ITEM_ID)
@@ -744,6 +767,288 @@ class MotionPhotoBuilderTest {
         tmp.delete()
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // Single-mdat merge: the new/merged XMP bytes are appended to the EXISTING mdat's payload, and
+    // that must hold for BOTH physical top-level box orderings (`ftyp, meta, mdat` -- this project's
+    // historical fixture order -- and `ftyp, mdat, meta`, which real Apple-encoded HEIC commonly
+    // uses). Each ordering gets its own @Test so a failure names the ordering directly.
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    fun `repointHeicXmpItem grows the single existing mdat when meta comes before mdat`() {
+        runRepointSingleMdatScenario(mdatBeforeMeta = false)
+    }
+
+    @Test
+    fun `repointHeicXmpItem grows the single existing mdat when mdat comes before meta`() {
+        runRepointSingleMdatScenario(mdatBeforeMeta = true)
+    }
+
+    @Test
+    fun `createHeicXmpItem grows the single existing mdat when meta comes before mdat`() {
+        runCreateSingleMdatScenario(mdatBeforeMeta = false)
+    }
+
+    @Test
+    fun `createHeicXmpItem grows the single existing mdat when mdat comes before meta`() {
+        runCreateSingleMdatScenario(mdatBeforeMeta = true)
+    }
+
+    private fun runRepointSingleMdatScenario(mdatBeforeMeta: Boolean) {
+        val existingXmp = """<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:tiff="http://ns.adobe.com/tiff/1.0/" tiff:Make="SomeCamera"/></rdf:RDF></x:xmpmeta>"""
+        val fixture = HeicMetaFixture.build(xmpText = existingXmp, mdatBeforeMeta = mdatBeforeMeta)
+
+        // Premise check: the fixture really did emit the requested physical order, so this test can't
+        // silently be re-testing the other one.
+        assertEquals(
+            if (mdatBeforeMeta) listOf("ftyp", "mdat", "meta") else listOf("ftyp", "meta", "mdat"),
+            topLevelBoxes(fixture.heicBytes).map { it.first },
+            "Fixture must emit the requested top-level box order (mdatBeforeMeta=$mdatBeforeMeta)",
+        )
+
+        val mergedXmpBytes = ("<x:xmpmeta><rdf:Description>MERGED CONTENT, DELIBERATELY MUCH LONGER THAN " +
+            "THE ORIGINAL SLOT ALLOWED FOR</rdf:Description></x:xmpmeta>").toByteArray(Charsets.UTF_8)
+        val result = MotionPhotoBuilder.repointHeicXmpItem(
+            fixture.heicBytes, fixture.xmpItemId, fixture.xmpIlocEntryOffset, fixture.xmpExtentCount, mergedXmpBytes,
+        )
+        assertNotNull(result, "repointHeicXmpItem must handle mdatBeforeMeta=$mdatBeforeMeta rather than bailing out")
+
+        // (1) Exactly ONE mdat -- the core "don't append a second one" regression check -- grown in
+        //     place by exactly the merged byte count, and no other byte added anywhere.
+        assertEquals(
+            fixture.mdatBoxSize + mergedXmpBytes.size,
+            singleMdatSize(result),
+            "The one existing mdat must have grown in place by exactly the merged XMP byte count",
+        )
+        assertEquals(
+            fixture.heicBytes.size + mergedXmpBytes.size,
+            result.size,
+            "No second box header may be added -- the file grows by exactly the merged XMP bytes",
+        )
+
+        // (2) The repointed item's OWN iloc fields resolve to the merged bytes, and those bytes
+        //     physically live inside the grown mdat's payload (not in some appended box).
+        val entries = readIlocEntries(result)
+        val xmpEntry = entries.getValue(fixture.xmpItemId)
+        assertEquals(0, xmpEntry.constructionMethod, "The repointed item must be an absolute-offset item")
+        assertEquals(1, xmpEntry.extents.size, "The repointed item must still have exactly one extent")
+        assertTrue(
+            xmpEntry.resolveBytes(result).contentEquals(mergedXmpBytes),
+            "The repointed XMP item's iloc entry must resolve to the merged bytes (mdatBeforeMeta=$mdatBeforeMeta)",
+        )
+        assertExtentInsideSingleMdat(result, xmpEntry, "repointed XMP item")
+
+        // (3) The primary image item still resolves, through its own entry, to its original bytes.
+        val primary = entries.getValue(HeicMetaFixture.PRIMARY_ITEM_ID)
+        assertTrue(
+            primary.resolveBytes(result).contentEquals(fixture.primaryItemBytes),
+            "The primary item's iloc entry must still resolve to its original bytes",
+        )
+        // Its data sits INSIDE mdat, ahead of the insertion point, so it never moves on this path.
+        assertEquals(
+            fixture.primaryItemOffset,
+            primary.absoluteStart(),
+            "The primary item's data precedes mdat's payload end, so growing mdat must not move it",
+        )
+
+        // (4) meta shifts by the growth exactly when it sits AFTER mdat -- the whole point of this
+        //     ordering. (If the rewritten entry's position hadn't been shifted with it, (2) above
+        //     would already have read garbage.)
+        val metaStartAfter = topLevelBoxes(result).single { it.first == "meta" }.second.toLong()
+        assertEquals(
+            fixture.metaBoxOffset + (if (mdatBeforeMeta) mergedXmpBytes.size else 0),
+            metaStartAfter,
+            "meta must shift by mdat's growth only when it comes after mdat (mdatBeforeMeta=$mdatBeforeMeta)",
+        )
+
+        // (5) This app's own readers still locate the merged XMP structurally, and the whole file
+        //     still parses.
+        val reExtent = MotionPhotoBuilder.findXmpExtentInHeic(result)
+        assertNotNull(reExtent, "Expected the repointed XMP to be locatable via meta/iloc")
+        assertTrue(String(result, reExtent.first, reExtent.second, Charsets.UTF_8).contains("MERGED CONTENT"))
+        val tmp = File.createTempFile("heic-repoint-order-", ".heic").apply { deleteOnExit(); writeBytes(result) }
+        val root = parseFile(tmp)
+        assertNotNull(findFirst(root) { it.type == "iloc" }, "Expected iloc to still be parseable after the rewrite")
+        tmp.delete()
+    }
+
+    private fun runCreateSingleMdatScenario(mdatBeforeMeta: Boolean) {
+        val fixture = HeicMetaFixture.build(xmpText = null, mdatBeforeMeta = mdatBeforeMeta)
+        assertEquals(
+            if (mdatBeforeMeta) listOf("ftyp", "mdat", "meta") else listOf("ftyp", "meta", "mdat"),
+            topLevelBoxes(fixture.heicBytes).map { it.first },
+            "Fixture must emit the requested top-level box order (mdatBeforeMeta=$mdatBeforeMeta)",
+        )
+
+        val newXmpBytes = NEW_XMP_PACKET.toByteArray(Charsets.UTF_8)
+        val result = MotionPhotoBuilder.createHeicXmpItem(fixture.heicBytes, newXmpBytes)
+        assertTrue(result.size > fixture.heicBytes.size, "Expected a real rewrite, not a bail-out (mdatBeforeMeta=$mdatBeforeMeta)")
+
+        // (1) Exactly ONE mdat, grown by exactly the XMP byte count. meta's own growth (one infe +
+        //     one iloc entry) is the rest of the file's growth.
+        assertEquals(
+            fixture.mdatBoxSize + newXmpBytes.size,
+            singleMdatSize(result),
+            "The one existing mdat must have grown in place by exactly the new XMP byte count",
+        )
+        val metaGrowth = result.size - fixture.heicBytes.size - newXmpBytes.size
+        assertTrue(metaGrowth > 0, "Expected meta to have grown too (one new infe + one new iloc entry)")
+
+        val before = readIlocEntries(fixture.heicBytes)
+        val after = readIlocEntries(result)
+        assertEquals(before.size + 1, after.size, "Expected exactly one new iloc item entry")
+
+        // (2) The pre-existing primary image item still resolves to its original bytes -- THE
+        //     regression check -- and moved by exactly the growth inserted ahead of it: meta's growth
+        //     when meta precedes mdat, nothing at all when mdat precedes meta (both insertions then
+        //     land after the primary's data).
+        val primaryAfter = after.getValue(HeicMetaFixture.PRIMARY_ITEM_ID)
+        assertTrue(
+            primaryAfter.resolveBytes(result).contentEquals(fixture.primaryItemBytes),
+            "The primary item's iloc entry must resolve to its original bytes; it resolves to " +
+                "${primaryAfter.resolveBytes(result).toList()} instead (mdatBeforeMeta=$mdatBeforeMeta)",
+        )
+        assertEquals(
+            before.getValue(HeicMetaFixture.PRIMARY_ITEM_ID).absoluteStart() + (if (mdatBeforeMeta) 0 else metaGrowth),
+            primaryAfter.absoluteStart(),
+            "Primary item's resolved absolute offset must move by exactly the growth inserted AHEAD of it " +
+                "(mdatBeforeMeta=$mdatBeforeMeta, metaGrowth=$metaGrowth)",
+        )
+
+        // (3) The new XMP item is registered with a fresh ID and its own entry resolves to the XMP
+        //     bytes, which physically live inside the single grown mdat's payload.
+        val newEntry = after.values.last()
+        assertTrue(newEntry.itemId !in before.keys, "New item's item_ID (${newEntry.itemId}) must not collide with ${before.keys}")
+        assertEquals(0, newEntry.constructionMethod, "New XMP item must be registered as an absolute-offset item")
+        assertTrue(
+            newEntry.resolveBytes(result).contentEquals(newXmpBytes),
+            "New XMP item's iloc entry must resolve to the XMP bytes (mdatBeforeMeta=$mdatBeforeMeta)",
+        )
+        assertExtentInsideSingleMdat(result, newEntry, "new XMP item")
+
+        // (4) Both top-level boxes end up exactly where the two-insertion arithmetic says: whichever
+        //     comes first never moves, and the other shifts by the first one's growth.
+        val metaAfter = topLevelBoxes(result).single { it.first == "meta" }
+        val mdatAfter = topLevelBoxes(result).single { it.first == "mdat" }
+        if (mdatBeforeMeta) {
+            assertEquals(fixture.mdatBoxOffset, mdatAfter.second.toLong(), "mdat comes first, so its own start cannot move")
+            assertEquals(fixture.metaBoxOffset + newXmpBytes.size, metaAfter.second.toLong(), "meta must shift by mdat's growth")
+        } else {
+            assertEquals(fixture.metaBoxOffset, metaAfter.second.toLong(), "meta comes first, so its own start cannot move")
+            assertEquals(fixture.mdatBoxOffset + metaGrowth, mdatAfter.second.toLong(), "mdat must shift by meta's growth")
+        }
+
+        // (5) This app's own structured meta/iloc walk finds the new item, and the file parses.
+        val reExtent = MotionPhotoBuilder.findXmpExtentInHeic(result)
+        assertNotNull(reExtent, "Expected the new XMP item to be locatable via meta/iloc")
+        assertEquals(NEW_XMP_PACKET, String(result, reExtent.first, reExtent.second, Charsets.UTF_8))
+        val tmp = File.createTempFile("heic-create-order-", ".heic").apply { deleteOnExit(); writeBytes(result) }
+        val root = parseFile(tmp)
+        val iinfNode = findFirst(root) { it.type == "iinf" }
+        assertNotNull(iinfNode, "Expected iinf to still be parseable after the rewrite")
+        assertEquals(fixture.existingItemCount + 1, iinfNode.children.size, "Expected exactly one new infe entry")
+        tmp.delete()
+    }
+
+    @Test
+    fun `createSamsungHeicMotionPhoto produces one mdat and a correct SEF pointer for an mdat-before-meta HEIC`() {
+        // End-to-end over the Apple-style `ftyp, mdat, meta` ordering: the XMP item is created, the
+        // file still has exactly one mdat, and -- the Task 4 Finding 1 regression -- the SEF
+        // MotionPhoto_Data video pointer is computed from the POST-growth base size, which now grows
+        // by a different amount than it used to (no second 8-byte mdat header).
+        val fixture = HeicMetaFixture.build(xmpText = null, mdatBeforeMeta = true)
+        val imageFile = File.createTempFile("heic-mdat-first-", ".heic")
+        imageFile.deleteOnExit()
+        imageFile.writeBytes(fixture.heicBytes)
+
+        val videoFile = File.createTempFile("heic-mdat-first-vid-", ".mp4")
+        videoFile.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=1:size=64x48:rate=10",
+            videoFile.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val outputFile = File.createTempFile("heic-mdat-first-out-", ".heic")
+        outputFile.deleteOnExit()
+        MotionPhotoBuilder.createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile)
+
+        val outBytes = outputFile.readBytes()
+        val entriesOut = readIlocEntries(outBytes)
+        assertEquals(fixture.existingItemCount + 1, entriesOut.size, "Expected exactly one new item to be registered")
+        val newItemEntry = entriesOut.values.last()
+        assertEquals(
+            fixture.mdatBoxSize + newItemEntry.extents.sumOf { it.second },
+            singleMdatSize(outBytes),
+            "The finished motion photo must still carry exactly one mdat, grown by exactly the new XMP bytes",
+        )
+        assertExtentInsideSingleMdat(outBytes, newItemEntry, "new XMP item")
+
+        val root = parseFile(outputFile)
+        assertNotNull(root.children.find { it.type == "mpvd" }, "Expected a top-level mpvd box")
+        assertNotNull(root.children.find { it.type == "sefd" }, "Expected a top-level sefd box")
+        val xmpNode = findFirst(root) { it.fields.any { f -> f.name == "xmp" } }
+        assertNotNull(xmpNode, "Expected a discoverable XMP item in the output")
+        assertTrue(xmpNode.fields.first { it.name == "xmp" }.value.contains("GCamera:MotionPhoto=\"1\""))
+
+        // The primary image item must still resolve to its original bytes in the finished file.
+        val primary = readIlocEntries(outBytes).getValue(HeicMetaFixture.PRIMARY_ITEM_ID)
+        assertTrue(
+            primary.resolveBytes(outBytes).contentEquals(fixture.primaryItemBytes),
+            "The primary item must still resolve to its original bytes in the finished motion photo",
+        )
+        assertSefVideoOffsetMatchesMpvd(outputFile)
+
+        imageFile.delete()
+        videoFile.delete()
+        outputFile.delete()
+    }
+
+    @Test
+    fun `createSamsungHeicMotionPhoto repoints into one mdat and keeps the SEF pointer exact for an mdat-before-meta HEIC`() {
+        // The repoint counterpart of the test above: an mdat-before-meta source that already HAS an
+        // XMP item. meta (and the very iloc entry being rewritten) shifts by mdat's growth here.
+        val existingXmp = """<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:tiff="http://ns.adobe.com/tiff/1.0/" tiff:Make="SomeCamera"/></rdf:RDF></x:xmpmeta>"""
+        val fixture = HeicMetaFixture.build(xmpText = existingXmp, mdatBeforeMeta = true)
+        val imageFile = File.createTempFile("heic-mdat-first-xmp-", ".heic")
+        imageFile.deleteOnExit()
+        imageFile.writeBytes(fixture.heicBytes)
+
+        val videoFile = File.createTempFile("heic-mdat-first-xmp-vid-", ".mp4")
+        videoFile.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=1:size=64x48:rate=10",
+            videoFile.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+
+        val outputFile = File.createTempFile("heic-mdat-first-xmp-out-", ".heic")
+        outputFile.deleteOnExit()
+        MotionPhotoBuilder.createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile)
+
+        val outBytes = outputFile.readBytes()
+        val entries = readIlocEntries(outBytes)
+        assertEquals(fixture.existingItemCount, entries.size, "The existing item must be repointed, not duplicated (items: ${entries.keys})")
+        val mergedXmp = String(entries.getValue(HeicMetaFixture.XMP_ITEM_ID).resolveBytes(outBytes), Charsets.UTF_8)
+        assertTrue(mergedXmp.contains("tiff:Make=\"SomeCamera\""), "Expected the original tiff:Make to survive the merge, got: $mergedXmp")
+        assertTrue(mergedXmp.contains("GCamera:MotionPhoto=\"1\""), "Expected the motion-photo marker in the merged XMP, got: $mergedXmp")
+
+        // One mdat, grown by exactly the merged XMP's byte count, with the merged bytes inside it.
+        assertEquals(
+            fixture.mdatBoxSize + mergedXmp.toByteArray(Charsets.UTF_8).size,
+            singleMdatSize(outBytes),
+            "The one existing mdat must have absorbed exactly the merged XMP bytes",
+        )
+        assertExtentInsideSingleMdat(outBytes, entries.getValue(HeicMetaFixture.XMP_ITEM_ID), "repointed XMP item")
+        assertTrue(
+            entries.getValue(HeicMetaFixture.PRIMARY_ITEM_ID).resolveBytes(outBytes).contentEquals(fixture.primaryItemBytes),
+            "The primary item must still resolve to its original bytes",
+        )
+        assertSefVideoOffsetMatchesMpvd(outputFile)
+
+        imageFile.delete()
+        videoFile.delete()
+        outputFile.delete()
+    }
+
     @Test
     fun `createSamsungHeicMotionPhoto merges an Adobe-style xpacket XMP in place instead of registering a duplicate item`() {
         // The Finding-4 root case. This packet is shaped like real camera/Adobe XMP: an
@@ -806,6 +1111,13 @@ class MotionPhotoBuilderTest {
             1,
             Regex("GCamera:MotionPhoto=\"1\"").findAll(String(outBytes, Charsets.ISO_8859_1)).count(),
             "Expected exactly one motion-photo XMP in the output file",
+        )
+
+        // ...and exactly one mdat: the merged XMP went INTO the existing one.
+        assertEquals(
+            fixture.mdatBoxSize + mergedXmp.toByteArray(Charsets.UTF_8).size,
+            singleMdatSize(outBytes),
+            "The one existing mdat must have absorbed exactly the merged XMP bytes",
         )
 
         assertSefVideoOffsetMatchesMpvd(outputFile)
@@ -957,6 +1269,16 @@ class MotionPhotoBuilderTest {
         assertTrue(xmpValue.contains("GCamera:MotionPhoto=\"1\""), "Expected the new XMP to carry GCamera:MotionPhoto=\"1\", got: $xmpValue")
         assertNotNull(MotionPhotoBuilder.findXmpExtentInHeic(fileBytes), "Expected findXmpExtentInHeic to locate the new item")
 
+        // (b2) The new XMP bytes went into the ONE existing mdat, not a second one -- grown by
+        // exactly the new item's own extent length.
+        val newItemEntry = readIlocEntries(fileBytes).values.last()
+        assertEquals(
+            fixture.mdatBoxSize + newItemEntry.extents.sumOf { it.second },
+            singleMdatSize(fileBytes),
+            "The one existing mdat must have grown by exactly the new XMP item's byte count",
+        )
+        assertExtentInsideSingleMdat(fileBytes, newItemEntry, "new XMP item")
+
         // (c) The primary image item must still resolve to its original bytes in the final file.
         val primary = readIlocEntries(fileBytes).getValue(HeicMetaFixture.PRIMARY_ITEM_ID)
         assertTrue(
@@ -1000,9 +1322,12 @@ class MotionPhotoBuilderTest {
             assertTrue(xmpValue.contains("GCamera:MotionPhoto=\"1\""))
         }
 
-        // The repoint path GROWS the base HEIC (it appends a new mdat), so this is the regression
-        // guard for the SEF video pointer having been computed from the pre-growth base size.
+        // The repoint path GROWS the base HEIC (it appends the merged XMP into the existing mdat), so
+        // this is the regression guard for the SEF video pointer having been computed from the
+        // pre-growth base size.
         assertSefVideoOffsetMatchesMpvd(outputFile)
+        // ...and that growth happened inside the ONE mdat, rather than via a second one.
+        assertEquals(1, topLevelBoxes(outputFile.readBytes()).count { it.first == "mdat" }, "Expected exactly one mdat box")
 
         imageFile.delete()
         videoFile.delete()
@@ -1022,6 +1347,58 @@ class MotionPhotoBuilderTest {
      */
     private val NEW_XMP_PACKET =
         "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:Description rdf:about=\"\">brand new</rdf:Description></x:xmpmeta>"
+
+    /**
+     * Every top-level ISOBMFF box in [bytes] as (fourCC, start, total box size), in file order.
+     * A deliberately independent re-derivation of the box walk, for the same reason readIlocEntries
+     * is: these tests cross-check what the production code wrote.
+     */
+    private fun topLevelBoxes(bytes: ByteArray): List<Triple<String, Int, Long>> {
+        val boxes = mutableListOf<Triple<String, Int, Long>>()
+        var pos = 0
+        while (pos + 8 <= bytes.size) {
+            var size = 0L
+            for (i in 0 until 4) size = (size shl 8) or (bytes[pos + i].toLong() and 0xFF)
+            if (size < 8 || pos + size > bytes.size) break
+            boxes.add(Triple(String(bytes, pos + 4, 4, Charsets.US_ASCII), pos, size))
+            pos += size.toInt()
+        }
+        return boxes
+    }
+
+    /**
+     * Asserts [bytes] carries exactly ONE top-level `mdat` box -- the core regression check for
+     * "merge into the existing mdat, never append a second one" -- and returns its total box size so
+     * callers can assert how much it grew.
+     */
+    private fun singleMdatSize(bytes: ByteArray): Long {
+        val mdats = topLevelBoxes(bytes).filter { it.first == "mdat" }
+        assertEquals(
+            1,
+            mdats.size,
+            "Expected exactly ONE top-level mdat box; the new/merged XMP must be appended INTO the " +
+                "existing mdat's payload, not wrapped in a second one. Top-level boxes: " +
+                topLevelBoxes(bytes).map { "${it.first}@${it.second}+${it.third}" },
+        )
+        return mdats.single().third
+    }
+
+    /**
+     * Asserts [entry]'s resolved data range lies entirely within the single top-level `mdat` box's
+     * payload -- i.e. the XMP really was merged INTO that box, not appended somewhere after it and
+     * merely pointed at.
+     */
+    private fun assertExtentInsideSingleMdat(bytes: ByteArray, entry: TestIlocEntry, label: String) {
+        val mdat = topLevelBoxes(bytes).single { it.first == "mdat" }
+        val payloadStart = mdat.second + 8L
+        val boxEnd = mdat.second + mdat.third
+        val start = entry.absoluteStart()
+        val stop = start + entry.extents.sumOf { it.second }
+        assertTrue(
+            start >= payloadStart && stop <= boxEnd,
+            "$label's resolved extent [$start, $stop) must lie inside the single mdat's payload [$payloadStart, $boxEnd)",
+        )
+    }
 
     /** Byte index of the first occurrence of [needle]'s ASCII bytes in [bytes], or -1. */
     private fun indexOfAscii(bytes: ByteArray, needle: String): Int {

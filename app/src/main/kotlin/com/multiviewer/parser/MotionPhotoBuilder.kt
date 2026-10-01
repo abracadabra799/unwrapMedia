@@ -951,10 +951,25 @@ object MotionPhotoBuilder {
      * overwriting its original byte range in place (which only works when the new content happens
      * to fit in the original allocation -- practically never true once the XMP is being merged
      * rather than replaced). Per ISO/IEC 14496-12 iloc semantics, an item's data extent can point
-     * at any absolute offset in the file; there's no requirement it stay where it started. Rewrites
-     * only this one item's fixed-width iloc fields (construction_method, base_offset, extent_offset,
-     * extent_length) -- same byte count in, same byte count out, so no other box or offset in the
-     * file needs to change.
+     * at any absolute offset in the file; there's no requirement it stay where it started.
+     *
+     * The merged bytes are appended to the END of the file's EXISTING `mdat` box's payload, growing
+     * that box in place (its own 4-byte size field is patched by the appended length) -- NOT wrapped
+     * in a second, separate top-level `mdat`. A second `mdat` is valid ISOBMFF, but real Samsung
+     * HEIC motion photos carry exactly one, and matching that convention is the point.
+     *
+     * Growing `mdat` in place is a byte INSERTION at `mdat`'s old end, so anything physically after
+     * that point moves forward by the appended length. `meta` and `mdat` are top-level siblings in
+     * either physical order (`ftyp, meta, mdat` -- this project's fixtures -- or `ftyp, mdat, meta`,
+     * which real Apple-encoded HEIC commonly uses), so when `meta` sits AFTER `mdat` the whole meta
+     * box, this item's own iloc entry included, shifts by that amount; every other item's absolute
+     * (construction_method=0) extent past the cutoff is corrected by
+     * shiftAbsoluteIlocOffsetsPastCutoff. When `meta` sits BEFORE `mdat`, nothing in meta moves.
+     * `meta` itself never grows on this path -- no new infe/iloc entries are created here.
+     *
+     * The repointed item's own extent lands at `mdat`'s OLD end, which is at/before the insertion
+     * point and therefore an already-final absolute position: it needs no shift correction of its
+     * own, and is written AFTER the shift pass so the pass can never touch it.
      *
      * @param xmpItemId The XMP item's item_ID (needed only for documentation/assertions -- not used
      *   to re-locate anything, since ilocEntryOffset already pins the exact bytes to rewrite).
@@ -963,7 +978,10 @@ object MotionPhotoBuilder {
      * @param existingExtentCount This item's current extent_count -- repoint only handles the
      *   single-extent case (every real-world encoder, and this app's own writer, produces exactly
      *   one extent per XMP item); returns null for anything else so the caller can fall back.
-     * @return The rewritten HEIC bytes, or null if this item can't be cheaply repointed (multi-extent).
+     * @return The rewritten HEIC bytes, or null if this item can't be cheaply repointed
+     *   (multi-extent) or any structural assumption doesn't hold (no usable `mdat`/`meta`/`iloc`,
+     *   overlapping siblings, an offset that wouldn't fit iloc's declared field widths). Returning
+     *   null makes the caller fall back to the untouched base bytes -- never a corrupted file.
      */
     internal fun repointHeicXmpItem(
         heicBytes: ByteArray,
@@ -973,10 +991,32 @@ object MotionPhotoBuilder {
         mergedXmpBytes: ByteArray,
     ): ByteArray? {
         if (existingExtentCount != 1) return null
+        if (mergedXmpBytes.isEmpty()) return null
 
         val ilocHeader = findIlocHeaderFields(heicBytes) ?: return null
         val (ilocVersion, offSz, lenSz, baseOffSz, indexSz) = ilocHeader
 
+        // The existing mdat is what grows; meta/iloc are needed to bound the shift-correction pass
+        // (and to know whether meta sits after mdat, i.e. whether iloc's own bytes move).
+        val meta = findMetaBoxBounds(heicBytes) ?: return null
+        val iloc = findChildBoxBounds(heicBytes, meta.payloadStart, meta.end, "iloc") ?: return null
+        val mdat = findMdatBoxBounds(heicBytes) ?: return null
+        // patchBoxSize increments mdat's ordinary 4-byte size field -- re-assert the box really is in
+        // that form rather than resting on findTopLevelBoxBounds' internal guard.
+        if (readUIntOfWidth(heicBytes, mdat.start.toLong(), 4) < 8L) return null
+        // meta and mdat are top-level siblings and must be cleanly disjoint; an overlapping or nested
+        // shape makes every offset computation below meaningless.
+        val metaFirst = meta.start < mdat.start
+        if (metaFirst) { if (meta.end > mdat.start) return null } else { if (mdat.end > meta.start) return null }
+        // The entry we've been told to rewrite must genuinely sit inside iloc's entry list.
+        if (ilocEntryOffset < iloc.payloadStart || ilocEntryOffset >= iloc.end) return null
+
+        val ilocItemCountWidth = if (ilocVersion < 2) 2 else 4
+        if (iloc.payloadStart + 6 + ilocItemCountWidth > iloc.end) return null
+        val ilocItemCount = readUIntOfWidth(heicBytes, (iloc.payloadStart + 6).toLong(), ilocItemCountWidth).toInt()
+
+        // Field positions within this item's entry, in the INPUT file's coordinates. The old values
+        // are read from here; the new values are written at these positions plus `metaShift`.
         var fieldPos = ilocEntryOffset.toInt()
         fieldPos += if (ilocVersion < 2) 2 else 4 // skip item_ID
         val constructionMethodFieldPos = if (ilocVersion in 1..2) fieldPos else -1
@@ -989,33 +1029,50 @@ object MotionPhotoBuilder {
         val extentOffsetFieldPos = fieldPos
         fieldPos += offSz
         val extentLengthFieldPos = fieldPos
+        if (extentLengthFieldPos + lenSz > iloc.end) return null
 
-        // New mdat: appended right where the file currently ends.
-        val newMdatOffset = heicBytes.size.toLong()
-        val newMdatPayloadOffset = newMdatOffset + 8
-        val newMdatSize = 8L + mergedXmpBytes.size
+        // Grow the EXISTING mdat: splice the merged bytes in at its payload end. That insertion point
+        // is at/before every byte that moves, so it is also the merged bytes' final absolute offset.
+        val growth = mergedXmpBytes.size.toLong()
+        val insertPos = mdat.end
+        val newExtentOffset = insertPos.toLong()
+        if (!fitsInUIntWidth(newExtentOffset, offSz)) return null
+        if (!fitsInUIntWidth(growth, lenSz)) return null
 
-        val result = heicBytes.copyOf(heicBytes.size + newMdatSize.toInt())
-        val mdatBuf = ByteBuffer.wrap(result, newMdatOffset.toInt(), newMdatSize.toInt()).order(ByteOrder.BIG_ENDIAN)
-        mdatBuf.putInt(newMdatSize.toInt())
-        mdatBuf.put("mdat".toByteArray(Charsets.US_ASCII))
-        mdatBuf.put(mergedXmpBytes)
+        val result = ByteArray(heicBytes.size + growth.toInt())
+        System.arraycopy(heicBytes, 0, result, 0, insertPos)
+        System.arraycopy(mergedXmpBytes, 0, result, insertPos, mergedXmpBytes.size)
+        System.arraycopy(heicBytes, insertPos, result, insertPos + mergedXmpBytes.size, heicBytes.size - insertPos)
+        // mdat starts before the insertion point, so its own header never moved.
+        patchBoxSize(result, mdat.start, growth)
+
+        // Everything physically after mdat's old end moved forward by `growth` -- including the whole
+        // meta box when meta comes second, and including any OTHER item's absolute extent that
+        // pointed past that cutoff.
+        val metaShift = if (metaFirst) 0 else growth.toInt()
+        val ilocStartAfter = iloc.start + metaShift
+        val ilocEndAfter = ilocStartAfter + (iloc.end - iloc.start)
+        shiftAbsoluteIlocOffsetsPastCutoff(result, ilocStartAfter, ilocEndAfter, mdat.end.toLong(), growth, ilocItemCount)
 
         // Capture the OLD field values before overwriting them below -- needed for the cleanup pass
         // further down, and reading them directly from these exact, already-known, ID-scoped
         // positions is deterministic (no re-resolution/content-sniffing needed), unlike a generic
-        // byte-scan that isn't tied to this specific item.
+        // byte-scan that isn't tied to this specific item. Read from the pristine INPUT bytes, so the
+        // shift pass above can't have perturbed them.
         val oldConstructionMethod = if (constructionMethodFieldPos >= 0) readUIntOfWidth(heicBytes, constructionMethodFieldPos.toLong(), 2).toInt() else 0
         val oldBaseOffset = readUIntOfWidth(heicBytes, baseOffsetFieldPos.toLong(), baseOffSz)
         val oldExtentOffset = readUIntOfWidth(heicBytes, extentOffsetFieldPos.toLong(), offSz)
         val oldExtentLength = readUIntOfWidth(heicBytes, extentLengthFieldPos.toLong(), lenSz)
 
+        // Written LAST, after the shift pass: this item's new extent_offset is already final, and the
+        // shift pass would otherwise have had a chance to add `growth` to it a second time (it does
+        // visit this entry -- it's one of the pre-existing `ilocItemCount`).
         if (constructionMethodFieldPos >= 0) {
-            writeUIntOfWidth(result, constructionMethodFieldPos.toLong(), 2, 0L)
+            writeUIntOfWidth(result, (constructionMethodFieldPos + metaShift).toLong(), 2, 0L)
         }
-        writeUIntOfWidth(result, baseOffsetFieldPos.toLong(), baseOffSz, 0L)
-        writeUIntOfWidth(result, extentOffsetFieldPos.toLong(), offSz, newMdatPayloadOffset)
-        writeUIntOfWidth(result, extentLengthFieldPos.toLong(), lenSz, mergedXmpBytes.size.toLong())
+        writeUIntOfWidth(result, (baseOffsetFieldPos + metaShift).toLong(), baseOffSz, 0L)
+        writeUIntOfWidth(result, (extentOffsetFieldPos + metaShift).toLong(), offSz, newExtentOffset)
+        writeUIntOfWidth(result, (extentLengthFieldPos + metaShift).toLong(), lenSz, growth)
 
         // Best-effort: clear the item's OLD extent bytes now that iloc no longer references them, so
         // the pre-merge XMP doesn't linger as an unreferenced duplicate elsewhere in the file -- a
@@ -1033,8 +1090,16 @@ object MotionPhotoBuilder {
             val oldStart = (oldBaseOffset + oldExtentOffset).toInt()
             val oldEnd = oldStart + oldExtentLength.toInt()
             if (oldStart in 0..heicBytes.size && oldEnd in oldStart..heicBytes.size) {
-                for (i in oldStart until oldEnd) {
-                    result[i] = 0
+                // The old range is expressed in INPUT coordinates; in `result` it sits `growth` bytes
+                // later if it was past the insertion point. A range STRADDLING the insertion point is
+                // no longer contiguous (the merged bytes now sit in the middle of it), so skip the
+                // cleanup entirely rather than zeroing a guessed range -- this is best-effort tidying
+                // of already-unreferenced bytes, never a correctness requirement.
+                val cleanupShift = if (oldStart >= mdat.end) growth.toInt() else 0
+                if (cleanupShift > 0 || oldEnd <= mdat.end) {
+                    for (i in (oldStart + cleanupShift) until (oldEnd + cleanupShift)) {
+                        result[i] = 0
+                    }
                 }
             }
         }
@@ -1096,25 +1161,63 @@ object MotionPhotoBuilder {
     /**
      * Registers a brand-new XMP item in a HEIC file that has none, by appending one infe entry to
      * iinf and one item entry to iloc -- always at the END of each list, never inserted in the
-     * middle, so every other existing entry's own bytes never move. Because meta (which contains
-     * iinf/iloc) grows, every pre-existing construction_method=0 iloc extent whose absolute offset
-     * sits past the old end of meta must have that offset increased by the total growth -- otherwise
-     * those items (most importantly the primary image's own pixel data) would point at the wrong
-     * bytes. construction_method=1 (idat-relative) entries need no adjustment.
+     * middle, so every other existing entry's own bytes never move -- and by appending the XMP bytes
+     * themselves to the END of the file's EXISTING `mdat` box's payload, growing that box in place
+     * rather than creating a second top-level `mdat` beside it (real Samsung HEIC motion photos have
+     * exactly one `mdat`).
+     *
+     * That makes TWO independent byte-insertion events on the same file:
+     *
+     *  - **M (meta grows)** by one infe + one iloc entry, spliced in at iinf's and iloc's own ends.
+     *    Cutoff for offset correction: meta's OLD end.
+     *  - **D (mdat grows)** by the XMP bytes, spliced in at mdat's payload end. Cutoff: mdat's OLD end.
+     *
+     * `meta` and `mdat` are top-level siblings and ISOBMFF fixes no order between them: this
+     * project's own fixtures emit `ftyp, meta, mdat`, while real Apple-encoded HEIC commonly emits
+     * `ftyp, mdat, meta`. So the two events are applied in their real FILE order -- whichever box
+     * starts earlier goes first -- each with its own cutoff. Applying the earlier event first means
+     * the later box's own bytes are carried forward by the ordinary array splice (exactly as the
+     * iinf/iloc relative-order handling already does one level down, inside meta), and the later
+     * event's box bounds are simply its input bounds plus the earlier event's delta.
+     *
+     * Each event runs shiftAbsoluteIlocOffsetsPastCutoff so every PRE-EXISTING
+     * construction_method=0 iloc extent pointing at/past that event's insertion point has its offset
+     * increased by that event's delta -- otherwise those items (most importantly the primary image's
+     * own pixel data) would point at the wrong bytes. construction_method=1 (idat-relative) entries
+     * need no adjustment. The newly-appended entry is deliberately excluded from both passes (each is
+     * bounded by iloc's PRE-growth item count) because its extent_offset is written as an
+     * already-final absolute position; see `xmpFinalOffset` below.
+     *
+     * Every structural assumption is checked, and any failure returns [heicBytes] unchanged: an XMP
+     * attachment failure must never corrupt or abort motion-photo creation.
      */
     internal fun createHeicXmpItem(heicBytes: ByteArray, xmpBytes: ByteArray): ByteArray {
+        if (xmpBytes.isEmpty()) return heicBytes
         val meta = findMetaBoxBounds(heicBytes) ?: return heicBytes
+        val mdat = findMdatBoxBounds(heicBytes) ?: return heicBytes
         val iinf = findChildBoxBounds(heicBytes, meta.payloadStart, meta.end, "iinf") ?: return heicBytes
         val iloc = findChildBoxBounds(heicBytes, meta.payloadStart, meta.end, "iloc") ?: return heicBytes
         val ilocHeader = findIlocHeaderFields(heicBytes) ?: return heicBytes
 
-        // These three boxes are grown below via patchBoxSize, which increments the ordinary 4-byte
+        // These four boxes are grown below via patchBoxSize, which increments the ordinary 4-byte
         // size field -- never valid for the 64-bit-size (size==1) or extends-to-EOF (size==0) forms.
-        // findMetaBoxBounds/findChildBoxBounds already reject those, but re-assert it here so this
-        // function's byte safety doesn't rest on a distant helper's internal detail.
+        // findMetaBoxBounds/findMdatBoxBounds/findChildBoxBounds already reject those, but re-assert
+        // it here so this function's byte safety doesn't rest on a distant helper's internal detail.
         if (readUIntOfWidth(heicBytes, meta.start.toLong(), 4) < 8L) return heicBytes
+        if (readUIntOfWidth(heicBytes, mdat.start.toLong(), 4) < 8L) return heicBytes
         if (readUIntOfWidth(heicBytes, iinf.start.toLong(), 4) < 8L) return heicBytes
         if (readUIntOfWidth(heicBytes, iloc.start.toLong(), 4) < 8L) return heicBytes
+
+        // meta and mdat are top-level siblings and must be cleanly disjoint (ISOBMFF guarantees it,
+        // and extractExistingHeicBoxesAndSef only ever hands whole top-level boxes down here). An
+        // overlapping or nested shape would make every "the second box moved by the first delta"
+        // computation below meaningless, so bail out unchanged instead.
+        val metaFirst = meta.start < mdat.start
+        if (metaFirst) {
+            if (meta.end > mdat.start) return heicBytes
+        } else {
+            if (mdat.end > meta.start) return heicBytes
+        }
 
         // iinf and iloc may appear in EITHER order inside meta -- ISOBMFF imposes no ordering and
         // real encoders do emit iloc first. Each new entry is always appended at the end of its OWN
@@ -1178,11 +1281,23 @@ object MotionPhotoBuilder {
         val ilocEntrySize = ilocItemIdWidth + constructionMethodW + 2 + ilocHeader.baseOffsetSize + 2 +
             (ilocHeader.indexSize + ilocHeader.offsetSize + ilocHeader.lengthSize)
 
-        // New mdat for the XMP bytes -- placed after the (about to be rewritten) base bytes, before
-        // mpvd/sefd, mirroring repointHeicXmpItem's convention.
-        val newMdatOffset = (heicBytes.size + infeBytes.size + ilocEntrySize).toLong()
-        val newMdatPayloadOffset = newMdatOffset + 8
-        val newMdatSize = 8L + xmpBytes.size
+        // The two growth deltas. growthMeta depends ONLY on iloc's declared field widths and the new
+        // item_ID's width -- never on the offset VALUE being stored -- which is what makes the final
+        // offset below computable up front, with no late patch-up pass.
+        val growthMeta = (infeBytes.size + ilocEntrySize).toLong()
+        val growthMdat = xmpBytes.size.toLong()
+
+        // Where the XMP bytes end up in the FINAL byte layout. They are spliced in at mdat's payload
+        // end, so their absolute position is mdat's OLD end plus whatever growth was inserted BEFORE
+        // that point -- which is growthMeta exactly when meta physically precedes mdat, and nothing
+        // when mdat comes first (meta's insertions then land after the XMP bytes and can't move them).
+        // This is the "size known early, value known late" discipline from the SEF video-pointer fix,
+        // except here the arithmetic closes early enough that the VALUE is known early too.
+        val xmpFinalOffset = mdat.end.toLong() + (if (metaFirst) growthMeta else 0L)
+        // An extent_offset/extent_length silently truncated to iloc's declared field width points at
+        // the wrong bytes -- strictly worse than not attaching the XMP at all.
+        if (!fitsInUIntWidth(xmpFinalOffset, ilocHeader.offsetSize)) return heicBytes
+        if (!fitsInUIntWidth(growthMdat, ilocHeader.lengthSize)) return heicBytes
 
         // Build the new iloc item entry with those exact same field widths.
         val ilocEntryBuf = ByteBuffer.allocate(ilocEntrySize).order(ByteOrder.BIG_ENDIAN)
@@ -1192,62 +1307,125 @@ object MotionPhotoBuilder {
         putUIntOfWidth(ilocEntryBuf, ilocHeader.baseOffsetSize, 0L) // base_offset
         ilocEntryBuf.putShort(1) // extent_count = 1
         if (ilocHeader.indexSize > 0) putUIntOfWidth(ilocEntryBuf, ilocHeader.indexSize, 0L)
-        putUIntOfWidth(ilocEntryBuf, ilocHeader.offsetSize, newMdatPayloadOffset)
-        putUIntOfWidth(ilocEntryBuf, ilocHeader.lengthSize, xmpBytes.size.toLong())
+        putUIntOfWidth(ilocEntryBuf, ilocHeader.offsetSize, xmpFinalOffset)
+        putUIntOfWidth(ilocEntryBuf, ilocHeader.lengthSize, growthMdat)
         val ilocEntryBytes = ilocEntryBuf.array()
 
-        // Assemble: everything up to the first of the two boxes' end, then that box's new entry, then
-        // everything from there to the second box's end, then the second box's new entry, then
-        // everything after (still within the original file) -- with box-size/count fields patched,
-        // and pre-existing absolute offsets past the old meta end shifted by the total growth.
         val firstInsert = if (iinfFirst) infeBytes else ilocEntryBytes
         val secondInsert = if (iinfFirst) ilocEntryBytes else infeBytes
-        val growth = (infeBytes.size + ilocEntryBytes.size).toLong()
-        val result = ByteArray(heicBytes.size + growth.toInt() + newMdatSize.toInt())
-        var w = 0
-        fun copyRange(from: Int, to: Int) {
-            System.arraycopy(heicBytes, from, result, w, to - from)
-            w += (to - from)
+        val ilocLen = iloc.end - iloc.start
+
+        /**
+         * Growth event M. Assembles: everything up to the first of iinf/iloc's end, then that box's
+         * new entry, then everything from there to the second box's end, then the second box's new
+         * entry, then everything after -- with box-size/count fields patched and pre-existing
+         * absolute offsets past meta's old end shifted.
+         *
+         * [shift] is how far meta has already been displaced in [src] relative to [heicBytes] -- 0
+         * when this event runs first, growthMdat when mdat already grew ahead of it.
+         */
+        fun applyMetaGrowth(src: ByteArray, shift: Int): ByteArray {
+            val firstEnd = firstBox.end + shift
+            val secondEnd = secondBox.end + shift
+            val out = ByteArray(src.size + growthMeta.toInt())
+            var w = 0
+            fun copyRange(from: Int, to: Int) {
+                System.arraycopy(src, from, out, w, to - from)
+                w += (to - from)
+            }
+            copyRange(0, firstEnd)
+            System.arraycopy(firstInsert, 0, out, w, firstInsert.size); w += firstInsert.size
+            copyRange(firstEnd, secondEnd)
+            System.arraycopy(secondInsert, 0, out, w, secondInsert.size); w += secondInsert.size
+            copyRange(secondEnd, src.size)
+
+            // Box starts in `out`: whichever of iinf/iloc comes FIRST doesn't move (nothing was
+            // inserted before it); the one that comes SECOND shifts forward by exactly the first
+            // one's insertion, which landed at firstBox.end <= secondBox.start. meta.start precedes
+            // both, so it doesn't move within this event either.
+            val iinfStartAfter = iinf.start + shift + (if (iinfFirst) 0 else ilocEntryBytes.size)
+            val ilocStartAfter = iloc.start + shift + (if (iinfFirst) infeBytes.size else 0)
+
+            // Patch box sizes: meta grew by growthMeta; iinf only by infeBytes.size and iloc only by
+            // ilocEntryBytes.size (neither new entry touches the other box's own size).
+            patchBoxSize(out, iinfStartAfter, infeBytes.size.toLong())
+            patchBoxSize(out, ilocStartAfter, ilocEntryBytes.size.toLong())
+            patchBoxSize(out, meta.start + shift, growthMeta)
+            patchInfeItemCount(out, iinfStartAfter)
+            patchIlocItemCount(out, ilocStartAfter)
+
+            // Shift every pre-existing construction_method=0 extent whose absolute offset was past
+            // meta's OLD end (in `src`'s coordinates, hence + shift), by growthMeta. `ilocItemCount`
+            // is iloc's OWN item count from BEFORE this entry was appended, so the newly-appended
+            // entry (already carrying its correct final offset) is never visited. `ilocEndAfter`
+            // bounds the walk at the grown iloc box's real end so it can never spill into whatever
+            // box follows, whatever the count says.
+            val ilocEndAfter = ilocStartAfter + ilocLen + ilocEntryBytes.size
+            shiftAbsoluteIlocOffsetsPastCutoff(out, ilocStartAfter, ilocEndAfter, (meta.end + shift).toLong(), growthMeta, ilocItemCount)
+            return out
         }
-        copyRange(0, firstBox.end)
-        System.arraycopy(firstInsert, 0, result, w, firstInsert.size); w += firstInsert.size
-        copyRange(firstBox.end, secondBox.end)
-        System.arraycopy(secondInsert, 0, result, w, secondInsert.size); w += secondInsert.size
-        copyRange(secondBox.end, heicBytes.size)
-        val mdatBuf = ByteBuffer.wrap(result, w, newMdatSize.toInt()).order(ByteOrder.BIG_ENDIAN)
-        mdatBuf.putInt(newMdatSize.toInt())
-        mdatBuf.put("mdat".toByteArray(Charsets.US_ASCII))
-        mdatBuf.put(xmpBytes)
-        w += newMdatSize.toInt()
 
-        // Box starts in `result`: the box that comes FIRST doesn't move (nothing was inserted before
-        // it); the one that comes SECOND shifts forward by exactly the first one's insertion, which
-        // landed at firstBox.end <= secondBox.start. meta.start precedes both, so it never moves.
-        val iinfStartAfter = if (iinfFirst) iinf.start else iinf.start + ilocEntryBytes.size
-        val ilocStartAfter = if (iinfFirst) iloc.start + infeBytes.size else iloc.start
+        /**
+         * Growth event D: append the XMP bytes to the EXISTING mdat's payload end, growing that box
+         * in place (patching its own 4-byte size field) instead of creating a second mdat.
+         *
+         * [shift] is how far mdat has already been displaced in [src]; [ilocStartIn]/[ilocLenIn] are
+         * iloc's bounds within [src] -- it may already have grown, in which case its length exceeds
+         * the input file's.
+         */
+        fun applyMdatGrowth(src: ByteArray, shift: Int, ilocStartIn: Int, ilocLenIn: Int): ByteArray {
+            val mdatOldEnd = mdat.end + shift
+            val out = ByteArray(src.size + growthMdat.toInt())
+            System.arraycopy(src, 0, out, 0, mdatOldEnd)
+            System.arraycopy(xmpBytes, 0, out, mdatOldEnd, xmpBytes.size)
+            System.arraycopy(src, mdatOldEnd, out, mdatOldEnd + xmpBytes.size, src.size - mdatOldEnd)
+            // mdat starts before its own payload end, so its header never moved within this event.
+            patchBoxSize(out, mdat.start + shift, growthMdat)
 
-        // Patch box sizes: meta grew by `growth`; iinf only by infeBytes.size and iloc only by
-        // ilocEntryBytes.size (neither new entry touches the other box's own size).
-        patchBoxSize(result, iinfStartAfter, infeBytes.size.toLong())
-        patchBoxSize(result, ilocStartAfter, ilocEntryBytes.size.toLong())
-        patchBoxSize(result, meta.start, growth)
-        patchInfeItemCount(result, iinfStartAfter)
-        patchIlocItemCount(result, ilocStartAfter)
+            // iloc's own bytes move only if they sat past the insertion point (i.e. meta comes after
+            // mdat). Same bounded, pre-growth-count-limited walk as event M: the new entry, when it
+            // already exists, sits at index ilocItemCount and is never visited -- critical here,
+            // because its extent_offset equals this very cutoff and would be double-shifted.
+            val ilocStartAfter = if (ilocStartIn >= mdatOldEnd) ilocStartIn + growthMdat.toInt() else ilocStartIn
+            shiftAbsoluteIlocOffsetsPastCutoff(out, ilocStartAfter, ilocStartAfter + ilocLenIn, mdatOldEnd.toLong(), growthMdat, ilocItemCount)
+            return out
+        }
 
-        // Shift every pre-existing construction_method=0 extent whose absolute offset was past the
-        // OLD end of meta, by `growth`. `ilocItemCount` is iloc's OWN item count from BEFORE the new
-        // entry was appended above, so the newly-appended entry (already carrying its correct final
-        // offset) is never visited. `ilocEndAfter` bounds the walk at the grown iloc box's real end
-        // so it can never spill into whatever box follows, whatever the count says.
-        val ilocEndAfter = ilocStartAfter + (iloc.end - iloc.start) + ilocEntryBytes.size
-        shiftAbsoluteIlocOffsetsPastMeta(result, ilocStartAfter, ilocEndAfter, meta.end.toLong(), growth, ilocItemCount)
-
-        return result
+        // Apply the two events in their real FILE order. Doing the earlier one first means the later
+        // box's bytes are carried forward by the ordinary array splice, so the later event's bounds
+        // are just its input bounds plus the earlier event's delta.
+        return if (metaFirst) {
+            val afterMeta = applyMetaGrowth(heicBytes, shift = 0)
+            applyMdatGrowth(
+                afterMeta,
+                shift = growthMeta.toInt(),
+                ilocStartIn = iloc.start + (if (iinfFirst) infeBytes.size else 0),
+                ilocLenIn = ilocLen + ilocEntryBytes.size,
+            )
+        } else {
+            val afterMdat = applyMdatGrowth(heicBytes, shift = 0, ilocStartIn = iloc.start, ilocLenIn = ilocLen)
+            applyMetaGrowth(afterMdat, shift = growthMdat.toInt())
+        }
     }
 
     private data class BoxBounds(val start: Int, val payloadStart: Int, val end: Int)
 
-    private fun findMetaBoxBounds(heicBytes: ByteArray): BoxBounds? {
+    /**
+     * Walks the file's top-level boxes and returns the bounds of the first one whose fourCC is
+     * [fourCCTarget]. The returned `payloadStart` is `start + 8` -- straight past the ordinary
+     * 4-byte size + 4-byte type header; a caller whose box is a FullBox (`meta`) adds its own 4
+     * version/flags bytes on top.
+     *
+     * Those bounds are only correct for the ordinary 32-bit-size box header, and patchBoxSize --
+     * which every caller of these bounds relies on to grow the box -- increments that same 4-byte
+     * size field. The ISOBMFF 64-bit-size form (size==1, real length in the next 8 bytes, payload 8
+     * bytes further along) and the extends-to-EOF form (size==0, the 4-byte field holding no real
+     * length at all) both break those two assumptions. Neither is used for `meta` in any real file,
+     * and while a >4GB `mdat` legitimately could use the 64-bit form, growing one here would need a
+     * different patch path entirely -- so treat both forms as explicitly unsupported (bail out
+     * unchanged) instead of silently mis-parsing and corrupting the file.
+     */
+    private fun findTopLevelBoxBounds(heicBytes: ByteArray, fourCCTarget: String): BoxBounds? {
         var pos = 0
         while (pos < heicBytes.size - 8) {
             val size = ((heicBytes[pos].toLong() and 0xFF) shl 24) or ((heicBytes[pos + 1].toLong() and 0xFF) shl 16) or
@@ -1255,22 +1433,38 @@ object MotionPhotoBuilder {
             val fourCC = String(heicBytes.copyOfRange(pos + 4, pos + 8), Charsets.US_ASCII)
             val boxLen = if (size == 1L) ByteBuffer.wrap(heicBytes, pos + 8, 8).long else if (size == 0L) (heicBytes.size - pos).toLong() else size
             if (pos + boxLen > heicBytes.size || boxLen < 8) return null
-            if (fourCC == "meta") {
-                // The returned payloadStart (pos + 12 = 4-byte size + 4-byte type + 4-byte FullBox
-                // version/flags) is only correct for the ordinary 32-bit-size box header, and
-                // patchBoxSize -- which every caller of these bounds relies on to grow the box --
-                // increments that same 4-byte size field. The ISOBMFF 64-bit-size form (size==1, real
-                // length in the next 8 bytes, payload 8 bytes further along) and the
-                // extends-to-EOF form (size==0, the 4-byte field holding no real length at all) both
-                // break those two assumptions. Any real-world `meta` is far too small to need either,
-                // so treat them as explicitly unsupported instead of silently mis-parsing/corrupting.
+            if (fourCC == fourCCTarget) {
                 if (size == 0L || size == 1L) return null
-                return BoxBounds(pos, pos + 12, (pos + boxLen).toInt())
+                return BoxBounds(pos, pos + 8, (pos + boxLen).toInt())
             }
             pos += boxLen.toInt()
         }
         return null
     }
+
+    /** `meta`'s bounds, with payloadStart past its FullBox version/flags (i.e. at its first child). */
+    private fun findMetaBoxBounds(heicBytes: ByteArray): BoxBounds? {
+        val box = findTopLevelBoxBounds(heicBytes, "meta") ?: return null
+        if (box.payloadStart + 4 > box.end) return null
+        return BoxBounds(box.start, box.payloadStart + 4, box.end)
+    }
+
+    /**
+     * `mdat`'s bounds -- the box the merged/new XMP bytes are appended INTO (its payload end), rather
+     * than a second `mdat` being created beside it. `mdat` is not a FullBox, so its payloadStart is
+     * the plain post-header position and `end` is exactly where new payload bytes get spliced in.
+     * Only the FIRST `mdat` is considered: real HEIC has exactly one, and a file that somehow has
+     * more is still handled coherently (the first one grows, the rest are untouched data).
+     */
+    private fun findMdatBoxBounds(heicBytes: ByteArray): BoxBounds? = findTopLevelBoxBounds(heicBytes, "mdat")
+
+    /**
+     * True when [value] round-trips through an unsigned big-endian field of [widthBytes] bytes. An
+     * iloc extent_offset/extent_length silently truncated to its declared field width points at the
+     * wrong bytes -- worse than not attaching the XMP at all -- so callers bail out when this fails.
+     */
+    private fun fitsInUIntWidth(value: Long, widthBytes: Int): Boolean =
+        value >= 0 && (widthBytes >= 8 || value < (1L shl (widthBytes * 8)))
 
     private fun findChildBoxBounds(heicBytes: ByteArray, parentPayloadStart: Int, parentEnd: Int, fourCCTarget: String): BoxBounds? {
         var mp = parentPayloadStart
@@ -1375,8 +1569,16 @@ object MotionPhotoBuilder {
     /**
      * Walks the first `existingItemCount` item entries in iloc (using the CURRENT, already-grown
      * iloc box at ilocStart -- but only the entries that existed BEFORE this growth) and adds
-     * `delta` to any construction_method=0 extent whose absolute offset was >= `oldMetaEnd` (i.e.
-     * it pointed past where meta used to end, before this growth).
+     * `delta` to any construction_method=0 extent whose absolute offset was >= `cutoff` (i.e. it
+     * pointed at or past the position where `delta` bytes were just spliced in, so those bytes moved
+     * forward by exactly `delta`).
+     *
+     * `cutoff` is the INSERTION POINT of one growth event, in the file's PRE-growth coordinates:
+     * `meta`'s old end when meta grew (new infe/iloc entries), or `mdat`'s old end when mdat grew
+     * (XMP bytes appended to its payload). It is deliberately not tied to either box -- `meta` and
+     * `mdat` are top-level siblings that appear in EITHER physical order in real files, and
+     * createHeicXmpItem performs both growth events, calling this once per event in the events' real
+     * file order with that event's own cutoff.
      *
      * `existingItemCount` MUST be ILOC's OWN item count from before the new item was appended -- the
      * caller must capture it (from iloc's item_count field, NOT from iinf's infe count: different
@@ -1401,16 +1603,18 @@ object MotionPhotoBuilder {
      * checked against it, so a wrong `existingItemCount` can at worst stop the walk early -- it can
      * never march past iloc and start adding `delta` into whatever box happens to follow.
      *
-     * Known limitation (pre-existing, unchanged): only offsets at/after `oldMetaEnd` are shifted, so
-     * a construction_method=0 extent pointing INSIDE meta but after the insertion points would not
-     * be corrected. Absolute-offset extents into meta don't occur in practice (meta-internal item
-     * data lives in `idat` and is referenced with construction_method=1, which is exempt anyway).
+     * Known limitation (pre-existing, unchanged): only offsets at/after `cutoff` are shifted, so a
+     * construction_method=0 extent pointing INSIDE the growing box but after the insertion point
+     * would not be corrected. For the meta-growth cutoff, absolute-offset extents into meta don't
+     * occur in practice (meta-internal item data lives in `idat` and is referenced with
+     * construction_method=1, which is exempt anyway). For the mdat-growth cutoff the insertion point
+     * IS mdat's payload end, so "inside mdat but after the insertion point" is empty by construction.
      */
-    private fun shiftAbsoluteIlocOffsetsPastMeta(
+    private fun shiftAbsoluteIlocOffsetsPastCutoff(
         bytes: ByteArray,
         ilocStart: Int,
         ilocEnd: Int,
-        oldMetaEnd: Long,
+        cutoff: Long,
         delta: Long,
         existingItemCount: Int,
     ) {
@@ -1445,11 +1649,11 @@ object MotionPhotoBuilder {
                     // The item's real absolute position is base_offset + extent_offset, not
                     // extent_offset alone -- an encoder that sets a shared base_offset (e.g. pointing
                     // at mdat's start) and keeps extent_offset small/relative would otherwise never
-                    // trip the ">= oldMetaEnd" check here even though the item genuinely needs
+                    // trip the ">= cutoff" check here even though the item genuinely needs
                     // shifting, silently leaving it pointing at the wrong (pre-growth) location.
                     var extentOffset = 0L
                     for (b in 0 until header.offsetSize) extentOffset = (extentOffset shl 8) or (bytes[offsetFieldPos + b].toLong() and 0xFF)
-                    if (baseOffset + extentOffset >= oldMetaEnd) {
+                    if (baseOffset + extentOffset >= cutoff) {
                         // Shifting extent_offset alone (leaving base_offset untouched) moves the
                         // resolved total by the same delta -- no need to also rewrite base_offset.
                         writeUIntOfWidth(bytes, offsetFieldPos.toLong(), header.offsetSize, extentOffset + delta)

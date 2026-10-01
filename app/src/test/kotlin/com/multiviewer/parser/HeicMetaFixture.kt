@@ -34,6 +34,12 @@ object HeicMetaFixture {
         val primaryConstructionMethod: Int,
         /** The base_offset written into the primary item's iloc entry (0 unless requested via `primaryBaseOffset`). */
         val primaryBaseOffset: Long,
+        /** Absolute file offset of the single `mdat` box's own start (its 4-byte size field). */
+        val mdatBoxOffset: Long,
+        /** Total size of the single `mdat` box as built, header included. */
+        val mdatBoxSize: Long,
+        /** Absolute file offset of the `meta` box's own start. */
+        val metaBoxOffset: Long,
     )
 
     const val PRIMARY_ITEM_ID = 1L
@@ -56,6 +62,13 @@ object HeicMetaFixture {
      *   extent_offset is written as (primaryItemOffset - primaryBaseOffset) so the two fields still
      *   resolve to the real absolute position; the XMP item's own base_offset stays 0 regardless
      *   (it has its own dedicated construction_method/extent-count test coverage already).
+     * @param mdatBeforeMeta Emit `mdat` BEFORE `meta` in the assembled top-level box sequence
+     *   (`ftyp, mdat, meta` instead of `ftyp, meta, mdat`). This is the same spirit as
+     *   [ilocBeforeIinf], one level up: ISOBMFF fixes no order between these two top-level siblings,
+     *   and real Apple-encoded HEIC commonly puts `mdat` first for streaming-friendly layout, while
+     *   this fixture's historical default happens to put `meta` first. Box surgery that grows both
+     *   boxes (createHeicXmpItem) or grows `mdat` under a later `meta` (repointHeicXmpItem) must be
+     *   correct either way. Defaults to false (meta first) to leave existing callers unaffected.
      */
     fun build(
         xmpText: String?,
@@ -64,6 +77,7 @@ object HeicMetaFixture {
         primaryConstructionMethod: Int = 0,
         ilocBeforeIinf: Boolean = false,
         primaryBaseOffset: Long = 0L,
+        mdatBeforeMeta: Boolean = false,
     ): Result {
         val primaryItemBytes = ByteArray(16) { (it + 1).toByte() }
 
@@ -119,7 +133,11 @@ object HeicMetaFixture {
         val metaPayloadSize = 4 /* FullBox */ + hdlrBox.size + pitmBox.size + iinfBoxSize + ilocBoxSize
         val metaBoxSize = 8 + metaPayloadSize
 
-        val mdatOffset = ftyp.size + metaBoxSize
+        // Top-level layout is ftyp + (meta, mdat) in whichever order mdatBeforeMeta selects. Both
+        // boxes' sizes are already known analytically at this point, so each one's absolute start is
+        // a straight sum either way.
+        val metaOffset = if (mdatBeforeMeta) ftyp.size + mdatSize else ftyp.size
+        val mdatOffset = if (mdatBeforeMeta) ftyp.size else ftyp.size + metaBoxSize
         val mdatPayloadOffset = mdatOffset + 8
         val primaryItemOffset = mdatPayloadOffset.toLong()
         val xmpItemOffset = if (xmpText != null) primaryItemOffset + primaryItemBytes.size else -1L
@@ -221,14 +239,16 @@ object HeicMetaFixture {
         writeU32(mdatOut, mdatSize)
         mdatOut.write("mdat".toByteArray(Charsets.US_ASCII))
         mdatOut.write(mdatPayload)
+        val mdatBytes = mdatOut.toByteArray()
+        check(mdatBytes.size == mdatSize) { "Fixture internal size mismatch: computed $mdatSize, built ${mdatBytes.size}" }
 
-        val allBytes = ftyp + metaBytes + mdatOut.toByteArray()
+        val allBytes = if (mdatBeforeMeta) ftyp + mdatBytes + metaBytes else ftyp + metaBytes + mdatBytes
 
         // meta's children are laid out as: FullBox(4), hdlr, pitm, then iinf/iloc in whichever order
         // ilocBeforeIinf selects -- so iloc's box start is meta's payload start plus everything
         // written ahead of it.
         val ilocAbsoluteStart = (
-            ftyp.size + 12 /* meta size+type+FullBox */ + hdlrBox.size + pitmBox.size +
+            metaOffset + 12 /* meta size+type+FullBox */ + hdlrBox.size + pitmBox.size +
                 (if (ilocBeforeIinf) 0 else iinfBytes.size)
             ).toLong()
 
@@ -247,6 +267,9 @@ object HeicMetaFixture {
             primaryIlocEntryOffset = ilocAbsoluteStart + primaryIlocEntryOffsetHolder[0],
             primaryConstructionMethod = primaryConstructionMethod,
             primaryBaseOffset = primaryBaseOffset,
+            mdatBoxOffset = mdatOffset.toLong(),
+            mdatBoxSize = mdatSize.toLong(),
+            metaBoxOffset = metaOffset.toLong(),
         )
     }
 
