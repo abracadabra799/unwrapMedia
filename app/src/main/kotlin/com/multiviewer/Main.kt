@@ -410,7 +410,6 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var language by remember { mutableStateOf(loadLanguage()) }
         var frameIntervalWindowOpen by remember { mutableStateOf(false) }
         var qualityCompareWindowOpen by remember { mutableStateOf(false) }
-        var imageCompareWindowOpen by remember { mutableStateOf(false) }
         var motionPhotoFrameIntervalWindowOpen by remember { mutableStateOf(false) }
         var dumpStructureWindowOpen by remember { mutableStateOf(false) }
         var checkStructureWindowOpen by remember { mutableStateOf(false) }
@@ -596,7 +595,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 item(
                     I18n.menuCompareFiles(language),
                     shortcut = AppKeyShortcut(Key.D, meta = true),
-                    onClick = { imageCompareWindowOpen = true },
+                    onClick = { appState.openMediaCompare() },
                 )
                 item(
                     I18n.menuQualityBenchmark(language),
@@ -772,8 +771,17 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 }
             }
 
-            if (imageCompareWindowOpen) {
-                ImageCompareWindow(appState = appState, language = language, onCloseRequest = { imageCompareWindowOpen = false })
+            if (appState.imageCompareWindowOpen) {
+                ImageCompareWindow(
+                    appState = appState,
+                    language = language,
+                    initialFileA = appState.compareTargetFiles.getOrNull(0),
+                    initialFileB = appState.compareTargetFiles.getOrNull(1),
+                    onCloseRequest = {
+                        appState.imageCompareWindowOpen = false
+                        appState.compareTargetFiles = emptyList()
+                    },
+                )
             }
             if (qualityCompareWindowOpen) {
                 QualityCompareWindow(appState = appState, onCloseRequest = { qualityCompareWindowOpen = false })

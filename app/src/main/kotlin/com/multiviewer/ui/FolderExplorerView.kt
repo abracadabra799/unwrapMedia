@@ -9,6 +9,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -22,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -110,6 +114,8 @@ fun FolderExplorerView(
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf(MediaFilterCategory.ALL) }
     var refreshTrigger by remember { mutableStateOf(0) }
+    var selectedFiles by remember(targetFolder?.absolutePath) { mutableStateOf<Set<File>>(emptySet()) }
+    var isGridView by remember { mutableStateOf(false) }
 
     val allMediaFiles = remember(targetFolder?.absolutePath, refreshTrigger) {
         if (targetFolder != null && targetFolder.exists() && targetFolder.isDirectory) {
@@ -251,6 +257,12 @@ fun FolderExplorerView(
                             )
                         }
                         IconButton(
+                            onClick = { isGridView = !isGridView },
+                            modifier = Modifier.size(24.dp),
+                        ) {
+                            Text(if (isGridView) "📋" else "🖼️", fontSize = 11.sp)
+                        }
+                        IconButton(
                             onClick = { refreshTrigger++ },
                             modifier = Modifier.size(24.dp),
                         ) {
@@ -359,10 +371,85 @@ fun FolderExplorerView(
                 }
             } else {
                 Box(modifier = Modifier.fillMaxSize()) {
+                    if (isGridView) {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = 90.dp),
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
+                        contentPadding = PaddingValues(top = 4.dp, bottom = if (selectedFiles.isNotEmpty()) 60.dp else 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        items(filteredFiles, key = { it.absolutePath }) { file ->
+                            val isSelected = file in selectedFiles
+                            val isCurrentTab = currentTab?.file?.absolutePath == file.absolutePath
+                            val ext = file.extension.lowercase(Locale.US)
+                            val icon = when {
+                                ext in VIDEO_EXTENSIONS -> "🎬"
+                                ext in AUDIO_EXTENSIONS -> "🎵"
+                                ext in RAW_PIXEL_EXTENSIONS || ext in RAW_AUDIO_EXTENSIONS || ext in listOf("cr2", "nef", "arw", "dng") -> "🎞️"
+                                else -> "🖼️"
+                            }
+
+                            Surface(
+                                color = if (isCurrentTab) AppColors.Surface else AppColors.Surface.copy(alpha = 0.4f),
+                                shape = RoundedCornerShape(6.dp),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    if (isSelected) 1.5.dp else 1.dp,
+                                    if (isSelected) AppColors.NeonBlue else if (isCurrentTab) AppColors.NeonGreen else AppColors.Border,
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { appState.openFile(file) },
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(6.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Checkbox(
+                                            checked = isSelected,
+                                            onCheckedChange = { checked ->
+                                                selectedFiles = if (checked) selectedFiles + file else selectedFiles - file
+                                            },
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                        Text(
+                                            text = ext.uppercase(Locale.US),
+                                            fontSize = 9.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = AppColors.TextSecondary,
+                                        )
+                                    }
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(icon, fontSize = 24.sp)
+                                    Spacer(Modifier.height(6.dp))
+                                    Text(
+                                        text = file.name,
+                                        fontSize = 10.sp,
+                                        fontWeight = if (isCurrentTab) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isCurrentTab) AppColors.NeonGreen else AppColors.TextPrimary,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                        textAlign = TextAlign.Center,
+                                    )
+                                    Text(
+                                        text = formatFileSize(file.length()),
+                                        fontSize = 9.sp,
+                                        color = AppColors.TextSecondary,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(vertical = 4.dp),
+                        contentPadding = PaddingValues(top = 4.dp, bottom = if (selectedFiles.isNotEmpty()) 60.dp else 4.dp),
                     ) {
                     items(subfolders, key = { it.absolutePath }) { folder ->
                         Surface(
@@ -399,9 +486,6 @@ fun FolderExplorerView(
                         val isCurrentTab = currentTab?.file?.absolutePath == file.absolutePath
                         val ext = file.extension.lowercase(Locale.US)
                         val (icon, badgeColor) = when {
-                            // Muted to match the theme's accents (see Theme.kt's DarkPalette): a
-                            // long file list shows these badges on every row, so saturated ones
-                            // turned the whole panel into competing colour.
                             ext in VIDEO_EXTENSIONS -> "🎬" to Color(0xFF61AFEF)
                             ext in AUDIO_EXTENSIONS -> "🎵" to Color(0xFF98C379)
                             ext in RAW_PIXEL_EXTENSIONS || ext in RAW_AUDIO_EXTENSIONS || ext in listOf("cr2", "nef", "arw", "dng") -> "🎞️" to Color(0xFFC678DD)
@@ -455,6 +539,14 @@ fun FolderExplorerView(
                                         .padding(horizontal = 8.dp, vertical = 5.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
+                                    val isSelected = file in selectedFiles
+                                    Checkbox(
+                                        checked = isSelected,
+                                        onCheckedChange = { checked ->
+                                            selectedFiles = if (checked) selectedFiles + file else selectedFiles - file
+                                        },
+                                        modifier = Modifier.size(24.dp).padding(end = 4.dp),
+                                    )
                                     Text(icon, fontSize = 12.sp)
                                     Spacer(Modifier.width(6.dp))
                                     Column(modifier = Modifier.weight(1f)) {
@@ -519,6 +611,60 @@ fun FolderExplorerView(
                     adapter = rememberScrollbarAdapter(listState),
                     modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
                 )
+                }
+
+                // FastStone style multi-selection compare action bar
+                if (selectedFiles.isNotEmpty()) {
+                    Surface(
+                        color = AppColors.Surface,
+                        shape = RoundedCornerShape(8.dp),
+                        shadowElevation = 8.dp,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.NeonBlue),
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 12.dp)
+                            .fillMaxWidth(0.92f),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "${selectedFiles.size}개 선택됨",
+                                    fontSize = 11.sp,
+                                    color = AppColors.NeonBlue,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = "해제",
+                                    fontSize = 10.sp,
+                                    color = AppColors.TextSecondary,
+                                    modifier = Modifier.clickable { selectedFiles = emptySet() },
+                                )
+                            }
+
+                            Button(
+                                onClick = {
+                                    val filesList = selectedFiles.toList().sortedBy { it.name.lowercase(Locale.US) }
+                                    appState.openMediaCompare(filesList)
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = AppColors.NeonBlue),
+                                modifier = Modifier.height(28.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp),
+                            ) {
+                                Text(
+                                    text = if (language == AppLanguage.KO) "⚖️ 비교 열기" else "⚖️ Compare",
+                                    fontSize = 11.sp,
+                                    color = Color.Black,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+                    }
+                }
             }
             }
         }

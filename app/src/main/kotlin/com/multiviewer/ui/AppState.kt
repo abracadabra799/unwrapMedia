@@ -341,6 +341,14 @@ class AppState {
     var aiPromptWindowOpen: Boolean by mutableStateOf(false)
     var aiPromptTargetWarning: com.multiviewer.parser.WarningEntry? by mutableStateOf(null)
 
+    var imageCompareWindowOpen: Boolean by mutableStateOf(false)
+    var compareTargetFiles: List<File> by mutableStateOf(emptyList())
+
+    fun openMediaCompare(files: List<File> = emptyList()) {
+        compareTargetFiles = files
+        imageCompareWindowOpen = true
+    }
+
     // Set when openFile() refuses a file outright (unsupported extension, or a declared
     // resolution above HARD_LIMIT_PIXELS) -- shown as a blocking popup in Main.kt so a bad file
     // can't silently leave the app in a half-open state.

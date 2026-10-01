@@ -10,7 +10,9 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,6 +47,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -139,6 +142,7 @@ enum class VisualCompareMode {
     SPLIT_WIPER,
     SIDE_BY_SIDE,
     DIFF_HEATMAP,
+    BLINK,
 }
 
 data class CompareMediaInfo(
@@ -434,6 +438,160 @@ fun ImageCompareWindow(
                         MediaCompareTab.METADATA -> MetadataDiffView(language, infoA, infoB, metadataRows, captureMismatches)
                         MediaCompareTab.VISUAL -> VisualDiffView(language, infoA, infoB, captureMismatches)
                         MediaCompareTab.HEX -> HexDiffView(language, fileA, fileB)
+                    }
+                }
+
+                // 4. FastStone Style Bottom Filmstrip (Quick File Switch)
+                val activeFolder = folderA ?: folderB ?: fileA?.parentFile ?: fileB?.parentFile
+                val siblingMediaFiles = remember(activeFolder?.absolutePath) {
+                    if (activeFolder != null && activeFolder.exists() && activeFolder.isDirectory) {
+                        try {
+                            activeFolder.listFiles { f ->
+                                f.isFile && !f.isHidden && f.extension.lowercase(Locale.US) in ALL_SUPPORTED_MEDIA_EXTENSIONS
+                            }?.sortedBy { it.name.lowercase(Locale.US) }?.toList() ?: emptyList()
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
+                    } else emptyList()
+                }
+
+                if (siblingMediaFiles.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    FilmstripQuickSwitch(
+                        files = siblingMediaFiles,
+                        activeFileA = fileA,
+                        activeFileB = fileB,
+                        onSelectForA = { fileA = it; folderA = it.parentFile },
+                        onSelectForB = { fileB = it; folderB = it.parentFile },
+                        language = language,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FilmstripQuickSwitch(
+    files: List<File>,
+    activeFileA: File?,
+    activeFileB: File?,
+    onSelectForA: (File) -> Unit,
+    onSelectForB: (File) -> Unit,
+    language: AppLanguage,
+) {
+    var expanded by remember { mutableStateOf(true) }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        shape = RoundedCornerShape(6.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("🎞️", fontSize = 11.sp)
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = if (language == AppLanguage.KO) "폴더 내 미디어 빠른 교체 (필름스트립) - ${files.size}개" else "Quick Filmstrip Switcher - ${files.size} files",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AppColors.TextPrimary,
+                    )
+                }
+                Text(
+                    text = if (expanded) "▲ 접기" else "▼ 펼치기",
+                    fontSize = 10.sp,
+                    color = AppColors.NeonBlue,
+                    modifier = Modifier.clickable { expanded = !expanded }.padding(4.dp),
+                )
+            }
+
+            if (expanded) {
+                Spacer(Modifier.height(4.dp))
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                ) {
+                    items(files, key = { it.absolutePath }) { file ->
+                        val isA = activeFileA?.absolutePath == file.absolutePath
+                        val isB = activeFileB?.absolutePath == file.absolutePath
+                        val borderColor = when {
+                            isA && isB -> Color.Yellow
+                            isA -> Color(0xFF61AFEF)
+                            isB -> Color(0xFF98C379)
+                            else -> AppColors.Border
+                        }
+
+                        Surface(
+                            color = AppColors.Surface,
+                            shape = RoundedCornerShape(4.dp),
+                            border = androidx.compose.foundation.BorderStroke(if (isA || isB) 1.5.dp else 1.dp, borderColor),
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .widthIn(min = 100.dp, max = 150.dp)
+                                .padding(vertical = 1.dp),
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 6.dp, vertical = 3.dp),
+                                verticalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text(
+                                        text = file.name,
+                                        fontSize = 10.sp,
+                                        fontWeight = if (isA || isB) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isA || isB) Color.White else AppColors.TextPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    if (isA) {
+                                        Text("A", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF61AFEF), modifier = Modifier.padding(start = 2.dp))
+                                    }
+                                    if (isB) {
+                                        Text("B", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF98C379), modifier = Modifier.padding(start = 2.dp))
+                                    }
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = "→A",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF61AFEF),
+                                        modifier = Modifier
+                                            .clickable { onSelectForA(file) }
+                                            .padding(horizontal = 4.dp, vertical = 1.dp),
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        text = "→B",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF98C379),
+                                        modifier = Modifier
+                                            .clickable { onSelectForB(file) }
+                                            .padding(horizontal = 4.dp, vertical = 1.dp),
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1558,6 +1716,12 @@ private fun VisualDiffView(language: AppLanguage, infoA: CompareMediaInfo?, info
                 onClick = { mode = VisualCompareMode.DIFF_HEATMAP },
                 label = { Text(if (language == AppLanguage.KO) "차이점 마스크 (Diff Heatmap)" else "Diff Heatmap") },
             )
+            Spacer(modifier = Modifier.width(8.dp))
+            FilterChip(
+                selected = mode == VisualCompareMode.BLINK,
+                onClick = { mode = VisualCompareMode.BLINK },
+                label = { Text(if (language == AppLanguage.KO) "깜빡임 비교 (Blink)" else "Blink / Flicker") },
+            )
         }
 
         // Synchronized Video Timeline Controller (Displayed when video is present)
@@ -1623,6 +1787,19 @@ private fun VisualDiffView(language: AppLanguage, infoA: CompareMediaInfo?, info
                         SideBySideCompareView(
                             bitmapA = displayBitmapA,
                             bitmapB = displayBitmapB,
+                            infoA = infoA,
+                            infoB = infoB,
+                            labelA = if (infoA.isVideo) "Video A" else "Image A",
+                            labelB = if (infoB.isVideo) "Video B" else "Image B",
+                            language = language,
+                        )
+                    }
+                    VisualCompareMode.BLINK -> {
+                        BlinkCompareView(
+                            bitmapA = displayBitmapA,
+                            bitmapB = displayBitmapB,
+                            infoA = infoA,
+                            infoB = infoB,
                             labelA = if (infoA.isVideo) "Video A" else "Image A",
                             labelB = if (infoB.isVideo) "Video B" else "Image B",
                             language = language,
@@ -1676,11 +1853,66 @@ private fun VisualDiffView(language: AppLanguage, infoA: CompareMediaInfo?, info
     }
 }
 
+@Composable
+private fun MediaOsdBadge(
+    label: String,
+    info: CompareMediaInfo?,
+    nativeSize: Pair<Int, Int>?,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        color = Color.Black.copy(alpha = 0.70f),
+        shape = RoundedCornerShape(bottomEnd = 6.dp),
+        modifier = modifier,
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = label,
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                if (info != null) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = info.file.name,
+                        color = Color(0xFF61AFEF),
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            val details = buildList {
+                if (nativeSize != null && nativeSize.first > 0 && nativeSize.second > 0) {
+                    add("${nativeSize.first}x${nativeSize.second}")
+                }
+                if (info != null && info.fileSize > 0) {
+                    add("%.2f MB".format(info.fileSize / (1024.0 * 1024.0)))
+                }
+                val ext = info?.file?.extension?.uppercase()
+                if (!ext.isNullOrBlank()) add(ext)
+            }
+            if (details.isNotEmpty()) {
+                Text(
+                    text = details.joinToString(" • "),
+                    color = Color(0xFFABB2BF),
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun SideBySideCompareView(
     bitmapA: ImageBitmap,
     bitmapB: ImageBitmap,
+    infoA: CompareMediaInfo?,
+    infoB: CompareMediaInfo?,
     labelA: String,
     labelB: String,
     language: AppLanguage,
@@ -1695,6 +1927,11 @@ private fun SideBySideCompareView(
     // clamps against its own fitted size.
     val fittedSizeA = fittedContentSize(paneSize, Size(bitmapA.width.toFloat(), bitmapA.height.toFloat()))
     val fittedSizeB = fittedContentSize(paneSize, Size(bitmapB.width.toFloat(), bitmapB.height.toFloat()))
+
+    fun applyZoomPreset(targetScale: Float) {
+        scale = targetScale
+        offset = clampPanOffset(offset, paneSize, scale, fittedSizeA)
+    }
 
     Box(
         modifier = Modifier
@@ -1772,15 +2009,11 @@ private fun SideBySideCompareView(
                         ),
                     )
                 }
-                Text(
-                    labelA,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(bottomEnd = 4.dp))
-                        .padding(horizontal = 6.dp, vertical = 3.dp),
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
+                MediaOsdBadge(
+                    label = labelA,
+                    info = infoA,
+                    nativeSize = bitmapA.width to bitmapA.height,
+                    modifier = Modifier.align(Alignment.TopStart),
                 )
             }
 
@@ -1855,15 +2088,11 @@ private fun SideBySideCompareView(
                         ),
                     )
                 }
-                Text(
-                    labelB,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(bottomEnd = 4.dp))
-                        .padding(horizontal = 6.dp, vertical = 3.dp),
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
+                MediaOsdBadge(
+                    label = labelB,
+                    info = infoB,
+                    nativeSize = bitmapB.width to bitmapB.height,
+                    modifier = Modifier.align(Alignment.TopStart),
                 )
             }
         }
@@ -1893,29 +2122,261 @@ private fun SideBySideCompareView(
             }
         }
 
-        // Zoom info indicator & reset button when zoomed in
-        if (scale > 1.01f) {
+        // FastStone Style Zoom Control Toolbar (Fit, 100%, 200%, 400%)
+        Surface(
+            color = Color.Black.copy(alpha = 0.80f),
+            shape = RoundedCornerShape(6.dp),
+            border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.3f)),
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "🔍 %.1fx".format(scale),
+                    fontSize = 11.sp,
+                    color = Color.Yellow,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(end = 6.dp),
+                )
+                val presets = listOf("Fit" to 1f, "100%" to 1f, "200%" to 2f, "400%" to 4f)
+                presets.forEach { (text, s) ->
+                    Text(
+                        text = text,
+                        fontSize = 10.sp,
+                        color = if (scale == s && text != "Fit") Color.Yellow else Color.White,
+                        modifier = Modifier
+                            .clickable {
+                                if (text == "Fit") {
+                                    scale = 1f
+                                    offset = Offset.Zero
+                                } else {
+                                    applyZoomPreset(s)
+                                }
+                            }
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * FastStone-style Blink / Flicker comparison view that rapidly or manually alternates
+ * between Bitmap A and Bitmap B to expose minute visual compression/alignment differences.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun BlinkCompareView(
+    bitmapA: ImageBitmap,
+    bitmapB: ImageBitmap,
+    infoA: CompareMediaInfo?,
+    infoB: CompareMediaInfo?,
+    labelA: String,
+    labelB: String,
+    language: AppLanguage,
+) {
+    var showA by remember { mutableStateOf(true) }
+    var autoBlink by remember { mutableStateOf(false) }
+    var blinkSpeedMs by remember { mutableStateOf(300L) }
+    var scale by remember(bitmapA, bitmapB) { mutableStateOf(1f) }
+    var offset by remember(bitmapA, bitmapB) { mutableStateOf(Offset.Zero) }
+    var paneSize by remember { mutableStateOf(Size.Zero) }
+
+    val currentBitmap = if (showA) bitmapA else bitmapB
+    val currentInfo = if (showA) infoA else infoB
+    val currentLabel = if (showA) labelA else labelB
+
+    val fittedSize = fittedContentSize(paneSize, Size(currentBitmap.width.toFloat(), currentBitmap.height.toFloat()))
+
+    LaunchedEffect(autoBlink, blinkSpeedMs) {
+        while (autoBlink) {
+            delay(blinkSpeedMs)
+            showA = !showA
+        }
+    }
+
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(8.dp)) {
+        // Blink Control Toolbar
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            shape = RoundedCornerShape(6.dp),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Button(
+                    onClick = { showA = !showA },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (showA) Color(0xFF61AFEF) else Color(0xFF98C379),
+                    ),
+                    modifier = Modifier.height(32.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                ) {
+                    Text(
+                        text = if (showA) "현재: [A] 전환(Space)" else "현재: [B] 전환(Space)",
+                        fontSize = 11.sp,
+                        color = Color.Black,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+
+                Spacer(Modifier.width(12.dp))
+
+                FilterChip(
+                    selected = autoBlink,
+                    onClick = { autoBlink = !autoBlink },
+                    label = { Text(if (autoBlink) "⏹ 자동 깜빡임 정지" else "▶ 자동 깜빡임 시작") },
+                    modifier = Modifier.height(32.dp),
+                )
+
+                if (autoBlink) {
+                    Spacer(Modifier.width(16.dp))
+                    Text("주기: ${blinkSpeedMs}ms", fontSize = 11.sp, color = AppColors.TextSecondary)
+                    Spacer(Modifier.width(8.dp))
+                    Slider(
+                        value = blinkSpeedMs.toFloat(),
+                        onValueChange = { blinkSpeedMs = it.toLong() },
+                        valueRange = 100f..1000f,
+                        modifier = Modifier.width(150.dp),
+                    )
+                }
+
+                Spacer(Modifier.weight(1f))
+
+                Text(
+                    text = if (language == AppLanguage.KO) "💡 스페이스바를 눌러 수동 교차 비교 가능" else "💡 Tap Spacebar to toggle A/B",
+                    fontSize = 11.sp,
+                    color = AppColors.TextSecondary,
+                )
+            }
+        }
+
+        // View Area
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .clipToBounds()
+                .focusRequester(focusRequester)
+                .focusable()
+                .onKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown && event.key == Key.Spacebar) {
+                        showA = !showA
+                        true
+                    } else false
+                }
+                .onGloballyPositioned { paneSize = it.size.toSize() }
+                .onPointerEvent(PointerEventType.Scroll, pass = PointerEventPass.Initial) { event ->
+                    val change = event.changes.firstOrNull() ?: return@onPointerEvent
+                    val (newScale, rawOffset) = zoomTowardPoint(scale, offset, change.position, change.scrollDelta.y)
+                    scale = newScale
+                    offset = clampPanOffset(rawOffset, paneSize, newScale, fittedSize)
+                    event.changes.forEach { it.consume() }
+                }
+                .pointerInput(Unit) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        offset = clampPanOffset(offset + dragAmount, paneSize, scale, fittedSize)
+                    }
+                }
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onDoubleTap = {
+                            scale = 1f
+                            offset = Offset.Zero
+                        }
+                    )
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            androidx.compose.foundation.Image(
+                bitmap = currentBitmap,
+                contentDescription = currentLabel,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer(
+                        scaleX = scale,
+                        scaleY = scale,
+                        translationX = offset.x,
+                        translationY = offset.y,
+                        transformOrigin = TransformOrigin(0f, 0f),
+                    ),
+                contentScale = ContentScale.Fit,
+            )
+
+            if (LocalShowPixelGrid.current) {
+                PixelGridOverlay(
+                    nativeSize = Size(currentBitmap.width.toFloat(), currentBitmap.height.toFloat()),
+                    scale = scale,
+                    modifier = Modifier.graphicsLayer(
+                        scaleX = scale,
+                        scaleY = scale,
+                        translationX = offset.x,
+                        translationY = offset.y,
+                        transformOrigin = TransformOrigin(0f, 0f),
+                    ),
+                )
+            }
+
+            MediaOsdBadge(
+                label = currentLabel,
+                info = currentInfo,
+                nativeSize = currentBitmap.width to currentBitmap.height,
+                modifier = Modifier.align(Alignment.TopStart),
+            )
+
+            // Zoom Presets
             Surface(
-                color = Color.Black.copy(alpha = 0.75f),
-                shape = RoundedCornerShape(4.dp),
+                color = Color.Black.copy(alpha = 0.80f),
+                shape = RoundedCornerShape(6.dp),
                 border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.3f)),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(8.dp)
-                    .clickable {
-                        scale = 1f
-                        offset = Offset.Zero
-                    },
+                    .padding(8.dp),
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "🔍 %.1fx".format(scale) + if (language == AppLanguage.KO) " (더블클릭/클릭 시 초기화)" else " (Double-click to reset)",
+                        text = "🔍 %.1fx".format(scale),
                         fontSize = 11.sp,
                         color = Color.Yellow,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(end = 6.dp),
                     )
+                    val presets = listOf("Fit" to 1f, "100%" to 1f, "200%" to 2f, "400%" to 4f)
+                    presets.forEach { (text, s) ->
+                        Text(
+                            text = text,
+                            fontSize = 10.sp,
+                            color = if (scale == s && text != "Fit") Color.Yellow else Color.White,
+                            modifier = Modifier
+                                .clickable {
+                                    if (text == "Fit") {
+                                        scale = 1f
+                                        offset = Offset.Zero
+                                    } else {
+                                        scale = s
+                                        offset = clampPanOffset(offset, paneSize, scale, fittedSize)
+                                    }
+                                }
+                                .padding(horizontal = 4.dp, vertical = 2.dp),
+                        )
+                    }
                 }
             }
         }
