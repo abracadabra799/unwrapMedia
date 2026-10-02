@@ -10,6 +10,19 @@ import kotlin.test.assertTrue
 
 class ImageAnalyzerTest {
     @Test
+    fun `decodeThumbnail returns a bitmap bounded by the requested longest edge`() {
+        val image = BufferedImage(1200, 600, BufferedImage.TYPE_INT_RGB)
+        val file = File.createTempFile("image-analyzer-thumbnail-test", ".jpg")
+        file.deleteOnExit()
+        ImageIO.write(image, "jpg", file)
+
+        val bitmap = ImageAnalyzer.decodeThumbnail(file, longestEdge = 240)
+
+        assertEquals(240, bitmap?.width)
+        assertEquals(120, bitmap?.height)
+    }
+
+    @Test
     fun `analyze does not compute the primary bitmap or histogram -- that's decodePrimaryBitmapAndHistogram's job`() {
         // Regression guard: the primary Skia raster decode + histogram pass is real, measurable
         // work (a large JPEG's decode alone measured at ~45ms) -- analyze() must stay cheap so a

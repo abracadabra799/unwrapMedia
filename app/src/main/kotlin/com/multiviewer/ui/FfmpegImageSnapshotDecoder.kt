@@ -18,6 +18,29 @@ import java.util.concurrent.TimeUnit
 object FfmpegImageSnapshotDecoder {
     private const val DEFAULT_TIMEOUT_MS = 60_000L
 
+    /**
+     * Builds a bounded thumbnail decode that remains compatible with HEIC inputs which already
+     * supply an internal display transform. `-vf` cannot be combined with that transform; a
+     * named complex-filter output can.
+     */
+    internal fun thumbnailDecodeArguments(file: File, longestEdge: Int): List<String> {
+        require(longestEdge > 0) { "longestEdge must be positive" }
+        return listOf(
+            FfmpegLocator.ffmpegPath(), "-y",
+            "-i", file.absolutePath,
+            "-filter_complex", "[0:v]scale=$longestEdge:$longestEdge:force_original_aspect_ratio=decrease[thumbnail]",
+            "-map", "[thumbnail]",
+            "-frames:v", "1",
+        )
+    }
+
+    fun decodeThumbnailToBitmap(file: File, longestEdge: Int): ImageBitmap? =
+        decodeSingleFrameToBitmap(
+            thumbnailDecodeArguments(file, longestEdge),
+            tempExtension = ".png",
+            timeoutMs = 10_000L,
+        )
+
     fun decodeFirstFrameAsync(file: File, root: BoxNode? = null, onResult: (ImageBitmap?) -> Unit) {
         Thread {
             // Attempt 1: Direct full-resolution decode (PNG format to avoid JPEG 65k/buffer limits on 200MP stills)
@@ -30,11 +53,7 @@ object FfmpegImageSnapshotDecoder {
             // Attempt 2: If full 200MP decode failed or exceeded memory/texture limits, try safe downscaled decode (max 8192)
             if (result == null) {
                 result = decodeSingleFrameToBitmap(
-                    listOf(
-                        FfmpegLocator.ffmpegPath(), "-y", "-i", file.absolutePath,
-                        "-vf", "scale='min(8192,iw)':'min(8192,ih)':force_original_aspect_ratio=decrease",
-                        "-frames:v", "1", "-update", "1",
-                    ),
+                    thumbnailDecodeArguments(file, longestEdge = 8192),
                     tempExtension = ".png",
                     timeoutMs = 30_000L,
                 )

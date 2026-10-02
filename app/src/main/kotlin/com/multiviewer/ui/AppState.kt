@@ -13,7 +13,7 @@ import java.io.File
 private const val MAX_OPEN_FILES = 20
 
 val IMAGE_EXTENSIONS = listOf(
-    "jpg", "jpeg", "png", "bmp", "gif", "webp", "avif", "heic",
+    "jpg", "jpeg", "png", "bmp", "gif", "webp", "avif", "heic", "heif",
     // Plain TIFF -- parseFile's magic-byte dispatch (isTiffMagic) and decodeTiff already handle
     // this; it was only ever reachable via the camera RAW extensions below, so a standalone
     // .tif/.tiff file was rejected by this extension gate before parsing was ever attempted.

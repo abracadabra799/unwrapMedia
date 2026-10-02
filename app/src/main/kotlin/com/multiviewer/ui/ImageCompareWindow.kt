@@ -164,13 +164,37 @@ private fun formatCompareFileSize(bytes: Long): String = when {
     else -> "$bytes B"
 }
 
+internal class ThumbnailRequestRegistry<T> {
+    private val listeners = mutableMapOf<String, MutableList<(T) -> Unit>>()
+
+    /** Returns true only for the caller that must start the shared decode. */
+    fun add(key: String, listener: (T) -> Unit): Boolean = synchronized(listeners) {
+        val waiting = listeners[key]
+        if (waiting != null) {
+            waiting += listener
+            false
+        } else {
+            listeners[key] = mutableListOf(listener)
+            true
+        }
+    }
+
+    fun complete(key: String, value: T): List<() -> Unit> = synchronized(listeners) {
+        listeners.remove(key).orEmpty().map { listener -> { listener(value) } }
+    }
+
+    fun discard(key: String) {
+        synchronized(listeners) { listeners.remove(key) }
+    }
+}
+
 private object ExplorerThumbnailLoader {
     private val cache = object : java.util.LinkedHashMap<String, ImageBitmap>(128, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?): Boolean {
             return size > 200
         }
     }
-    private val inFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val requests = ThumbnailRequestRegistry<ImageBitmap>()
     private val thumbExecutor = Executors.newFixedThreadPool(3) { r ->
         Thread(r).apply { isDaemon = true }
     }
@@ -182,12 +206,12 @@ private object ExplorerThumbnailLoader {
             if (cached != null) return cached
         }
 
-        if (inFlight.add(path)) {
+        if (requests.add(path, onLoaded)) {
             thumbExecutor.submit {
+                var bitmap: ImageBitmap? = null
                 try {
                     val ext = file.extension.lowercase(Locale.US)
                     val isVid = ext in VIDEO_EXTENSIONS
-                    var bitmap: ImageBitmap? = null
 
                     if (isVid) {
                         bitmap = FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap(
@@ -216,23 +240,15 @@ private object ExplorerThumbnailLoader {
                             )
                         }
                     } else {
-                        // Image file: try fast primary decode with Skia first
-                        val (primary, _) = ImageAnalyzer.decodePrimaryBitmapAndHistogram(file)
+                        // Explorer thumbnails must not retain a full-size image or calculate a
+                        // histogram. Decode to the display-sized bitmap instead.
+                        val primary = ImageAnalyzer.decodeThumbnail(file, longestEdge = 240)
                         if (primary != null) {
                             bitmap = primary
                         } else {
-                            // HEIC / RAW / Other: use ffmpeg scaled decode
-                            bitmap = FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap(
-                                listOf(
-                                    FfmpegLocator.ffmpegPath(), "-y",
-                                    "-i", file.absolutePath,
-                                    "-vf", "scale='min(240,iw)':-1",
-                                    "-frames:v", "1",
-                                    "-update", "1"
-                                ),
-                                tempExtension = ".png",
-                                timeoutMs = 10_000L,
-                            )
+                            // HEIC / RAW / Other: the ffmpeg helper uses filter_complex rather
+                            // than -vf, which can coexist with HEIC's display transform.
+                            bitmap = FfmpegImageSnapshotDecoder.decodeThumbnailToBitmap(file, longestEdge = 240)
                         }
                     }
 
@@ -240,13 +256,14 @@ private object ExplorerThumbnailLoader {
                         synchronized(cache) {
                             cache[path] = bitmap
                         }
+                        val listeners = requests.complete(path, bitmap)
                         EventQueue.invokeLater {
-                            onLoaded(bitmap)
+                            listeners.forEach { it() }
                         }
                     }
                 } catch (_: Exception) {
                 } finally {
-                    inFlight.remove(path)
+                    if (bitmap == null) requests.discard(path)
                 }
             }
         }

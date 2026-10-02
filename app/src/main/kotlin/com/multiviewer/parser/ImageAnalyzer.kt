@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.toComposeImageBitmap
 import com.multiviewer.ui.HistogramData
 import com.multiviewer.ui.ImageForensicData
 import org.jetbrains.skia.Image
+import org.jetbrains.skia.Rect
 import org.jetbrains.skia.Surface
 import java.io.File
 
@@ -215,6 +216,30 @@ object ImageAnalyzer {
         val primaryBitmap = primaryImage?.toComposeImageBitmap()
         val histogram = primaryBitmap?.let { calculateHistogram(it.asSkiaBitmap()) }
         return primaryBitmap to histogram
+    }
+
+    /**
+     * Produces a display-sized bitmap for file explorers. This deliberately skips histogram
+     * analysis and retains only the scaled result, so explorer caches never hold full-resolution
+     * source images.
+     */
+    fun decodeThumbnail(file: File, longestEdge: Int): ImageBitmap? {
+        require(longestEdge > 0) { "longestEdge must be positive" }
+        val source = try {
+            Image.makeFromEncoded(file.readBytes())
+        } catch (_: Exception) {
+            null
+        } ?: return null
+
+        val sourceLongest = maxOf(source.width, source.height)
+        if (sourceLongest <= longestEdge) return source.toComposeImageBitmap()
+
+        val scale = longestEdge.toFloat() / sourceLongest
+        val targetWidth = (source.width * scale).toInt().coerceAtLeast(1)
+        val targetHeight = (source.height * scale).toInt().coerceAtLeast(1)
+        val surface = Surface.makeRasterN32Premul(targetWidth, targetHeight)
+        surface.canvas.drawImageRect(source, Rect.makeWH(targetWidth.toFloat(), targetHeight.toFloat()))
+        return surface.makeImageSnapshot().toComposeImageBitmap()
     }
 
     private fun orientationLabel(code: Int): String = when (code) {
