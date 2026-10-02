@@ -34,6 +34,17 @@ jobs:
           ref: cd2ba5446504e24c4ad1c7c06ef382214653a537
           path: avm
 
+      # The pinned AVM decoder and encoder take a long time to compile on a hosted
+      # Windows runner. Cache the complete CMake build tree so later runs reuse both
+      # executables and object files. Bump the config suffix when the CMake flags or
+      # Visual Studio generator/toolset changes; changing the AVM pin makes a new key.
+      - name: Cache pinned AVM Windows build (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: actions/cache@v4
+        with:
+          path: avm/build
+          key: avm-windows-x64-vs2022-cd2ba5446504e24c4ad1c7c06ef382214653a537-av2-dec-enc-v1
+
       - name: Build and stage AVM decoder (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
