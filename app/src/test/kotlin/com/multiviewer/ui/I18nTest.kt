@@ -13,16 +13,6 @@ class I18nTest {
         assertEquals("File", I18n.menuFile(AppLanguage.EN))
         assertEquals("열기", I18n.menuOpen(AppLanguage.KO))
         assertEquals("Open", I18n.menuOpen(AppLanguage.EN))
-        assertEquals("파일 열기...", I18n.menuOpenFile(AppLanguage.KO))
-        assertEquals("Open File...", I18n.menuOpenFile(AppLanguage.EN))
-        assertEquals("폴더 열기...", I18n.menuOpenFolder(AppLanguage.KO))
-        assertEquals("Open Folder...", I18n.menuOpenFolder(AppLanguage.EN))
-
-        // Edit
-        assertEquals("편집", I18n.menuEdit(AppLanguage.KO))
-        assertEquals("Edit", I18n.menuEdit(AppLanguage.EN))
-        assertEquals("선택 영역 Hex 덤프 복사", I18n.menuCopyHex(AppLanguage.KO))
-        assertEquals("Copy Hex Dump of Selection", I18n.menuCopyHex(AppLanguage.EN))
 
         // Analyze
         assertEquals("분석", I18n.menuAnalyze(AppLanguage.KO))

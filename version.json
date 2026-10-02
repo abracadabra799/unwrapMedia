@@ -1,7 +1,7 @@
 {
-  "version": "1.18.0",
+  "version": "1.18.1",
   "releaseDate": "2026-10-02",
-  "releaseNotes": "• Android Studio / IntelliJ 스타일 메뉴바 개편: File, Edit, View, Analyze, Tools, Help 표준 IDE 메뉴 계층 구조로 전면 재정리\n• Android Studio New UI 스타일의 커스텀 메뉴바 디자인: 30dp 컴팩트 높이, 둥근 호버 하이라이트(4dp), 정돈된 폰트 및 단축키 표시 레이아웃, 다크 테마 팝업 스타일링 적용\n• 폴더 열기(Open Folder) 및 선택 영역 Hex 덤프 복사(Edit > Copy Hex Dump) 메뉴 추가",
+  "releaseNotes": "• 메뉴 구성 및 분류 기존 구조로 복원 (파일, 추출, 게인맵, 분석, 모션포토, 도구, 보기, 도움말)\n• Windows/Linux용 CustomAppMenuBar에 Android Studio New UI 스타일의 컴팩트(30dp) 및 둥근 호버 하이라이트/다크 테마 팝업 디자인 유지",
   "windowsUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest",
   "macUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest"
 }

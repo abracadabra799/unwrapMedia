@@ -425,22 +425,25 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         // Codec view popup window mode (Motion Vectors / QP Heatmap). null = popup closed.
         var codecViewPopupWindowMode by remember { mutableStateOf<CodecViewMode?>(null) }
         val builtMenuBar = buildAppMenuBar {
-            // 1. File (파일)
             appMenu(I18n.menuFile(language)) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val isVideo = currentTab?.type == MediaType.VIDEO
                 val hasVideoTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Video" } == true
                 val hasAudioTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Audio" } == true
-                val isImage = currentTab != null && !currentTab.isLoading && currentTab.type == MediaType.IMAGE
-                val isHeic = currentTab?.file?.extension?.lowercase(java.util.Locale.US) in setOf("heic", "heif")
                 val hasGainmap = currentTab != null && !currentTab.isLoading && currentTab.gainmapInfo?.hasGainmap == true
-                val hasGainmapImage = hasGainmap && currentTab?.gainmapInfo?.hasGainmapImage == true
 
-                item(I18n.menuOpenFile(language), shortcut = AppKeyShortcut(Key.O, meta = true), onClick = { showOpenFileDialog(appState) })
-                item(I18n.menuOpenFolder(language), onClick = { showOpenFolderDialog(appState) })
+                item(I18n.menuOpen(language), shortcut = AppKeyShortcut(Key.O, meta = true), onClick = { showOpenFileDialog(appState) })
                 item(I18n.menuClose(language), enabled = appState.tabs.isNotEmpty(), shortcut = AppKeyShortcut(Key.W, meta = true), onClick = { appState.closeTab(appState.selectedTabIndex) })
-                separator()
-                // Track Extraction
+            }
+            // Track extraction, previously tacked onto the end of 파일 alongside open/close.
+            // The motion photo extractions stay in 모션포토: they belong with the create/analyze
+            // commands for that format rather than with plain track extraction.
+            appMenu(I18n.menuExtract(language)) {
+                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                val isVideo = currentTab?.type == MediaType.VIDEO
+                val hasVideoTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Video" } == true
+                val hasAudioTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Audio" } == true
+
                 item(
                     I18n.menuExtractVideoTrack(language),
                     enabled = hasVideoTrack,
@@ -451,126 +454,14 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     enabled = hasAudioTrack,
                     onClick = { currentTab?.let { extractAudioTrackFromCurrentFile(appState, it) } },
                 )
-                separator()
-                // Motion Photo Creation / Extraction
-                item(
-                    I18n.menuCreateMotionPhotoV2(language),
-                    enabled = isImage,
-                    onClick = { currentTab?.let { createMotionPhotoFromCurrentTab(appState, it, language, com.multiviewer.parser.MotionPhotoFormatVersion.V2_MOTION_PHOTO) } },
-                )
-                item(
-                    I18n.menuCreateMotionPhotoV1(language),
-                    enabled = isImage && !isHeic,
-                    onClick = { currentTab?.let { createMotionPhotoFromCurrentTab(appState, it, language, com.multiviewer.parser.MotionPhotoFormatVersion.V1_MICRO_VIDEO) } },
-                )
-                item(
-                    I18n.menuExtractMotionVideo(language),
-                    enabled = currentTab?.embeddedVideo != null,
-                    onClick = { currentTab?.let { extractMotionPhotoVideo(appState, it) } },
-                )
-                item(
-                    I18n.menuExtractPreviewVideo(language),
-                    enabled = currentTab?.motionPhotoPreview != null,
-                    onClick = { currentTab?.let { extractMotionPhotoPreviewVideo(appState, it) } },
-                )
-                separator()
-                // Gain Map Export
-                item(
-                    I18n.menuExtractGainmapImage(language),
-                    enabled = hasGainmapImage,
-                    onClick = { currentTab?.let { extractGainmapImage(appState, it, language) } },
-                )
-                if (!isMacOS) {
-                    separator()
-                    item(if (language == AppLanguage.KO) "종료" else "Exit", onClick = {
-                        try {
-                            com.multiviewer.util.ProcessManager.destroyAll()
-                        } catch (_: Throwable) {}
-                        exitProcess(0)
-                    })
-                }
             }
-
-            // 2. Edit (편집)
-            appMenu(I18n.menuEdit(language)) {
-                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
-                val hasActiveTab = currentTab != null && !currentTab.isLoading
-                item(
-                    I18n.menuCopyHex(language),
-                    enabled = hasActiveTab,
-                    shortcut = AppKeyShortcut(Key.C, meta = true),
-                    onClick = {
-                        if (currentTab != null && !currentTab.isLoading) {
-                            val activeField = currentTab.selected?.fields?.let { fields -> currentTab.selectedField?.takeIf { it in fields } }
-                            val hexHighlightRange = currentTab.parameterSetHighlightRange
-                                ?: currentTab.tileHighlightRange
-                                ?: activeField?.let { it.offset until (it.offset + it.length) }
-                                ?: currentTab.selected?.let { it.offset until (it.offset + it.size) }
-                                ?: currentTab.selectedFrame?.let { frame ->
-                                    frame.byteOffset?.let { offset -> offset until (offset + frame.sizeBytes) }
-                                }
-                            if (hexHighlightRange != null && hexHighlightRange.first >= 0) {
-                                try {
-                                    java.io.RandomAccessFile(currentTab.file, "r").use { raf ->
-                                        val buf = readRangeBytes(raf, hexHighlightRange)
-                                        val dump = formatHexDump(buf, hexHighlightRange.first)
-                                        if (com.multiviewer.util.ClipboardUtil.copyToClipboard(dump)) {
-                                            appState.statusMessage = if (language == AppLanguage.KO) "선택된 박스/마커 데이터(Hex Dump)가 클립보드에 복사되었습니다." else "Hex dump copied to clipboard."
-                                        }
-                                    }
-                                } catch (_: Exception) {}
-                            }
-                        }
-                    },
-                )
-            }
-
-            // 3. View (보기)
-            appMenu(I18n.menuView(language)) {
+            // Every gain map command in one place -- they were split between 파일 (extract) and
+            // 분석 (the two viewers), which meant hunting through two menus for one feature.
+            appMenu(I18n.menuGainmap(language)) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val hasGainmap = currentTab != null && !currentTab.isLoading && currentTab.gainmapInfo?.hasGainmap == true
                 val hasGainmapImage = hasGainmap && currentTab?.gainmapInfo?.hasGainmapImage == true
-                val codecViewCurrentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
 
-                checkbox(
-                    I18n.menuDarkTheme(language),
-                    checked = themeMode == ThemeMode.DARK,
-                    onCheckedChange = {
-                        themeMode = ThemeMode.DARK
-                        saveThemeMode(themeMode)
-                    },
-                )
-                checkbox(
-                    I18n.menuLightTheme(language),
-                    checked = themeMode == ThemeMode.LIGHT,
-                    onCheckedChange = {
-                        themeMode = ThemeMode.LIGHT
-                        saveThemeMode(themeMode)
-                    },
-                )
-                separator()
-                checkbox(
-                    I18n.menuPixelGrid(language),
-                    checked = showPixelGrid,
-                    onCheckedChange = {
-                        showPixelGrid = it
-                        saveShowPixelGrid(it)
-                    },
-                )
-                item(
-                    I18n.menuMotionVectors(language),
-                    enabled = codecViewCurrentTab?.type == MediaType.VIDEO &&
-                        codecViewSupportedFor(CodecViewMode.MOTION_VECTORS, codecViewCurrentTab.videoCodecName),
-                    onClick = { codecViewPopupWindowMode = CodecViewMode.MOTION_VECTORS },
-                )
-                item(
-                    I18n.menuQpHeatmap(language),
-                    enabled = codecViewCurrentTab?.type == MediaType.VIDEO &&
-                        codecViewSupportedFor(CodecViewMode.QP_HEATMAP, codecViewCurrentTab.videoCodecName),
-                    onClick = { codecViewPopupWindowMode = CodecViewMode.QP_HEATMAP },
-                )
-                separator()
-                // Gain Map & XMP Inspection Views
                 item(
                     I18n.menuViewGainmapImage(language),
                     enabled = hasGainmapImage,
@@ -578,53 +469,30 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     onClick = { currentTab?.isGainmapImagePopupOpen = true },
                 )
                 item(
+                    I18n.menuExtractGainmapImage(language),
+                    enabled = hasGainmapImage,
+                    onClick = { currentTab?.let { extractGainmapImage(appState, it, language) } },
+                )
+                item(
                     I18n.menuViewGainmapXmp(language),
                     enabled = hasGainmap,
                     shortcut = AppKeyShortcut(Key.G, meta = true, shift = true),
                     onClick = { currentTab?.isGainmapXmpPopupOpen = true },
                 )
+                separator()
+                // Not gated on hasGainmap, unlike everything above it: this lists whatever XMP the
+                // file actually holds, which is worth looking at on files with no gain map at all.
                 item(
                     I18n.menuViewFileXmp(language),
                     enabled = currentTab != null && !currentTab.isLoading,
                     onClick = { currentTab?.isFileXmpPopupOpen = true },
                 )
-                separator()
-                checkbox(
-                    I18n.menuKorean(language),
-                    checked = language == AppLanguage.KO,
-                    onCheckedChange = {
-                        language = AppLanguage.KO
-                        saveLanguage(language)
-                    },
-                )
-                checkbox(
-                    I18n.menuEnglish(language),
-                    checked = language == AppLanguage.EN,
-                    onCheckedChange = {
-                        language = AppLanguage.EN
-                        saveLanguage(language)
-                    },
-                )
             }
-
-            // 4. Analyze (분석)
             appMenu(I18n.menuAnalyze(language)) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val hasActiveFile = currentTab != null && !currentTab.isLoading && currentTab.root != null
                 val isVideo = currentTab?.type == MediaType.VIDEO
                 val hasVideoTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Video" } == true
-                val hasSefData = currentTab?.root?.let { root -> findFirst(root) { it.type == "sefd" } } != null
-                val hasMotionPhoto = currentTab?.root?.let { r ->
-                    (findFirst(r) { it.type == "sefd" }?.let { sefd ->
-                        sefd.children.any { it.type == "MotionPhoto_Data" } || sefd.warnings.isNotEmpty()
-                    } == true) ||
-                        findFirst(r) { it.type == "mpvd" || it.type == "EmbeddedVideoData" } != null ||
-                        findFirst(r) {
-                            it.fields.any { f ->
-                                f.name == "xmp" && (f.value.contains("MotionPhoto", ignoreCase = true) || f.value.contains("MicroVideo", ignoreCase = true))
-                            }
-                        } != null
-                } ?: false
 
                 item(
                     I18n.menuDumpStructure(language),
@@ -658,30 +526,71 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     shortcut = AppKeyShortcut(Key.B, meta = true, shift = true),
                     onClick = { bitstreamCorruptionWindowOpen = true },
                 )
-                item(
-                    I18n.menuViewFrameIntervals(language),
-                    enabled = hasVideoTrack,
-                    onClick = { frameIntervalWindowOpen = true },
-                )
-                separator()
+                val hasSefData = currentTab?.root?.let { root -> findFirst(root) { it.type == "sefd" } } != null
                 item(
                     I18n.menuSefIntegrityCheck(language),
                     enabled = hasSefData,
                     onClick = { sefIntegrityWindowOpen = true },
                 )
                 item(
-                    I18n.menuMotionPhotoIntegrityCheck(language),
-                    enabled = hasMotionPhoto,
-                    onClick = { motionPhotoIntegrityWindowOpen = true },
+                    I18n.menuViewFrameIntervals(language),
+                    enabled = hasVideoTrack,
+                    onClick = { frameIntervalWindowOpen = true },
                 )
+            }
+            appMenu(I18n.menuMotionPhoto(language)) {
+                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                val isImage = currentTab != null && !currentTab.isLoading && currentTab.type == MediaType.IMAGE
+                val isHeic = currentTab?.file?.extension?.lowercase(java.util.Locale.US) in setOf("heic", "heif")
+                item(
+                    I18n.menuCreateMotionPhotoV2(language),
+                    enabled = isImage,
+                    onClick = { currentTab?.let { createMotionPhotoFromCurrentTab(appState, it, language, com.multiviewer.parser.MotionPhotoFormatVersion.V2_MOTION_PHOTO) } },
+                )
+                item(
+                    I18n.menuCreateMotionPhotoV1(language),
+                    enabled = isImage && !isHeic,
+                    onClick = { currentTab?.let { createMotionPhotoFromCurrentTab(appState, it, language, com.multiviewer.parser.MotionPhotoFormatVersion.V1_MICRO_VIDEO) } },
+                )
+                separator()
+                item(
+                    I18n.menuExtractMotionVideo(language),
+                    enabled = currentTab?.embeddedVideo != null,
+                    onClick = { currentTab?.let { extractMotionPhotoVideo(appState, it) } },
+                )
+                item(
+                    I18n.menuExtractPreviewVideo(language),
+                    enabled = currentTab?.motionPhotoPreview != null,
+                    onClick = { currentTab?.let { extractMotionPhotoPreviewVideo(appState, it) } },
+                )
+                separator()
                 item(
                     I18n.menuMotionFrameDropAnalysis(language),
                     enabled = currentTab?.embeddedVideo != null,
                     onClick = { motionPhotoFrameIntervalWindowOpen = true },
                 )
+                separator()
+                val hasMotionPhoto = currentTab?.root?.let { r ->
+                    (findFirst(r) { it.type == "sefd" }?.let { sefd ->
+                        // Mirrors MotionPhotoIntegrityAnalyzer.kt's detectedFormats gate: MotionPhoto_Data
+                        // is mandatory for an intact trailer, but a structurally broken one (warnings
+                        // non-empty -- SefdBoxDecoder bails with no children in that case) must still
+                        // enable the menu so its CRITICAL diagnosis stays reachable.
+                        sefd.children.any { it.type == "MotionPhoto_Data" } || sefd.warnings.isNotEmpty()
+                    } == true) ||
+                        findFirst(r) { it.type == "mpvd" || it.type == "EmbeddedVideoData" } != null ||
+                        findFirst(r) {
+                            it.fields.any { f ->
+                                f.name == "xmp" && (f.value.contains("MotionPhoto", ignoreCase = true) || f.value.contains("MicroVideo", ignoreCase = true))
+                            }
+                        } != null
+                } ?: false
+                item(
+                    I18n.menuMotionPhotoIntegrityCheck(language),
+                    enabled = hasMotionPhoto,
+                    onClick = { motionPhotoIntegrityWindowOpen = true },
+                )
             }
-
-            // 5. Tools (도구)
             appMenu(I18n.menuTools(language)) {
                 item(
                     I18n.menuCompareFiles(language),
@@ -693,13 +602,67 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     onClick = { qualityCompareWindowOpen = true },
                 )
             }
-
-            // 6. Help (도움말)
-            appMenu(I18n.menuHelp(language)) {
-                item(
-                    I18n.menuCheckForUpdates(language),
-                    onClick = { updateWindowOpen = true },
+            // The "탐색" menu used to sit here. Removed as confusing: its panel toggle duplicated the
+            // 구조 트리 / 폴더 탐색 tabs right below, and "탐색" read as being about the folder explorer
+            // while actually holding file-stepping commands.
+            appMenu(I18n.menuView(language)) {
+                checkbox(
+                    I18n.menuDarkTheme(language),
+                    checked = themeMode == ThemeMode.DARK,
+                    onCheckedChange = {
+                        themeMode = ThemeMode.DARK
+                        saveThemeMode(themeMode)
+                    },
                 )
+                checkbox(
+                    I18n.menuLightTheme(language),
+                    checked = themeMode == ThemeMode.LIGHT,
+                    onCheckedChange = {
+                        themeMode = ThemeMode.LIGHT
+                        saveThemeMode(themeMode)
+                    },
+                )
+                separator()
+                checkbox(
+                    I18n.menuPixelGrid(language),
+                    checked = showPixelGrid,
+                    onCheckedChange = {
+                        showPixelGrid = it
+                        saveShowPixelGrid(it)
+                    },
+                )
+                val codecViewCurrentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                item(
+                    I18n.menuMotionVectors(language),
+                    enabled = codecViewCurrentTab?.type == MediaType.VIDEO &&
+                        codecViewSupportedFor(CodecViewMode.MOTION_VECTORS, codecViewCurrentTab.videoCodecName),
+                    onClick = { codecViewPopupWindowMode = CodecViewMode.MOTION_VECTORS },
+                )
+                item(
+                    I18n.menuQpHeatmap(language),
+                    enabled = codecViewCurrentTab?.type == MediaType.VIDEO &&
+                        codecViewSupportedFor(CodecViewMode.QP_HEATMAP, codecViewCurrentTab.videoCodecName),
+                    onClick = { codecViewPopupWindowMode = CodecViewMode.QP_HEATMAP },
+                )
+                separator()
+                checkbox(
+                    I18n.menuKorean(language),
+                    checked = language == AppLanguage.KO,
+                    onCheckedChange = {
+                        language = AppLanguage.KO
+                        saveLanguage(language)
+                    },
+                )
+                checkbox(
+                    I18n.menuEnglish(language),
+                    checked = language == AppLanguage.EN,
+                    onCheckedChange = {
+                        language = AppLanguage.EN
+                        saveLanguage(language)
+                    },
+                )
+            }
+            appMenu(I18n.menuHelp(language)) {
                 item(
                     I18n.menuOnlineRepo(language),
                     onClick = {
