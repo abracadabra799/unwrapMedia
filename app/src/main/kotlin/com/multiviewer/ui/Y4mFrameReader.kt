@@ -35,6 +35,16 @@ fun readY4mFrame(input: InputStream, format: Y4mFormat): ByteArray? {
     return input.readFullyOrNull(payloadSize.toInt())
 }
 
+fun streamY4mFrames(input: InputStream, onFormat: (Y4mFormat) -> Unit, onFrame: (Y4mFormat, ByteArray) -> Boolean): Boolean {
+    val header = input.readLineAscii() ?: return false
+    val format = parseY4mHeader(header)
+    onFormat(format)
+    while (true) {
+        val frame = readY4mFrame(input, format) ?: return true
+        if (!onFrame(format, frame)) return false
+    }
+}
+
 private fun InputStream.readLineAscii(): String? {
     val bytes = ByteArray(256); var count = 0
     while (count < bytes.size) {

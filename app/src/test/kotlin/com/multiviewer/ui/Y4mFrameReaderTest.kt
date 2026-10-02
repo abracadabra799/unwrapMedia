@@ -30,4 +30,15 @@ class Y4mFrameReaderTest {
         val input = ByteArrayInputStream("FRAME\n123456\n".toByteArray())
         assertEquals(6, readY4mFrame(input, format)!!.size)
     }
+
+    @Test
+    fun `streams frames through format and frame callbacks`() {
+        val input = ByteArrayInputStream("YUV4MPEG2 W2 H2 F24:1 C420\nFRAME\n123456".toByteArray())
+        var seen = 0
+        assertEquals(true, streamY4mFrames(input, { assertEquals(2, it.width) }) { _, frame ->
+            seen = frame.size
+            true
+        })
+        assertEquals(6, seen)
+    }
 }
