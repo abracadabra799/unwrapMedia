@@ -815,6 +815,23 @@ private fun DetailPropertiesTabContent(appState: AppState, tab: TabState) {
                                 PropertyRow("128x128 Superblock", if (seqHeader.use128x128Superblock) "Yes" else "No")
                                 PropertyRow("Film Grain Present", if (seqHeader.filmGrainParamsPresent) "Yes" else "No")
                             }
+                            tab.av2SequenceHeader?.let { seqHeader ->
+                                Spacer(Modifier.height(8.dp))
+                                Text("AV2 Sequence Header Prefix", style = AppTypography.labelLarge.copy(color = AppColors.NeonBlue))
+                                PropertyRow(
+                                    "Profile / Level / Tier", "${seqHeader.profile} / ${seqHeader.level} / ${seqHeader.tier}",
+                                    onClick = tab.av2SequenceHeaderOffset?.let { range -> { tab.parameterSetHighlightRange = range } },
+                                )
+                                PropertyRow("Max Frame Size", "${seqHeader.maxFrameWidth} x ${seqHeader.maxFrameHeight}")
+                                PropertyRow("Bit Depth", seqHeader.bitDepth.toString())
+                                PropertyRow("Monochrome", if (seqHeader.monochrome) "Yes" else "No")
+                                PropertyRow("Chroma Subsampling", "${seqHeader.chromaSubsamplingX}:${seqHeader.chromaSubsamplingY}")
+                                PropertyRow("Output Order", if (seqHeader.monotonicOutputOrder) "Monotonic" else "Non-monotonic")
+                                Text(
+                                    "ISO-BMFF binding: Working Group Draft (22 Sep 2026); prefix metadata only, AV2 decoding is unavailable.",
+                                    style = AppTypography.bodyLarge.copy(color = AppColors.TextSecondary),
+                                )
+                            }
                             val av1SelectedFrameByteOffset = selectedFrame.byteOffset
                             if (av1SelectedFrameByteOffset != null) {
                                 tab.av1FrameHeaders[av1SelectedFrameByteOffset]?.let { frameHeader ->
@@ -1057,4 +1074,3 @@ fun GainmapOverviewSummaryBox(
         PropertyRow("Base Rendition", if (params?.baseRenditionIsHdr == true) "HDR" else "SDR (Standard)")
     }
 }
-

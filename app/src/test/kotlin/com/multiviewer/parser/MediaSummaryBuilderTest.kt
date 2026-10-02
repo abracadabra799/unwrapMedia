@@ -210,6 +210,27 @@ class MediaSummaryBuilderTest {
     }
 
     @Test
+    fun `an av02 video sample entry is summarized as AV2`() {
+        val videoHdlr = BoxNode(
+            type = "hdlr", offset = 0, headerSize = 0, size = 0,
+            fields = listOf(BoxField("handler_type", "vide", 0, 4)),
+        )
+        val av02 = BoxNode(type = "av02", offset = 0, headerSize = 0, size = 0)
+        val stsd = BoxNode(type = "stsd", offset = 0, headerSize = 0, size = 0, children = listOf(av02))
+        val stbl = BoxNode(type = "stbl", offset = 0, headerSize = 0, size = 0, children = listOf(stsd))
+        val minf = BoxNode(type = "minf", offset = 0, headerSize = 0, size = 0, children = listOf(stbl))
+        val mdia = BoxNode(type = "mdia", offset = 0, headerSize = 0, size = 0, children = listOf(videoHdlr, minf))
+        val trak = BoxNode(type = "trak", offset = 0, headerSize = 0, size = 0, children = listOf(mdia))
+        val moov = BoxNode(type = "moov", offset = 0, headerSize = 0, size = 0, children = listOf(trak))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 0, children = listOf(moov))
+
+        val summary = buildMediaSummary(root, tempFile())
+
+        val video = summary.sections.first { it.title == "Video" }
+        assertEquals("AV2", video.fields.first { it.label == "Format" }.value)
+    }
+
+    @Test
     fun `a full video tree produces General, Track List, Video, and Audio sections with correct values`() {
         val root = buildVideoFixture(includeAudioTrack = true)
         val tmp = File.createTempFile("media-summary-video-test", ".mp4")
