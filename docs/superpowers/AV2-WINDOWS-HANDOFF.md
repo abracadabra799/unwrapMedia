@@ -12,13 +12,13 @@
 - AVM CLI integration uses `avmdec -o - <input.obu>` for Y4M on stdout, drains stderr, and supports cancellation/backpressure.
 - AV2 tracks (`av02` with `av2C`) route to a Compose player for first-frame preview and sequential play/pause. Decoded frames are bounded in memory and large display frames are downsampled.
 - Y4M frame reading validates truncation and caps per-frame allocation; odd-sized 4:2:0 planes are accounted for.
-- Windows CI creates a tiny OBU stream with the pinned AVM encoder and checks that the bundled decoder emits a complete Y4M frame, then checks app-image resources.
+- Push/PR packaging builds and caches only the pinned AVM decoder, then checks its help output and packaged resources. The slower AVM encoder plus generated OBU end-to-end smoke test is opt-in via `workflow_dispatch` (`av2_end_to_end: true`) and has a separate cache.
 
 ## Validation and limitations
 
 - `./gradlew test` passed on 2026-10-03.
 - `git diff --check` passed at handoff preparation.
-- Workflow YAML is parsed locally; AVM compilation, Windows DLL/runtime behavior, decoder smoke test, app-image staging, and installer build still require Windows CI.
+- Workflow YAML is parsed locally; AVM compilation, Windows DLL/runtime behavior, optional end-to-end decoder smoke test, app-image staging, and installer build still require Windows CI.
 - Seeking is intentionally disabled: the current sample index does not classify safe random-access points (RAPs). Do not infer RAPs from timestamps; add bitstream classification/indexing before enabling seeking.
 - AV2 playback is Windows-only. macOS/Linux playback remains out of scope.
 

@@ -4,7 +4,7 @@
 
 **Goal:** Bundle a pinned AVM decoder in Windows distributions and connect ISO-BMFF AV2 decoding to the existing Compose video player.
 
-**Architecture:** Keep sample indexing and bitstream assembly in the parser layer, run the packaged decoder through a testable command builder/process runner, and expose decoded Y4M frames through an AV2 player that follows existing video playback state and controls. Stage and smoke-test the helper in the Windows packaging workflow.
+**Architecture:** Keep sample indexing and bitstream assembly in the parser layer, run the packaged decoder through a testable command builder/process runner, and expose decoded Y4M frames through an AV2 player that follows existing video playback state and controls. Stage the helper in normal Windows packaging; keep the encoder-backed end-to-end smoke test opt-in to avoid making every package build compile the encoder.
 
 **Tech Stack:** Kotlin, Compose Desktop, Gradle, GitHub Actions, AVM decoder, Y4M.
 
@@ -88,11 +88,11 @@
 - Modify: `docs/superpowers/AV2-WINDOWS-HANDOFF.md`
 
 **Interfaces:**
-- Windows CI builds the staged decoder, assembles or uses a small valid AV2 fixture, decodes at least one Y4M frame, and verifies the installed resource layout.
+- Normal Windows CI builds the staged decoder and verifies the installed resource layout. A manual workflow dispatch can additionally build the encoder and decode a generated AV2 stream.
 
-- [x] Add or source a redistributable small AV2 MP4 fixture and document provenance/license.
-- [x] Add a Windows decode smoke test that checks successful exit and at least one complete frame.
+- [x] Avoid an external fixture: generate a tiny OBU stream from synthetic Y4M with the pinned AVM encoder on opt-in manual runs.
+- [x] Add an opt-in Windows decode smoke test that checks successful exit and at least one complete frame.
 - [x] Run `./gradlew test` and `git diff --check`; record Windows-only validation that cannot run locally.
 - [x] Update the handoff with the pinned revision, tested CLI, workflow results, and remaining limitations.
 
-**Task 4 ruling:** CI generates a tiny OBU stream from synthetic Y4M using the encoder built from the same pinned AVM source, avoiding external fixture provenance/licensing drift.
+**Task 4 ruling:** The manual end-to-end workflow generates a tiny OBU stream from synthetic Y4M using the encoder built from the same pinned AVM source, avoiding external fixture provenance/licensing drift. Regular push/PR packaging omits encoder compilation and retains decoder help and package-presence checks.

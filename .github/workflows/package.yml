@@ -4,6 +4,13 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      av2_end_to_end:
+        description: Build the AVM encoder and run the AV2 encode/decode smoke test
+        required: false
+        type: boolean
+        default: false
 jobs:
   package:
     name: Package for ${{ matrix.os }}
@@ -34,16 +41,14 @@ jobs:
           ref: cd2ba5446504e24c4ad1c7c06ef382214653a537
           path: avm
 
-      # The pinned AVM decoder and encoder take a long time to compile on a hosted
-      # Windows runner. Cache the complete CMake build tree so later runs reuse both
-      # executables and object files. Bump the config suffix when the CMake flags or
-      # Visual Studio generator/toolset changes; changing the AVM pin makes a new key.
-      - name: Cache pinned AVM Windows build (Windows)
+      # The decoder build is cached independently from the optional encoder smoke build.
+      # Bump the config suffix if CMake flags or the VS generator/toolset changes.
+      - name: Cache pinned AVM decoder build (Windows)
         if: matrix.os == 'windows-latest'
         uses: actions/cache@v4
         with:
           path: avm/build
-          key: avm-windows-x64-vs2022-cd2ba5446504e24c4ad1c7c06ef382214653a537-av2-dec-enc-v1
+          key: avm-windows-x64-vs2022-cd2ba5446504e24c4ad1c7c06ef382214653a537-av2-dec-v1
 
       - name: Build and stage AVM decoder (Windows)
         if: matrix.os == 'windows-latest'
@@ -51,7 +56,7 @@ jobs:
         run: |
           cmake -S avm -B avm/build -A x64 `
             -DCONFIG_AV2_DECODER=1 `
-            -DCONFIG_AV2_ENCODER=1 `
+            -DCONFIG_AV2_ENCODER=0 `
             -DENABLE_APPS=1 `
             -DENABLE_TESTS=0 `
             -DENABLE_EXAMPLES=0 `
@@ -59,8 +64,8 @@ jobs:
             -DENABLE_DOCS=0
           if ($LASTEXITCODE -ne 0) { throw "CMake configuration for pinned AVM failed" }
 
-          cmake --build avm/build --config Release --target avmdec avmenc --parallel
-          if ($LASTEXITCODE -ne 0) { throw "Building AVM decoder and encoder from the pinned source failed" }
+          cmake --build avm/build --config Release --target avmdec --parallel
+          if ($LASTEXITCODE -ne 0) { throw "Building the pinned AVM decoder failed" }
 
           $decoder = Get-ChildItem -Path avm/build -Recurse -Filter avmdec.exe | Select-Object -First 1
           if (-not $decoder) { throw "The AVM build completed without producing avmdec.exe" }
@@ -71,6 +76,31 @@ jobs:
           Copy-Item avm/LICENSE app/resources/windows/AVM-LICENSE.txt
           Copy-Item avm/PATENTS app/resources/windows/AVM-PATENTS.txt
           "AVM source revision: cd2ba5446504e24c4ad1c7c06ef382214653a537" | Set-Content app/resources/windows/AVM-SOURCE.txt
+
+      # The AV1/AV2 encoder is substantially more expensive than the app's decoder
+      # dependency. Keep the full generated-stream smoke test available on demand.
+      - name: Cache optional AVM encoder smoke build (Windows)
+        if: matrix.os == 'windows-latest' && github.event_name == 'workflow_dispatch' && inputs.av2_end_to_end
+        uses: actions/cache@v4
+        with:
+          path: avm/build-smoke
+          key: avm-windows-x64-vs2022-cd2ba5446504e24c4ad1c7c06ef382214653a537-av2-dec-enc-v1
+
+      - name: Build optional AVM encoder (Windows)
+        if: matrix.os == 'windows-latest' && github.event_name == 'workflow_dispatch' && inputs.av2_end_to_end
+        shell: pwsh
+        run: |
+          cmake -S avm -B avm/build-smoke -A x64 `
+            -DCONFIG_AV2_DECODER=1 `
+            -DCONFIG_AV2_ENCODER=1 `
+            -DENABLE_APPS=1 `
+            -DENABLE_TESTS=0 `
+            -DENABLE_EXAMPLES=0 `
+            -DENABLE_TOOLS=0 `
+            -DENABLE_DOCS=0
+          if ($LASTEXITCODE -ne 0) { throw "CMake configuration for the optional AVM encoder failed" }
+          cmake --build avm/build-smoke --config Release --target avmenc --parallel
+          if ($LASTEXITCODE -ne 0) { throw "Building the optional AVM encoder failed" }
 
       - name: Smoke-test bundled AVM decoder (Windows)
         if: matrix.os == 'windows-latest'
@@ -129,11 +159,11 @@ jobs:
         run: app\resources\windows\bin\ffmpeg.exe -version
 
       - name: Decode generated AV2 stream with bundled AVM (Windows)
-        if: matrix.os == 'windows-latest'
+        if: matrix.os == 'windows-latest' && github.event_name == 'workflow_dispatch' && inputs.av2_end_to_end
         shell: pwsh
         run: |
           $ffmpeg = "app\resources\windows\bin\ffmpeg.exe"
-          $avmenc = (Get-ChildItem -Path avm\build -Recurse -Filter avmenc.exe | Select-Object -First 1).FullName
+          $avmenc = (Get-ChildItem -Path avm\build-smoke -Recurse -Filter avmenc.exe | Select-Object -First 1).FullName
           $avmdec = "app\resources\windows\bin\avmdec.exe"
           if (-not $avmenc -or -not (Test-Path $avmdec)) { throw "AVM encoder or staged decoder is missing" }
 
