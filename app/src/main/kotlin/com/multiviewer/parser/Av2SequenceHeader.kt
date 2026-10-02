@@ -17,6 +17,9 @@ data class Av2SequenceHeader(
     val chromaSubsamplingY: Int,
     val maxFrameWidth: Int,
     val maxFrameHeight: Int,
+    // The remaining mandatory AV2 codec-configuration structures are intentionally not decoded
+    // in this phase; callers must label these fields as a verified prefix, not a complete header.
+    val isComplete: Boolean = false,
 )
 
 // AV2 v1.0.0 §5.4.1 direct sequence-header prefix. Colour description and film-grain presence are

@@ -817,7 +817,7 @@ private fun DetailPropertiesTabContent(appState: AppState, tab: TabState) {
                             }
                             tab.av2SequenceHeader?.let { seqHeader ->
                                 Spacer(Modifier.height(8.dp))
-                                Text("AV2 Sequence Header", style = AppTypography.labelLarge.copy(color = AppColors.NeonBlue))
+                                Text("AV2 Sequence Header Prefix", style = AppTypography.labelLarge.copy(color = AppColors.NeonBlue))
                                 PropertyRow(
                                     "Profile / Level / Tier", "${seqHeader.profile} / ${seqHeader.level} / ${seqHeader.tier}",
                                     onClick = tab.av2SequenceHeaderOffset?.let { range -> { tab.parameterSetHighlightRange = range } },
@@ -828,7 +828,7 @@ private fun DetailPropertiesTabContent(appState: AppState, tab: TabState) {
                                 PropertyRow("Chroma Subsampling", "${seqHeader.chromaSubsamplingX}:${seqHeader.chromaSubsamplingY}")
                                 PropertyRow("Output Order", if (seqHeader.monotonicOutputOrder) "Monotonic" else "Non-monotonic")
                                 Text(
-                                    "ISO-BMFF binding: Working Group Draft (22 Sep 2026); AV2 decoding is unavailable.",
+                                    "ISO-BMFF binding: Working Group Draft (22 Sep 2026); prefix metadata only, AV2 decoding is unavailable.",
                                     style = AppTypography.bodyLarge.copy(color = AppColors.TextSecondary),
                                 )
                             }

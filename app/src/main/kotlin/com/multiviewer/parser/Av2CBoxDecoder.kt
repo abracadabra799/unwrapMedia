@@ -21,11 +21,13 @@ object Av2CBoxDecoder : BoxDecoder {
 
         val reserved = reader.readUInt8(payloadStart)
         val countMinusOne = reader.readUInt8(payloadStart + 1)
+        if (reserved != 0) resultWarnings += "av2C reserved byte must be 0"
         val fields = listOf(
             BoxField("reserved", reserved.toString(), payloadStart, 1),
             BoxField("config_obus_count_minus1", countMinusOne.toString(), payloadStart + 1, 1),
         )
         val children = mutableListOf<BoxNode>()
+        var hasSequenceHeader = false
         var cursor = payloadStart + 2
         val configObuCount = countMinusOne + 1
         for (index in 0 until configObuCount) {
@@ -57,6 +59,10 @@ object Av2CBoxDecoder : BoxDecoder {
                 }
                 is Av2ParseResult.Value -> parsedHeader.value
             }
+            if (header.obuType == 1) hasSequenceHeader = true
+            if (header.obuType in setOf(2, 3, 4, 5, 6, 7, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 25)) {
+                resultWarnings += "config_obu[$index] ${av2ObuTypeName(header.obuType)} is forbidden in av2C"
+            }
             val obuFields = buildList {
                 add(BoxField("declared_size", length.value.toString(), cursor, length.nextOffset - cursor))
                 add(BoxField("obu_type", header.obuType.toString(), obuStart, 1))
@@ -76,6 +82,7 @@ object Av2CBoxDecoder : BoxDecoder {
         if (cursor < payloadEnd && children.size == configObuCount) {
             resultWarnings += "av2C has bytes after declared config_obu records"
         }
+        if (!hasSequenceHeader) resultWarnings += "av2C must contain an OBU_SEQUENCE_HEADER"
         return BoxNode(
             type = type, offset = offset, headerSize = headerSize, size = size,
             fields = fields, children = children, warnings = resultWarnings,

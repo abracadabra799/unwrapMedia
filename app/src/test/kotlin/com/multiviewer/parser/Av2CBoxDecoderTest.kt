@@ -37,10 +37,10 @@ class Av2CBoxDecoderTest {
 
     @Test
     fun `decode retains an unknown valid AV2 OBU`() {
-        val node = decode(byteArrayOf(0, 0, 1, 0x78)) // type 30, no extension, temporal layer 0
+        val node = decode(byteArrayOf(0, 1, 1, 0x04, 1, 0x78)) // required sequence header, then type 30
 
-        assertEquals(1, node.children.size)
-        assertEquals("unknown(30)", node.children.single().type)
+        assertEquals(2, node.children.size)
+        assertEquals("unknown(30)", node.children.last().type)
         assertTrue(node.warnings.isEmpty())
     }
 
@@ -55,5 +55,14 @@ class Av2CBoxDecoderTest {
         assertTrue(truncatedLeb128.warnings.any { it.contains("leb128") })
         assertTrue(oversizedObu.warnings.any { it.contains("extends") })
         assertTrue(truncatedHeader.warnings.any { it.contains("truncated") })
+    }
+
+    @Test
+    fun `decode warns when AV2 configuration violates reserved and required OBU rules`() {
+        val node = decode(byteArrayOf(1, 0, 1, 0x08)) // nonzero reserved, only forbidden temporal delimiter
+
+        assertTrue(node.warnings.any { it.contains("reserved") })
+        assertTrue(node.warnings.any { it.contains("forbidden") })
+        assertTrue(node.warnings.any { it.contains("must contain") })
     }
 }

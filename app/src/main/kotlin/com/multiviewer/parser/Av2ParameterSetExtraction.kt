@@ -11,18 +11,20 @@ fun extractAv2CRawSequenceHeader(file: File, av2CNode: BoxNode): RawNal? = try {
         if (end - start < 2) return@use null
         val count = reader.readUInt8(start + 1) + 1
         var cursor = start + 2
+        var sequenceHeader: RawNal? = null
         repeat(count) {
             val length = (readAv2Leb128(reader, cursor, end) as? Av2ParseResult.Value) ?: return@use null
             val obuStart = length.nextOffset
             val obuEnd = obuStart + length.value
             if (length.value <= 0 || obuEnd < obuStart || obuEnd > end) return@use null
             val header = (parseAv2ObuHeader(reader, obuStart, obuEnd) as? Av2ParseResult.Value)?.value ?: return@use null
+            if (header.obuType in setOf(2, 3, 4, 5, 6, 7, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 25)) return@use null
             if (header.obuType == AV2_SEQUENCE_HEADER_OBU_TYPE) {
                 val payloadStart = obuStart + header.headerSize
-                return@use RawNal(reader.readBytes(payloadStart, (obuEnd - payloadStart).toInt()), payloadStart)
+                sequenceHeader = RawNal(reader.readBytes(payloadStart, (obuEnd - payloadStart).toInt()), payloadStart)
             }
             cursor = obuEnd
         }
-        null
+        sequenceHeader
     }
 } catch (_: Exception) { null }
