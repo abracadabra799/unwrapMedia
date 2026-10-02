@@ -1,6 +1,7 @@
 package com.multiviewer.parser
 
 import java.io.File
+import java.io.FileOutputStream
 
 data class Av2SampleObu(val offset: Long, val size: Long, val typeName: String)
 data class Av2SampleObuParseResult(val obus: List<Av2SampleObu>, val warnings: List<String>)
@@ -16,6 +17,42 @@ data class Av2IndexedSample(
 data class Av2SampleIndex(val timescale: Long, val samples: List<Av2IndexedSample>, val warnings: List<String>)
 
 private const val MAX_AV2_INDEXED_SAMPLES = 100_000
+
+/** Writes configuration OBUs followed by an ordered sample range without trusting unchecked offsets. */
+fun assembleAv2Bitstream(file: File, av2CNode: BoxNode, index: Av2SampleIndex, range: IntRange, destination: File): Boolean {
+    val selected = range.filter { it in index.samples.indices }.map { index.samples[it] }
+    if (selected.isEmpty() || selected.any { it.warnings.isNotEmpty() || it.offset < 0 || it.size <= 0 }) return false
+    val part = File(destination.parentFile ?: file.parentFile, destination.name + ".part")
+    return try {
+        ByteReader.open(file).use { reader ->
+            FileOutputStream(part).use { output ->
+                val start = av2CNode.offset + av2CNode.headerSize
+                val end = minOf(av2CNode.offset + av2CNode.size, reader.length)
+                if (end - start < 2) return false
+                var cursor = start + 2
+                val count = reader.readUInt8(start + 1) + 1
+                repeat(count) {
+                    val length = (readAv2Leb128(reader, cursor, end) as? Av2ParseResult.Value) ?: return false
+                    val obuEnd = length.nextOffset + length.value
+                    if (length.value <= 0 || obuEnd > end) return false
+                    output.write(reader.readBytes(cursor, (obuEnd - cursor).toInt()))
+                    cursor = obuEnd
+                }
+                selected.forEach { sample ->
+                    if (sample.offset + sample.size > reader.length) return false
+                    output.write(reader.readBytes(sample.offset, sample.size.toInt()))
+                }
+            }
+        }
+        if (destination.exists()) destination.delete()
+        if (!part.renameTo(destination)) return false
+        true
+    } catch (_: Exception) {
+        false
+    } finally {
+        if (part.exists()) part.delete()
+    }
+}
 
 /** Builds a bounded AV2 sample index from an already parsed ISO-BMFF box tree. */
 fun buildAv2SampleIndex(file: File, root: BoxNode): Av2SampleIndex? = ByteReader.open(file).use { reader ->
