@@ -67,6 +67,30 @@ class Av2SampleIndexerTest {
         assertTrue(index.samples.first().warnings.any { it.contains("leb128") })
     }
 
+    @Test
+    fun `assemble AV2 bitstream writes config before selected samples`() {
+        val bytes = ByteArray(32)
+        bytes[0] = 0; bytes[1] = 0; bytes[2] = 1; bytes[3] = 0x10
+        bytes[10] = 1; bytes[11] = 0x1c
+        val source = fileOf(bytes)
+        val destination = File.createTempFile("av2-assembled", ".obu").also { it.delete() }
+        val index = Av2SampleIndex(1_000, listOf(Av2IndexedSample(0, 0, 1, 10, 2, emptyList(), emptyList())), emptyList())
+
+        assertTrue(assembleAv2Bitstream(source, BoxNode("av2C", 0, 0, 4), index, 0..0, destination))
+        assertEquals(byteArrayOf(1, 0x10, 1, 0x1c).toList(), destination.readBytes().toList())
+        destination.delete()
+    }
+
+    @Test
+    fun `assemble AV2 bitstream rejects warned samples and removes partial output`() {
+        val source = fileOf(ByteArray(16))
+        val destination = File.createTempFile("av2-assembled", ".obu").also { it.delete() }
+        val index = Av2SampleIndex(1_000, listOf(Av2IndexedSample(0, 0, 1, 0, 1, emptyList(), listOf("bad OBU"))), emptyList())
+
+        assertTrue(!assembleAv2Bitstream(source, BoxNode("av2C", 0, 0, 3), index, 0..0, destination))
+        assertTrue(!destination.exists())
+    }
+
     private fun av2TrackRoot(): BoxNode {
         val stbl = BoxNode("stbl", 0, 0, 0, children = listOf(
             BoxNode("stts", 0, 0, 0, table = TableData(listOf("sample_count", "sample_delta"), listOf(4, 4), 0, 1)),
