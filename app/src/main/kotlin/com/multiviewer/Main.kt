@@ -777,6 +777,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     language = language,
                     initialFileA = appState.compareFileA ?: appState.compareTargetFiles.getOrNull(0),
                     initialFileB = appState.compareFileB ?: appState.compareTargetFiles.getOrNull(1),
+                    initialFiles = appState.compareTargetFiles,
                     onCloseRequest = {
                         appState.imageCompareWindowOpen = false
                         appState.compareTargetFiles = emptyList()

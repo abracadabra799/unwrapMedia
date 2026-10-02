@@ -11,11 +11,15 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -146,9 +150,25 @@ enum class VisualCompareMode {
     BLINK,
 }
 
+enum class CompareWindowMode {
+    EXPLORER,
+    COMPARE,
+}
+
+fun isValidCompareCount(count: Int): Boolean = count == 2 || count == 4
+
+private fun formatCompareFileSize(bytes: Long): String = when {
+    bytes >= 1024 * 1024 * 1024 -> "%.2f GB".format(Locale.US, bytes / (1024.0 * 1024.0 * 1024.0))
+    bytes >= 1024 * 1024 -> "%.2f MB".format(Locale.US, bytes / (1024.0 * 1024.0))
+    bytes >= 1024 -> "%.1f KB".format(Locale.US, bytes / 1024.0)
+    else -> "$bytes B"
+}
+
 enum class CompareSlot {
     SLOT_A,
     SLOT_B,
+    SLOT_C,
+    SLOT_D,
 }
 
 data class CompareMediaInfo(
@@ -197,20 +217,39 @@ fun ImageCompareWindow(
     language: AppLanguage = loadLanguage(),
     initialFileA: File? = null,
     initialFileB: File? = null,
+    initialFiles: List<File> = emptyList(),
     onCloseRequest: () -> Unit,
 ) {
+    val startingFiles = remember {
+        val merged = if (initialFiles.isNotEmpty()) {
+            initialFiles
+        } else {
+            listOfNotNull(initialFileA, initialFileB)
+        }
+        merged.take(4)
+    }
+
+    var windowMode by remember {
+        mutableStateOf(
+            if (startingFiles.size == 2 || startingFiles.size == 4) CompareWindowMode.COMPARE else CompareWindowMode.EXPLORER
+        )
+    }
+    var compareFiles by remember { mutableStateOf(startingFiles) }
+
     var selectedTab by remember { mutableStateOf(MediaCompareTab.STRUCTURE) }
-    var fileA by remember { mutableStateOf(initialFileA) }
-    var fileB by remember { mutableStateOf(initialFileB) }
+    var fileA by remember { mutableStateOf(compareFiles.getOrNull(0) ?: initialFileA) }
+    var fileB by remember { mutableStateOf(compareFiles.getOrNull(1) ?: initialFileB) }
+    var fileC by remember { mutableStateOf(compareFiles.getOrNull(2)) }
+    var fileD by remember { mutableStateOf(compareFiles.getOrNull(3)) }
     var activeSlot by remember { mutableStateOf(CompareSlot.SLOT_A) }
-    // Set when a browse selected more files than a comparison can take; cleared by the next browse.
-    // Without it the refusal would be invisible and look like the dialog simply did nothing.
     var tooManyPickedCount by remember { mutableStateOf<Int?>(null) }
-    var folderA by remember { mutableStateOf<File?>(initialFileA?.parentFile) }
-    var folderB by remember { mutableStateOf<File?>(initialFileB?.parentFile) }
+    var folderA by remember { mutableStateOf<File?>(fileA?.parentFile) }
+    var folderB by remember { mutableStateOf<File?>(fileB?.parentFile) }
 
     var infoA by remember { mutableStateOf<CompareMediaInfo?>(null) }
     var infoB by remember { mutableStateOf<CompareMediaInfo?>(null) }
+    var infoC by remember { mutableStateOf<CompareMediaInfo?>(null) }
+    var infoD by remember { mutableStateOf<CompareMediaInfo?>(null) }
 
     // Hoisted once here (instead of computed independently in MetadataDiffView and
     // VisualDiffView) so extractMetadataDiffRows's file I/O -- motion-photo/SEF probing via
@@ -341,6 +380,17 @@ fun ImageCompareWindow(
 
     LaunchedEffect(fileA) { loadInfo(fileA) { infoA = it } }
     LaunchedEffect(fileB) { loadInfo(fileB) { infoB = it } }
+    LaunchedEffect(fileC) { loadInfo(fileC) { infoC = it } }
+    LaunchedEffect(fileD) { loadInfo(fileD) { infoD = it } }
+
+    LaunchedEffect(compareFiles) {
+        fileA = compareFiles.getOrNull(0)
+        fileB = compareFiles.getOrNull(1)
+        fileC = compareFiles.getOrNull(2)
+        fileD = compareFiles.getOrNull(3)
+        folderA = fileA?.parentFile
+        folderB = fileB?.parentFile
+    }
 
     fun applyPick(pick: ComparePick) {
         tooManyPickedCount = pick.refusedCount
@@ -417,6 +467,14 @@ fun ImageCompareWindow(
                 .onKeyEvent { keyEvent ->
                     if (keyEvent.type != KeyEventType.KeyDown) return@onKeyEvent false
                     when (keyEvent.key) {
+                        Key.Escape -> {
+                            if (windowMode == CompareWindowMode.COMPARE) {
+                                windowMode = CompareWindowMode.EXPLORER
+                                true
+                            } else {
+                                false
+                            }
+                        }
                         Key.One -> {
                             activeSlot = CompareSlot.SLOT_A
                             true
@@ -452,99 +510,161 @@ fun ImageCompareWindow(
                 },
             color = MaterialTheme.colorScheme.background,
         ) {
-            Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
-                // 1. Media Selection Bar (Tabs dropdown + File Pickers)
-                MediaSelectionBar(
+            if (windowMode == CompareWindowMode.EXPLORER) {
+                FastStoneExplorerView(
                     appState = appState,
                     language = language,
-                    fileA = fileA,
-                    fileB = fileB,
-                    folderA = folderA,
-                    folderB = folderB,
-                    infoA = infoA,
-                    infoB = infoB,
-                    activeSlot = activeSlot,
-                    onSetActiveSlot = { activeSlot = it },
-                    openTabFiles = appState.tabs.map { it.file },
-                    // A pick can carry one slot or both (see resolveComparePick). Each slot keeps
-                    // its own folder, so the two files never have to live in the same directory --
-                    // browsing per slot still works exactly as before for files far apart.
-                    tooManyPickedCount = tooManyPickedCount,
-                    dragHoverSide = dragHoverSide,
-                    onPick = ::applyPick,
-                    onSelectA = { fileA = it },
-                    onSelectB = { fileB = it },
-                    onNavigateSlotA = { navigateSlot(CompareSlot.SLOT_A, it) },
-                    onNavigateSlotB = { navigateSlot(CompareSlot.SLOT_B, it) },
-                    onSwap = {
-                        val tempFile = fileA
-                        fileA = fileB
-                        fileB = tempFile
-                        val tempFolder = folderA
-                        folderA = folderB
-                        folderB = tempFolder
+                    initialSelected = compareFiles,
+                    onOpenCompare = { files ->
+                        compareFiles = files.take(4)
+                        fileA = compareFiles.getOrNull(0)
+                        fileB = compareFiles.getOrNull(1)
+                        fileC = compareFiles.getOrNull(2)
+                        fileD = compareFiles.getOrNull(3)
+                        folderA = fileA?.parentFile
+                        folderB = fileB?.parentFile
+                        windowMode = CompareWindowMode.COMPARE
                     },
                 )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // 2. Navigation Tabs
-                TabRow(
-                    selectedTabIndex = selectedTab.ordinal,
-                    modifier = Modifier.fillMaxWidth().height(42.dp),
-                ) {
-                    Tab(
-                        selected = selectedTab == MediaCompareTab.STRUCTURE,
-                        onClick = { selectedTab = MediaCompareTab.STRUCTURE },
-                        text = { Text(if (language == AppLanguage.KO) "구조 트리 비교 (Structure)" else "Structure Diff") },
-                    )
-                    Tab(
-                        selected = selectedTab == MediaCompareTab.METADATA,
-                        onClick = { selectedTab = MediaCompareTab.METADATA },
-                        text = { Text(if (language == AppLanguage.KO) "메타데이터 비교 (Metadata)" else "Metadata Diff") },
-                    )
-                    Tab(
-                        selected = selectedTab == MediaCompareTab.VISUAL,
-                        onClick = { selectedTab = MediaCompareTab.VISUAL },
-                        text = { Text(if (language == AppLanguage.KO) "시각적 프레임/픽셀 비교 (Visual)" else "Visual Diff") },
-                    )
-                    Tab(
-                        selected = selectedTab == MediaCompareTab.HEX,
-                        onClick = { selectedTab = MediaCompareTab.HEX },
-                        text = { Text(if (language == AppLanguage.KO) "Hex 바이너리 비교 (Hex)" else "Hex Diff") },
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // 3. Comparison Content Views
-                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    when (selectedTab) {
-                        MediaCompareTab.STRUCTURE -> StructureDiffView(language, infoA, infoB)
-                        MediaCompareTab.METADATA -> MetadataDiffView(language, infoA, infoB, metadataRows, captureMismatches)
-                        MediaCompareTab.VISUAL -> VisualDiffView(
-                            language = language,
-                            infoA = infoA,
-                            infoB = infoB,
-                            captureMismatches = captureMismatches,
-                            activeSlot = activeSlot,
-                            onSetActiveSlot = { activeSlot = it },
-                        )
-                        MediaCompareTab.HEX -> HexDiffView(language, fileA, fileB)
+            } else {
+                Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+                    // FastStone Top Mode Bar: Back to Explorer & Compare Info
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Button(
+                                    onClick = { windowMode = CompareWindowMode.EXPLORER },
+                                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.NeonBlue),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(28.dp),
+                                ) {
+                                    Text(
+                                        text = if (language == AppLanguage.KO) "📂 파일 탐색기 (ESC)" else "📂 File Explorer (ESC)",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.Black,
+                                    )
+                                }
+                                Spacer(Modifier.width(10.dp))
+                                val fileCount = listOfNotNull(fileA, fileB, fileC, fileD).size
+                                Text(
+                                    text = if (fileCount == 4) {
+                                        if (language == AppLanguage.KO) "4분할 비교 모드 (2x2 Quad Grid)" else "4-Split Quad Compare Mode"
+                                    } else {
+                                        if (language == AppLanguage.KO) "2분할 비교 모드" else "2-Split Compare Mode"
+                                    },
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AppColors.NeonGreen,
+                                )
+                            }
+                            Text(
+                                text = if (language == AppLanguage.KO) "ESC 키를 누르면 탐색기로 돌아갑니다" else "Press ESC to return to Explorer",
+                                fontSize = 11.sp,
+                                color = AppColors.TextSecondary,
+                            )
+                        }
                     }
-                }
 
-                // 4. FastStone Style Bottom Filmstrip (Quick File Switch)
-                if (siblingMediaFiles.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    FilmstripQuickSwitch(
-                        files = siblingMediaFiles,
-                        activeFileA = fileA,
-                        activeFileB = fileB,
-                        onSelectForA = { fileA = it; folderA = it.parentFile },
-                        onSelectForB = { fileB = it; folderB = it.parentFile },
+                    // 1. Media Selection Bar (Tabs dropdown + File Pickers)
+                    MediaSelectionBar(
+                        appState = appState,
                         language = language,
+                        fileA = fileA,
+                        fileB = fileB,
+                        folderA = folderA,
+                        folderB = folderB,
+                        infoA = infoA,
+                        infoB = infoB,
+                        activeSlot = activeSlot,
+                        onSetActiveSlot = { activeSlot = it },
+                        openTabFiles = appState.tabs.map { it.file },
+                        tooManyPickedCount = tooManyPickedCount,
+                        dragHoverSide = dragHoverSide,
+                        onPick = ::applyPick,
+                        onSelectA = { fileA = it },
+                        onSelectB = { fileB = it },
+                        onNavigateSlotA = { navigateSlot(CompareSlot.SLOT_A, it) },
+                        onNavigateSlotB = { navigateSlot(CompareSlot.SLOT_B, it) },
+                        onSwap = {
+                            val tempFile = fileA
+                            fileA = fileB
+                            fileB = tempFile
+                            val tempFolder = folderA
+                            folderA = folderB
+                            folderB = tempFolder
+                        },
                     )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // 2. Navigation Tabs
+                    TabRow(
+                        selectedTabIndex = selectedTab.ordinal,
+                        modifier = Modifier.fillMaxWidth().height(42.dp),
+                    ) {
+                        Tab(
+                            selected = selectedTab == MediaCompareTab.STRUCTURE,
+                            onClick = { selectedTab = MediaCompareTab.STRUCTURE },
+                            text = { Text(if (language == AppLanguage.KO) "구조 트리 비교 (Structure)" else "Structure Diff") },
+                        )
+                        Tab(
+                            selected = selectedTab == MediaCompareTab.METADATA,
+                            onClick = { selectedTab = MediaCompareTab.METADATA },
+                            text = { Text(if (language == AppLanguage.KO) "메타데이터 비교 (Metadata)" else "Metadata Diff") },
+                        )
+                        Tab(
+                            selected = selectedTab == MediaCompareTab.VISUAL,
+                            onClick = { selectedTab = MediaCompareTab.VISUAL },
+                            text = { Text(if (language == AppLanguage.KO) "시각적 프레임/픽셀 비교 (Visual)" else "Visual Diff") },
+                        )
+                        Tab(
+                            selected = selectedTab == MediaCompareTab.HEX,
+                            onClick = { selectedTab = MediaCompareTab.HEX },
+                            text = { Text(if (language == AppLanguage.KO) "Hex 바이너리 비교 (Hex)" else "Hex Diff") },
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // 3. Comparison Content Views
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        when (selectedTab) {
+                            MediaCompareTab.STRUCTURE -> StructureDiffView(language, infoA, infoB)
+                            MediaCompareTab.METADATA -> MetadataDiffView(language, infoA, infoB, metadataRows, captureMismatches)
+                            MediaCompareTab.VISUAL -> VisualDiffView(
+                                language = language,
+                                infoA = infoA,
+                                infoB = infoB,
+                                quadInfos = if (listOfNotNull(fileA, fileB, fileC, fileD).size == 4) listOf(infoA, infoB, infoC, infoD) else emptyList(),
+                                captureMismatches = captureMismatches,
+                                activeSlot = activeSlot,
+                                onSetActiveSlot = { activeSlot = it },
+                            )
+                            MediaCompareTab.HEX -> HexDiffView(language, fileA, fileB)
+                        }
+                    }
+
+                    // 4. FastStone Style Bottom Filmstrip (Quick File Switch)
+                    if (siblingMediaFiles.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        FilmstripQuickSwitch(
+                            files = siblingMediaFiles,
+                            activeFileA = fileA,
+                            activeFileB = fileB,
+                            onSelectForA = { fileA = it; folderA = it.parentFile },
+                            onSelectForB = { fileB = it; folderB = it.parentFile },
+                            language = language,
+                        )
+                    }
                 }
             }
         }
@@ -672,6 +792,523 @@ private fun FilmstripQuickSwitch(
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun FastStoneExplorerView(
+    appState: AppState,
+    language: AppLanguage,
+    initialSelected: List<File>,
+    onOpenCompare: (List<File>) -> Unit,
+) {
+    var currentFolder by remember {
+        mutableStateOf(
+            initialSelected.firstOrNull()?.parentFile
+                ?: appState.selectedFolder
+                ?: appState.lastOpenedDirectory
+                ?: File(System.getProperty("user.home"))
+        )
+    }
+
+    var selectedFiles by remember {
+        mutableStateOf(initialSelected.take(4))
+    }
+
+    var searchQuery by remember { mutableStateOf("") }
+    var isGridView by remember { mutableStateOf(true) }
+
+    val folderFiles = remember(currentFolder) {
+        try {
+            if (currentFolder.exists() && currentFolder.isDirectory) {
+                currentFolder.listFiles()?.toList() ?: emptyList()
+            } else {
+                emptyList()
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    val subDirectories = remember(folderFiles) {
+        folderFiles.filter { it.isDirectory && !it.isHidden && it.canRead() }
+            .sortedBy { it.name.lowercase(Locale.US) }
+    }
+
+    val mediaFiles = remember(folderFiles, searchQuery) {
+        folderFiles.filter {
+            it.isFile && !it.isHidden && it.extension.lowercase(Locale.US) in ALL_SUPPORTED_MEDIA_EXTENSIONS &&
+                    (searchQuery.isBlank() || it.name.contains(searchQuery, ignoreCase = true))
+        }.sortedBy { it.name.lowercase(Locale.US) }
+    }
+
+    fun toggleFileSelection(file: File) {
+        val existingIndex = selectedFiles.indexOfFirst { it.absolutePath == file.absolutePath }
+        if (existingIndex >= 0) {
+            selectedFiles = selectedFiles.filterIndexed { index, _ -> index != existingIndex }
+        } else {
+            if (selectedFiles.size < 4) {
+                selectedFiles = selectedFiles + file
+            }
+        }
+    }
+
+    fun openCompareIfValid() {
+        if (selectedFiles.size == 2 || selectedFiles.size == 4) {
+            onOpenCompare(selectedFiles)
+        }
+    }
+
+    val explorerFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        explorerFocusRequester.requestFocus()
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .focusRequester(explorerFocusRequester)
+            .focusable()
+            .onKeyEvent { keyEvent ->
+                if (keyEvent.type == KeyEventType.KeyDown) {
+                    when (keyEvent.key) {
+                        Key.Spacebar, Key.Enter -> {
+                            if (selectedFiles.size == 2 || selectedFiles.size == 4) {
+                                openCompareIfValid()
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        else -> false
+                    }
+                } else {
+                    false
+                }
+            }
+            .padding(10.dp)
+    ) {
+        // 1. Top Navigation Bar: Breadcrumb + Search + View Mode
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                // Folder navigation: Parent button & Breadcrumb path
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Button(
+                        onClick = {
+                            currentFolder.parentFile?.let { parent ->
+                                if (parent.exists() && parent.canRead()) {
+                                    currentFolder = parent
+                                }
+                            }
+                        },
+                        enabled = currentFolder.parentFile != null,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        modifier = Modifier.height(28.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                    ) {
+                        Text(
+                            text = "⬆ 상위 폴더",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+
+                    Spacer(Modifier.width(8.dp))
+
+                    Text(
+                        text = "📁 ${currentFolder.absolutePath}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = AppColors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Spacer(Modifier.width(12.dp))
+
+                // Search box
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .width(180.dp)
+                        .height(28.dp)
+                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(4.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp),
+                ) {
+                    Text("🔍", fontSize = 11.sp)
+                    Spacer(Modifier.width(4.dp))
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        singleLine = true,
+                        textStyle = androidx.compose.ui.text.TextStyle(
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                        decorationBox = { innerTextField ->
+                            if (searchQuery.isEmpty()) {
+                                Text(
+                                    text = if (language == AppLanguage.KO) "파일 검색..." else "Search files...",
+                                    fontSize = 11.sp,
+                                    color = AppColors.TextSecondary,
+                                )
+                            }
+                            innerTextField()
+                        }
+                    )
+                }
+
+                Spacer(Modifier.width(8.dp))
+
+                // Grid / List View Toggle
+                Button(
+                    onClick = { isGridView = !isGridView },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.height(28.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface),
+                ) {
+                    Text(
+                        text = if (isGridView) "📋 목록" else "▦ 그리드",
+                        fontSize = 11.sp,
+                        color = AppColors.TextPrimary,
+                    )
+                }
+            }
+        }
+
+        // 2. Main Content Split: Subdirectory navigation sidebar + Media files explorer
+        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            // Sidebar: Subfolders
+            Surface(
+                modifier = Modifier
+                    .width(180.dp)
+                    .fillMaxHeight(),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                shape = RoundedCornerShape(6.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            ) {
+                Column(modifier = Modifier.fillMaxSize().padding(6.dp)) {
+                    Text(
+                        text = if (language == AppLanguage.KO) "하위 폴더 (${subDirectories.size})" else "Folders (${subDirectories.size})",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AppColors.TextSecondary,
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    )
+
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        items(subDirectories, key = { it.absolutePath }) { folder ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clipToBounds()
+                                    .clickable { currentFolder = folder }
+                                    .padding(vertical = 3.dp, horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text("📁", fontSize = 11.sp)
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    text = folder.name,
+                                    fontSize = 11.sp,
+                                    color = AppColors.TextPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.width(8.dp))
+
+            // Main Explorer Area: Media files grid/list
+            Surface(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(6.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            ) {
+                if (mediaFiles.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = if (language == AppLanguage.KO) "지원되는 미디어 파일이 없습니다" else "No supported media files found",
+                            fontSize = 13.sp,
+                            color = AppColors.TextSecondary,
+                        )
+                    }
+                } else {
+                    if (isGridView) {
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(minSize = 130.dp),
+                            modifier = Modifier.fillMaxSize().padding(6.dp),
+                            contentPadding = PaddingValues(4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            items(mediaFiles, key = { it.absolutePath }) { file ->
+                                val selectedIndex = selectedFiles.indexOfFirst { it.absolutePath == file.absolutePath }
+                                val isSelected = selectedIndex >= 0
+
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surface,
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        width = if (isSelected) 2.dp else 1.dp,
+                                        color = if (isSelected) AppColors.NeonBlue else MaterialTheme.colorScheme.outlineVariant,
+                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(110.dp)
+                                        .clickable { toggleFileSelection(file) },
+                                ) {
+                                    Column(
+                                        modifier = Modifier.fillMaxSize().padding(6.dp),
+                                        verticalArrangement = Arrangement.SpaceBetween,
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            val isVid = file.extension.lowercase(Locale.US) in VIDEO_EXTENSIONS
+                                            Text(
+                                                text = if (isVid) "🎬" else "🖼️",
+                                                fontSize = 14.sp,
+                                            )
+                                            if (isSelected) {
+                                                val badge = when (selectedIndex) {
+                                                    0 -> "①"
+                                                    1 -> "②"
+                                                    2 -> "③"
+                                                    3 -> "④"
+                                                    else -> "${selectedIndex + 1}"
+                                                }
+                                                Surface(
+                                                    color = AppColors.NeonBlue,
+                                                    shape = RoundedCornerShape(10.dp),
+                                                ) {
+                                                    Text(
+                                                        text = " $badge ",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color.Black,
+                                                        modifier = Modifier.padding(horizontal = 2.dp),
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        Column {
+                                            Text(
+                                                text = file.name,
+                                                fontSize = 11.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (isSelected) AppColors.NeonBlue else AppColors.TextPrimary,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                            Text(
+                                                text = formatCompareFileSize(file.length()),
+                                                fontSize = 9.sp,
+                                                color = AppColors.TextSecondary,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // List View
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize().padding(6.dp),
+                            contentPadding = PaddingValues(2.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            items(mediaFiles, key = { it.absolutePath }) { file ->
+                                val selectedIndex = selectedFiles.indexOfFirst { it.absolutePath == file.absolutePath }
+                                val isSelected = selectedIndex >= 0
+
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) else Color.Transparent,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { toggleFileSelection(file) }
+                                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp, horizontal = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f),
+                                        ) {
+                                            if (isSelected) {
+                                                val badge = when (selectedIndex) {
+                                                    0 -> "①"
+                                                    1 -> "②"
+                                                    2 -> "③"
+                                                    3 -> "④"
+                                                    else -> "${selectedIndex + 1}"
+                                                }
+                                                Text(
+                                                    text = badge,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = AppColors.NeonBlue,
+                                                )
+                                                Spacer(Modifier.width(6.dp))
+                                            } else {
+                                                val isVid = file.extension.lowercase(Locale.US) in VIDEO_EXTENSIONS
+                                                Text(if (isVid) "🎬" else "🖼️", fontSize = 12.sp)
+                                                Spacer(Modifier.width(6.dp))
+                                            }
+
+                                            Text(
+                                                text = file.name,
+                                                fontSize = 12.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (isSelected) AppColors.NeonBlue else AppColors.TextPrimary,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
+
+                                        Text(
+                                            text = formatCompareFileSize(file.length()),
+                                            fontSize = 11.sp,
+                                            color = AppColors.TextSecondary,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        // 3. Bottom Action Bar: Selection count, clear button, and Open Compare button
+        val count = selectedFiles.size
+        val isValidCount = count == 2 || count == 4
+
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = if (language == AppLanguage.KO) "선택된 파일: " else "Selected files: ",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AppColors.TextPrimary,
+                    )
+                    Text(
+                        text = "$count / 4",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isValidCount) AppColors.NeonGreen else if (count > 0) AppColors.NeonYellow else AppColors.TextSecondary,
+                    )
+
+                    if (selectedFiles.isNotEmpty()) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "( " + selectedFiles.mapIndexed { idx, f ->
+                                val badge = when (idx) {
+                                    0 -> "①"
+                                    1 -> "②"
+                                    2 -> "③"
+                                    3 -> "④"
+                                    else -> "${idx + 1}"
+                                }
+                                "$badge ${f.name}"
+                            }.joinToString(", ") + " )",
+                            fontSize = 11.sp,
+                            color = AppColors.TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 400.dp)
+                        )
+
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            text = if (language == AppLanguage.KO) "전체 취소" else "Clear",
+                            fontSize = 11.sp,
+                            color = AppColors.NeonRed,
+                            modifier = Modifier
+                                .clickable { selectedFiles = emptyList() }
+                                .padding(2.dp)
+                        )
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (!isValidCount && count > 0) {
+                        Text(
+                            text = if (language == AppLanguage.KO) {
+                                "비교는 짝수개(2개 또는 4개)를 선택해야 합니다"
+                            } else {
+                                "Select 2 or 4 files to compare"
+                            },
+                            fontSize = 11.sp,
+                            color = AppColors.NeonYellow,
+                            modifier = Modifier.padding(end = 12.dp),
+                        )
+                    }
+
+                    Button(
+                        onClick = { openCompareIfValid() },
+                        enabled = isValidCount,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (count == 4) AppColors.NeonPurple else AppColors.NeonGreen,
+                            disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                        ),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                        modifier = Modifier.height(34.dp),
+                    ) {
+                        Text(
+                            text = if (count == 4) {
+                                if (language == AppLanguage.KO) "⚖️ 4분할 비교 열기 (Space / Enter)" else "⚖️ Open 4-Split Compare (Space / Enter)"
+                            } else {
+                                if (language == AppLanguage.KO) "⚖️ 2분할 비교 열기 (Space / Enter)" else "⚖️ Open 2-Split Compare (Space / Enter)"
+                            },
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isValidCount) Color.Black else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                        )
                     }
                 }
             }
@@ -1765,10 +2402,25 @@ private fun VisualDiffView(
     language: AppLanguage,
     infoA: CompareMediaInfo?,
     infoB: CompareMediaInfo?,
+    quadInfos: List<CompareMediaInfo?> = emptyList(),
     captureMismatches: List<String>,
     activeSlot: CompareSlot = CompareSlot.SLOT_A,
     onSetActiveSlot: (CompareSlot) -> Unit = {},
 ) {
+    if (quadInfos.size >= 4 && quadInfos[0] != null && quadInfos[1] != null && quadInfos[2] != null && quadInfos[3] != null) {
+        val bitmaps = quadInfos.map { it?.bitmap }
+        val labels = listOf("1 (A)", "2 (B)", "3 (C)", "4 (D)")
+        QuadCompareView(
+            bitmaps = bitmaps,
+            infos = quadInfos,
+            labels = labels,
+            activeSlot = activeSlot,
+            onSetActiveSlot = onSetActiveSlot,
+            language = language,
+        )
+        return
+    }
+
     if (infoA == null || infoB == null) {
         EmptyComparePlaceholder(language)
         return
@@ -2549,6 +3201,231 @@ private fun BlinkCompareView(
                                 .padding(horizontal = 4.dp, vertical = 2.dp),
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * FastStone-style Quad Compare View (4-split 2x2 grid) with synchronized zoom,
+ * pan, native pixel inspector, and timeline playback.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun QuadCompareView(
+    bitmaps: List<ImageBitmap?>,
+    infos: List<CompareMediaInfo?>,
+    labels: List<String>,
+    activeSlot: CompareSlot,
+    onSetActiveSlot: (CompareSlot) -> Unit,
+    language: AppLanguage,
+) {
+    val nonNullBitmaps = bitmaps.filterNotNull()
+    var scale by remember(nonNullBitmaps) { mutableStateOf(1f) }
+    var offset by remember(nonNullBitmaps) { mutableStateOf(Offset.Zero) }
+    var paneSize by remember { mutableStateOf(Size.Zero) }
+    var hoverNativePixel by remember(nonNullBitmaps) { mutableStateOf<Pair<Int, Int>?>(null) }
+
+    val fittedSizes = bitmaps.map { bm ->
+        if (bm != null) fittedContentSize(paneSize, Size(bm.width.toFloat(), bm.height.toFloat())) else paneSize
+    }
+    val primaryFittedSize = fittedSizes.firstOrNull() ?: paneSize
+
+    fun applyZoomPreset(targetScale: Float) {
+        scale = targetScale
+        offset = clampPanOffset(offset, paneSize, scale, primaryFittedSize)
+    }
+
+    val slots = listOf(CompareSlot.SLOT_A, CompareSlot.SLOT_B, CompareSlot.SLOT_C, CompareSlot.SLOT_D)
+    val slotColors = listOf(Color(0xFF61AFEF), Color(0xFF98C379), Color(0xFFE5C07B), Color(0xFFE06C75))
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(8.dp)
+            .clipToBounds(),
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            for (row in 0..1) {
+                Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    for (col in 0..1) {
+                        val index = row * 2 + col
+                        val slot = slots.getOrElse(index) { CompareSlot.SLOT_A }
+                        val bitmap = bitmaps.getOrNull(index)
+                        val info = infos.getOrNull(index)
+                        val label = labels.getOrElse(index) { "Media ${index + 1}" }
+                        val slotColor = slotColors.getOrElse(index) { Color.Cyan }
+                        val fitted = fittedSizes.getOrElse(index) { paneSize }
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clipToBounds()
+                                .clickable { onSetActiveSlot(slot) }
+                                .border(
+                                    if (activeSlot == slot) 2.dp else 1.dp,
+                                    if (activeSlot == slot) slotColor else AppColors.Border.copy(alpha = 0.5f),
+                                    RoundedCornerShape(4.dp),
+                                )
+                                .onGloballyPositioned { paneSize = it.size.toSize() }
+                                .onPointerEvent(PointerEventType.Scroll, pass = PointerEventPass.Initial) { event ->
+                                    val change = event.changes.firstOrNull() ?: return@onPointerEvent
+                                    val (newScale, rawOffset) = zoomTowardPoint(scale, offset, change.position, change.scrollDelta.y)
+                                    scale = newScale
+                                    offset = clampPanOffset(rawOffset, paneSize, newScale, fitted)
+                                    event.changes.forEach { it.consume() }
+                                }
+                                .onPointerEvent(PointerEventType.Move, pass = PointerEventPass.Initial) { event ->
+                                    val pos = event.changes.firstOrNull()?.position
+                                    if (bitmap != null && pos != null) {
+                                        hoverNativePixel = screenPointToNativePixel(pos, paneSize, Size(bitmap.width.toFloat(), bitmap.height.toFloat()), scale, offset)
+                                    }
+                                }
+                                .onPointerEvent(PointerEventType.Exit, pass = PointerEventPass.Initial) {
+                                    hoverNativePixel = null
+                                }
+                                .pointerInput(bitmap) {
+                                    detectDragGestures { change, dragAmount ->
+                                        change.consume()
+                                        offset = clampPanOffset(offset + dragAmount, paneSize, scale, fitted)
+                                    }
+                                }
+                                .pointerInput(bitmap) {
+                                    detectTapGestures(
+                                        onTap = { tapPosition ->
+                                            offset = panToPoint(offset, paneSize, scale, tapPosition, fitted)
+                                        },
+                                        onDoubleTap = {
+                                            scale = 1f
+                                            offset = Offset.Zero
+                                        },
+                                    )
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (bitmap != null) {
+                                androidx.compose.foundation.Image(
+                                    bitmap = bitmap,
+                                    contentDescription = label,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .graphicsLayer(
+                                            scaleX = scale,
+                                            scaleY = scale,
+                                            translationX = offset.x,
+                                            translationY = offset.y,
+                                            transformOrigin = TransformOrigin(0f, 0f),
+                                        ),
+                                    contentScale = ContentScale.Fit,
+                                )
+                                if (LocalShowPixelGrid.current) {
+                                    PixelGridOverlay(
+                                        nativeSize = Size(bitmap.width.toFloat(), bitmap.height.toFloat()),
+                                        scale = scale,
+                                        modifier = Modifier.graphicsLayer(
+                                            scaleX = scale,
+                                            scaleY = scale,
+                                            translationX = offset.x,
+                                            translationY = offset.y,
+                                            transformOrigin = TransformOrigin(0f, 0f),
+                                        ),
+                                    )
+                                }
+                            } else {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    CircularProgressIndicator(color = slotColor, modifier = Modifier.size(28.dp))
+                                    Spacer(Modifier.height(8.dp))
+                                    Text(
+                                        text = info?.file?.name ?: if (language == AppLanguage.KO) "로딩 중..." else "Loading...",
+                                        fontSize = 11.sp,
+                                        color = AppColors.TextSecondary,
+                                    )
+                                }
+                            }
+
+                            MediaOsdBadge(
+                                label = label,
+                                info = info,
+                                nativeSize = bitmap?.let { it.width to it.height },
+                                modifier = Modifier.align(Alignment.TopStart),
+                            )
+                        }
+
+                        if (col == 0) {
+                            Spacer(Modifier.width(6.dp))
+                        }
+                    }
+                }
+                if (row == 0) {
+                    Spacer(Modifier.height(6.dp))
+                }
+            }
+        }
+
+        hoverNativePixel?.let { (nx, ny) ->
+            Surface(
+                color = Color.Black.copy(alpha = 0.85f),
+                shape = RoundedCornerShape(4.dp),
+                border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.3f)),
+                modifier = Modifier.align(Alignment.BottomStart).padding(8.dp),
+            ) {
+                Text(
+                    buildString {
+                        append("(%d, %d)  ".format(nx, ny))
+                        bitmaps.forEachIndexed { i, bm ->
+                            if (bm != null) {
+                                val skia = bm.asSkiaBitmap()
+                                val color = if (nx < skia.width && ny < skia.height) skia.getColor(nx, ny) else null
+                                val slotLetter = listOf("A", "B", "C", "D").getOrElse(i) { "${i+1}" }
+                                color?.let { append("%s: #%06X  ".format(slotLetter, it and 0xFFFFFF)) }
+                            }
+                        }
+                    },
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
+        }
+
+        // FastStone Style Zoom Toolbar
+        Surface(
+            color = Color.Black.copy(alpha = 0.80f),
+            shape = RoundedCornerShape(6.dp),
+            border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.3f)),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "🔍 %.1fx".format(scale),
+                    fontSize = 11.sp,
+                    color = Color.Yellow,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(end = 6.dp),
+                )
+                val presets = listOf("Fit" to 1f, "100%" to 1f, "200%" to 2f, "400%" to 4f)
+                presets.forEach { (text, s) ->
+                    Text(
+                        text = text,
+                        fontSize = 10.sp,
+                        color = if (scale == s && text != "Fit") Color.Yellow else Color.White,
+                        modifier = Modifier
+                            .clickable {
+                                if (text == "Fit") {
+                                    scale = 1f
+                                    offset = Offset.Zero
+                                } else {
+                                    applyZoomPreset(s)
+                                }
+                            }
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                    )
                 }
             }
         }

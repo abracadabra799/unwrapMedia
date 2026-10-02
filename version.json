@@ -1,7 +1,7 @@
 {
-  "version": "1.18.1",
+  "version": "1.19.0",
   "releaseDate": "2026-10-02",
-  "releaseNotes": "• 메뉴 구성 및 분류 기존 구조로 복원 (파일, 추출, 게인맵, 분석, 모션포토, 도구, 보기, 도움말)\n• Windows/Linux용 CustomAppMenuBar에 Android Studio New UI 스타일의 컴팩트(30dp) 및 둥근 호버 하이라이트/다크 테마 팝업 디자인 유지",
+  "releaseNotes": "• FastStone Viewer 스타일 미디어 비교 분석기 개편: 내장 파일 탐색기(EXPLORER) 및 다분할 비교(COMPARE) 모드 전환 지원\n• 파일 탐색기에서 짝수개(2개 또는 4개) 파일 다중 선택 지원 (①, ②, ③, ④ 배지 순서 표시)\n• 4개 파일 선택 시 2x2 쿼드 그리드(Quad Compare) 동기화 줌/팬 및 픽셀 분석 뷰 지원\n• 비교 모드에서 ESC 키 입력 시 탐색기 모드로 즉시 복귀",
   "windowsUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest",
   "macUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest"
 }
