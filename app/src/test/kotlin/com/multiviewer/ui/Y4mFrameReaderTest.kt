@@ -3,6 +3,7 @@ package com.multiviewer.ui
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import java.io.ByteArrayInputStream
 
 class Y4mFrameReaderTest {
     @Test
@@ -21,5 +22,12 @@ class Y4mFrameReaderTest {
     @Test
     fun `rejects unsupported chroma`() {
         assertFailsWith<IllegalArgumentException> { parseY4mHeader("YUV4MPEG2 W8 H8 F24:1 C444") }
+    }
+
+    @Test
+    fun `reads one 420 frame payload`() {
+        val format = parseY4mHeader("YUV4MPEG2 W2 H2 F24:1 C420")
+        val input = ByteArrayInputStream("FRAME\n123456\n".toByteArray())
+        assertEquals(6, readY4mFrame(input, format)!!.size)
     }
 }
