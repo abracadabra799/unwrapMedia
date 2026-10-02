@@ -3,6 +3,7 @@ package com.multiviewer.ui
 import java.io.InputStream
 
 data class Y4mFormat(val width: Int, val height: Int, val fpsNumerator: Int, val fpsDenominator: Int, val chroma: String, val bitDepth: Int)
+data class Av2DecodedFrame(val format: Y4mFormat, val yuv420Payload: ByteArray, val frameIndex: Long)
 
 fun parseY4mHeader(header: String): Y4mFormat {
     require(header.startsWith("YUV4MPEG2 ")) { "Unsupported decoder output: missing YUV4MPEG2 header" }
@@ -42,6 +43,15 @@ fun streamY4mFrames(input: InputStream, onFormat: (Y4mFormat) -> Unit, onFrame: 
     while (true) {
         val frame = readY4mFrame(input, format) ?: return true
         if (!onFrame(format, frame)) return false
+    }
+}
+
+fun streamAv2Frames(input: InputStream, onFrame: (Av2DecodedFrame) -> Boolean): Boolean {
+    var frameIndex = 0L
+    var format: Y4mFormat? = null
+    return streamY4mFrames(input, { format = it }) { parsedFormat, payload ->
+        val frame = Av2DecodedFrame(parsedFormat, payload, frameIndex++)
+        onFrame(frame)
     }
 }
 

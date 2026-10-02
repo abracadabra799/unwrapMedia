@@ -41,4 +41,12 @@ class Y4mFrameReaderTest {
         })
         assertEquals(6, seen)
     }
+
+    @Test
+    fun `wraps streamed frames with stable indexes`() {
+        val input = ByteArrayInputStream("YUV4MPEG2 W2 H2 F24:1 C420\nFRAME\n123456FRAME\nabcdef".toByteArray())
+        val indexes = mutableListOf<Long>()
+        assertEquals(true, streamAv2Frames(input) { frame -> indexes += frame.frameIndex; true })
+        assertEquals(listOf(0L, 1L), indexes)
+    }
 }
