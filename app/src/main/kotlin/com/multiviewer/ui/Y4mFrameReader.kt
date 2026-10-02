@@ -5,6 +5,29 @@ import java.io.InputStream
 data class Y4mFormat(val width: Int, val height: Int, val fpsNumerator: Int, val fpsDenominator: Int, val chroma: String, val bitDepth: Int)
 data class Av2DecodedFrame(val format: Y4mFormat, val yuv420Payload: ByteArray, val frameIndex: Long)
 
+fun yuv420ToRgba(frame: Av2DecodedFrame): ByteArray {
+    require(frame.format.bitDepth == 8) { "Only 8-bit Y4M conversion is supported" }
+    val width = frame.format.width; val height = frame.format.height
+    val plane = width * height; val chroma = (width + 1) / 2 * ((height + 1) / 2)
+    require(frame.yuv420Payload.size >= plane + chroma * 2) { "Y4M frame payload is truncated" }
+    val rgba = ByteArray(width * height * 4)
+    for (y in 0 until height) for (x in 0 until width) {
+        val yValue = frame.yuv420Payload[y * width + x].toInt() and 0xff
+        val uv = (y / 2) * ((width + 1) / 2) + x / 2
+        val u = (frame.yuv420Payload[plane + uv].toInt() and 0xff) - 128
+        val v = (frame.yuv420Payload[plane + chroma + uv].toInt() and 0xff) - 128
+        val c = yValue - 16
+        val out = (y * width + x) * 4
+        rgba[out] = clamp((298 * c + 409 * v + 128) shr 8).toByte()
+        rgba[out + 1] = clamp((298 * c - 100 * u - 208 * v + 128) shr 8).toByte()
+        rgba[out + 2] = clamp((298 * c + 516 * u + 128) shr 8).toByte()
+        rgba[out + 3] = 0xff.toByte()
+    }
+    return rgba
+}
+
+private fun clamp(value: Int): Int = value.coerceIn(0, 255)
+
 fun parseY4mHeader(header: String): Y4mFormat {
     require(header.startsWith("YUV4MPEG2 ")) { "Unsupported decoder output: missing YUV4MPEG2 header" }
     val fields = header.trim().split(Regex("\\s+")).drop(1)

@@ -49,4 +49,13 @@ class Y4mFrameReaderTest {
         assertEquals(true, streamAv2Frames(input) { frame -> indexes += frame.frameIndex; true })
         assertEquals(listOf(0L, 1L), indexes)
     }
+
+    @Test
+    fun `converts 8 bit 420 frame to opaque RGBA`() {
+        val format = parseY4mHeader("YUV4MPEG2 W2 H2 F24:1 C420")
+        val frame = Av2DecodedFrame(format, ByteArray(6) { 128.toByte() }, 0)
+        val rgba = yuv420ToRgba(frame)
+        assertEquals(16, rgba.size)
+        assertEquals(0xff.toByte(), rgba[3])
+    }
 }
