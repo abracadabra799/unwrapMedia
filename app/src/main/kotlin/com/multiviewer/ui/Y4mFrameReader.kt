@@ -5,6 +5,8 @@ import java.io.InputStream
 data class Y4mFormat(val width: Int, val height: Int, val fpsNumerator: Int, val fpsDenominator: Int, val chroma: String, val bitDepth: Int)
 data class Av2DecodedFrame(val format: Y4mFormat, val yuv420Payload: ByteArray, val frameIndex: Long)
 
+private const val MAX_Y4M_FRAME_BYTES = 64L * 1024 * 1024
+
 fun yuv420ToRgba(frame: Av2DecodedFrame): ByteArray {
     require(frame.format.bitDepth == 8) { "Only 8-bit Y4M conversion is supported" }
     val width = frame.format.width; val height = frame.format.height
@@ -54,9 +56,11 @@ fun readY4mFrame(input: InputStream, format: Y4mFormat): ByteArray? {
     require(marker.startsWith("FRAME")) { "Invalid Y4M frame marker" }
     val bytesPerSample = if (format.bitDepth <= 8) 1 else 2
     val lumaSamples = format.width.toLong() * format.height
-    val payloadSize = ((lumaSamples * 3L + 1L) / 2L) * bytesPerSample
-    require(payloadSize <= Int.MAX_VALUE) { "Y4M frame is too large" }
+    val chromaSamples = ((format.width.toLong() + 1L) / 2L) * ((format.height.toLong() + 1L) / 2L)
+    val payloadSize = (lumaSamples + chromaSamples * 2L) * bytesPerSample
+    require(payloadSize <= MAX_Y4M_FRAME_BYTES) { "Y4M frame exceeds the 64 MiB decoder frame limit" }
     return input.readFullyOrNull(payloadSize.toInt())
+        ?: throw IllegalArgumentException("Y4M frame payload is truncated")
 }
 
 fun streamY4mFrames(input: InputStream, onFormat: (Y4mFormat) -> Unit, onFrame: (Y4mFormat, ByteArray) -> Boolean): Boolean {

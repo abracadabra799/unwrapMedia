@@ -143,10 +143,19 @@ fun VideoInspectorUI(
                         // stepping are all handled internally by FfmpegVideoPlayer (via its own
                         // per-frame timestamp list). onProbeComplete is kept -- it only enables the
                         // "analyze frames" button, it is not interactive linkage.
-                        FfmpegVideoPlayer(
-                            tab.file,
-                            onProbeComplete = { tab.videoReadyForAnalysis = true },
-                        )
+                        val root = tab.root
+                        if (isAv2VideoTrack(root)) {
+                            Av2VideoPlayer(
+                                file = tab.file,
+                                root = root!!,
+                                onIndexReady = { tab.videoReadyForAnalysis = true },
+                            )
+                        } else {
+                            FfmpegVideoPlayer(
+                                tab.file,
+                                onProbeComplete = { tab.videoReadyForAnalysis = true },
+                            )
+                        }
 
                         Text("LIVE PLAYER",
                             modifier = Modifier.align(Alignment.TopStart).padding(4.dp),

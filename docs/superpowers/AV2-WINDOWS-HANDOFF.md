@@ -2,24 +2,26 @@
 
 - Worktree: `/private/tmp/multiviewer-av2-index`
 - Branch: `feat/windows-av2-stream-index`
-- Latest commit: `7e2c8bd feat: convert AV2 frames to Compose bitmaps`
-- Validation: `./gradlew test` passed; `git diff --check` passed; worktree was clean.
+- Base commit: `1b75461 docs: add Windows AV2 handoff notes`
+- Current changes are uncommitted; no Windows runner has executed them yet.
 
 ## Implemented
 
-- AV2 ISO-BMFF sample indexing from `stts`, `stsz`, `stsc`, `stco/co64`.
-- Bounded OBU parsing and warnings for malformed samples.
-- Safe `av2C` configuration + sample bitstream assembly.
-- Windows-only packaged `avmdec.exe` locator.
-- AVM process lifecycle runner with stderr draining, cancellation, and stdout callback.
-- Y4M header parsing, frame reading, YUV420 streaming, and 8-bit YUV420 → RGBA conversion.
-- Compose `ImageBitmap` conversion for 8-bit AV2 frames.
+- ISO-BMFF AV2 sample indexing from `stts`, `stsz`, `stsc`, and `stco/co64`, with bounded OBU parsing and safe `av2C`/sample assembly.
+- Windows packaging workflow pins AVM to `cd2ba5446504e24c4ad1c7c06ef382214653a537`, builds and stages `avmdec.exe`, includes that revision's license/patent notices, and checks the packaged app image.
+- AVM CLI integration uses `avmdec -o - <input.obu>` for Y4M on stdout, drains stderr, and supports cancellation/backpressure.
+- AV2 tracks (`av02` with `av2C`) route to a Compose player for first-frame preview and sequential play/pause. Decoded frames are bounded in memory and large display frames are downsampled.
+- Y4M frame reading validates truncation and caps per-frame allocation; odd-sized 4:2:0 planes are accounted for.
+- Windows CI creates a tiny OBU stream with the pinned AVM encoder and checks that the bundled decoder emits a complete Y4M frame, then checks app-image resources.
 
-## Next work
+## Validation and limitations
 
-1. Build/package a pinned Windows AVM decoder (`avmdec.exe`) in the Windows workflow.
-2. Confirm the actual AVM CLI arguments and connect them to `runAvmProcess`.
-3. Connect `Av2DecodedFrame.toImageBitmap()` to an AV2 Compose player state.
-4. Add Windows fixture smoke testing and installer verification.
+- `./gradlew test` passed on 2026-10-03.
+- `git diff --check` passed at handoff preparation.
+- Workflow YAML is parsed locally; AVM compilation, Windows DLL/runtime behavior, decoder smoke test, app-image staging, and installer build still require Windows CI.
+- Seeking is intentionally disabled: the current sample index does not classify safe random-access points (RAPs). Do not infer RAPs from timestamps; add bitstream classification/indexing before enabling seeking.
+- AV2 playback is Windows-only. macOS/Linux playback remains out of scope.
 
-The user wants Windows first; macOS/Linux are deferred.
+## Resume
+
+From `/private/tmp/multiviewer-av2-index` on `feat/windows-av2-stream-index`, inspect the uncommitted diff and run the Windows package workflow. Fix any Windows AVM build/runtime or packaging failures before committing.

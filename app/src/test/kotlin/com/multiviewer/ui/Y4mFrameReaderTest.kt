@@ -32,6 +32,32 @@ class Y4mFrameReaderTest {
     }
 
     @Test
+    fun `reads complete chroma planes for odd frame dimensions`() {
+        val format = Y4mFormat(3, 3, 24, 1, "420", 8)
+        val input = ByteArrayInputStream(("FRAME\n" + "123456789abcdefgh").toByteArray())
+
+        assertEquals(17, readY4mFrame(input, format)!!.size)
+    }
+
+    @Test
+    fun `rejects a frame payload above the decoder memory bound before allocation`() {
+        val format = Y4mFormat(10_000, 10_000, 24, 1, "420", 8)
+
+        assertFailsWith<IllegalArgumentException> {
+            readY4mFrame(ByteArrayInputStream("FRAME\n".toByteArray()), format)
+        }
+    }
+
+    @Test
+    fun `reports truncated data after a Y4M frame marker`() {
+        val format = Y4mFormat(2, 2, 24, 1, "420", 8)
+
+        assertFailsWith<IllegalArgumentException> {
+            readY4mFrame(ByteArrayInputStream("FRAME\n123".toByteArray()), format)
+        }
+    }
+
+    @Test
     fun `streams frames through format and frame callbacks`() {
         val input = ByteArrayInputStream("YUV4MPEG2 W2 H2 F24:1 C420\nFRAME\n123456".toByteArray())
         var seen = 0

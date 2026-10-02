@@ -26,6 +26,53 @@ jobs:
         if: matrix.os != 'windows-latest'
         run: chmod +x gradlew
 
+      - name: Checkout pinned AVM source (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: actions/checkout@v4
+        with:
+          repository: AOMediaCodec/avm
+          ref: cd2ba5446504e24c4ad1c7c06ef382214653a537
+          path: avm
+
+      - name: Build and stage AVM decoder (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          cmake -S avm -B avm/build -A x64 `
+            -DCONFIG_AV2_DECODER=1 `
+            -DCONFIG_AV2_ENCODER=1 `
+            -DENABLE_APPS=1 `
+            -DENABLE_TESTS=0 `
+            -DENABLE_EXAMPLES=0 `
+            -DENABLE_TOOLS=0 `
+            -DENABLE_DOCS=0
+          if ($LASTEXITCODE -ne 0) { throw "CMake configuration for pinned AVM failed" }
+
+          cmake --build avm/build --config Release --target avmdec avmenc --parallel
+          if ($LASTEXITCODE -ne 0) { throw "Building AVM decoder and encoder from the pinned source failed" }
+
+          $decoder = Get-ChildItem -Path avm/build -Recurse -Filter avmdec.exe | Select-Object -First 1
+          if (-not $decoder) { throw "The AVM build completed without producing avmdec.exe" }
+
+          $stage = "app/resources/windows/bin"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item $decoder.FullName (Join-Path $stage "avmdec.exe")
+          Copy-Item avm/LICENSE app/resources/windows/AVM-LICENSE.txt
+          Copy-Item avm/PATENTS app/resources/windows/AVM-PATENTS.txt
+          "AVM source revision: cd2ba5446504e24c4ad1c7c06ef382214653a537" | Set-Content app/resources/windows/AVM-SOURCE.txt
+
+      - name: Smoke-test bundled AVM decoder (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $decoder = "app\resources\windows\bin\avmdec.exe"
+          if (-not (Test-Path $decoder)) { throw "avmdec.exe was not staged" }
+          $help = & $decoder --help 2>&1
+          if ($LASTEXITCODE -ne 0 -or ($help -join "`n") -notmatch "Usage:.*filename") {
+            throw "The staged avmdec.exe did not return its expected help output"
+          }
+          Write-Host (($help | Select-Object -First 1) -join "")
+
       - name: Download and bundle ffmpeg (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
@@ -70,6 +117,27 @@ jobs:
         shell: pwsh
         run: app\resources\windows\bin\ffmpeg.exe -version
 
+      - name: Decode generated AV2 stream with bundled AVM (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $ffmpeg = "app\resources\windows\bin\ffmpeg.exe"
+          $avmenc = (Get-ChildItem -Path avm\build -Recurse -Filter avmenc.exe | Select-Object -First 1).FullName
+          $avmdec = "app\resources\windows\bin\avmdec.exe"
+          if (-not $avmenc -or -not (Test-Path $avmdec)) { throw "AVM encoder or staged decoder is missing" }
+
+          & $ffmpeg -y -f lavfi -i "testsrc=duration=1:size=64x64:rate=1" -frames:v 1 -pix_fmt yuv420p -f yuv4mpegpipe smoke-input.y4m
+          if ($LASTEXITCODE -ne 0) { throw "ffmpeg failed to generate the AV2 smoke-test input" }
+
+          & $avmenc --obu --cpu-used=10 --end-usage=q --qp=120 --lag-in-frames=0 -o smoke.obu smoke-input.y4m
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path smoke.obu) -or (Get-Item smoke.obu).Length -eq 0) { throw "avmenc failed to create the AV2 smoke-test stream" }
+
+          & $avmdec smoke.obu -o decoded.y4m
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path decoded.y4m)) { throw "avmdec failed to decode the generated AV2 stream" }
+          $header = Get-Content decoded.y4m -TotalCount 1
+          if ($header -notmatch '^YUV4MPEG2 W64 H64') { throw "avmdec output did not contain the expected Y4M frame header: $header" }
+          Write-Host "Pinned AVM encoder/decoder OBU-to-Y4M smoke test passed"
+
       - name: Smoke-test bundled ffmpeg (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: app/resources/linux/bin/ffmpeg -version
@@ -105,6 +173,16 @@ jobs:
       - name: Package Distribution (Windows)
         if: matrix.os == 'windows-latest'
         run: ./gradlew :app:createDistributable
+
+      - name: Verify packaged AVM resources (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $packagedDecoder = Get-ChildItem -Path app/build/compose/binaries -Recurse -Filter avmdec.exe | Select-Object -First 1
+          if (-not $packagedDecoder) { throw "The Windows app image does not contain avmdec.exe" }
+          $packagedNotices = Get-ChildItem -Path $packagedDecoder.Directory.Parent.FullName -Recurse -Filter AVM-SOURCE.txt | Select-Object -First 1
+          if (-not $packagedNotices) { throw "The Windows app image does not contain the AVM source notice" }
+          Write-Host "Packaged AVM decoder: $($packagedDecoder.FullName)"
 
       - name: Package Distribution (macOS/Linux)
         if: matrix.os != 'windows-latest'
