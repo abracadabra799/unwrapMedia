@@ -25,8 +25,14 @@ object I18n {
     // Menu: File
     fun menuFile(lang: AppLanguage) = if (lang == AppLanguage.KO) "파일" else "File"
     fun menuOpen(lang: AppLanguage) = if (lang == AppLanguage.KO) "열기" else "Open"
-    fun menuOpenFile(lang: AppLanguage) = if (lang == AppLanguage.KO) "파일 열기" else "Open File"
+    fun menuOpenFile(lang: AppLanguage) = if (lang == AppLanguage.KO) "파일 열기..." else "Open File..."
+    fun menuOpenFolder(lang: AppLanguage) = if (lang == AppLanguage.KO) "폴더 열기..." else "Open Folder..."
     fun menuClose(lang: AppLanguage) = if (lang == AppLanguage.KO) "닫기" else "Close"
+
+    // Menu: Edit
+    fun menuEdit(lang: AppLanguage) = if (lang == AppLanguage.KO) "편집" else "Edit"
+    fun menuCopyHex(lang: AppLanguage) = if (lang == AppLanguage.KO) "선택 영역 Hex 덤프 복사" else "Copy Hex Dump of Selection"
+    fun menuCopyXmp(lang: AppLanguage) = if (lang == AppLanguage.KO) "XMP 메타데이터 복사" else "Copy XMP Metadata"
 
     // Menu: Extract
     fun menuExtract(lang: AppLanguage) = if (lang == AppLanguage.KO) "추출" else "Extract"
@@ -144,7 +150,7 @@ object I18n {
     // Empty state
     fun placeholderEmptyState(lang: AppLanguage) = if (lang == AppLanguage.KO) "📂 파일들을 끌어다 놓거나 클릭하여 열기 (다중 파일 지원)" else "📂 Drag & Drop or Click to Open (Multiple Files Supported)"
 
-    const val APP_VERSION = "1.17.1"
+    const val APP_VERSION = "1.18.0"
     fun menuHelp(lang: AppLanguage) = if (lang == AppLanguage.KO) "도움말" else "Help"
     fun menuCheckForUpdates(lang: AppLanguage) = if (lang == AppLanguage.KO) "업데이트 확인..." else "Check for Updates..."
     fun btnCheckForUpdates(lang: AppLanguage) = if (lang == AppLanguage.KO) "업데이트 확인" else "Check for Updates"

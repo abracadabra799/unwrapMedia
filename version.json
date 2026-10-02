@@ -1,7 +1,7 @@
 {
-  "version": "1.17.1",
+  "version": "1.18.0",
   "releaseDate": "2026-10-02",
-  "releaseNotes": "• 백그라운드 프로세스 생명주기 및 메모리 최적화: FrameThumbnailDecoder, TrackExtractor, FrameTypeAnalyzer의 비정상 종료 시 좀비 프로세스 방지 및 ProcessManager 안전 해제 보장\n• 미디어 파이프 스트림 및 스레드 자원 누수 방지: FfmpegVideoPlayer, FfmpegAudioPlayer, VideoAudioTrack의 inputStream 조기 해제 및 WindowsShellSession 감시 스레드 인터럽트 처리\n• JediTerm 터미널 위젯 재마운트 시 dispose 생명주기 보정 및 불필요한 컴파일러 경고 정리",
+  "releaseNotes": "• Android Studio / IntelliJ 스타일 메뉴바 개편: File, Edit, View, Analyze, Tools, Help 표준 IDE 메뉴 계층 구조로 전면 재정리\n• Android Studio New UI 스타일의 커스텀 메뉴바 디자인: 30dp 컴팩트 높이, 둥근 호버 하이라이트(4dp), 정돈된 폰트 및 단축키 표시 레이아웃, 다크 테마 팝업 스타일링 적용\n• 폴더 열기(Open Folder) 및 선택 영역 Hex 덤프 복사(Edit > Copy Hex Dump) 메뉴 추가",
   "windowsUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest",
   "macUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest"
 }
