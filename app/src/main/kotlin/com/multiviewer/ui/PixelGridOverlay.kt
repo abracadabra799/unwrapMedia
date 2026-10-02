@@ -12,8 +12,6 @@ import androidx.compose.ui.graphics.Color
 val LocalShowPixelGrid = staticCompositionLocalOf { false }
 
 private const val MIN_SCREEN_PX_PER_GRID_LINE = 8f
-private val GRID_LINE_COLOR = Color.White.copy(alpha = 0.25f)
-
 // Whether native-pixel-boundary grid lines would actually be legible: the on-screen spacing
 // between adjacent lines (the content's own ContentScale.Fit scale, times the caller's zoom
 // factor if any) must be at least MIN_SCREEN_PX_PER_GRID_LINE. Pure and unit-tested so the
@@ -34,6 +32,7 @@ fun shouldDrawPixelGrid(nativeSize: Size, boxSize: Size, scale: Float): Boolean 
 // zoom-aware drawing logic here at all.
 @Composable
 fun PixelGridOverlay(nativeSize: Size, scale: Float, modifier: Modifier = Modifier) {
+    val gridLineColor = AppColors.TextPrimary.copy(alpha = 0.25f)
     Canvas(modifier = modifier.fillMaxSize()) {
         if (!shouldDrawPixelGrid(nativeSize, size, scale)) return@Canvas
         val fitScale = minOf(size.width / nativeSize.width, size.height / nativeSize.height)
@@ -45,13 +44,13 @@ fun PixelGridOverlay(nativeSize: Size, scale: Float, modifier: Modifier = Modifi
         var x = 0
         while (x <= nativeSize.width.toInt()) {
             val screenX = left + x * fitScale
-            drawLine(GRID_LINE_COLOR, Offset(screenX, top), Offset(screenX, top + fittedHeight))
+            drawLine(gridLineColor, Offset(screenX, top), Offset(screenX, top + fittedHeight))
             x++
         }
         var y = 0
         while (y <= nativeSize.height.toInt()) {
             val screenY = top + y * fitScale
-            drawLine(GRID_LINE_COLOR, Offset(left, screenY), Offset(left + fittedWidth, screenY))
+            drawLine(gridLineColor, Offset(left, screenY), Offset(left + fittedWidth, screenY))
             y++
         }
     }

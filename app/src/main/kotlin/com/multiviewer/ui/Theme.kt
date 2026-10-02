@@ -47,11 +47,11 @@ private val DarkPalette = ThemePalette(
 )
 
 private val LightPalette = ThemePalette(
-    background = Color(0xFFFFFFFF), surface = Color(0xFFF3F4F6), panel = Color(0xFFECEEF1), border = Color(0xFFD0D3D8),
-    dividerHighlight = Color(0xFFFFFFFF), dividerShadow = Color(0xFFB8BCC2),
+    background = Color(0xFFECEFF3), surface = Color(0xFFE2E6EC), panel = Color(0xFFD8DDE4), border = Color(0xFFBAC1CC),
+    dividerHighlight = Color(0xFFF6F8FA), dividerShadow = Color(0xFFA8B0BC),
     neonGreen = Color(0xFF1A7F37), neonBlue = Color(0xFF0969DA), neonPurple = Color(0xFF8250DF), neonRed = Color(0xFFCF222E), neonYellow = Color(0xFF9A6700), neonOrange = Color(0xFFBC4C00),
-    textPrimary = Color(0xFF1A1D22), textSecondary = Color(0xFF57606A), textMuted = Color(0xFF8B949E),
-    selection = Color(0xFFCFE3FA),
+    textPrimary = Color(0xFF1F2328), textSecondary = Color(0xFF59636E), textMuted = Color(0xFF8C959F),
+    selection = Color(0xFFB6D4F8),
     frameTypeI = Color(0xFFC53030), frameTypeP = Color(0xFF2F855A), frameTypeB = Color(0xFF2B6CB0),
 )
 

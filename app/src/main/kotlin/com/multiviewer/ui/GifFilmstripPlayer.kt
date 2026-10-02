@@ -111,7 +111,7 @@ fun GifFilmstripPlayer(tab: TabState, animation: GifAnimationData, modifier: Mod
         }
     }
 
-    Box(modifier = modifier.fillMaxSize().background(Color.Black)) {
+    Box(modifier = modifier.fillMaxSize().background(AppColors.Background)) {
         LazyRow(
             state = listState,
             modifier = Modifier

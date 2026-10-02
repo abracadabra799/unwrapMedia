@@ -109,7 +109,7 @@ fun RawPixelInspectorUI(
         centerPanel = {
             Column(modifier = Modifier.fillMaxSize()) {
                 Box(
-                    modifier = Modifier.weight(1f).fillMaxWidth().background(Color.Black),
+                    modifier = Modifier.weight(1f).fillMaxWidth().background(AppColors.Background),
                     contentAlignment = Alignment.Center,
                 ) {
                     val bitmap = tab.imageForensic?.bitmap

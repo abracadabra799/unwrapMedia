@@ -219,7 +219,7 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color(0xFF1B1B1B))
+                            .background(AppColors.Surface)
                             .padding(horizontal = 8.dp, vertical = 3.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
@@ -320,7 +320,7 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
                                         .width(frameBarWidthDp.dp)
                                         .fillMaxHeight(heightFraction)
                                         .background(colorForFrameType(frame.type))
-                                        .let { if (isSelected) it.border(2.dp, Color.White) else it }
+                                        .let { if (isSelected) it.border(2.dp, AppColors.NeonBlue) else it }
                                         .clickable { selectFrame(frame) },
                                     contentAlignment = Alignment.TopCenter,
                                 ) {

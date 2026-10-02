@@ -338,7 +338,7 @@ fun FfmpegAudioPlayer(
         }
     }
 
-    Column(modifier.fillMaxSize().background(Color.Black)) {
+    Column(modifier.fillMaxSize().background(AppColors.Background)) {
         AudioPlayerHeader(
             cursorSeconds = cursorSeconds,
             totalSeconds = info.duration,
@@ -347,7 +347,7 @@ fun FfmpegAudioPlayer(
 
         if (loadError) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text("Could not start ffmpeg playback", color = Color.White)
+                Text("Could not start ffmpeg playback", color = AppColors.NeonRed)
             }
         } else {
             AudioWaveformView(

@@ -123,7 +123,7 @@ fun VideoInspectorUI(
                         modifier = Modifier
                             .weight(videoGopSplit)
                             .fillMaxHeight()
-                            .background(Color.Black),
+                            .background(AppColors.Background),
                         contentAlignment = Alignment.Center
                     ) {
                         // The live player runs fully independently of the GOP / filmstrip panel on

@@ -402,7 +402,7 @@ fun FfmpegVideoPlayer(
     }
 
     if (probing) {
-        Box(modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+        Box(modifier.fillMaxSize().background(AppColors.Background), contentAlignment = Alignment.Center) {
             DecodingIndicator("동영상 정보 분석 중...")
         }
         return
@@ -410,8 +410,8 @@ fun FfmpegVideoPlayer(
 
     val info = probedInfo
     if (info == null) {
-        Box(modifier.fillMaxSize().background(Color.DarkGray), contentAlignment = Alignment.Center) {
-            Text("Could not read video (is ffmpeg installed?)", color = Color.White)
+        Box(modifier.fillMaxSize().background(AppColors.Surface), contentAlignment = Alignment.Center) {
+            Text("Could not read video (is ffmpeg installed?)", color = AppColors.TextSecondary)
         }
         return
     }
@@ -635,12 +635,12 @@ fun FfmpegVideoPlayer(
     }
 
     Box(
-        modifier = modifier.fillMaxSize().background(Color.Black),
+        modifier = modifier.fillMaxSize().background(AppColors.Background),
         contentAlignment = Alignment.Center,
     ) {
         val currentFrame = videoBitmap
         if (loadError) {
-            Text("Could not start ffmpeg playback", color = Color.White)
+            Text("Could not start ffmpeg playback", color = AppColors.NeonRed)
         } else if (currentFrame != null) {
             Image(bitmap = currentFrame, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
             if (LocalShowPixelGrid.current) {

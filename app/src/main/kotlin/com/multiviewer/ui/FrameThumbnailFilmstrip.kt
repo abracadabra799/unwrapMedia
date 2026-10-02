@@ -124,7 +124,7 @@ fun FrameThumbnailFilmstrip(tab: TabState, frames: List<FrameInfo>, modifier: Mo
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black),
+            .background(AppColors.Background),
     ) {
         LazyRow(
             state = listState,
@@ -190,7 +190,7 @@ fun FrameThumbnailFilmstrip(tab: TabState, frames: List<FrameInfo>, modifier: Mo
                         .aspectRatio(aspectRatio)
                         .fillMaxHeight()
                         .padding(1.dp)
-                        .let { if (isSelected) it.border(2.dp, Color.White) else it }
+                        .let { if (isSelected) it.border(2.dp, AppColors.NeonBlue) else it }
                         .clickable {
                             focusRequester.requestFocus()
                             selectFrame(frame)

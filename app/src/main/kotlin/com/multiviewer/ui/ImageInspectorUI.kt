@@ -159,7 +159,7 @@ fun ImageInspectorUI(
                             .weight(1f)
                             .fillMaxHeight()
                             .border(0.5.dp, AppColors.Border)
-                            .background(Color.Black),
+                            .background(AppColors.Background),
                         contentAlignment = Alignment.Center
                     ) {
                         forensic.embeddedThumbnail?.let {
@@ -201,7 +201,7 @@ fun ImageInspectorUI(
                             .weight(1f)
                             .fillMaxHeight()
                             .border(0.5.dp, AppColors.Border)
-                            .background(Color.Black),
+                            .background(AppColors.Background),
                         contentAlignment = Alignment.Center
                     ) {
                         forensic.bitmap?.let {
@@ -247,7 +247,7 @@ fun ImageInspectorUI(
                                 Row(
                                     modifier = Modifier
                                         .clickable { tab.isPrimaryImagePopupOpen = true }
-                                        .background(Color.Black.copy(alpha = 0.6f), shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                                        .background(AppColors.Surface.copy(alpha = 0.85f), shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
                                         .padding(horizontal = 6.dp, vertical = 2.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
@@ -278,7 +278,7 @@ fun ImageInspectorUI(
                                 .weight(1f)
                                 .fillMaxHeight()
                                 .border(0.5.dp, AppColors.Border)
-                                .background(Color.Black),
+                                .background(AppColors.Background),
                             contentAlignment = Alignment.Center
                         ) {
                             MotionPhotoVideoPreview(tab, embeddedVideo)

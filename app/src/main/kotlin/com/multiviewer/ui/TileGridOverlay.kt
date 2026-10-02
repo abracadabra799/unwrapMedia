@@ -109,7 +109,7 @@ fun resolveTileIndexAt(
 // rotateRect before the fit-scale/letterbox math runs, so it lands on the real displayed pixels.
 @Composable
 fun TileGridOverlay(tileGrid: TileGridInfo, nativeSize: Size, selectedTileIndex: Int, modifier: Modifier = Modifier) {
-    val lineColor = Color.White
+    val lineColor = AppColors.NeonBlue
     Canvas(modifier = modifier.fillMaxSize()) {
         if (nativeSize.width <= 0f || nativeSize.height <= 0f) return@Canvas
         val fitScale = minOf(size.width / nativeSize.width, size.height / nativeSize.height)

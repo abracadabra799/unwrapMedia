@@ -138,7 +138,7 @@ fun PixelInspectorPreview(
         modifier = modifier
             .fillMaxSize()
             .clipToBounds()
-            .background(Color.Black)
+            .background(AppColors.Background)
             .onGloballyPositioned { boxSize = it.size.toSize() }
             .onPointerEvent(PointerEventType.Scroll, pass = PointerEventPass.Initial) { event ->
                 val change = event.changes.firstOrNull() ?: return@onPointerEvent

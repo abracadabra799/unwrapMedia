@@ -561,7 +561,7 @@ fun GainmapImagePopupWindow(
             }
         },
     ) {
-        Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        Box(modifier = Modifier.fillMaxSize().background(AppColors.Background)) {
             val bitmap = gainmapBitmap
             if (bitmap != null) {
                 PixelInspectorPreview(

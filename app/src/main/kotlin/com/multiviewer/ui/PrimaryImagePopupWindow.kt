@@ -30,7 +30,7 @@ fun PrimaryImagePopupWindow(tab: TabState, onCloseRequest: () -> Unit) {
         title = "Primary Image - ${tab.file.name}",
         state = windowState,
     ) {
-        Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        Box(modifier = Modifier.fillMaxSize().background(AppColors.Background)) {
             if (bitmap != null) {
                 PixelInspectorPreview(
                     bitmap = bitmap,
