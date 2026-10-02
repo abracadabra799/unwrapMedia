@@ -219,6 +219,9 @@ class TabState(val file: File) {
     var av1SequenceHeader: com.multiviewer.parser.Av1SequenceHeader? by mutableStateOf(null)
     var av1SequenceHeaderOffset: LongRange? by mutableStateOf(null)
 
+    var av2SequenceHeader: com.multiviewer.parser.Av2SequenceHeader? by mutableStateOf(null)
+    var av2SequenceHeaderOffset: LongRange? by mutableStateOf(null)
+
     // AV1 Frame Header, per selected frame (see Av1FrameHeader.kt / Av1FrameHeaderAnalyzer.kt) --
     // unlike av1SequenceHeader (stream-wide), this is resolved per frame; populated all at once by
     // a sequential pass over every frame once both the parsed av1SequenceHeader and gopFrames (the

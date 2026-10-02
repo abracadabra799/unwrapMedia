@@ -47,6 +47,17 @@ fun VideoInspectorUI(
         }
     }
 
+    LaunchedEffect(tab.root) {
+        val root = tab.root ?: return@LaunchedEffect
+        val av2CNode = com.multiviewer.parser.findFirst(root) { it.type == "av2C" } ?: return@LaunchedEffect
+        withContext(Dispatchers.IO) {
+            val raw = com.multiviewer.parser.extractAv2CRawSequenceHeader(tab.file, av2CNode) ?: return@withContext
+            val seqHeader = com.multiviewer.parser.parseAv2SequenceHeader(raw.bytes) ?: return@withContext
+            tab.av2SequenceHeader = seqHeader
+            tab.av2SequenceHeaderOffset = raw.offset until raw.offset + raw.bytes.size
+        }
+    }
+
     // Parses the video track's hvcC box once per tab -- mirrors the avcC LaunchedEffect above.
     LaunchedEffect(tab.root) {
         val root = tab.root ?: return@LaunchedEffect

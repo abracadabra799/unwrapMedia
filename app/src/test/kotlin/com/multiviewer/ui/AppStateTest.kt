@@ -8,6 +8,18 @@ import kotlin.test.assertTrue
 
 class AppStateTest {
     @Test
+    fun `a video tab retains AV2 sequence metadata and its hex range`() {
+        val tab = TabState(tempFile("av2-state"))
+        val header = com.multiviewer.parser.Av2SequenceHeader(0, 1, 4, 0, false, false, 0, 0, true, 0, 10, false, 1, 1, 640, 360)
+
+        tab.av2SequenceHeader = header
+        tab.av2SequenceHeaderOffset = 10L..20L
+
+        assertEquals(header, tab.av2SequenceHeader)
+        assertEquals(10L..20L, tab.av2SequenceHeaderOffset)
+    }
+
+    @Test
     fun `AV2 extension is accepted as supported video`() {
         assertTrue("av2" in VIDEO_EXTENSIONS)
     }
