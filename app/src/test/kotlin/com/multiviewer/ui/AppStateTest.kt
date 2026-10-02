@@ -7,6 +7,11 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AppStateTest {
+    @Test
+    fun `AV2 extension is accepted as supported video`() {
+        assertTrue("av2" in VIDEO_EXTENSIONS)
+    }
+
     // .mp4, not .bin: openFile() now rejects unsupported extensions before parsing at all (see
     // AppState.openFile's hard extension gate), so fixtures need a real supported extension even
     // when the byte content itself is a trivial placeholder.
@@ -767,4 +772,3 @@ class AppStateTest {
         assertEquals(subDir, appState.lastOpenedDirectory)
     }
 }
-

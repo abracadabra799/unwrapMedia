@@ -25,7 +25,7 @@ val IMAGE_EXTENSIONS = listOf(
     // raw sensor data either.
     "cr2", "nef", "arw", "dng",
 )
-val VIDEO_EXTENSIONS = listOf("mp4", "mov", "m4v", "webm", "apv", "av1", "ivf", "avi", "flv", "wmv", "asf")
+val VIDEO_EXTENSIONS = listOf("mp4", "mov", "m4v", "webm", "apv", "av1", "av2", "ivf", "avi", "flv", "wmv", "asf")
 val AUDIO_EXTENSIONS = listOf("m4a", "mp3", "wav", "flac", "ogg", "opus", "aiff", "aif", "aifc", "aac", "wma")
 val RAW_PIXEL_EXTENSIONS = listOf("raw", "rgb", "rgba", "yuv", "nv12", "nv21")
 val RAW_AUDIO_EXTENSIONS = listOf("pcm")
