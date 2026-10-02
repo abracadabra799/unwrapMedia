@@ -155,7 +155,7 @@ enum class CompareWindowMode {
     COMPARE,
 }
 
-fun isValidCompareCount(count: Int): Boolean = count == 2 || count == 4
+fun isValidCompareCount(count: Int): Boolean = count == 2
 
 private fun formatCompareFileSize(bytes: Long): String = when {
     bytes >= 1024 * 1024 * 1024 -> "%.2f GB".format(Locale.US, bytes / (1024.0 * 1024.0 * 1024.0))
@@ -163,6 +163,97 @@ private fun formatCompareFileSize(bytes: Long): String = when {
     bytes >= 1024 -> "%.1f KB".format(Locale.US, bytes / 1024.0)
     else -> "$bytes B"
 }
+
+private object ExplorerThumbnailLoader {
+    private val cache = object : java.util.LinkedHashMap<String, ImageBitmap>(128, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?): Boolean {
+            return size > 200
+        }
+    }
+    private val inFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val thumbExecutor = Executors.newFixedThreadPool(3) { r ->
+        Thread(r).apply { isDaemon = true }
+    }
+
+    fun getThumbnail(file: File, onLoaded: (ImageBitmap) -> Unit): ImageBitmap? {
+        val path = file.absolutePath
+        synchronized(cache) {
+            val cached = cache[path]
+            if (cached != null) return cached
+        }
+
+        if (inFlight.add(path)) {
+            thumbExecutor.submit {
+                try {
+                    val ext = file.extension.lowercase(Locale.US)
+                    val isVid = ext in VIDEO_EXTENSIONS
+                    var bitmap: ImageBitmap? = null
+
+                    if (isVid) {
+                        bitmap = FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap(
+                            listOf(
+                                FfmpegLocator.ffmpegPath(), "-y",
+                                "-ss", "0.5",
+                                "-i", file.absolutePath,
+                                "-vf", "scale=160:-1",
+                                "-frames:v", "1",
+                                "-update", "1"
+                            ),
+                            tempExtension = ".jpg",
+                            timeoutMs = 8_000L,
+                        )
+                        if (bitmap == null) {
+                            bitmap = FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap(
+                                listOf(
+                                    FfmpegLocator.ffmpegPath(), "-y",
+                                    "-i", file.absolutePath,
+                                    "-vf", "scale=160:-1",
+                                    "-frames:v", "1",
+                                    "-update", "1"
+                                ),
+                                tempExtension = ".jpg",
+                                timeoutMs = 8_000L,
+                            )
+                        }
+                    } else {
+                        // Image file: try fast primary decode with Skia first
+                        val (primary, _) = ImageAnalyzer.decodePrimaryBitmapAndHistogram(file)
+                        if (primary != null) {
+                            bitmap = primary
+                        } else {
+                            // HEIC / RAW / Other: use ffmpeg scaled decode
+                            bitmap = FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap(
+                                listOf(
+                                    FfmpegLocator.ffmpegPath(), "-y",
+                                    "-i", file.absolutePath,
+                                    "-vf", "scale='min(240,iw)':-1",
+                                    "-frames:v", "1",
+                                    "-update", "1"
+                                ),
+                                tempExtension = ".png",
+                                timeoutMs = 10_000L,
+                            )
+                        }
+                    }
+
+                    if (bitmap != null) {
+                        synchronized(cache) {
+                            cache[path] = bitmap
+                        }
+                        EventQueue.invokeLater {
+                            onLoaded(bitmap)
+                        }
+                    }
+                } catch (_: Exception) {
+                } finally {
+                    inFlight.remove(path)
+                }
+            }
+        }
+        return null
+    }
+}
+
 
 enum class CompareSlot {
     SLOT_A,
@@ -226,12 +317,12 @@ fun ImageCompareWindow(
         } else {
             listOfNotNull(initialFileA, initialFileB)
         }
-        merged.take(4)
+        merged.take(2)
     }
 
     var windowMode by remember {
         mutableStateOf(
-            if (startingFiles.size == 2 || startingFiles.size == 4) CompareWindowMode.COMPARE else CompareWindowMode.EXPLORER
+            if (startingFiles.size == 2) CompareWindowMode.COMPARE else CompareWindowMode.EXPLORER
         )
     }
     var compareFiles by remember { mutableStateOf(startingFiles) }
@@ -516,11 +607,11 @@ fun ImageCompareWindow(
                     language = language,
                     initialSelected = compareFiles,
                     onOpenCompare = { files ->
-                        compareFiles = files.take(4)
+                        compareFiles = files.take(2)
                         fileA = compareFiles.getOrNull(0)
                         fileB = compareFiles.getOrNull(1)
-                        fileC = compareFiles.getOrNull(2)
-                        fileD = compareFiles.getOrNull(3)
+                        fileC = null
+                        fileD = null
                         folderA = fileA?.parentFile
                         folderB = fileB?.parentFile
                         windowMode = CompareWindowMode.COMPARE
@@ -652,152 +743,12 @@ fun ImageCompareWindow(
                             MediaCompareTab.HEX -> HexDiffView(language, fileA, fileB)
                         }
                     }
-
-                    // 4. FastStone Style Bottom Filmstrip (Quick File Switch)
-                    if (siblingMediaFiles.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        FilmstripQuickSwitch(
-                            files = siblingMediaFiles,
-                            activeFileA = fileA,
-                            activeFileB = fileB,
-                            onSelectForA = { fileA = it; folderA = it.parentFile },
-                            onSelectForB = { fileB = it; folderB = it.parentFile },
-                            language = language,
-                        )
-                    }
                 }
             }
         }
     }
 }
 
-@Composable
-private fun FilmstripQuickSwitch(
-    files: List<File>,
-    activeFileA: File?,
-    activeFileB: File?,
-    onSelectForA: (File) -> Unit,
-    onSelectForB: (File) -> Unit,
-    language: AppLanguage,
-) {
-    var expanded by remember { mutableStateOf(true) }
-
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-        shape = RoundedCornerShape(6.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("🎞️", fontSize = 11.sp)
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = if (language == AppLanguage.KO) "폴더 내 미디어 빠른 교체 (필름스트립) - ${files.size}개" else "Quick Filmstrip Switcher - ${files.size} files",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = AppColors.TextPrimary,
-                    )
-                }
-                Text(
-                    text = if (expanded) "▲ 접기" else "▼ 펼치기",
-                    fontSize = 10.sp,
-                    color = AppColors.NeonBlue,
-                    modifier = Modifier.clickable { expanded = !expanded }.padding(4.dp),
-                )
-            }
-
-            if (expanded) {
-                Spacer(Modifier.height(4.dp))
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
-                ) {
-                    items(files, key = { it.absolutePath }) { file ->
-                        val isA = activeFileA?.absolutePath == file.absolutePath
-                        val isB = activeFileB?.absolutePath == file.absolutePath
-                        val borderColor = when {
-                            isA && isB -> Color.Yellow
-                            isA -> Color(0xFF61AFEF)
-                            isB -> Color(0xFF98C379)
-                            else -> AppColors.Border
-                        }
-
-                        Surface(
-                            color = AppColors.Surface,
-                            shape = RoundedCornerShape(4.dp),
-                            border = androidx.compose.foundation.BorderStroke(if (isA || isB) 1.5.dp else 1.dp, borderColor),
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .widthIn(min = 100.dp, max = 150.dp)
-                                .padding(vertical = 1.dp),
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(horizontal = 6.dp, vertical = 3.dp),
-                                verticalArrangement = Arrangement.SpaceBetween,
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                ) {
-                                    Text(
-                                        text = file.name,
-                                        fontSize = 10.sp,
-                                        fontWeight = if (isA || isB) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isA || isB) Color.White else AppColors.TextPrimary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    if (isA) {
-                                        Text("A", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF61AFEF), modifier = Modifier.padding(start = 2.dp))
-                                    }
-                                    if (isB) {
-                                        Text("B", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF98C379), modifier = Modifier.padding(start = 2.dp))
-                                    }
-                                }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.End,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        text = "→A",
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF61AFEF),
-                                        modifier = Modifier
-                                            .clickable { onSelectForA(file) }
-                                            .padding(horizontal = 4.dp, vertical = 1.dp),
-                                    )
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(
-                                        text = "→B",
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF98C379),
-                                        modifier = Modifier
-                                            .clickable { onSelectForB(file) }
-                                            .padding(horizontal = 4.dp, vertical = 1.dp),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
 @Composable
 fun FastStoneExplorerView(
@@ -816,7 +767,16 @@ fun FastStoneExplorerView(
     }
 
     var selectedFiles by remember {
-        mutableStateOf(initialSelected.take(4))
+        mutableStateOf(initialSelected.take(2))
+    }
+
+    var toastMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(toastMessage) {
+        if (toastMessage != null) {
+            delay(2800)
+            toastMessage = null
+        }
     }
 
     var searchQuery by remember { mutableStateOf("") }
@@ -851,14 +811,20 @@ fun FastStoneExplorerView(
         if (existingIndex >= 0) {
             selectedFiles = selectedFiles.filterIndexed { index, _ -> index != existingIndex }
         } else {
-            if (selectedFiles.size < 4) {
+            if (selectedFiles.size < 2) {
                 selectedFiles = selectedFiles + file
+            } else {
+                toastMessage = if (language == AppLanguage.KO) {
+                    "⚠️ 최대 2개의 파일만 선택할 수 있습니다. 기존 선택을 해제하고 다시 선택하세요."
+                } else {
+                    "⚠️ You can select at most 2 files. Uncheck a file to select another."
+                }
             }
         }
     }
 
     fun openCompareIfValid() {
-        if (selectedFiles.size == 2 || selectedFiles.size == 4) {
+        if (selectedFiles.size == 2) {
             onOpenCompare(selectedFiles)
         }
     }
@@ -868,30 +834,31 @@ fun FastStoneExplorerView(
         explorerFocusRequester.requestFocus()
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .focusRequester(explorerFocusRequester)
-            .focusable()
-            .onKeyEvent { keyEvent ->
-                if (keyEvent.type == KeyEventType.KeyDown) {
-                    when (keyEvent.key) {
-                        Key.Spacebar, Key.Enter -> {
-                            if (selectedFiles.size == 2 || selectedFiles.size == 4) {
-                                openCompareIfValid()
-                                true
-                            } else {
-                                false
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .focusRequester(explorerFocusRequester)
+                .focusable()
+                .onKeyEvent { keyEvent ->
+                    if (keyEvent.type == KeyEventType.KeyDown) {
+                        when (keyEvent.key) {
+                            Key.Spacebar, Key.Enter -> {
+                                if (selectedFiles.size == 2) {
+                                    openCompareIfValid()
+                                    true
+                                } else {
+                                    false
+                                }
                             }
+                            else -> false
                         }
-                        else -> false
+                    } else {
+                        false
                     }
-                } else {
-                    false
                 }
-            }
-            .padding(10.dp)
-    ) {
+                .padding(10.dp)
+        ) {
         // 1. Top Navigation Bar: Breadcrumb + Search + View Mode
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
@@ -1062,18 +1029,31 @@ fun FastStoneExplorerView(
                 } else {
                     if (isGridView) {
                         LazyVerticalGrid(
-                            columns = GridCells.Adaptive(minSize = 130.dp),
+                            columns = GridCells.Adaptive(minSize = 140.dp),
                             modifier = Modifier.fillMaxSize().padding(6.dp),
                             contentPadding = PaddingValues(4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             items(mediaFiles, key = { it.absolutePath }) { file ->
                                 val selectedIndex = selectedFiles.indexOfFirst { it.absolutePath == file.absolutePath }
                                 val isSelected = selectedIndex >= 0
 
+                                var thumbnailBitmap by remember(file.absolutePath) {
+                                    mutableStateOf<ImageBitmap?>(null)
+                                }
+
+                                LaunchedEffect(file.absolutePath) {
+                                    val cached = ExplorerThumbnailLoader.getThumbnail(file) { loaded ->
+                                        thumbnailBitmap = loaded
+                                    }
+                                    if (cached != null) {
+                                        thumbnailBitmap = cached
+                                    }
+                                }
+
                                 Surface(
-                                    shape = RoundedCornerShape(6.dp),
+                                    shape = RoundedCornerShape(8.dp),
                                     color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surface,
                                     border = androidx.compose.foundation.BorderStroke(
                                         width = if (isSelected) 2.dp else 1.dp,
@@ -1081,53 +1061,87 @@ fun FastStoneExplorerView(
                                     ),
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(110.dp)
+                                        .height(145.dp)
                                         .clickable { toggleFileSelection(file) },
                                 ) {
                                     Column(
                                         modifier = Modifier.fillMaxSize().padding(6.dp),
                                         verticalArrangement = Arrangement.SpaceBetween,
                                     ) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically,
+                                        // Thumbnail / Preview Area
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(85.dp)
+                                                .clipToBounds()
+                                                .background(Color.Black.copy(alpha = 0.2f), RoundedCornerShape(4.dp)),
+                                            contentAlignment = Alignment.Center,
                                         ) {
-                                            val isVid = file.extension.lowercase(Locale.US) in VIDEO_EXTENSIONS
-                                            Text(
-                                                text = if (isVid) "🎬" else "🖼️",
-                                                fontSize = 14.sp,
-                                            )
-                                            if (isSelected) {
-                                                val badge = when (selectedIndex) {
-                                                    0 -> "①"
-                                                    1 -> "②"
-                                                    2 -> "③"
-                                                    3 -> "④"
-                                                    else -> "${selectedIndex + 1}"
-                                                }
+                                            val thumb = thumbnailBitmap
+                                            if (thumb != null) {
+                                                androidx.compose.foundation.Image(
+                                                    bitmap = thumb,
+                                                    contentDescription = file.name,
+                                                    contentScale = ContentScale.Fit,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                )
+                                            } else {
+                                                val isVid = file.extension.lowercase(Locale.US) in VIDEO_EXTENSIONS
+                                                Text(
+                                                    text = if (isVid) "🎬" else "🖼️",
+                                                    fontSize = 28.sp,
+                                                )
+                                            }
+
+                                            // Top Badge: Selection badge or Type badge
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .align(Alignment.TopStart)
+                                                    .padding(4.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.Top,
+                                            ) {
+                                                val isVid = file.extension.lowercase(Locale.US) in VIDEO_EXTENSIONS
                                                 Surface(
-                                                    color = AppColors.NeonBlue,
-                                                    shape = RoundedCornerShape(10.dp),
+                                                    color = Color.Black.copy(alpha = 0.65f),
+                                                    shape = RoundedCornerShape(3.dp),
                                                 ) {
                                                     Text(
-                                                        text = " $badge ",
-                                                        fontSize = 11.sp,
+                                                        text = if (isVid) "VIDEO" else file.extension.uppercase(Locale.US),
+                                                        fontSize = 8.sp,
                                                         fontWeight = FontWeight.Bold,
-                                                        color = Color.Black,
-                                                        modifier = Modifier.padding(horizontal = 2.dp),
+                                                        color = if (isVid) AppColors.NeonPurple else AppColors.NeonBlue,
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                                                     )
+                                                }
+
+                                                if (isSelected) {
+                                                    val badge = if (selectedIndex == 0) "①" else "②"
+                                                    Surface(
+                                                        color = AppColors.NeonBlue,
+                                                        shape = RoundedCornerShape(10.dp),
+                                                    ) {
+                                                        Text(
+                                                            text = " $badge ",
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = Color.Black,
+                                                            modifier = Modifier.padding(horizontal = 3.dp),
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
 
-                                        Column {
+                                        // File info
+                                        Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
                                             Text(
                                                 text = file.name,
                                                 fontSize = 11.sp,
                                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                                 color = if (isSelected) AppColors.NeonBlue else AppColors.TextPrimary,
-                                                maxLines = 2,
+                                                maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
                                             )
                                             Text(
@@ -1141,26 +1155,43 @@ fun FastStoneExplorerView(
                             }
                         }
                     } else {
-                        // List View
+                        // List View with thumbnail preview
                         LazyColumn(
                             modifier = Modifier.fillMaxSize().padding(6.dp),
                             contentPadding = PaddingValues(2.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             items(mediaFiles, key = { it.absolutePath }) { file ->
                                 val selectedIndex = selectedFiles.indexOfFirst { it.absolutePath == file.absolutePath }
                                 val isSelected = selectedIndex >= 0
 
+                                var thumbnailBitmap by remember(file.absolutePath) {
+                                    mutableStateOf<ImageBitmap?>(null)
+                                }
+
+                                LaunchedEffect(file.absolutePath) {
+                                    val cached = ExplorerThumbnailLoader.getThumbnail(file) { loaded ->
+                                        thumbnailBitmap = loaded
+                                    }
+                                    if (cached != null) {
+                                        thumbnailBitmap = cached
+                                    }
+                                }
+
                                 Surface(
                                     shape = RoundedCornerShape(4.dp),
-                                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) else Color.Transparent,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.4f),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        width = if (isSelected) 1.5.dp else 1.dp,
+                                        color = if (isSelected) AppColors.NeonBlue else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                    ),
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable { toggleFileSelection(file) }
-                                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                                        .padding(horizontal = 2.dp, vertical = 1.dp),
                                 ) {
                                     Row(
-                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp, horizontal = 6.dp),
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                     ) {
@@ -1169,25 +1200,39 @@ fun FastStoneExplorerView(
                                             modifier = Modifier.weight(1f),
                                         ) {
                                             if (isSelected) {
-                                                val badge = when (selectedIndex) {
-                                                    0 -> "①"
-                                                    1 -> "②"
-                                                    2 -> "③"
-                                                    3 -> "④"
-                                                    else -> "${selectedIndex + 1}"
-                                                }
+                                                val badge = if (selectedIndex == 0) "①" else "②"
                                                 Text(
                                                     text = badge,
-                                                    fontSize = 12.sp,
+                                                    fontSize = 13.sp,
                                                     fontWeight = FontWeight.Bold,
                                                     color = AppColors.NeonBlue,
                                                 )
-                                                Spacer(Modifier.width(6.dp))
-                                            } else {
-                                                val isVid = file.extension.lowercase(Locale.US) in VIDEO_EXTENSIONS
-                                                Text(if (isVid) "🎬" else "🖼️", fontSize = 12.sp)
-                                                Spacer(Modifier.width(6.dp))
+                                                Spacer(Modifier.width(8.dp))
                                             }
+
+                                            // Thumbnail icon / small preview
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(36.dp, 28.dp)
+                                                    .clipToBounds()
+                                                    .background(Color.Black.copy(alpha = 0.25f), RoundedCornerShape(3.dp)),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                val thumb = thumbnailBitmap
+                                                if (thumb != null) {
+                                                    androidx.compose.foundation.Image(
+                                                        bitmap = thumb,
+                                                        contentDescription = file.name,
+                                                        contentScale = ContentScale.Crop,
+                                                        modifier = Modifier.fillMaxSize(),
+                                                    )
+                                                } else {
+                                                    val isVid = file.extension.lowercase(Locale.US) in VIDEO_EXTENSIONS
+                                                    Text(if (isVid) "🎬" else "🖼️", fontSize = 12.sp)
+                                                }
+                                            }
+
+                                            Spacer(Modifier.width(8.dp))
 
                                             Text(
                                                 text = file.name,
@@ -1237,7 +1282,7 @@ fun FastStoneExplorerView(
                         color = AppColors.TextPrimary,
                     )
                     Text(
-                        text = "$count / 4",
+                        text = "$count / 2",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = if (isValidCount) AppColors.NeonGreen else if (count > 0) AppColors.NeonYellow else AppColors.TextSecondary,
@@ -1247,13 +1292,7 @@ fun FastStoneExplorerView(
                         Spacer(Modifier.width(8.dp))
                         Text(
                             text = "( " + selectedFiles.mapIndexed { idx, f ->
-                                val badge = when (idx) {
-                                    0 -> "①"
-                                    1 -> "②"
-                                    2 -> "③"
-                                    3 -> "④"
-                                    else -> "${idx + 1}"
-                                }
+                                val badge = if (idx == 0) "①" else "②"
                                 "$badge ${f.name}"
                             }.joinToString(", ") + " )",
                             fontSize = 11.sp,
@@ -1276,12 +1315,12 @@ fun FastStoneExplorerView(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (!isValidCount && count > 0) {
+                    if (!isValidCount && count == 1) {
                         Text(
                             text = if (language == AppLanguage.KO) {
-                                "비교는 짝수개(2개 또는 4개)를 선택해야 합니다"
+                                "비교할 1개의 파일을 더 선택하세요 (최대 2개)"
                             } else {
-                                "Select 2 or 4 files to compare"
+                                "Select 1 more file to compare (max 2)"
                             },
                             fontSize = 11.sp,
                             color = AppColors.NeonYellow,
@@ -1293,18 +1332,14 @@ fun FastStoneExplorerView(
                         onClick = { openCompareIfValid() },
                         enabled = isValidCount,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (count == 4) AppColors.NeonPurple else AppColors.NeonGreen,
+                            containerColor = AppColors.NeonGreen,
                             disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
                         ),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                         modifier = Modifier.height(34.dp),
                     ) {
                         Text(
-                            text = if (count == 4) {
-                                if (language == AppLanguage.KO) "⚖️ 4분할 비교 열기 (Space / Enter)" else "⚖️ Open 4-Split Compare (Space / Enter)"
-                            } else {
-                                if (language == AppLanguage.KO) "⚖️ 2분할 비교 열기 (Space / Enter)" else "⚖️ Open 2-Split Compare (Space / Enter)"
-                            },
+                            text = if (language == AppLanguage.KO) "⚖️ 2분할 비교 열기 (Space / Enter)" else "⚖️ Open 2-Split Compare (Space / Enter)",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = if (isValidCount) Color.Black else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
@@ -1314,6 +1349,32 @@ fun FastStoneExplorerView(
             }
         }
     }
+
+    // Warning Toast Popup
+    if (toastMessage != null) {
+        Surface(
+            color = Color(0xFF2B1D0C),
+            shape = RoundedCornerShape(8.dp),
+            border = androidx.compose.foundation.BorderStroke(1.5.dp, AppColors.NeonYellow),
+            shadowElevation = 8.dp,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 60.dp),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = toastMessage ?: "",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AppColors.NeonYellow,
+                )
+            }
+        }
+    }
+}
 }
 
 @Composable

@@ -137,14 +137,13 @@ class CompareFileSelectionTest {
     }
 
     @Test
-    fun `isValidCompareCount returns true only for exactly 2 or 4 files`() {
+    fun `isValidCompareCount returns true only for exactly 2 files`() {
         assertEquals(false, isValidCompareCount(0))
         assertEquals(false, isValidCompareCount(1))
         assertEquals(true, isValidCompareCount(2))
         assertEquals(false, isValidCompareCount(3))
-        assertEquals(true, isValidCompareCount(4))
+        assertEquals(false, isValidCompareCount(4))
         assertEquals(false, isValidCompareCount(5))
-        assertEquals(false, isValidCompareCount(6))
     }
 }
 
