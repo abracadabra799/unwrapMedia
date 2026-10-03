@@ -99,7 +99,9 @@ jobs:
             -DENABLE_TOOLS=0 `
             -DENABLE_DOCS=0
           if ($LASTEXITCODE -ne 0) { throw "CMake configuration for the optional AVM encoder failed" }
-          cmake --build avm/build-smoke --config Release --target avmenc --parallel
+          # Keep this opt-in smoke build within the memory limits of the hosted Windows runner.
+          # The encoder is only used to produce a tiny test stream, so an unoptimized build is enough.
+          cmake --build avm/build-smoke --config Debug --target avmenc --parallel 1
           if ($LASTEXITCODE -ne 0) { throw "Building the optional AVM encoder failed" }
 
       - name: Smoke-test bundled AVM decoder (Windows)
