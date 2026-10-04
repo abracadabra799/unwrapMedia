@@ -5,7 +5,11 @@ import androidx.compose.ui.graphics.asSkiaBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import com.multiviewer.ui.HistogramData
 import com.multiviewer.ui.ImageForensicData
+import org.jetbrains.skia.Bitmap
+import org.jetbrains.skia.Codec
+import org.jetbrains.skia.Data
 import org.jetbrains.skia.Image
+import org.jetbrains.skia.ImageInfo
 import org.jetbrains.skia.Rect
 import org.jetbrains.skia.Surface
 import java.io.File
@@ -225,8 +229,35 @@ object ImageAnalyzer {
      */
     fun decodeThumbnail(file: File, longestEdge: Int): ImageBitmap? {
         require(longestEdge > 0) { "longestEdge must be positive" }
+        val encoded = try {
+            file.readBytes()
+        } catch (_: Exception) {
+            null
+        } ?: return null
+
+        val scaled = try {
+            Data.makeFromBytes(encoded).use { data ->
+                Codec.makeFromData(data).use { codec ->
+                    val (width, height) = thumbnailDecodeDimensions(codec.width, codec.height, longestEdge)
+                    val bitmap = Bitmap()
+                    try {
+                        check(bitmap.allocPixels(ImageInfo.makeN32Premul(width, height)))
+                        codec.readPixels(bitmap)
+                        Image.makeFromBitmap(bitmap).toComposeImageBitmap()
+                    } finally {
+                        bitmap.close()
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            null
+        }
+        if (scaled != null) return scaled
+
+        // Keep the existing decode-and-scale path for formats whose codec cannot produce the
+        // requested output size (for example, some HEIF/RAW variants).
         val source = try {
-            Image.makeFromEncoded(file.readBytes())
+            Image.makeFromEncoded(encoded)
         } catch (_: Exception) {
             null
         } ?: return null
@@ -234,12 +265,20 @@ object ImageAnalyzer {
         val sourceLongest = maxOf(source.width, source.height)
         if (sourceLongest <= longestEdge) return source.toComposeImageBitmap()
 
-        val scale = longestEdge.toFloat() / sourceLongest
-        val targetWidth = (source.width * scale).toInt().coerceAtLeast(1)
-        val targetHeight = (source.height * scale).toInt().coerceAtLeast(1)
+        val (targetWidth, targetHeight) = thumbnailDecodeDimensions(source.width, source.height, longestEdge)
         val surface = Surface.makeRasterN32Premul(targetWidth, targetHeight)
         surface.canvas.drawImageRect(source, Rect.makeWH(targetWidth.toFloat(), targetHeight.toFloat()))
         return surface.makeImageSnapshot().toComposeImageBitmap()
+    }
+
+    internal fun thumbnailDecodeDimensions(width: Int, height: Int, longestEdge: Int): Pair<Int, Int> {
+        require(width > 0 && height > 0) { "Image dimensions must be positive" }
+        require(longestEdge > 0) { "longestEdge must be positive" }
+        val sourceLongest = maxOf(width, height)
+        if (sourceLongest <= longestEdge) return width to height
+        val scale = longestEdge.toDouble() / sourceLongest
+        return (width * scale).toInt().coerceAtLeast(1) to
+            (height * scale).toInt().coerceAtLeast(1)
     }
 
     private fun orientationLabel(code: Int): String = when (code) {

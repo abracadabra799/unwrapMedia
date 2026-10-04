@@ -10,6 +10,12 @@ import kotlin.test.assertTrue
 
 class ImageAnalyzerTest {
     @Test
+    fun `thumbnail decode dimensions preserve aspect ratio and fit the requested edge`() {
+        assertEquals(240 to 160, ImageAnalyzer.thumbnailDecodeDimensions(12000, 8000, 240))
+        assertEquals(80 to 40, ImageAnalyzer.thumbnailDecodeDimensions(80, 40, 240))
+    }
+
+    @Test
     fun `decodeThumbnail returns a bitmap bounded by the requested longest edge`() {
         val image = BufferedImage(1200, 600, BufferedImage.TYPE_INT_RGB)
         val file = File.createTempFile("image-analyzer-thumbnail-test", ".jpg")
