@@ -8,6 +8,14 @@ import kotlin.test.assertNull
 class CompareFileSelectionTest {
     private fun f(name: String) = File("/tmp/$name")
 
+    @Test
+    fun `visual comparison is the first media compare tab`() {
+        assertEquals(
+            listOf(MediaCompareTab.VISUAL, MediaCompareTab.STRUCTURE, MediaCompareTab.METADATA, MediaCompareTab.HEX),
+            MediaCompareTab.entries,
+        )
+    }
+
     // Picking two files in one browse is the whole point of turning on multi-select: it replaces
     // two separate trips through the file dialog with one.
     @Test
@@ -146,4 +154,3 @@ class CompareFileSelectionTest {
         assertEquals(false, isValidCompareCount(5))
     }
 }
-

@@ -79,9 +79,9 @@ private val compareExecutor = Executors.newFixedThreadPool(4) { runnable ->
 }
 
 enum class MediaCompareTab {
+    VISUAL,
     STRUCTURE,
     METADATA,
-    VISUAL,
     HEX,
 }
 
@@ -344,7 +344,7 @@ fun ImageCompareWindow(
     }
     var compareFiles by remember { mutableStateOf(startingFiles) }
 
-    var selectedTab by remember { mutableStateOf(MediaCompareTab.STRUCTURE) }
+    var selectedTab by remember { mutableStateOf(MediaCompareTab.VISUAL) }
     var fileA by remember { mutableStateOf(compareFiles.getOrNull(0) ?: initialFileA) }
     var fileB by remember { mutableStateOf(compareFiles.getOrNull(1) ?: initialFileB) }
     var fileC by remember { mutableStateOf(compareFiles.getOrNull(2)) }
@@ -631,6 +631,7 @@ fun ImageCompareWindow(
                         fileD = null
                         folderA = fileA?.parentFile
                         folderB = fileB?.parentFile
+                        selectedTab = MediaCompareTab.VISUAL
                         windowMode = CompareWindowMode.COMPARE
                     },
                 )
@@ -720,23 +721,43 @@ fun ImageCompareWindow(
                         modifier = Modifier.fillMaxWidth().height(42.dp),
                     ) {
                         Tab(
+                            selected = selectedTab == MediaCompareTab.VISUAL,
+                            onClick = { selectedTab = MediaCompareTab.VISUAL },
+                            modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp).border(
+                                width = 1.dp,
+                                color = if (selectedTab == MediaCompareTab.VISUAL) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                shape = RoundedCornerShape(4.dp),
+                            ),
+                            text = { Text(if (language == AppLanguage.KO) "시각적 프레임/픽셀 비교 (Visual)" else "Visual Diff") },
+                        )
+                        Tab(
                             selected = selectedTab == MediaCompareTab.STRUCTURE,
                             onClick = { selectedTab = MediaCompareTab.STRUCTURE },
+                            modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp).border(
+                                width = 1.dp,
+                                color = if (selectedTab == MediaCompareTab.STRUCTURE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                shape = RoundedCornerShape(4.dp),
+                            ),
                             text = { Text(if (language == AppLanguage.KO) "구조 트리 비교 (Structure)" else "Structure Diff") },
                         )
                         Tab(
                             selected = selectedTab == MediaCompareTab.METADATA,
                             onClick = { selectedTab = MediaCompareTab.METADATA },
+                            modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp).border(
+                                width = 1.dp,
+                                color = if (selectedTab == MediaCompareTab.METADATA) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                shape = RoundedCornerShape(4.dp),
+                            ),
                             text = { Text(if (language == AppLanguage.KO) "메타데이터 비교 (Metadata)" else "Metadata Diff") },
-                        )
-                        Tab(
-                            selected = selectedTab == MediaCompareTab.VISUAL,
-                            onClick = { selectedTab = MediaCompareTab.VISUAL },
-                            text = { Text(if (language == AppLanguage.KO) "시각적 프레임/픽셀 비교 (Visual)" else "Visual Diff") },
                         )
                         Tab(
                             selected = selectedTab == MediaCompareTab.HEX,
                             onClick = { selectedTab = MediaCompareTab.HEX },
+                            modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp).border(
+                                width = 1.dp,
+                                color = if (selectedTab == MediaCompareTab.HEX) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                shape = RoundedCornerShape(4.dp),
+                            ),
                             text = { Text(if (language == AppLanguage.KO) "Hex 바이너리 비교 (Hex)" else "Hex Diff") },
                         )
                     }
