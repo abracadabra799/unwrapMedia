@@ -172,7 +172,7 @@ jobs:
           & $ffmpeg -y -f lavfi -i "testsrc=duration=1:size=64x64:rate=1" -frames:v 1 -pix_fmt yuv420p -f yuv4mpegpipe smoke-input.y4m
           if ($LASTEXITCODE -ne 0) { throw "ffmpeg failed to generate the AV2 smoke-test input" }
 
-          & $avmenc --obu --cpu-used=10 --end-usage=q --qp=120 --lag-in-frames=0 -o smoke.obu smoke-input.y4m
+          & $avmenc --obu --cpu-used=9 --end-usage=q --qp=120 --lag-in-frames=0 -o smoke.obu smoke-input.y4m
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path smoke.obu) -or (Get-Item smoke.obu).Length -eq 0) { throw "avmenc failed to create the AV2 smoke-test stream" }
 
           & $avmdec smoke.obu -o decoded.y4m
