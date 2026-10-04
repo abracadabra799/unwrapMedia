@@ -52,7 +52,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Deb)
             packageName = "unwrapMedia"
-            packageVersion = "1.19.2"
+            packageVersion = "1.19.3"
             appResourcesRootDir.set(project.layout.projectDirectory.dir("resources"))
 
             macOS {

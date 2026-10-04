@@ -1,7 +1,7 @@
 {
-  "version": "1.19.2",
-  "releaseDate": "2026-10-02",
-  "releaseNotes": "• 라이트 테마 색감 조정: 눈부심 완화를 위해 소프트 라이트 그레이 톤으로 최적화\n• 라이트 테마 하단 이미지/썸네일/동영상 뷰어 패널의 배경색 테마 일치화\n• 픽셀 그리드 및 타일 오버레이 라인 색상 테마 가독성 개선",
+  "version": "1.19.3",
+  "releaseDate": "2026-10-04",
+  "releaseNotes": "• Windows AV2 동영상 재생 지원\n• 미디어 비교 분석기 썸네일 축소 디코딩으로 고해상도 이미지 로딩 개선\n• 시각적/픽셀 비교 탭을 첫 번째 기본 탭으로 배치하고 비교 탭 경계 가독성 개선",
   "windowsUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest",
   "macUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest"
 }
