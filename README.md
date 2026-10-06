@@ -14,7 +14,6 @@
 
 View still images alongside parsed container structure, EXIF and camera metadata, image dimensions, color information, and synchronized hex data. When a JPEG contains an embedded EXIF thumbnail, unwrapMedia can show it next to the full-resolution image. Gain-map and HDR metadata tools help inspect modern image formats and their auxiliary images.
 
-The showcase JPEGs include small embedded EXIF thumbnails, so the preview is part of the file—not a README decoration.
 
 ### Video playback and frame analysis
 
@@ -48,7 +47,6 @@ Try [campfire-motion-photo.jpg](docs/showcase-media/images/campfire-motion-photo
 
 Compare two files to inspect visual pixel differences, metadata, container structure, and byte-level changes. For video quality work, the benchmark tools report metrics such as VMAF, PSNR, and SSIM.
 
-The [cat comparison pair](docs/showcase-media/images/) contains two nearly matching images for visual comparison: the second has a teal collar and bell. Open both files and choose **Tools → Compare Files**.
 
 ### Audio playback and analysis
 
