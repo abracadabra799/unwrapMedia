@@ -79,3 +79,41 @@ Full suite after the fix:
 Output: `BUILD SUCCESSFUL in 21s` (8 actionable tasks; 1 executed, 7 up-to-date). The JVM printed the same two macOS input-method initialization notices; the suite passed.
 
 `git diff --check` produced no output and exited `0` for this follow-up before commit.
+
+## Whole-branch review follow-up: source fingerprint and scheduled lookahead
+
+### Source-aware memory cache
+
+The in-memory thumbnail cache now stores source file length and modification time with each absolute-path entry. Lookup compares both values and removes stale entries before returning; replacement content at the same path therefore proceeds through the normal disk-cache/decode path. Added `ThumbnailMemoryCacheTest` / `same path with changed file fingerprint misses stale bitmap`, which hits the old entry, rewrites the same file path with different content, confirms a miss, and stores/reads the replacement result.
+
+### Actual viewport lookahead scheduling
+
+Grid viewport updates now compute the immediately following row, update the visible/prefetch path sets, reprioritize queued work, and invoke `ThumbnailLookaheadScheduler` to request each item in that row. The scheduler calls the same loader request path as composed cells. Prefetch-only work uses a registry reservation with no placeholder listener; repeated scheduling deduplicates, a later visible request attaches its callback, and final publication/failure removes the reservation. Only that next row is explicitly scheduled; existing off-row background requests and list-mode common priority remain in place.
+
+Added `ThumbnailLookaheadSchedulerTest` / `viewport schedules exactly the immediately following row`, which checks the actual queue entries and their prefetch priority. Added `ThumbnailRequestRegistryTest` / `prefetch reservation deduplicates without placeholder listeners` to verify one reservation, later listener attachment, and terminal cleanup.
+
+RED command:
+
+```text
+./gradlew test --tests 'com.multiviewer.ui.ThumbnailMemoryCacheTest' --tests 'com.multiviewer.ui.ThumbnailLookaheadSchedulerTest' --tests 'com.multiviewer.ui.ThumbnailRequestRegistryTest' --no-daemon
+```
+
+The test compile failed as expected because `ThumbnailMemoryCache`, `ThumbnailLookaheadScheduler`, and registry `ensure` had not yet been implemented.
+
+Focused GREEN command (same selectors):
+
+```text
+./gradlew test --tests 'com.multiviewer.ui.ThumbnailMemoryCacheTest' --tests 'com.multiviewer.ui.ThumbnailLookaheadSchedulerTest' --tests 'com.multiviewer.ui.ThumbnailRequestRegistryTest' --no-daemon
+```
+
+Output: `BUILD SUCCESSFUL in 7s` (8 actionable tasks; 4 executed, 4 up-to-date).
+
+Full suite:
+
+```text
+./gradlew test --no-daemon
+```
+
+Output: `BUILD SUCCESSFUL in 20s` (8 actionable tasks; 1 executed, 7 up-to-date). The JVM printed two macOS input-method initialization notices; the suite passed.
+
+`git diff --check` is run for this follow-up before commit.

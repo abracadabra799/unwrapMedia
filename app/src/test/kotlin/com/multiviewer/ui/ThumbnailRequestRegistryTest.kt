@@ -2,8 +2,23 @@ package com.multiviewer.ui
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class ThumbnailRequestRegistryTest {
+    @Test
+    fun `prefetch reservation deduplicates without placeholder listeners`() {
+        val registry = ThumbnailRequestRegistry<String>()
+        val delivered = mutableListOf<String>()
+
+        assertTrue(registry.ensure("prefetched"))
+        assertFalse(registry.ensure("prefetched"))
+        assertFalse(registry.add("prefetched", delivered::add))
+
+        registry.publish("prefetched", "final", isFinal = true).forEach { it("final") }
+        assertEquals(listOf("final"), delivered)
+    }
+
     @Test
     fun `non-final preview keeps listeners for the final bitmap`() {
         val registry = ThumbnailRequestRegistry<String>()

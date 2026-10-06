@@ -26,3 +26,14 @@ internal fun thumbnailPriorityForIndex(
     index in prefetchIndices -> 1
     else -> 2
 }
+
+/** Schedules the immediately following grid row whenever the viewport changes. */
+internal class ThumbnailLookaheadScheduler<T>(
+    private val schedule: (index: Int, item: T) -> Unit,
+) {
+    fun update(items: List<T>, visibleIndices: Set<Int>, columnCount: Int) {
+        thumbnailPrefetchIndices(visibleIndices, columnCount, items.size)
+            .sorted()
+            .forEach { index -> schedule(index, items[index]) }
+    }
+}

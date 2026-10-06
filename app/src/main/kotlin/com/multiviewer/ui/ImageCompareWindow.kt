@@ -185,6 +185,16 @@ internal class ThumbnailRequestRegistry<T> {
         }
     }
 
+    /** Reserves a request for prefetch work that has no UI subscriber yet. */
+    fun ensure(key: String): Boolean = synchronized(listeners) {
+        if (listeners.containsKey(key)) {
+            false
+        } else {
+            listeners[key] = mutableListOf()
+            true
+        }
+    }
+
     fun publish(key: String, value: T, isFinal: Boolean): List<(T) -> Unit> = synchronized(listeners) {
         val waiting = if (isFinal) listeners.remove(key).orEmpty() else listeners[key].orEmpty()
         waiting.toList()
@@ -203,16 +213,15 @@ private object ExplorerThumbnailLoader {
     private val diskCache by lazy {
         ThumbnailDiskCache(File(System.getProperty("user.home"), ".unwrapMedia/cache/thumbnails"))
     }
-    private val cache = object : java.util.LinkedHashMap<String, ImageBitmap>(128, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?): Boolean {
-            return size > 200
-        }
-    }
+    private val cache = ThumbnailMemoryCache<ImageBitmap>()
     private val requests = ThumbnailRequestRegistry<ImageBitmap>()
     private val workQueue = ThumbnailPriorityQueue()
     private val visiblePaths = mutableSetOf<String>()
     private val prefetchPaths = mutableSetOf<String>()
     private var listMode = false
+    private val lookaheadScheduler = ThumbnailLookaheadScheduler<File> { index, file ->
+        requestThumbnail(file, index, onLoaded = null)
+    }
     private val workers = Executors.newFixedThreadPool(3) { r ->
         Thread(r).apply { isDaemon = true }
     }.also { executor ->
@@ -232,7 +241,7 @@ private object ExplorerThumbnailLoader {
     fun updateGridViewport(
         files: List<File>,
         visibleIndices: Set<Int>,
-        prefetchIndices: Set<Int>,
+        columnCount: Int = 1,
         listMode: Boolean = false,
     ) {
         synchronized(visiblePaths) {
@@ -240,29 +249,38 @@ private object ExplorerThumbnailLoader {
             visiblePaths.clear()
             prefetchPaths.clear()
             visibleIndices.forEach { index -> files.getOrNull(index)?.let { visiblePaths += it.absolutePath } }
+            val prefetchIndices = if (listMode) emptySet() else
+                thumbnailPrefetchIndices(visibleIndices, columnCount, files.size)
             prefetchIndices.forEach { index -> files.getOrNull(index)?.let { prefetchPaths += it.absolutePath } }
             workQueue.reprioritize { key -> priorityForPath(key) }
         }
+        if (!listMode) lookaheadScheduler.update(files, visibleIndices, columnCount)
     }
 
-    fun getThumbnail(file: File, itemIndex: Int? = null, onLoaded: (ImageBitmap) -> Unit): ImageBitmap? {
+    fun getThumbnail(file: File, itemIndex: Int? = null, onLoaded: (ImageBitmap) -> Unit): ImageBitmap? =
+        requestThumbnail(file, itemIndex, onLoaded)
+
+    private fun requestThumbnail(
+        file: File,
+        itemIndex: Int?,
+        onLoaded: ((ImageBitmap) -> Unit)?,
+    ): ImageBitmap? {
         val path = file.absolutePath
         val requestedAt = System.nanoTime()
         val ext = file.extension.lowercase(Locale.US)
-        synchronized(cache) {
-            val cached = cache[path]
-            if (cached != null) {
-                ThumbnailMetrics.record(
-                    event = "thumbnail",
-                    mediaType = ext,
-                    elapsedMs = (System.nanoTime() - requestedAt) / 1_000_000,
-                    result = "cache_hit",
-                )
-                return cached
-            }
+        val cached = cache.get(file)
+        if (cached != null) {
+            ThumbnailMetrics.record(
+                event = "thumbnail",
+                mediaType = ext,
+                elapsedMs = (System.nanoTime() - requestedAt) / 1_000_000,
+                result = "cache_hit",
+            )
+            return cached
         }
 
-        if (requests.add(path, onLoaded)) {
+        val shouldStart = if (onLoaded == null) requests.ensure(path) else requests.add(path, onLoaded)
+        if (shouldStart) {
             val initialPriority = synchronized(visiblePaths) {
                 if (itemIndex == null) 0 else thumbnailPriorityForPath(path, visiblePaths, prefetchPaths, listMode)
             }
@@ -290,7 +308,7 @@ private object ExplorerThumbnailLoader {
                     if (cachedBitmap != null) {
                         route = "disk_cache"
                         result = route
-                        synchronized(cache) { cache[path] = cachedBitmap }
+                        cache.put(file, cachedBitmap)
                         publishThumbnail(path, cachedBitmap, true, ext, sourceBytes, queueMs, decodeStarted, requestedAt, result)
                         delivered = true
                     } else {
@@ -324,7 +342,7 @@ private object ExplorerThumbnailLoader {
                             publish = { source, loaded, isFinal ->
                                 if (isFinal) {
                                     result = route
-                                    synchronized(cache) { cache[path] = loaded }
+                                    cache.put(source, loaded)
                                     delivered = true
                                 }
                                 publishThumbnail(path, loaded, isFinal, ext, sourceBytes, queueMs, decodeStarted, requestedAt, result)
@@ -1205,7 +1223,7 @@ fun FastStoneExplorerView(
                     val gridState = rememberLazyGridState()
                     LaunchedEffect(isGridView, gridState, mediaFiles) {
                         if (!isGridView) {
-                            ExplorerThumbnailLoader.updateGridViewport(emptyList(), emptySet(), emptySet(), listMode = true)
+                            ExplorerThumbnailLoader.updateGridViewport(emptyList(), emptySet(), columnCount = 1, listMode = true)
                         } else {
                             snapshotFlow {
                                 val visibleItems = gridState.layoutInfo.visibleItemsInfo
@@ -1216,7 +1234,7 @@ fun FastStoneExplorerView(
                                 ExplorerThumbnailLoader.updateGridViewport(
                                     mediaFiles,
                                     visibleIndices,
-                                    thumbnailPrefetchIndices(visibleIndices, columnCount, mediaFiles.size),
+                                    columnCount,
                                 )
                             }
                         }
