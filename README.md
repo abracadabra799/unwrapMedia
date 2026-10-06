@@ -65,7 +65,7 @@ Try the generated [gentle-tones.wav](docs/showcase-media/audio/gentle-tones.wav)
 
 ## Diagnose timing and file health
 
-### A/V sync and frame timing
+### A/V sync and dropped-frame analysis
 
 The A/V sync analyzer compares audio and video presentation timelines to help investigate offset and duration differences. Frame-interval analysis visualizes timestamp spacing and irregular intervals that may indicate timing problems or dropped-frame candidates; it is diagnostic evidence, not a guarantee that every capture-side drop can be identified.
 
