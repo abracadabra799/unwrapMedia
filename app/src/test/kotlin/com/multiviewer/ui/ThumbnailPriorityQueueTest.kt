@@ -51,6 +51,22 @@ class ThumbnailPriorityQueueTest {
     }
 
     @Test
+    fun `list mode gives existing and new requests one FIFO priority`() {
+        val queue = ThumbnailPriorityQueue()
+        queue.enqueue("older-list-request", 2) {}
+        queue.enqueue("newer-grid-request", 0) {}
+
+        queue.reprioritize { key ->
+            thumbnailPriorityForPath(key, visiblePaths = emptySet(), prefetchPaths = emptySet(), listMode = true)
+        }
+        queue.enqueue("new-list-request", priority = 0) {}
+
+        val work = List(3) { queue.takeNext() }
+        assertEquals(listOf("older-list-request", "newer-grid-request", "new-list-request"), work.map { it.key })
+        assertEquals(listOf(0, 0, 0), work.map { it.priority })
+    }
+
+    @Test
     fun `enqueue deduplicates a pending key`() {
         val queue = ThumbnailPriorityQueue()
         var originalActionRan = false

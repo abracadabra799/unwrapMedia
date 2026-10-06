@@ -212,6 +212,7 @@ private object ExplorerThumbnailLoader {
     private val workQueue = ThumbnailPriorityQueue()
     private val visiblePaths = mutableSetOf<String>()
     private val prefetchPaths = mutableSetOf<String>()
+    private var listMode = false
     private val workers = Executors.newFixedThreadPool(3) { r ->
         Thread(r).apply { isDaemon = true }
     }.also { executor ->
@@ -228,8 +229,14 @@ private object ExplorerThumbnailLoader {
         }
     }
 
-    fun updateGridViewport(files: List<File>, visibleIndices: Set<Int>, prefetchIndices: Set<Int>) {
+    fun updateGridViewport(
+        files: List<File>,
+        visibleIndices: Set<Int>,
+        prefetchIndices: Set<Int>,
+        listMode: Boolean = false,
+    ) {
         synchronized(visiblePaths) {
+            this.listMode = listMode
             visiblePaths.clear()
             prefetchPaths.clear()
             visibleIndices.forEach { index -> files.getOrNull(index)?.let { visiblePaths += it.absolutePath } }
@@ -256,12 +263,8 @@ private object ExplorerThumbnailLoader {
         }
 
         if (requests.add(path, onLoaded)) {
-            val initialPriority = if (itemIndex == null) 0 else synchronized(visiblePaths) {
-                when {
-                    path in visiblePaths -> 0
-                    path in prefetchPaths -> 1
-                    else -> 2
-                }
+            val initialPriority = synchronized(visiblePaths) {
+                if (itemIndex == null) 0 else thumbnailPriorityForPath(path, visiblePaths, prefetchPaths, listMode)
             }
             workQueue.enqueue(path, initialPriority) {
                 val workerStarted = System.nanoTime()
@@ -347,11 +350,8 @@ private object ExplorerThumbnailLoader {
         return null
     }
 
-    private fun priorityForPath(path: String): Int = when {
-        path in visiblePaths -> 0
-        path in prefetchPaths -> 1
-        else -> 2
-    }
+    private fun priorityForPath(path: String): Int =
+        thumbnailPriorityForPath(path, visiblePaths, prefetchPaths, listMode)
 
     private fun publishThumbnail(
         path: String, bitmap: ImageBitmap, isFinal: Boolean, ext: String,
@@ -1205,7 +1205,7 @@ fun FastStoneExplorerView(
                     val gridState = rememberLazyGridState()
                     LaunchedEffect(isGridView, gridState, mediaFiles) {
                         if (!isGridView) {
-                            ExplorerThumbnailLoader.updateGridViewport(emptyList(), emptySet(), emptySet())
+                            ExplorerThumbnailLoader.updateGridViewport(emptyList(), emptySet(), emptySet(), listMode = true)
                         } else {
                             snapshotFlow {
                                 val visibleItems = gridState.layoutInfo.visibleItemsInfo

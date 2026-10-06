@@ -52,3 +52,15 @@ internal class ThumbnailPriorityQueue {
         true
     }
 }
+
+internal fun thumbnailPriorityForPath(
+    path: String,
+    visiblePaths: Set<String>,
+    prefetchPaths: Set<String>,
+    listMode: Boolean,
+): Int = when {
+    listMode -> 0
+    path in visiblePaths -> 0
+    path in prefetchPaths -> 1
+    else -> 2
+}
