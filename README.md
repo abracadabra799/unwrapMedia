@@ -4,16 +4,15 @@
 
 **unwrapMedia** is a desktop media viewer and forensic analysis workbench. It brings playback, visual inspection, container structure, metadata, and byte-level data together so engineers can understand not only what a media file looks like, but how it is built.
 
-<p align="center">
-  <img src="docs/screenshots/showcase/01-image-analysis.jpg" width="920" alt="A silver tabby cat in unwrapMedia's image inspector, with the embedded EXIF thumbnail beside the full-resolution image" />
-</p>
-
 ## Explore the media
 
 ### Image viewing and analysis
 
 View still images alongside parsed container structure, EXIF and camera metadata, image dimensions, color information, and synchronized hex data. When a JPEG contains an embedded EXIF thumbnail, unwrapMedia can show it next to the full-resolution image. Gain-map and HDR metadata tools help inspect modern image formats and their auxiliary images.
 
+<p align="center">
+  <img src="docs/screenshots/showcase/01-image-analysis.jpg" width="920" alt="A silver tabby cat in unwrapMedia's image inspector, with the embedded EXIF thumbnail beside the full-resolution image" />
+</p>
 
 ### Video playback and frame analysis
 

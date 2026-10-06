@@ -4,15 +4,15 @@
 
 **unwrapMedia**는 데스크톱 미디어 뷰어이자 포렌식 분석 도구입니다. 이미지·동영상·오디오를 재생하고, 컨테이너 구조와 메타데이터, 바이트 데이터를 함께 살펴볼 수 있어 파일이 어떻게 구성되었는지 분석할 수 있습니다.
 
-<p align="center">
-  <img src="docs/screenshots/showcase/01-image-analysis.jpg" width="920" alt="unwrapMedia 이미지 분석기에서 EXIF 내장 썸네일과 원본 해상도 이미지를 나란히 보여주는 은색 고양이 사진" />
-</p>
-
 ## 미디어 열기와 분석
 
 ### 이미지 뷰잉 및 분석
 
 이미지를 보면서 컨테이너 구조, EXIF·카메라 메타데이터, 크기와 색상 정보를 확인할 수 있습니다. JPEG에 EXIF 내장 썸네일이 있으면 원본 이미지와 나란히 표시합니다. 게인맵·HDR 도구로 최신 이미지 포맷과 보조 이미지도 살펴볼 수 있습니다.
+
+<p align="center">
+  <img src="docs/screenshots/showcase/01-image-analysis.jpg" width="920" alt="unwrapMedia 이미지 분석기에서 EXIF 내장 썸네일과 원본 해상도 이미지를 나란히 보여주는 은색 고양이 사진" />
+</p>
 
 ### 동영상 재생 및 프레임 분석
 
