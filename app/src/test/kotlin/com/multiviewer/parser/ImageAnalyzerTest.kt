@@ -7,8 +7,70 @@ import javax.imageio.ImageIO
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.test.assertNull
 
 class ImageAnalyzerTest {
+    @Test
+    fun `decodeEmbeddedJpegThumbnail returns a bounded bitmap for a JPEG with IFD1 thumbnail`() {
+        val file = jpegWithIfd1Thumbnail(outOfBounds = false)
+
+        val bitmap = ImageAnalyzer.decodeEmbeddedJpegThumbnail(file, longestEdge = 24)
+
+        assertEquals(24, bitmap?.width)
+        assertEquals(12, bitmap?.height)
+    }
+
+    @Test
+    fun `decodeEmbeddedJpegThumbnail returns null when IFD1 thumbnail is absent`() {
+        val file = jpegWithIfd1Thumbnail(outOfBounds = false, includeThumbnail = false)
+
+        assertNull(ImageAnalyzer.decodeEmbeddedJpegThumbnail(file, longestEdge = 24))
+    }
+
+    @Test
+    fun `decodeEmbeddedJpegThumbnail returns null for an out-of-bounds IFD1 thumbnail`() {
+        val file = jpegWithIfd1Thumbnail(outOfBounds = true)
+
+        assertNull(ImageAnalyzer.decodeEmbeddedJpegThumbnail(file, longestEdge = 24))
+    }
+
+    private fun jpegWithIfd1Thumbnail(outOfBounds: Boolean, includeThumbnail: Boolean = true): File {
+        val mainImage = BufferedImage(80, 40, BufferedImage.TYPE_INT_RGB)
+        val mainFile = File.createTempFile("embedded-thumbnail-main", ".jpg").apply { deleteOnExit() }
+        ImageIO.write(mainImage, "jpg", mainFile)
+        val thumbnailFile = File.createTempFile("embedded-thumbnail-thumb", ".jpg").apply { deleteOnExit() }
+        ImageIO.write(BufferedImage(48, 24, BufferedImage.TYPE_INT_RGB), "jpg", thumbnailFile)
+        val thumbnail = thumbnailFile.readBytes()
+
+        fun u16(value: Int) = byteArrayOf(value.toByte(), (value ushr 8).toByte())
+        fun u32(value: Int) = byteArrayOf(value.toByte(), (value ushr 8).toByte(), (value ushr 16).toByte(), (value ushr 24).toByte())
+        val tiff = ArrayList<Byte>()
+        tiff.addAll("II".encodeToByteArray().toList())
+        tiff.addAll(byteArrayOf(42, 0).toList())
+        tiff.addAll(u32(8).toList()) // IFD0
+        tiff.addAll(u16(0).toList())
+        tiff.addAll(u32(14).toList()) // IFD1 follows the empty IFD0
+        if (includeThumbnail) {
+            tiff.addAll(u16(2).toList())
+            tiff.addAll(u16(0x0201).toList()); tiff.addAll(u16(4).toList()); tiff.addAll(u32(1).toList())
+            tiff.addAll(u32(if (outOfBounds) 0x7fffffff else 44).toList())
+            tiff.addAll(u16(0x0202).toList()); tiff.addAll(u16(4).toList()); tiff.addAll(u32(1).toList())
+            tiff.addAll(u32(thumbnail.size).toList())
+            tiff.addAll(u32(0).toList())
+            tiff.addAll(thumbnail.toList())
+        } else {
+            tiff.addAll(u16(0).toList())
+            tiff.addAll(u32(0).toList())
+        }
+        val exif = "Exif\u0000\u0000".encodeToByteArray() + tiff.toByteArray()
+        val segment = byteArrayOf(0xFF.toByte(), 0xE1.toByte()) +
+            byteArrayOf(((exif.size + 2) ushr 8).toByte(), (exif.size + 2).toByte()) + exif
+        val original = mainFile.readBytes()
+        val file = File.createTempFile("embedded-thumbnail-fixture", ".jpg").apply { deleteOnExit() }
+        file.writeBytes(original.copyOfRange(0, 2) + segment + original.copyOfRange(2, original.size))
+        return file
+    }
+
     @Test
     fun `thumbnail decode dimensions preserve aspect ratio and fit the requested edge`() {
         assertEquals(240 to 160, ImageAnalyzer.thumbnailDecodeDimensions(12000, 8000, 240))

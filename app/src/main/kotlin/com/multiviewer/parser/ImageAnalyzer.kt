@@ -271,6 +271,41 @@ object ImageAnalyzer {
         return surface.makeImageSnapshot().toComposeImageBitmap()
     }
 
+    /** Decodes only an EXIF/embedded JPEG thumbnail, without rasterizing the primary image. */
+    fun decodeEmbeddedJpegThumbnail(file: File, longestEdge: Int): ImageBitmap? {
+        require(longestEdge > 0) { "longestEdge must be positive" }
+        return try {
+            ByteReader.open(file).use { reader ->
+                if (reader.length < 2 || reader.readUInt8(0) != 0xFF || reader.readUInt8(1) != 0xD8) {
+                    return@use null
+                }
+                val root = BoxNode(
+                    type = "root", offset = 0, headerSize = 0, size = reader.length,
+                    children = parseJpegSegments(reader, 0, reader.length),
+                )
+                val image = tryExtractEmbeddedJpeg(reader, root).image ?: return@use null
+                try {
+                    val (width, height) = thumbnailDecodeDimensions(image.width, image.height, longestEdge)
+                    if (width == image.width && height == image.height) {
+                        image.toComposeImageBitmap()
+                    } else {
+                        val surface = Surface.makeRasterN32Premul(width, height)
+                        try {
+                            surface.canvas.drawImageRect(image, Rect.makeWH(width.toFloat(), height.toFloat()))
+                            surface.makeImageSnapshot().use { it.toComposeImageBitmap() }
+                        } finally {
+                            surface.close()
+                        }
+                    }
+                } finally {
+                    image.close()
+                }
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     internal fun thumbnailDecodeDimensions(width: Int, height: Int, longestEdge: Int): Pair<Int, Int> {
         require(width > 0 && height > 0) { "Image dimensions must be positive" }
         require(longestEdge > 0) { "longestEdge must be positive" }
