@@ -69,11 +69,19 @@ Try the generated [gentle-tones.wav](docs/showcase-media/audio/gentle-tones.wav)
 
 The A/V sync analyzer compares audio and video presentation timelines to help investigate offset and duration differences. Frame-interval analysis visualizes timestamp spacing and irregular intervals that may indicate timing problems or dropped-frame candidates; it is diagnostic evidence, not a guarantee that every capture-side drop can be identified.
 
+<p align="center">
+  <img src="docs/screenshots/showcase/07-frame-interval-analysis.jpg" width="920" alt="unwrapMedia frame-interval analysis showing a 125 ms timestamp gap against the clip's 42.4 ms baseline" />
+</p>
+
 Use [avsync-frame-gap.mp4](docs/showcase-media/video/avsync-frame-gap.mp4) to try both tools. This synthetic clip intentionally includes an audio delay and a video timestamp gap; see the sample-media notes for details.
 
 ### AI-assisted diagnosis
 
-Structure checks flag parser-detected warnings, and the AI prompt generator prepares file-specific technical context that you can provide to an AI assistant. unwrapMedia generates the prompt; it does not require or bundle an AI service.
+Structure checks flag parser-detected warnings, and the AI prompt generator prepares file-specific technical context that you can provide to an AI assistant. unwrapMedia generates the prompt; it does not require or bundle an AI service. On Windows, the prompt window can open an embedded PowerShell session. The terminal pane shown here is an illustrative Windows example, not a live PowerShell capture.
+
+<p align="center">
+  <img src="docs/screenshots/showcase/06-ai-cli-powershell.jpg" width="920" alt="unwrapMedia's AI analysis prompt beside an illustrative Windows PowerShell panel showing the claude CLI command and pasted media-analysis context" />
+</p>
 
 ### Structure tree, hex viewer, and CLI
 
@@ -87,10 +95,13 @@ The small, synthetic showcase assets are in [`docs/showcase-media/`](docs/showca
 
 | Category | Examples |
 |---|---|
-| Images | JPEG, PNG, GIF, WebP, AVIF, HEIC/HEIF, BMP, TIFF, camera RAW |
-| Video | MP4, MOV, M4V, WebM, IVF; AVC/H.264, HEVC/H.265, AV1, APV, VP8/VP9, Dolby Vision |
-| Audio | WAV, MP3, M4A/AAC, FLAC, OGG/Opus, AIFF, raw PCM |
-| Raw pixels | YUV (`NV12`, `NV21`, `I420`), RGB/RGBA dumps |
+| Images | JPEG/JPG, PNG, GIF, WebP, AVIF, HEIC/HEIF, BMP, TIFF/TIF, camera RAW (CR2, NEF, ARW, DNG; metadata and embedded-preview inspection) |
+| Video containers/files | MP4, MOV, M4V, WebM, IVF, AVI, FLV, WMV, ASF; standalone AV1 and APV streams |
+| Video codecs | AVC/H.264, HEVC/H.265, AV1, AV2 (Windows playback), APV, VP8/VP9, Dolby Vision |
+| Audio | WAV, MP3, M4A, AAC, FLAC, OGG, Opus, AIFF/AIF/AIFC, WMA, raw PCM |
+| Raw pixels | RAW, RGB, RGBA, YUV, NV12, NV21 |
+
+Codec playback and analysis depend on the container, stream profile, and available decoder. AV2 playback is currently Windows-only.
 
 ## Get started
 

@@ -70,11 +70,19 @@
 
 A/V 싱크 분석기는 오디오·비디오 프레젠테이션 타임라인을 비교해 오프셋과 재생 시간 차이를 조사합니다. 프레임 간격 분석은 타임스탬프 간격을 시각화해 불규칙한 타이밍이나 프레임 드랍 가능성을 살펴봅니다. 진단 결과는 분석 근거이며, 캡처 단계의 모든 프레임 손실을 확정하는 것은 아닙니다.
 
+<p align="center">
+  <img src="docs/screenshots/showcase/07-frame-interval-analysis.jpg" width="920" alt="기준 42.4ms와 약 125ms의 타임스탬프 간격을 보여주는 unwrapMedia 프레임 간격 분석 화면" />
+</p>
+
 [avsync-frame-gap.mp4](docs/showcase-media/video/avsync-frame-gap.mp4)는 두 기능을 시험하기 위한 합성 샘플입니다. 의도적인 오디오 지연과 비디오 타임스탬프 간격이 포함되어 있습니다. 자세한 내용은 샘플 미디어 설명을 확인하세요.
 
 ### AI 보조 진단
 
-구조 검사는 파서가 감지한 경고를 보여주며, AI 프롬프트 생성 기능은 파일별 기술 정보를 정리해 외부 AI 도우미에 전달할 수 있게 합니다. unwrapMedia가 프롬프트를 만들며 AI 서비스를 내장하거나 요구하지 않습니다.
+구조 검사는 파서가 감지한 경고를 보여주며, AI 프롬프트 생성 기능은 파일별 기술 정보를 정리해 외부 AI 도우미에 전달할 수 있게 합니다. unwrapMedia가 프롬프트를 만들며 AI 서비스를 내장하거나 요구하지 않습니다. Windows에서는 프롬프트 창에서 PowerShell을 앱 안에 열 수 있습니다. 화면 오른쪽 터미널은 실제 Windows 캡처가 아닌 PowerShell 사용 흐름 예시입니다.
+
+<p align="center">
+  <img src="docs/screenshots/showcase/06-ai-cli-powershell.jpg" width="920" alt="unwrapMedia AI 분석 프롬프트와 claude 명령 및 붙여넣은 미디어 분석 내용을 보여주는 Windows PowerShell 예시 화면" />
+</p>
 
 ### 구조 트리, 헥스 뷰어 및 CLI
 
@@ -88,10 +96,13 @@ A/V 싱크 분석기는 오디오·비디오 프레젠테이션 타임라인을 
 
 | 분류 | 예시 |
 |---|---|
-| 이미지 | JPEG, PNG, GIF, WebP, AVIF, HEIC/HEIF, BMP, TIFF, 카메라 RAW |
-| 비디오 | MP4, MOV, M4V, WebM, IVF; AVC/H.264, HEVC/H.265, AV1, APV, VP8/VP9, Dolby Vision |
-| 오디오 | WAV, MP3, M4A/AAC, FLAC, OGG/Opus, AIFF, Raw PCM |
-| Raw 픽셀 | YUV (`NV12`, `NV21`, `I420`), RGB/RGBA 덤프 |
+| 이미지 | JPEG/JPG, PNG, GIF, WebP, AVIF, HEIC/HEIF, BMP, TIFF/TIF, 카메라 RAW (CR2, NEF, ARW, DNG; 메타데이터 및 내장 프리뷰 분석) |
+| 비디오 컨테이너/파일 | MP4, MOV, M4V, WebM, IVF, AVI, FLV, WMV, ASF; 독립 AV1 및 APV 스트림 |
+| 비디오 코덱 | AVC/H.264, HEVC/H.265, AV1, AV2 (Windows 재생), APV, VP8/VP9, Dolby Vision |
+| 오디오 | WAV, MP3, M4A, AAC, FLAC, OGG, Opus, AIFF/AIF/AIFC, WMA, Raw PCM |
+| Raw 픽셀 | RAW, RGB, RGBA, YUV, NV12, NV21 |
+
+코덱 재생과 분석 가능 여부는 컨테이너, 스트림 프로파일, 사용 가능한 디코더에 따라 달라집니다. 현재 AV2 재생은 Windows 전용입니다.
 
 ## 시작하기
 
