@@ -69,8 +69,12 @@ class ThumbnailDiskCache(
     }
 
     @Synchronized
-    fun remove(source: File, longestEdge: Int) {
-        cacheFile(source, longestEdge).delete()
+    fun remove(source: File, longestEdge: Int) =
+        remove(source, longestEdge, ThumbnailSourceFingerprint.capture(source))
+
+    @Synchronized
+    fun remove(source: File, longestEdge: Int, fingerprint: ThumbnailSourceFingerprint) {
+        cacheFile(source, longestEdge, fingerprint).delete()
     }
 
     /** Stable, path-private cache key; source metadata and output size invalidate stale entries. */

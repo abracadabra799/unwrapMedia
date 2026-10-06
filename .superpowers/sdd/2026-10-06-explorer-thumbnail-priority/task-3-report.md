@@ -151,3 +151,35 @@ Full suite:
 Output: `BUILD SUCCESSFUL in 20s` (8 actionable tasks; 1 executed, 7 up-to-date). The JVM printed two macOS input-method initialization notices; the suite passed.
 
 `git diff --check` is run for this follow-up before commit.
+
+## Review follow-up: version-aware removal of corrupt cache entries
+
+The worker now removes undecodable disk-cache bytes using the fingerprint captured when that load began. This prevents a source replacement after lookup from causing removal of the replacement version's valid cache entry. `ThumbnailDiskCache.remove(source, longestEdge, fingerprint)` targets the specific version key; the existing overload still removes the current version.
+
+Added `ThumbnailDiskCacheTest` / `removing invalid old cache entry preserves replacement fingerprint entry`. It writes old and replacement entries under distinct fingerprints, removes the old key, and confirms the replacement bytes remain available through current-version lookup.
+
+RED:
+
+```text
+./gradlew test --tests 'com.multiviewer.cache.ThumbnailDiskCacheTest.removing invalid old cache entry preserves replacement fingerprint entry' --no-daemon
+```
+
+Compilation failed as expected because `remove` did not yet accept a `fingerprint` argument.
+
+Focused GREEN:
+
+```text
+./gradlew test --tests 'com.multiviewer.cache.ThumbnailDiskCacheTest' --no-daemon
+```
+
+Output: `BUILD SUCCESSFUL in 7s` (8 actionable tasks; 4 executed, 4 up-to-date).
+
+Full suite:
+
+```text
+./gradlew test --no-daemon
+```
+
+Output: `BUILD SUCCESSFUL in 28s` (8 actionable tasks; 1 executed, 7 up-to-date). The JVM printed two macOS input-method initialization notices; the suite passed.
+
+`git diff --check` produced no output and exited `0` for this follow-up before commit.

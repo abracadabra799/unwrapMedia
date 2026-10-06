@@ -68,6 +68,29 @@ class ThumbnailDiskCacheTest {
     }
 
     @Test
+    fun `removing invalid old cache entry preserves replacement fingerprint entry`() {
+        val root = Files.createTempDirectory("thumbnail-disk-cache-versioned-remove").toFile()
+        try {
+            val source = File(root, "photo.jpg").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+            val cache = ThumbnailDiskCache(File(root, "cache"), maxBytes = 1024L)
+            val oldFingerprint = ThumbnailSourceFingerprint.capture(source)
+            val oldBytes = byteArrayOf(0)
+            cache.put(source, longestEdge = 240, encodedThumbnail = oldBytes, fingerprint = oldFingerprint)
+
+            source.writeBytes(byteArrayOf(9, 8, 7, 6))
+            val replacementBytes = byteArrayOf(5, 4, 3, 2)
+            cache.put(source, longestEdge = 240, encodedThumbnail = replacementBytes)
+
+            cache.remove(source, longestEdge = 240, fingerprint = oldFingerprint)
+
+            assertContentEquals(replacementBytes, cache.get(source, longestEdge = 240))
+            assertNull(cache.get(source, longestEdge = 240, fingerprint = oldFingerprint))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `evicts least recently used entries to stay under size limit`() {
         val root = Files.createTempDirectory("thumbnail-disk-cache-eviction").toFile()
         try {

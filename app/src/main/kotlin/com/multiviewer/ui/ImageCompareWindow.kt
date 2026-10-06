@@ -306,7 +306,9 @@ private object ExplorerThumbnailLoader {
                             }
                         }.getOrNull()
                     }
-                    if (cachedBytes != null && cachedBitmap == null) diskCache.remove(file, longestEdge = 240)
+                    if (cachedBytes != null && cachedBitmap == null) {
+                        diskCache.remove(file, longestEdge = 240, fingerprint = sourceFingerprint)
+                    }
                     if (cachedBitmap != null) {
                         route = "disk_cache"
                         result = route
