@@ -69,6 +69,24 @@ class ThumbnailLoadingCoordinatorTest {
         assertEquals(listOf("publish:large:true"), events)
     }
 
+    @Test
+    fun `source change during final decode prevents stale persist and publication`() {
+        val source = File.createTempFile("thumbnail-source-race", ".jpg")
+        try {
+            source.writeText("source before decode")
+            val events = mutableListOf<String>()
+            coordinator(
+                preview = { null },
+                decode = { source.writeText("replacement source during decode"); events += "decode"; "stale bitmap" },
+                events = events,
+            ).load(source)
+
+            assertEquals(listOf("decode", "finish"), events)
+        } finally {
+            source.delete()
+        }
+    }
+
     private fun coordinator(
         preview: (File) -> String?,
         decode: (File) -> String?,
@@ -77,7 +95,7 @@ class ThumbnailLoadingCoordinatorTest {
     ) = ThumbnailLoadCoordinator(
         preview = preview,
         decodeFinal = decode,
-        persistFinal = persist,
+        persistFinal = { source, value, _ -> persist(source, value) },
         publish = { _, value, isFinal -> events += "publish:$value:$isFinal" },
         finishWithoutBitmap = { events += "finish" },
     )

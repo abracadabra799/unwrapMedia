@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.rememberWindowState
 import com.multiviewer.cache.ThumbnailDiskCache
+import com.multiviewer.cache.ThumbnailSourceFingerprint
 import com.multiviewer.parser.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -285,6 +286,7 @@ private object ExplorerThumbnailLoader {
                 if (itemIndex == null) 0 else thumbnailPriorityForPath(path, visiblePaths, prefetchPaths, listMode)
             }
             workQueue.enqueue(path, initialPriority) {
+                val sourceFingerprint = ThumbnailSourceFingerprint.capture(file)
                 val workerStarted = System.nanoTime()
                 val queueMs = (workerStarted - requestedAt) / 1_000_000
                 val sourceBytes = runCatching { file.length() }.getOrNull()
@@ -293,7 +295,7 @@ private object ExplorerThumbnailLoader {
                 var result = "failed"
                 var delivered = false
                 try {
-                    val cachedBytes = diskCache.get(file, longestEdge = 240)
+                    val cachedBytes = diskCache.get(file, longestEdge = 240, fingerprint = sourceFingerprint)
                     val cachedBitmap = cachedBytes?.let { bytes ->
                         runCatching {
                             val image = SkiaImage.makeFromEncoded(bytes) ?: return@runCatching null
@@ -308,9 +310,13 @@ private object ExplorerThumbnailLoader {
                     if (cachedBitmap != null) {
                         route = "disk_cache"
                         result = route
-                        cache.put(file, cachedBitmap)
-                        publishThumbnail(path, cachedBitmap, true, ext, sourceBytes, queueMs, decodeStarted, requestedAt, result)
-                        delivered = true
+                        if (sourceFingerprint.matches(file)) {
+                            cache.put(file, cachedBitmap, sourceFingerprint)
+                            publishThumbnail(path, file, cachedBitmap, true, sourceFingerprint, ext, sourceBytes, queueMs, decodeStarted, requestedAt, result)
+                            delivered = true
+                        } else {
+                            requests.finish(path)
+                        }
                     } else {
                         val coordinator = ThumbnailLoadCoordinator<ImageBitmap>(
                             preview = { source ->
@@ -336,20 +342,26 @@ private object ExplorerThumbnailLoader {
                                     }
                                 }
                             },
-                            persistFinal = { source, finalBitmap ->
-                                if (route != "disk_cache") encodeAndPersist(source, ext, finalBitmap)
+                            persistFinal = { source, finalBitmap, fingerprint ->
+                                if (route != "disk_cache" && fingerprint.matches(source)) {
+                                    encodeAndPersist(source, ext, finalBitmap, fingerprint)
+                                }
                             },
                             publish = { source, loaded, isFinal ->
-                                if (isFinal) {
-                                    result = route
-                                    cache.put(source, loaded)
-                                    delivered = true
+                                if (!sourceFingerprint.matches(source)) {
+                                    requests.finish(path)
+                                } else {
+                                    if (isFinal) {
+                                        result = route
+                                        cache.put(source, loaded, sourceFingerprint)
+                                        delivered = true
+                                    }
+                                    publishThumbnail(path, source, loaded, isFinal, sourceFingerprint, ext, sourceBytes, queueMs, decodeStarted, requestedAt, result)
                                 }
-                                publishThumbnail(path, loaded, isFinal, ext, sourceBytes, queueMs, decodeStarted, requestedAt, result)
                             },
                             finishWithoutBitmap = { requests.finish(path) },
                         )
-                        coordinator.load(file)
+                        coordinator.load(file, sourceFingerprint)
                     }
                 } catch (_: Exception) {
                     result = "error_$route"
@@ -372,12 +384,17 @@ private object ExplorerThumbnailLoader {
         thumbnailPriorityForPath(path, visiblePaths, prefetchPaths, listMode)
 
     private fun publishThumbnail(
-        path: String, bitmap: ImageBitmap, isFinal: Boolean, ext: String,
+        path: String, source: File, bitmap: ImageBitmap, isFinal: Boolean,
+        fingerprint: ThumbnailSourceFingerprint, ext: String,
         sourceBytes: Long?, queueMs: Long, decodeStarted: Long, requestedAt: Long, result: String,
     ) {
         val listeners = requests.publish(path, bitmap, isFinal)
         val decodeFinishedAt = System.nanoTime()
         EventQueue.invokeLater {
+            if (!fingerprint.matches(source)) {
+                requests.finish(path)
+                return@invokeLater
+            }
             val publishedAt = System.nanoTime()
             if (isFinal) ThumbnailMetrics.record(
                 event = "thumbnail", mediaType = ext, sourceBytes = sourceBytes, queueMs = queueMs,
@@ -389,13 +406,18 @@ private object ExplorerThumbnailLoader {
         }
     }
 
-    private fun encodeAndPersist(file: File, ext: String, bitmap: ImageBitmap) {
+    private fun encodeAndPersist(
+        file: File,
+        ext: String,
+        bitmap: ImageBitmap,
+        fingerprint: ThumbnailSourceFingerprint,
+    ) {
         val skiaImage = SkiaImage.makeFromBitmap(bitmap.asSkiaBitmap())
         try {
             val format = if (ext in LOSSLESS_THUMBNAIL_EXTENSIONS) EncodedImageFormat.PNG else EncodedImageFormat.JPEG
             val encoded = skiaImage.encodeToData(format, 88) ?: return
             try {
-                diskCache.put(file, longestEdge = 240, encodedThumbnail = encoded.bytes)
+                diskCache.put(file, longestEdge = 240, encodedThumbnail = encoded.bytes, fingerprint = fingerprint)
             } finally {
                 encoded.close()
             }

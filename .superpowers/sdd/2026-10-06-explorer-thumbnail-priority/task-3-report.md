@@ -117,3 +117,37 @@ Full suite:
 Output: `BUILD SUCCESSFUL in 20s` (8 actionable tasks; 1 executed, 7 up-to-date). The JVM printed two macOS input-method initialization notices; the suite passed.
 
 `git diff --check` is run for this follow-up before commit.
+
+## Review follow-up: fingerprint the entire load
+
+The worker now captures an immutable `ThumbnailSourceFingerprint` (source length and modification time) as soon as queued work begins, before disk-cache lookup or decode. That same fingerprint is used to look up the disk cache, validate the source before preview/final publication and persistence, and tag memory-cache entries. `ThumbnailLoadCoordinator` finishes pending listeners without publication or persistence if the source changes during preview/final decoding or persistence. The asynchronous UI callback also rechecks the source immediately before invoking listeners.
+
+Disk-cache `get`, `put`, and key generation accept the captured fingerprint. A source edit between the final pre-persist check and the disk write therefore stores the old pixels under the old fingerprint key, which cannot be returned for the replacement source.
+
+Added `ThumbnailLoadingCoordinatorTest` / `source change during final decode prevents stale persist and publication`. Its decoder replaces the source; the coordinator then records only decode and terminal listener cleanup. Added `ThumbnailDiskCacheTest` / `put after source change uses the fingerprint captured before decode`, which proves the write uses the captured key and is invisible through lookup for the replacement fingerprint.
+
+RED command:
+
+```text
+./gradlew test --tests 'com.multiviewer.ui.ThumbnailLoadingCoordinatorTest' --tests 'com.multiviewer.cache.ThumbnailDiskCacheTest' --no-daemon
+```
+
+The test compile failed as expected because captured-fingerprint APIs were not yet present (`ThumbnailSourceFingerprint`, fingerprint-aware disk-cache overloads, and the coordinator persistence fingerprint argument).
+
+Focused GREEN command:
+
+```text
+./gradlew test --tests 'com.multiviewer.ui.ThumbnailLoadingCoordinatorTest' --tests 'com.multiviewer.cache.ThumbnailDiskCacheTest' --no-daemon
+```
+
+Output: `BUILD SUCCESSFUL in 7s` (8 actionable tasks; 4 executed, 4 up-to-date).
+
+Full suite:
+
+```text
+./gradlew test --no-daemon
+```
+
+Output: `BUILD SUCCESSFUL in 20s` (8 actionable tasks; 1 executed, 7 up-to-date). The JVM printed two macOS input-method initialization notices; the suite passed.
+
+`git diff --check` is run for this follow-up before commit.

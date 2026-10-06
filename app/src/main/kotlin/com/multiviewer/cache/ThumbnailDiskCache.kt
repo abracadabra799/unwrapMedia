@@ -7,6 +7,14 @@ import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.UUID
 
+data class ThumbnailSourceFingerprint(val length: Long, val lastModified: Long) {
+    fun matches(source: File): Boolean = length == source.length() && lastModified == source.lastModified()
+
+    companion object {
+        fun capture(source: File) = ThumbnailSourceFingerprint(source.length(), source.lastModified())
+    }
+}
+
 /** Bounded disk cache for already-encoded explorer thumbnails. */
 class ThumbnailDiskCache(
     private val directory: File,
@@ -17,8 +25,12 @@ class ThumbnailDiskCache(
     }
 
     @Synchronized
-    fun get(source: File, longestEdge: Int): ByteArray? {
-        val cachedFile = cacheFile(source, longestEdge)
+    fun get(source: File, longestEdge: Int): ByteArray? =
+        get(source, longestEdge, ThumbnailSourceFingerprint.capture(source))
+
+    @Synchronized
+    fun get(source: File, longestEdge: Int, fingerprint: ThumbnailSourceFingerprint): ByteArray? {
+        val cachedFile = cacheFile(source, longestEdge, fingerprint)
         if (!cachedFile.isFile) return null
         return try {
             cachedFile.setLastModified(System.currentTimeMillis())
@@ -30,11 +42,15 @@ class ThumbnailDiskCache(
     }
 
     @Synchronized
-    fun put(source: File, longestEdge: Int, encodedThumbnail: ByteArray) {
+    fun put(source: File, longestEdge: Int, encodedThumbnail: ByteArray) =
+        put(source, longestEdge, encodedThumbnail, ThumbnailSourceFingerprint.capture(source))
+
+    @Synchronized
+    fun put(source: File, longestEdge: Int, encodedThumbnail: ByteArray, fingerprint: ThumbnailSourceFingerprint) {
         if (encodedThumbnail.isEmpty() || maxBytes == 0L) return
         if (!directory.exists() && !directory.mkdirs()) return
 
-        val destination = cacheFile(source, longestEdge)
+        val destination = cacheFile(source, longestEdge, fingerprint)
         val temp = File(directory, "${destination.name}.${UUID.randomUUID()}.tmp")
         try {
             FileOutputStream(temp).use { stream ->
@@ -58,15 +74,21 @@ class ThumbnailDiskCache(
     }
 
     /** Stable, path-private cache key; source metadata and output size invalidate stale entries. */
-    fun cacheKeyFor(source: File, longestEdge: Int): String {
+    fun cacheKeyFor(source: File, longestEdge: Int): String =
+        cacheKeyFor(source, longestEdge, ThumbnailSourceFingerprint.capture(source))
+
+    fun cacheKeyFor(source: File, longestEdge: Int, fingerprint: ThumbnailSourceFingerprint): String {
         require(longestEdge > 0) { "longestEdge must be positive" }
         val canonicalPath = runCatching { source.canonicalPath }.getOrDefault(source.absolutePath)
-        val identity = "v1|$canonicalPath|${source.length()}|${source.lastModified()}|$longestEdge"
+        val identity = "v1|$canonicalPath|${fingerprint.length}|${fingerprint.lastModified}|$longestEdge"
         return sha256(identity)
     }
 
     private fun cacheFile(source: File, longestEdge: Int): File =
-        File(directory, "${cacheKeyFor(source, longestEdge)}.thumb")
+        cacheFile(source, longestEdge, ThumbnailSourceFingerprint.capture(source))
+
+    private fun cacheFile(source: File, longestEdge: Int, fingerprint: ThumbnailSourceFingerprint): File =
+        File(directory, "${cacheKeyFor(source, longestEdge, fingerprint)}.thumb")
 
     private fun evictToLimit(protectedFile: File) {
         val entries = directory.listFiles { file -> file.isFile && file.extension == "thumb" }

@@ -46,6 +46,28 @@ class ThumbnailDiskCacheTest {
     }
 
     @Test
+    fun `put after source change uses the fingerprint captured before decode`() {
+        val root = Files.createTempDirectory("thumbnail-disk-cache-captured-key").toFile()
+        try {
+            val source = File(root, "photo.jpg").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+            val cache = ThumbnailDiskCache(File(root, "cache"), maxBytes = 1024L)
+            val captured = ThumbnailSourceFingerprint.capture(source)
+            val oldKey = cache.cacheKeyFor(source, longestEdge = 240, fingerprint = captured)
+            val oldPixels = byteArrayOf(6, 5, 4)
+
+            source.writeBytes(byteArrayOf(9, 8, 7, 6))
+            cache.put(source, longestEdge = 240, encodedThumbnail = oldPixels, fingerprint = captured)
+
+            assertNull(cache.get(source, longestEdge = 240))
+            assertContentEquals(oldPixels, cache.get(source, longestEdge = 240, fingerprint = captured))
+            assertEquals(oldKey, cache.cacheKeyFor(source, longestEdge = 240, fingerprint = captured))
+            assertNotEquals(oldKey, cache.cacheKeyFor(source, longestEdge = 240))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `evicts least recently used entries to stay under size limit`() {
         val root = Files.createTempDirectory("thumbnail-disk-cache-eviction").toFile()
         try {

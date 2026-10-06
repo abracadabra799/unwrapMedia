@@ -1,10 +1,11 @@
 package com.multiviewer.ui
 
 import java.io.File
+import com.multiviewer.cache.ThumbnailSourceFingerprint
 
 /** Access-ordered thumbnail cache whose entries are invalidated when the source file changes. */
 internal class ThumbnailMemoryCache<T>(private val maxEntries: Int = 200) {
-    private data class Entry<T>(val length: Long, val lastModified: Long, val value: T)
+    private data class Entry<T>(val fingerprint: ThumbnailSourceFingerprint, val value: T)
 
     private val entries = LinkedHashMap<String, Entry<T>>(128, 0.75f, true)
 
@@ -16,7 +17,7 @@ internal class ThumbnailMemoryCache<T>(private val maxEntries: Int = 200) {
     fun get(file: File): T? {
         val path = file.absolutePath
         val entry = entries[path] ?: return null
-        if (entry.length != file.length() || entry.lastModified != file.lastModified()) {
+        if (!entry.fingerprint.matches(file)) {
             entries.remove(path)
             return null
         }
@@ -24,8 +25,11 @@ internal class ThumbnailMemoryCache<T>(private val maxEntries: Int = 200) {
     }
 
     @Synchronized
-    fun put(file: File, value: T) {
-        entries[file.absolutePath] = Entry(file.length(), file.lastModified(), value)
+    fun put(file: File, value: T) = put(file, value, ThumbnailSourceFingerprint.capture(file))
+
+    @Synchronized
+    fun put(file: File, value: T, fingerprint: ThumbnailSourceFingerprint) {
+        entries[file.absolutePath] = Entry(fingerprint, value)
         if (entries.size > maxEntries) {
             val oldestKey = entries.entries.iterator().next().key
             entries.remove(oldestKey)
