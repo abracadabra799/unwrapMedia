@@ -13,7 +13,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -22,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -63,6 +65,7 @@ import com.multiviewer.cache.ThumbnailDiskCache
 import com.multiviewer.parser.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -182,11 +185,16 @@ internal class ThumbnailRequestRegistry<T> {
         }
     }
 
-    fun complete(key: String, value: T): List<() -> Unit> = synchronized(listeners) {
-        listeners.remove(key).orEmpty().map { listener -> { listener(value) } }
+    fun publish(key: String, value: T, isFinal: Boolean): List<(T) -> Unit> = synchronized(listeners) {
+        val waiting = if (isFinal) listeners.remove(key).orEmpty() else listeners[key].orEmpty()
+        waiting.toList()
     }
 
-    fun discard(key: String) {
+    /** Compatibility adapter for callers that previously requested a one-shot completion. */
+    fun complete(key: String, value: T): List<() -> Unit> =
+        publish(key, value, isFinal = true).map { listener -> { listener(value) } }
+
+    fun finish(key: String) {
         synchronized(listeners) { listeners.remove(key) }
     }
 }
@@ -201,11 +209,36 @@ private object ExplorerThumbnailLoader {
         }
     }
     private val requests = ThumbnailRequestRegistry<ImageBitmap>()
-    private val thumbExecutor = Executors.newFixedThreadPool(3) { r ->
+    private val workQueue = ThumbnailPriorityQueue()
+    private val visiblePaths = mutableSetOf<String>()
+    private val prefetchPaths = mutableSetOf<String>()
+    private val workers = Executors.newFixedThreadPool(3) { r ->
         Thread(r).apply { isDaemon = true }
+    }.also { executor ->
+        repeat(3) {
+            executor.submit {
+                while (!Thread.currentThread().isInterrupted) {
+                    try {
+                        workQueue.takeNext().action()
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                    }
+                }
+            }
+        }
     }
 
-    fun getThumbnail(file: File, onLoaded: (ImageBitmap) -> Unit): ImageBitmap? {
+    fun updateGridViewport(files: List<File>, visibleIndices: Set<Int>, prefetchIndices: Set<Int>) {
+        synchronized(visiblePaths) {
+            visiblePaths.clear()
+            prefetchPaths.clear()
+            visibleIndices.forEach { index -> files.getOrNull(index)?.let { visiblePaths += it.absolutePath } }
+            prefetchIndices.forEach { index -> files.getOrNull(index)?.let { prefetchPaths += it.absolutePath } }
+            workQueue.reprioritize { key -> priorityForPath(key) }
+        }
+    }
+
+    fun getThumbnail(file: File, itemIndex: Int? = null, onLoaded: (ImageBitmap) -> Unit): ImageBitmap? {
         val path = file.absolutePath
         val requestedAt = System.nanoTime()
         val ext = file.extension.lowercase(Locale.US)
@@ -223,134 +256,134 @@ private object ExplorerThumbnailLoader {
         }
 
         if (requests.add(path, onLoaded)) {
-            thumbExecutor.submit {
+            val initialPriority = if (itemIndex == null) 0 else synchronized(visiblePaths) {
+                when {
+                    path in visiblePaths -> 0
+                    path in prefetchPaths -> 1
+                    else -> 2
+                }
+            }
+            workQueue.enqueue(path, initialPriority) {
                 val workerStarted = System.nanoTime()
                 val queueMs = (workerStarted - requestedAt) / 1_000_000
                 val sourceBytes = runCatching { file.length() }.getOrNull()
                 val decodeStarted = System.nanoTime()
-                var bitmap: ImageBitmap? = null
                 var route = if (ext in VIDEO_EXTENSIONS) "ffmpeg" else "skia"
                 var result = "failed"
+                var delivered = false
                 try {
-                    val isVid = ext in VIDEO_EXTENSIONS
-
                     val cachedBytes = diskCache.get(file, longestEdge = 240)
-                    if (cachedBytes != null) {
-                        bitmap = runCatching {
-                            SkiaImage.makeFromEncoded(cachedBytes)?.toComposeImageBitmap()
-                        }.getOrNull()
-                        if (bitmap != null) {
-                            route = "disk_cache"
-                        } else {
-                            diskCache.remove(file, longestEdge = 240)
-                        }
-                    }
-
-                    if (bitmap == null && isVid) {
-                        bitmap = FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap(
-                            listOf(
-                                FfmpegLocator.ffmpegPath(), "-y",
-                                "-ss", "0.5",
-                                "-i", file.absolutePath,
-                                "-vf", "scale=160:-1",
-                                "-frames:v", "1",
-                                "-update", "1"
-                            ),
-                            tempExtension = ".jpg",
-                            timeoutMs = 8_000L,
-                        )
-                        if (bitmap == null) {
-                            bitmap = FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap(
-                                listOf(
-                                    FfmpegLocator.ffmpegPath(), "-y",
-                                    "-i", file.absolutePath,
-                                    "-vf", "scale=160:-1",
-                                    "-frames:v", "1",
-                                    "-update", "1"
-                                ),
-                                tempExtension = ".jpg",
-                                timeoutMs = 8_000L,
-                            )
-                        }
-                    } else if (bitmap == null) {
-                        // Explorer thumbnails must not retain a full-size image or calculate a
-                        // histogram. Decode to the display-sized bitmap instead.
-                        val primary = ImageAnalyzer.decodeThumbnail(file, longestEdge = 240)
-                        if (primary != null) {
-                            bitmap = primary
-                        } else {
-                            route = "ffmpeg_fallback"
-                            // HEIC / RAW / Other: the ffmpeg helper uses filter_complex rather
-                            // than -vf, which can coexist with HEIC's display transform.
-                            bitmap = FfmpegImageSnapshotDecoder.decodeThumbnailToBitmap(file, longestEdge = 240)
-                        }
-                    }
-
-                    if (bitmap != null) {
-                        if (route != "disk_cache") {
-                            runCatching {
-                                val skiaBitmap = bitmap!!.asSkiaBitmap()
-                                val skiaImage = SkiaImage.makeFromBitmap(skiaBitmap)
-                                try {
-                                    val imageFormat = if (ext in LOSSLESS_THUMBNAIL_EXTENSIONS) {
-                                        EncodedImageFormat.PNG
-                                    } else {
-                                        EncodedImageFormat.JPEG
-                                    }
-                                    val encoded = skiaImage.encodeToData(imageFormat, 88)
-                                    if (encoded != null) {
-                                        try {
-                                            diskCache.put(file, longestEdge = 240, encodedThumbnail = encoded.bytes)
-                                        } finally {
-                                            encoded.close()
-                                        }
-                                    }
-                                } finally {
-                                    skiaImage.close()
-                                }
+                    val cachedBitmap = cachedBytes?.let { bytes ->
+                        runCatching {
+                            val image = SkiaImage.makeFromEncoded(bytes) ?: return@runCatching null
+                            try {
+                                image.toComposeImageBitmap()
+                            } finally {
+                                image.close()
                             }
-                        }
+                        }.getOrNull()
+                    }
+                    if (cachedBytes != null && cachedBitmap == null) diskCache.remove(file, longestEdge = 240)
+                    if (cachedBitmap != null) {
+                        route = "disk_cache"
                         result = route
-                        synchronized(cache) {
-                            cache[path] = bitmap
-                        }
-                        val listeners = requests.complete(path, bitmap)
-                        val decodeFinishedAt = System.nanoTime()
-                        val decodeMs = (decodeFinishedAt - decodeStarted) / 1_000_000
-                        EventQueue.invokeLater {
-                            val publishedAt = System.nanoTime()
-                            ThumbnailMetrics.record(
-                                event = "thumbnail",
-                                mediaType = ext,
-                                sourceBytes = sourceBytes,
-                                queueMs = queueMs,
-                                decodeMs = decodeMs,
-                                publishMs = (publishedAt - decodeFinishedAt) / 1_000_000,
-                                elapsedMs = (publishedAt - requestedAt) / 1_000_000,
-                                result = result,
-                            )
-                            listeners.forEach { it() }
-                        }
+                        synchronized(cache) { cache[path] = cachedBitmap }
+                        publishThumbnail(path, cachedBitmap, true, ext, sourceBytes, queueMs, decodeStarted, requestedAt, result)
+                        delivered = true
+                    } else {
+                        val coordinator = ThumbnailLoadCoordinator<ImageBitmap>(
+                            preview = { source ->
+                                if (ext == "jpg" || ext == "jpeg") ImageAnalyzer.decodeEmbeddedJpegThumbnail(source, longestEdge = 240) else null
+                            },
+                            decodeFinal = { source ->
+                                if (ext in VIDEO_EXTENSIONS) {
+                                    route = "ffmpeg"
+                                    FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap(
+                                        listOf(FfmpegLocator.ffmpegPath(), "-y", "-ss", "0.5", "-i", source.absolutePath,
+                                            "-vf", "scale=160:-1", "-frames:v", "1", "-update", "1"),
+                                        tempExtension = ".jpg", timeoutMs = 8_000L,
+                                    ) ?: FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap(
+                                        listOf(FfmpegLocator.ffmpegPath(), "-y", "-i", source.absolutePath,
+                                            "-vf", "scale=160:-1", "-frames:v", "1", "-update", "1"),
+                                        tempExtension = ".jpg", timeoutMs = 8_000L,
+                                    )
+                                } else {
+                                    val primary = ImageAnalyzer.decodeThumbnail(source, longestEdge = 240)
+                                    if (primary != null) primary else {
+                                        route = "ffmpeg_fallback"
+                                        FfmpegImageSnapshotDecoder.decodeThumbnailToBitmap(source, longestEdge = 240)
+                                    }
+                                }
+                            },
+                            persistFinal = { source, finalBitmap ->
+                                if (route != "disk_cache") encodeAndPersist(source, ext, finalBitmap)
+                            },
+                            publish = { source, loaded, isFinal ->
+                                if (isFinal) {
+                                    result = route
+                                    synchronized(cache) { cache[path] = loaded }
+                                    delivered = true
+                                }
+                                publishThumbnail(path, loaded, isFinal, ext, sourceBytes, queueMs, decodeStarted, requestedAt, result)
+                            },
+                            finishWithoutBitmap = { requests.finish(path) },
+                        )
+                        coordinator.load(file)
                     }
                 } catch (_: Exception) {
                     result = "error_$route"
+                    requests.finish(path)
                 } finally {
-                    if (bitmap == null) {
+                    if (!delivered) {
                         ThumbnailMetrics.record(
-                            event = "thumbnail",
-                            mediaType = ext,
-                            sourceBytes = sourceBytes,
-                            queueMs = queueMs,
-                            decodeMs = (System.nanoTime() - decodeStarted) / 1_000_000,
-                            elapsedMs = (System.nanoTime() - requestedAt) / 1_000_000,
-                            result = result,
+                            event = "thumbnail", mediaType = ext, sourceBytes = sourceBytes,
+                            queueMs = queueMs, decodeMs = (System.nanoTime() - decodeStarted) / 1_000_000,
+                            elapsedMs = (System.nanoTime() - requestedAt) / 1_000_000, result = result,
                         )
                     }
-                    if (bitmap == null) requests.discard(path)
                 }
             }
         }
         return null
+    }
+
+    private fun priorityForPath(path: String): Int = when {
+        path in visiblePaths -> 0
+        path in prefetchPaths -> 1
+        else -> 2
+    }
+
+    private fun publishThumbnail(
+        path: String, bitmap: ImageBitmap, isFinal: Boolean, ext: String,
+        sourceBytes: Long?, queueMs: Long, decodeStarted: Long, requestedAt: Long, result: String,
+    ) {
+        val listeners = requests.publish(path, bitmap, isFinal)
+        val decodeFinishedAt = System.nanoTime()
+        EventQueue.invokeLater {
+            val publishedAt = System.nanoTime()
+            if (isFinal) ThumbnailMetrics.record(
+                event = "thumbnail", mediaType = ext, sourceBytes = sourceBytes, queueMs = queueMs,
+                decodeMs = (decodeFinishedAt - decodeStarted) / 1_000_000,
+                publishMs = (publishedAt - decodeFinishedAt) / 1_000_000,
+                elapsedMs = (publishedAt - requestedAt) / 1_000_000, result = result,
+            )
+            listeners.forEach { it(bitmap) }
+        }
+    }
+
+    private fun encodeAndPersist(file: File, ext: String, bitmap: ImageBitmap) {
+        val skiaImage = SkiaImage.makeFromBitmap(bitmap.asSkiaBitmap())
+        try {
+            val format = if (ext in LOSSLESS_THUMBNAIL_EXTENSIONS) EncodedImageFormat.PNG else EncodedImageFormat.JPEG
+            val encoded = skiaImage.encodeToData(format, 88) ?: return
+            try {
+                diskCache.put(file, longestEdge = 240, encodedThumbnail = encoded.bytes)
+            } finally {
+                encoded.close()
+            }
+        } finally {
+            skiaImage.close()
+        }
     }
 }
 
@@ -1169,15 +1202,35 @@ fun FastStoneExplorerView(
                         )
                     }
                 } else {
+                    val gridState = rememberLazyGridState()
+                    LaunchedEffect(isGridView, gridState, mediaFiles) {
+                        if (!isGridView) {
+                            ExplorerThumbnailLoader.updateGridViewport(emptyList(), emptySet(), emptySet())
+                        } else {
+                            snapshotFlow {
+                                val visibleItems = gridState.layoutInfo.visibleItemsInfo
+                                val visibleIndices = visibleItems.mapTo(mutableSetOf()) { it.index }
+                                val columnCount = visibleItems.groupingBy { it.offset.y }.eachCount().values.maxOrNull() ?: 1
+                                visibleIndices to columnCount
+                            }.distinctUntilChanged().collect { (visibleIndices, columnCount) ->
+                                ExplorerThumbnailLoader.updateGridViewport(
+                                    mediaFiles,
+                                    visibleIndices,
+                                    thumbnailPrefetchIndices(visibleIndices, columnCount, mediaFiles.size),
+                                )
+                            }
+                        }
+                    }
                     if (isGridView) {
                         LazyVerticalGrid(
                             columns = GridCells.Adaptive(minSize = 140.dp),
+                            state = gridState,
                             modifier = Modifier.fillMaxSize().padding(6.dp),
                             contentPadding = PaddingValues(4.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            items(mediaFiles, key = { it.absolutePath }) { file ->
+                            itemsIndexed(mediaFiles, key = { _, file -> file.absolutePath }) { itemIndex, file ->
                                 val selectedIndex = selectedFiles.indexOfFirst { it.absolutePath == file.absolutePath }
                                 val isSelected = selectedIndex >= 0
 
@@ -1186,7 +1239,7 @@ fun FastStoneExplorerView(
                                 }
 
                                 LaunchedEffect(file.absolutePath) {
-                                    val cached = ExplorerThumbnailLoader.getThumbnail(file) { loaded ->
+                                    val cached = ExplorerThumbnailLoader.getThumbnail(file, itemIndex) { loaded ->
                                         thumbnailBitmap = loaded
                                     }
                                     if (cached != null) {
