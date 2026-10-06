@@ -1,110 +1,112 @@
-**Language:** English | [한국어](README.ko.md)
+**언어:** [English](README.en.md) | 한국어
 
 # unwrapMedia
 
-**unwrapMedia** is a desktop media viewer and forensic analysis workbench. It brings playback, visual inspection, container structure, metadata, and byte-level data together so engineers can understand not only what a media file looks like, but how it is built.
+**unwrapMedia**는 데스크톱 미디어 뷰어이자 포렌식 분석 도구입니다. 이미지·동영상·오디오를 재생하고, 컨테이너 구조와 메타데이터, 바이트 데이터를 함께 살펴볼 수 있어 파일이 어떻게 구성되었는지 분석할 수 있습니다.
 
-## Explore the media
+## 미디어 열기와 분석
 
-### Image viewing and analysis
+### 이미지 뷰잉 및 분석
 
-View still images alongside parsed container structure, EXIF and camera metadata, image dimensions, color information, and synchronized hex data. When a JPEG contains an embedded EXIF thumbnail, unwrapMedia can show it next to the full-resolution image. Gain-map and HDR metadata tools help inspect modern image formats and their auxiliary images.
-
-<p align="center">
-  <img src="docs/screenshots/showcase/01-image-analysis.jpg" width="920" alt="A silver tabby cat in unwrapMedia's image inspector, with the embedded EXIF thumbnail beside the full-resolution image" />
-</p>
-
-### Video playback and frame analysis
-
-Play a clip while inspecting its container and codec details. Frame analysis visualizes frame types and sizes, and the filmstrip makes it easy to scan the clip and jump to a frame.
+이미지를 보면서 컨테이너 구조, EXIF·카메라 메타데이터, 크기와 색상 정보를 확인할 수 있습니다. JPEG에 EXIF 내장 썸네일이 있으면 원본 이미지와 나란히 표시합니다. 게인맵·HDR 도구로 최신 이미지 포맷과 보조 이미지도 살펴볼 수 있습니다.
 
 <p align="center">
-  <img src="docs/screenshots/showcase/02-video-filmstrip.jpg" width="920" alt="unwrapMedia playing a kitten video, with frame-type graph and a filmstrip of sampled frames" />
+  <img src="docs/screenshots/showcase/01-image-analysis.jpg" width="920" alt="unwrapMedia 이미지 분석기에서 EXIF 내장 썸네일과 원본 해상도 이미지를 나란히 보여주는 은색 고양이 사진" />
 </p>
 
-The original sample clip is [kitten-pounce.mp4](docs/showcase-media/video/kitten-pounce.mp4). Its short animated preview shows the motion represented by the filmstrip:
+### 동영상 재생 및 프레임 분석
+
+동영상을 재생하면서 컨테이너와 코덱 정보를 확인할 수 있습니다. 프레임 분석은 프레임 종류와 크기를 시각화하고, 필름스트립에서 원하는 프레임을 빠르게 찾아 이동할 수 있게 합니다.
 
 <p align="center">
-  <img src="docs/showcase-media/video/kitten-pounce-preview.gif" width="480" alt="An orange kitten chasing a yellow feather toy" />
+  <img src="docs/screenshots/showcase/02-video-filmstrip.jpg" width="920" alt="주황색 아기 고양이 동영상과 프레임 종류 그래프, 프레임 썸네일 필름스트립을 보여주는 unwrapMedia 화면" />
 </p>
 
-### Motion Photo playback and inspection
-
-unwrapMedia detects Samsung- and Google-style Motion Photos, displays the still image, and can play, extract, and inspect the embedded video. The included campfire sample is a real JPEG Motion Photo with an embedded video segment.
+샘플 영상은 [kitten-pounce.mp4](docs/showcase-media/video/kitten-pounce.mp4)입니다. 아래 움직이는 미리보기에서 필름스트립이 표현하는 동작을 볼 수 있습니다.
 
 <p align="center">
-  <img src="docs/screenshots/showcase/03-motion-photo-fire.jpg" width="920" alt="unwrapMedia showing the campfire still image, EXIF thumbnail, parsed JPEG and Samsung Motion Photo structure, and embedded video player" />
+  <img src="docs/showcase-media/video/kitten-pounce-preview.gif" width="480" alt="노란 깃털 장난감을 쫓는 주황색 아기 고양이" />
 </p>
 
-Try [campfire-motion-photo.jpg](docs/showcase-media/images/campfire-motion-photo.jpg) or its [standalone video](docs/showcase-media/video/campfire-motion.mp4). The short animation below previews the embedded clip:
+### 모션포토 재생 및 분석
+
+삼성·구글 방식의 모션포토를 감지해 스틸 이미지와 내장 동영상을 확인하고, 재생·추출·분석할 수 있습니다. 샘플은 실제 JPEG 안에 영상 세그먼트를 포함한 캠프파이어 모션포토입니다.
 
 <p align="center">
-  <img src="docs/showcase-media/video/campfire-motion-preview.gif" width="480" alt="A campfire flickering at blue hour, previewing the Motion Photo's embedded video" />
+  <img src="docs/screenshots/showcase/03-motion-photo-fire.jpg" width="920" alt="모션포토 정지 이미지와 EXIF 썸네일, 파싱된 JPEG·삼성 모션포토 구조 및 내장 동영상 플레이어를 보여주는 unwrapMedia 화면" />
 </p>
 
-### Media comparison
+[campfire-motion-photo.jpg](docs/showcase-media/images/campfire-motion-photo.jpg) 또는 [분리된 영상](docs/showcase-media/video/campfire-motion.mp4)을 열어보세요.
 
-Compare two files to inspect visual pixel differences, metadata, container structure, and byte-level changes. For video quality work, the benchmark tools report metrics such as VMAF, PSNR, and SSIM.
+아래 애니메이션은 모션포토에 내장된 영상의 미리보기입니다.
 
 <p align="center">
-  <img src="docs/screenshots/showcase/05-media-comparison.jpg" width="920" alt="unwrapMedia's Media Comparison Analyzer comparing two cat images with a visual difference view and split wiper" />
+  <img src="docs/showcase-media/video/campfire-motion-preview.gif" width="480" alt="푸른 저녁에 활활 타오르는 모닥불 모션포토 영상 미리보기" />
 </p>
 
-Try the [cat comparison pair](docs/showcase-media/images/): the images are nearly identical, except the second has a teal collar and bell. Open both files and choose **Tools → Compare Files** to see the pixel difference in the analyzer.
+### 미디어 비교 분석
 
-### Audio playback and analysis
-
-Listen while examining audio metadata and the waveform. The player supports navigation and zoom, with channel controls available for supported audio layouts.
+두 파일의 시각적 픽셀 차이, 메타데이터, 컨테이너 구조, 바이트 단위 차이를 비교할 수 있습니다. 동영상 화질 비교 도구는 VMAF, PSNR, SSIM 등의 지표를 제공합니다.
 
 <p align="center">
-  <img src="docs/screenshots/showcase/04-audio-waveform.jpg" width="920" alt="unwrapMedia's audio inspector showing WAV structure, metadata, hex data, and a green waveform" />
+  <img src="docs/screenshots/showcase/05-media-comparison.jpg" width="920" alt="두 고양이 이미지의 시각적 차이와 분할 와이퍼를 보여주는 unwrapMedia 미디어 비교 분석기" />
 </p>
 
-Try the generated [gentle-tones.wav](docs/showcase-media/audio/gentle-tones.wav).
+[고양이 비교 샘플](docs/showcase-media/images/)은 거의 같은 이미지 두 장으로 구성되어 있으며, 두 번째 이미지에만 청록색 목걸이와 방울이 있습니다. 두 파일을 연 다음 **Tools → Compare Files**를 선택하면 비교 분석기에서 픽셀 차이를 확인할 수 있습니다.
 
-## Diagnose timing and file health
+### 오디오 재생 및 분석
 
-### A/V sync and dropped-frame analysis
-
-The A/V sync analyzer compares audio and video presentation timelines to help investigate offset and duration differences. Frame-interval analysis visualizes timestamp spacing and irregular intervals that may indicate timing problems or dropped-frame candidates; it is diagnostic evidence, not a guarantee that every capture-side drop can be identified.
+오디오를 들으며 메타데이터와 파형을 분석할 수 있습니다. 플레이어에서 탐색·확대/축소를 지원하고, 지원되는 오디오 레이아웃에서는 채널 제어도 가능합니다.
 
 <p align="center">
-  <img src="docs/screenshots/showcase/07-frame-interval-analysis.jpg" width="920" alt="unwrapMedia frame-interval analysis showing a 125 ms timestamp gap against the clip's 42.4 ms baseline" />
+  <img src="docs/screenshots/showcase/04-audio-waveform.jpg" width="920" alt="WAV 구조와 메타데이터, 헥스 데이터, 초록색 파형을 보여주는 unwrapMedia 오디오 분석 화면" />
 </p>
 
-Use [avsync-frame-gap.mp4](docs/showcase-media/video/avsync-frame-gap.mp4) to try both tools. This synthetic clip intentionally includes an audio delay and a video timestamp gap; see the sample-media notes for details.
+생성한 [gentle-tones.wav](docs/showcase-media/audio/gentle-tones.wav)를 재생해 보세요.
 
-### AI-assisted diagnosis
+## 타이밍 및 파일 진단
 
-Structure checks flag parser-detected warnings, and the AI prompt generator prepares file-specific technical context that you can provide to an AI assistant. unwrapMedia generates the prompt; it does not require or bundle an AI service. On Windows, the prompt window can open an embedded PowerShell session. The terminal pane shown here is an illustrative Windows example, not a live PowerShell capture.
+### A/V 싱크 및 프레임 드랍 분석
+
+A/V 싱크 분석기는 오디오·비디오 프레젠테이션 타임라인을 비교해 오프셋과 재생 시간 차이를 조사합니다. 프레임 간격 분석은 타임스탬프 간격을 시각화해 불규칙한 타이밍이나 프레임 드랍 가능성을 살펴봅니다. 진단 결과는 분석 근거이며, 캡처 단계의 모든 프레임 손실을 확정하는 것은 아닙니다.
 
 <p align="center">
-  <img src="docs/screenshots/showcase/06-ai-cli-powershell.jpg" width="920" alt="unwrapMedia's AI analysis prompt beside an illustrative Windows PowerShell panel showing the claude CLI command and pasted media-analysis context" />
+  <img src="docs/screenshots/showcase/07-frame-interval-analysis.jpg" width="920" alt="기준 42.4ms와 약 125ms의 타임스탬프 간격을 보여주는 unwrapMedia 프레임 간격 분석 화면" />
 </p>
 
-### Structure tree, hex viewer, and CLI
+[avsync-frame-gap.mp4](docs/showcase-media/video/avsync-frame-gap.mp4)는 두 기능을 시험하기 위한 합성 샘플입니다. 의도적인 오디오 지연과 비디오 타임스탬프 간격이 포함되어 있습니다. 자세한 내용은 샘플 미디어 설명을 확인하세요.
 
-Explore parsed boxes and markers with byte offsets linked to the hex viewer. The command-line `dump` and `check` modes support scripted inspection and CI workflows.
+### AI 보조 진단
 
-## Sample media
+구조 검사는 파서가 감지한 경고를 보여주며, AI 프롬프트 생성 기능은 파일별 기술 정보를 정리해 외부 AI 도우미에 전달할 수 있게 합니다. unwrapMedia가 프롬프트를 만들며 AI 서비스를 내장하거나 요구하지 않습니다. Windows에서는 프롬프트 창에서 PowerShell을 앱 안에 열 수 있습니다. 화면 오른쪽 터미널은 실제 Windows 캡처가 아닌 PowerShell 사용 흐름 예시입니다.
 
-The small, synthetic showcase assets are in [`docs/showcase-media/`](docs/showcase-media/README.md). They are generated for this repository; the A/V timing sample intentionally contains test anomalies. See the sample catalog for sizes, formats, and usage.
+<p align="center">
+  <img src="docs/screenshots/showcase/06-ai-cli-powershell.jpg" width="920" alt="unwrapMedia AI 분석 프롬프트와 claude 명령 및 붙여넣은 미디어 분석 내용을 보여주는 Windows PowerShell 예시 화면" />
+</p>
 
-## Supported formats
+### 구조 트리, 헥스 뷰어 및 CLI
 
-| Category | Examples |
+파싱된 박스·마커를 바이트 오프셋과 연결된 헥스 뷰어에서 탐색할 수 있습니다. CLI의 `dump`, `check` 모드는 스크립트 및 CI 검사에 활용할 수 있습니다.
+
+## 샘플 미디어
+
+작고 합성된 쇼케이스 파일은 [`docs/showcase-media/`](docs/showcase-media/README.md)에 있습니다. 모두 이 저장소를 위해 생성했으며 A/V 타이밍 샘플에는 테스트용 이상 구간이 의도적으로 들어 있습니다. 형식, 크기, 사용 방법은 샘플 목록을 참고하세요.
+
+## 지원 포맷
+
+| 분류 | 예시 |
 |---|---|
-| Images | JPEG/JPG, PNG, GIF, WebP, AVIF, HEIC/HEIF, BMP, TIFF/TIF, camera RAW (CR2, NEF, ARW, DNG; metadata and embedded-preview inspection) |
-| Video containers/files | MP4, MOV, M4V, WebM, IVF, AVI, FLV, WMV, ASF; standalone AV1 and APV streams |
-| Video codecs | AVC/H.264, HEVC/H.265, AV1, AV2 (Windows playback), APV, VP8/VP9, Dolby Vision |
-| Audio | WAV, MP3, M4A, AAC, FLAC, OGG, Opus, AIFF/AIF/AIFC, WMA, raw PCM |
-| Raw pixels | RAW, RGB, RGBA, YUV, NV12, NV21 |
+| 이미지 | JPEG/JPG, PNG, GIF, WebP, AVIF, HEIC/HEIF, BMP, TIFF/TIF, 카메라 RAW (CR2, NEF, ARW, DNG; 메타데이터 및 내장 프리뷰 분석) |
+| 비디오 컨테이너/파일 | MP4, MOV, M4V, WebM, IVF, AVI, FLV, WMV, ASF; 독립 AV1 및 APV 스트림 |
+| 비디오 코덱 | AVC/H.264, HEVC/H.265, AV1, AV2 (Windows 재생), APV, VP8/VP9, Dolby Vision |
+| 오디오 | WAV, MP3, M4A, AAC, FLAC, OGG, Opus, AIFF/AIF/AIFC, WMA, Raw PCM |
+| Raw 픽셀 | RAW, RGB, RGBA, YUV, NV12, NV21 |
 
-Codec playback and analysis depend on the container, stream profile, and available decoder. AV2 playback is currently Windows-only.
+코덱 재생과 분석 가능 여부는 컨테이너, 스트림 프로파일, 사용 가능한 디코더에 따라 달라집니다. 현재 AV2 재생은 Windows 전용입니다.
 
-## Get started
+## 시작하기
 
-Download a package from [GitHub Actions](https://github.com/abracadabra799/unwrapMedia/actions), or build with JDK 21+:
+[GitHub Actions](https://github.com/abracadabra799/unwrapMedia/actions)에서 패키지를 받거나 JDK 21 이상으로 빌드하세요.
 
 ```bash
 ./gradlew :app:run
@@ -112,14 +114,14 @@ Download a package from [GitHub Actions](https://github.com/abracadabra799/unwra
 ./gradlew :app:package
 ```
 
-CLI examples:
+CLI 예시:
 
 ```bash
-unwrapMedia dump <file>              # Dump the parsed structure as JSON
-unwrapMedia check <file>             # Check for structural warnings
-unwrapMedia check <file> --prompt    # Generate an AI diagnostic prompt
+unwrapMedia dump <file>              # 파싱된 구조를 JSON으로 출력
+unwrapMedia check <file>             # 구조 경고 검사
+unwrapMedia check <file> --prompt    # AI 진단 프롬프트 생성
 ```
 
-## License
+## 라이선스
 
-MIT — see [LICENSE](LICENSE).
+MIT — [LICENSE](LICENSE)를 참고하세요.
