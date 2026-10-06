@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.rememberWindowState
+import com.multiviewer.cache.ThumbnailDiskCache
 import com.multiviewer.parser.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -73,6 +74,8 @@ import java.io.File
 import java.io.RandomAccessFile
 import java.util.Locale
 import java.util.concurrent.Executors
+import org.jetbrains.skia.EncodedImageFormat
+import org.jetbrains.skia.Image as SkiaImage
 
 private val compareExecutor = Executors.newFixedThreadPool(4) { runnable ->
     Thread(runnable).apply { isDaemon = true }
@@ -189,6 +192,9 @@ internal class ThumbnailRequestRegistry<T> {
 }
 
 private object ExplorerThumbnailLoader {
+    private val diskCache by lazy {
+        ThumbnailDiskCache(File(System.getProperty("user.home"), ".unwrapMedia/cache/thumbnails"))
+    }
     private val cache = object : java.util.LinkedHashMap<String, ImageBitmap>(128, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?): Boolean {
             return size > 200
@@ -201,19 +207,46 @@ private object ExplorerThumbnailLoader {
 
     fun getThumbnail(file: File, onLoaded: (ImageBitmap) -> Unit): ImageBitmap? {
         val path = file.absolutePath
+        val requestedAt = System.nanoTime()
+        val ext = file.extension.lowercase(Locale.US)
         synchronized(cache) {
             val cached = cache[path]
-            if (cached != null) return cached
+            if (cached != null) {
+                ThumbnailMetrics.record(
+                    event = "thumbnail",
+                    mediaType = ext,
+                    elapsedMs = (System.nanoTime() - requestedAt) / 1_000_000,
+                    result = "cache_hit",
+                )
+                return cached
+            }
         }
 
         if (requests.add(path, onLoaded)) {
             thumbExecutor.submit {
+                val workerStarted = System.nanoTime()
+                val queueMs = (workerStarted - requestedAt) / 1_000_000
+                val sourceBytes = runCatching { file.length() }.getOrNull()
+                val decodeStarted = System.nanoTime()
                 var bitmap: ImageBitmap? = null
+                var route = if (ext in VIDEO_EXTENSIONS) "ffmpeg" else "skia"
+                var result = "failed"
                 try {
-                    val ext = file.extension.lowercase(Locale.US)
                     val isVid = ext in VIDEO_EXTENSIONS
 
-                    if (isVid) {
+                    val cachedBytes = diskCache.get(file, longestEdge = 240)
+                    if (cachedBytes != null) {
+                        bitmap = runCatching {
+                            SkiaImage.makeFromEncoded(cachedBytes)?.toComposeImageBitmap()
+                        }.getOrNull()
+                        if (bitmap != null) {
+                            route = "disk_cache"
+                        } else {
+                            diskCache.remove(file, longestEdge = 240)
+                        }
+                    }
+
+                    if (bitmap == null && isVid) {
                         bitmap = FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap(
                             listOf(
                                 FfmpegLocator.ffmpegPath(), "-y",
@@ -239,13 +272,14 @@ private object ExplorerThumbnailLoader {
                                 timeoutMs = 8_000L,
                             )
                         }
-                    } else {
+                    } else if (bitmap == null) {
                         // Explorer thumbnails must not retain a full-size image or calculate a
                         // histogram. Decode to the display-sized bitmap instead.
                         val primary = ImageAnalyzer.decodeThumbnail(file, longestEdge = 240)
                         if (primary != null) {
                             bitmap = primary
                         } else {
+                            route = "ffmpeg_fallback"
                             // HEIC / RAW / Other: the ffmpeg helper uses filter_complex rather
                             // than -vf, which can coexist with HEIC's display transform.
                             bitmap = FfmpegImageSnapshotDecoder.decodeThumbnailToBitmap(file, longestEdge = 240)
@@ -253,16 +287,65 @@ private object ExplorerThumbnailLoader {
                     }
 
                     if (bitmap != null) {
+                        if (route != "disk_cache") {
+                            runCatching {
+                                val skiaBitmap = bitmap!!.asSkiaBitmap()
+                                val skiaImage = SkiaImage.makeFromBitmap(skiaBitmap)
+                                try {
+                                    val imageFormat = if (ext in LOSSLESS_THUMBNAIL_EXTENSIONS) {
+                                        EncodedImageFormat.PNG
+                                    } else {
+                                        EncodedImageFormat.JPEG
+                                    }
+                                    val encoded = skiaImage.encodeToData(imageFormat, 88)
+                                    if (encoded != null) {
+                                        try {
+                                            diskCache.put(file, longestEdge = 240, encodedThumbnail = encoded.bytes)
+                                        } finally {
+                                            encoded.close()
+                                        }
+                                    }
+                                } finally {
+                                    skiaImage.close()
+                                }
+                            }
+                        }
+                        result = route
                         synchronized(cache) {
                             cache[path] = bitmap
                         }
                         val listeners = requests.complete(path, bitmap)
+                        val decodeFinishedAt = System.nanoTime()
+                        val decodeMs = (decodeFinishedAt - decodeStarted) / 1_000_000
                         EventQueue.invokeLater {
+                            val publishedAt = System.nanoTime()
+                            ThumbnailMetrics.record(
+                                event = "thumbnail",
+                                mediaType = ext,
+                                sourceBytes = sourceBytes,
+                                queueMs = queueMs,
+                                decodeMs = decodeMs,
+                                publishMs = (publishedAt - decodeFinishedAt) / 1_000_000,
+                                elapsedMs = (publishedAt - requestedAt) / 1_000_000,
+                                result = result,
+                            )
                             listeners.forEach { it() }
                         }
                     }
                 } catch (_: Exception) {
+                    result = "error_$route"
                 } finally {
+                    if (bitmap == null) {
+                        ThumbnailMetrics.record(
+                            event = "thumbnail",
+                            mediaType = ext,
+                            sourceBytes = sourceBytes,
+                            queueMs = queueMs,
+                            decodeMs = (System.nanoTime() - decodeStarted) / 1_000_000,
+                            elapsedMs = (System.nanoTime() - requestedAt) / 1_000_000,
+                            result = result,
+                        )
+                    }
                     if (bitmap == null) requests.discard(path)
                 }
             }
@@ -270,6 +353,8 @@ private object ExplorerThumbnailLoader {
         return null
     }
 }
+
+private val LOSSLESS_THUMBNAIL_EXTENSIONS = setOf("png", "apng", "gif", "webp", "tif", "tiff")
 
 
 enum class CompareSlot {
@@ -821,14 +906,25 @@ fun FastStoneExplorerView(
     var isGridView by remember { mutableStateOf(true) }
 
     val folderFiles = remember(currentFolder) {
+        val startedAt = System.nanoTime()
+        var result = "ok"
         try {
             if (currentFolder.exists() && currentFolder.isDirectory) {
                 currentFolder.listFiles()?.toList() ?: emptyList()
             } else {
+                result = "unavailable"
                 emptyList()
             }
         } catch (_: Exception) {
+            result = "error"
             emptyList()
+        }.also { files ->
+            ThumbnailMetrics.record(
+                event = "folder_list",
+                elapsedMs = (System.nanoTime() - startedAt) / 1_000_000,
+                itemCount = files.size,
+                result = result,
+            )
         }
     }
 
@@ -838,10 +934,18 @@ fun FastStoneExplorerView(
     }
 
     val mediaFiles = remember(folderFiles, searchQuery) {
+        val startedAt = System.nanoTime()
         folderFiles.filter {
             it.isFile && !it.isHidden && it.extension.lowercase(Locale.US) in ALL_SUPPORTED_MEDIA_EXTENSIONS &&
                     (searchQuery.isBlank() || it.name.contains(searchQuery, ignoreCase = true))
-        }.sortedBy { it.name.lowercase(Locale.US) }
+        }.sortedBy { it.name.lowercase(Locale.US) }.also { files ->
+            ThumbnailMetrics.record(
+                event = "media_index",
+                elapsedMs = (System.nanoTime() - startedAt) / 1_000_000,
+                itemCount = files.size,
+                result = "ok",
+            )
+        }
     }
 
     fun toggleFileSelection(file: File) {
