@@ -1,106 +1,114 @@
-**Language:** [English](README.md) | 한국어
+**언어:** [English](README.md) | 한국어
 
 # unwrapMedia
 
-**unwrapMedia**는 Kotlin과 Compose Multiplatform for Desktop 기반의 초경량·고성능 미디어 파일 구조 분석 및 포렌식 디버깅 도구입니다. 이미지, 비디오, 오디오 파일의 내부 바이너리 컨테이너를 오프셋 단위로 파싱하여 상호 연동되는 구조 트리와 Hex 뷰어, 시각적 디버깅 도구를 제공합니다.
+**unwrapMedia**는 데스크톱 미디어 뷰어이자 포렌식 분석 도구입니다. 이미지·동영상·오디오를 재생하고, 컨테이너 구조와 메타데이터, 바이트 데이터를 함께 살펴볼 수 있어 파일이 어떻게 구성되었는지 분석할 수 있습니다.
 
 <p align="center">
-  <img src="docs/screenshots/unwrapMedia-promo-image.jpg" width="880" alt="unwrapMedia 이미지 분석기 & 게인맵 미리보기" />
+  <img src="docs/screenshots/showcase/01-image-analysis.jpg" width="920" alt="unwrapMedia 이미지 분석기에서 EXIF 내장 썸네일과 원본 해상도 이미지를 나란히 보여주는 은색 고양이 사진" />
 </p>
 
----
+## 미디어 열기와 분석
 
-## ⚡ 전체 워크플로우 및 주요 핵심 기능
+### 이미지 뷰잉 및 분석
 
-```
-┌─────────────────┐     ┌──────────────────────────────┐     ┌──────────────────────────────┐
-│ 미디어 파일 열기 │ ──► │  인터랙티브 컨테이너 구조 트리 │ ──► │    포렌식 및 시각적 분석     │
-│ (Drag & Drop)   │     │  & 오프셋 연동 Hex 뷰어       │     │ (게인맵, QP, 파형, AI 진단)  │
-└─────────────────┘     └──────────────────────────────┘     └──────────────────────────────┘
-```
+이미지를 보면서 컨테이너 구조, EXIF·카메라 메타데이터, 크기와 색상 정보를 확인할 수 있습니다. JPEG에 EXIF 내장 썸네일이 있으면 원본 이미지와 나란히 표시합니다. 게인맵·HDR 도구로 최신 이미지 포맷과 보조 이미지도 살펴볼 수 있습니다.
 
-### 🖼️ 이미지 & HDR 게인맵 (Gain Map)
-* **심층 메타데이터**: EXIF, Apple MakerNote, Samsung SEFD, HEVC 그리드 타일 오버레이. JPEG/PNG/WebP/BMP 전반의 ICC 색상 프로파일 및 컨테이너 상세정보 파싱.
-* **HDR 게인맵**: ISO 21496-1, Ultra HDR, Apple MPF, Adobe HDRGM 지원 (부스트 헤드룸 카드, 원본 XMP XML 뷰어, 게인맵 이미지 분리 팝업 및 저장).
-* **모션 포토(Motion Photo)**: 삼성 및 구글 방식 모션포토 자동 감지 및 재생/추출.
+저장소의 쇼케이스 JPEG에는 작은 EXIF 썸네일을 실제 파일 내부에 넣었습니다. README에만 별도로 붙인 그림이 아닙니다.
 
----
+### 동영상 재생 및 프레임 분석
 
-### 🎬 비디오 & 비트스트림 포렌식
+동영상을 재생하면서 컨테이너와 코덱 정보를 확인할 수 있습니다. 프레임 분석은 프레임 종류와 크기를 시각화하고, 필름스트립에서 원하는 프레임을 빠르게 찾아 이동할 수 있게 합니다.
 
 <p align="center">
-  <img src="docs/screenshots/unwrapMedia-promo-video.jpg" width="880" alt="unwrapMedia 비디오 비트스트림 분석기 & 모션 벡터" />
+  <img src="docs/screenshots/showcase/02-video-filmstrip.jpg" width="920" alt="주황색 아기 고양이 동영상과 프레임 종류 그래프, 프레임 썸네일 필름스트립을 보여주는 unwrapMedia 화면" />
 </p>
 
-* **차세대 코덱**: **APV**, **AV1**, **HEVC (H.265)**, **AVC (H.264)**, **Dolby Vision** 헤더 및 파라미터 셋 상세 파싱.
-* **A/V 싱크 및 드리프트 정밀 분석**: 비디오/오디오 PTS 타임라인 정밀 매핑, 초기 립싱크(Lip-sync Skew), 트랙 길이(Duration) 불일치 및 클럭 드리프트 원인 진단, One-Click 수정 가이드.
-* **시각적 비디오 오버레이**: 매크로블록 **모션 벡터(Motion Vectors)** 및 **QP 히트맵(QP Heatmap)** 실시간 재생 렌더링.
-* **프레임 간격/드랍 분석**: 20만 개 이상의 프레임도 120 FPS LOD 렌더링으로 부드럽게 타임스탬프 산점도 분석.
-
----
-
-### 🎵 오디오 & Raw PCM
+샘플 영상은 [kitten-pounce.mp4](docs/showcase-media/video/kitten-pounce.mp4)입니다. 아래 움직이는 미리보기에서 필름스트립이 표현하는 동작을 볼 수 있습니다.
 
 <p align="center">
-  <img src="docs/screenshots/unwrapMedia-promo-audio.jpg" width="880" alt="unwrapMedia 오디오 파형 & 스펙트로그램" />
+  <img src="docs/showcase-media/video/kitten-pounce-preview.gif" width="480" alt="노란 깃털 장난감을 쫓는 주황색 아기 고양이" />
 </p>
 
-* **GoldWave 스타일 파형**: 피크 기반 파형(Waveform) 인터랙티브 시각화, L/R 채널 솔로, 클릭 탐색, 줌/팬 지원.
-* **지원 포맷**: WAV, MP3, AAC/M4A, FLAC, OGG, Opus, AIFF 및 헤더 없는 원시 **PCM** (`.pcm`, `.raw`).
+### 모션포토 재생 및 분석
 
----
+삼성·구글 방식의 모션포토를 감지해 스틸 이미지와 내장 동영상을 확인하고, 재생·추출·분석할 수 있습니다. 샘플은 실제 JPEG 안에 영상 세그먼트를 포함한 캠프파이어 모션포토입니다.
 
-### 🔲 Raw 픽셀 & 비교/품질 벤치마크
-* **Raw 픽셀 뷰어**: 헤더 없는 YUV420 (NV12/NV21/I420) 및 RGB 덤프 실시간 렌더링 및 멀티프레임 재생.
-* **두 파일 상세 비교**: 구조, 메타데이터, Hex 레벨 바이트 단위 차이점 비교.
-* **화질 측정 벤치마크**: 프레임별 VMAF, PSNR, SSIM 정밀 품질 비교.
+<p align="center">
+  <img src="docs/screenshots/showcase/03-motion-photo-fire.jpg" width="920" alt="모션포토 정지 이미지와 EXIF 썸네일, 파싱된 JPEG·삼성 모션포토 구조 및 내장 동영상 플레이어를 보여주는 unwrapMedia 화면" />
+</p>
 
----
+[campfire-motion-photo.jpg](docs/showcase-media/images/campfire-motion-photo.jpg) 또는 [분리된 영상](docs/showcase-media/video/campfire-motion.mp4)을 열어보세요.
 
-### 🤖 구조 검사 & AI 진단 프롬프트
-* **구조 결함 검사 (Check)**: 심각도(`CRITICAL`, `WARNING`, `INFO`)별 컨테이너 결함 자동 린팅.
-* **AI 진단 프롬프트**: ISO/IEC 표준 스펙이 매핑된 도메인 지식 기반 디버깅 프롬프트를 생성하여 클립보드에 원클릭 복사.
-* **CLI 모드**: CI/CD 파이프라인 및 터미널 자동화를 위한 `dump`, `check` 명령어 제공.
+아래 애니메이션은 모션포토에 내장된 영상의 미리보기입니다.
 
----
+<p align="center">
+  <img src="docs/showcase-media/video/campfire-motion-preview.gif" width="480" alt="푸른 저녁에 활활 타오르는 모닥불 모션포토 영상 미리보기" />
+</p>
 
-## 📦 지원 포맷 요약
+### 미디어 비교 분석
 
-| 분류 | 지원 포맷 |
+두 파일의 시각적 픽셀 차이, 메타데이터, 컨테이너 구조, 바이트 단위 차이를 비교할 수 있습니다. 동영상 화질 비교 도구는 VMAF, PSNR, SSIM 등의 지표를 제공합니다.
+
+[고양이 비교 샘플](docs/showcase-media/images/) 두 장은 거의 같은 장면이며, 두 번째 이미지에는 청록색 목걸이와 방울이 있습니다. 두 파일을 연 다음 **Tools → Compare Files**를 선택해 비교해 보세요.
+
+### 오디오 재생 및 분석
+
+오디오를 들으며 메타데이터와 파형을 분석할 수 있습니다. 플레이어에서 탐색·확대/축소를 지원하고, 지원되는 오디오 레이아웃에서는 채널 제어도 가능합니다.
+
+<p align="center">
+  <img src="docs/screenshots/showcase/04-audio-waveform.jpg" width="920" alt="WAV 구조와 메타데이터, 헥스 데이터, 초록색 파형을 보여주는 unwrapMedia 오디오 분석 화면" />
+</p>
+
+생성한 [gentle-tones.wav](docs/showcase-media/audio/gentle-tones.wav)를 재생해 보세요.
+
+## 타이밍 및 파일 진단
+
+### A/V 싱크 및 프레임 타이밍 분석
+
+A/V 싱크 분석기는 오디오·비디오 프레젠테이션 타임라인을 비교해 오프셋과 재생 시간 차이를 조사합니다. 프레임 간격 분석은 타임스탬프 간격을 시각화해 불규칙한 타이밍이나 프레임 드랍 가능성을 살펴봅니다. 진단 결과는 분석 근거이며, 캡처 단계의 모든 프레임 손실을 확정하는 것은 아닙니다.
+
+[avsync-frame-gap.mp4](docs/showcase-media/video/avsync-frame-gap.mp4)는 두 기능을 시험하기 위한 합성 샘플입니다. 의도적인 오디오 지연과 비디오 타임스탬프 간격이 포함되어 있습니다. 자세한 내용은 샘플 미디어 설명을 확인하세요.
+
+### AI 보조 진단
+
+구조 검사는 파서가 감지한 경고를 보여주며, AI 프롬프트 생성 기능은 파일별 기술 정보를 정리해 외부 AI 도우미에 전달할 수 있게 합니다. unwrapMedia가 프롬프트를 만들며 AI 서비스를 내장하거나 요구하지 않습니다.
+
+### 구조 트리, 헥스 뷰어 및 CLI
+
+파싱된 박스·마커를 바이트 오프셋과 연결된 헥스 뷰어에서 탐색할 수 있습니다. CLI의 `dump`, `check` 모드는 스크립트 및 CI 검사에 활용할 수 있습니다.
+
+## 샘플 미디어
+
+작고 합성된 쇼케이스 파일은 [`docs/showcase-media/`](docs/showcase-media/README.md)에 있습니다. 모두 이 저장소를 위해 생성했으며 A/V 타이밍 샘플에는 테스트용 이상 구간이 의도적으로 들어 있습니다. 형식, 크기, 사용 방법은 샘플 목록을 참고하세요.
+
+## 지원 포맷
+
+| 분류 | 예시 |
 |---|---|
-| **이미지** | JPEG, PNG, GIF, WebP, AVIF, HEIC/HEIF, BMP, TIFF, 카메라 RAW (DNG, CR2, NEF, ARW) |
-| **비디오** | MP4, MOV, M4V, WebM, APV, AV1, IVF (코덱: APV, AV1, HEVC, AVC, Dolby Vision, VP8/VP9) |
-| **오디오** | WAV, MP3, M4A/AAC, FLAC, OGG, Opus, AIFF, 헤더 없는 Raw PCM (`.pcm`) |
-| **Raw 픽셀** | `.raw`, `.rgb`, `.rgba`, `.yuv`, `.nv12`, `.nv21` |
+| 이미지 | JPEG, PNG, GIF, WebP, AVIF, HEIC/HEIF, BMP, TIFF, 카메라 RAW |
+| 비디오 | MP4, MOV, M4V, WebM, IVF; AVC/H.264, HEVC/H.265, AV1, APV, VP8/VP9, Dolby Vision |
+| 오디오 | WAV, MP3, M4A/AAC, FLAC, OGG/Opus, AIFF, Raw PCM |
+| Raw 픽셀 | YUV (`NV12`, `NV21`, `I420`), RGB/RGBA 덤프 |
 
----
+## 시작하기
 
-## 🚀 빠른 시작 가이드
+[GitHub Actions](https://github.com/abracadabra799/unwrapMedia/actions)에서 패키지를 받거나 JDK 21 이상으로 빌드하세요.
 
-### 배포 바이너리 다운로드
-[GitHub Actions Artifacts / Releases](https://github.com/abracadabra799/unwrapMedia/actions)에서 최신 패키지를 다운로드할 수 있습니다:
-* **macOS**: `.dmg` (`brew install ffmpeg` 필요)
-* **Windows**: `.exe` (ffmpeg/ffprobe 내장)
-* **Linux**: `.deb` (ffmpeg/ffprobe 내장)
-
-### 소스코드에서 빌드 및 실행
-요구 사항: JDK 21 이상 및 Gradle:
 ```bash
-./gradlew :app:run         # 애플리케이션 실행
-./gradlew test             # 테스트 실행
-./gradlew :app:package     # 현재 OS용 패키지 빌드
+./gradlew :app:run
+./gradlew test
+./gradlew :app:package
 ```
 
-### CLI 사용법
+CLI 예시:
+
 ```bash
-unwrapMedia dump <file>              # 전체 구조 트리를 JSON으로 출력
-unwrapMedia check <file>             # 구조적 결함 및 경고 검사
+unwrapMedia dump <file>              # 파싱된 구조를 JSON으로 출력
+unwrapMedia check <file>             # 구조 경고 검사
 unwrapMedia check <file> --prompt    # AI 진단 프롬프트 생성
-unwrapMedia check <file> -p -c       # 프롬프트 생성 후 클립보드에 자동 복사
 ```
 
----
+## 라이선스
 
-## 📄 라이선스
-
-MIT -- [LICENSE](LICENSE) 참조.
+MIT — [LICENSE](LICENSE)를 참고하세요.

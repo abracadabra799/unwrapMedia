@@ -2,105 +2,111 @@
 
 # unwrapMedia
 
-**unwrapMedia** is a fast, lightweight media structure inspector and forensic debugging tool built with Kotlin and Compose Multiplatform for Desktop. It parses the internal binary containers of image, video, and audio files into an interactive structure tree and hex viewer synchronized by exact byte offsets.
+**unwrapMedia** is a desktop media viewer and forensic analysis workbench. It brings playback, visual inspection, container structure, metadata, and byte-level data together so engineers can understand not only what a media file looks like, but how it is built.
 
 <p align="center">
-  <img src="docs/screenshots/unwrapMedia-promo-image.jpg" width="880" alt="unwrapMedia Image Inspector & Gain Map Preview" />
+  <img src="docs/screenshots/showcase/01-image-analysis.jpg" width="920" alt="A silver tabby cat in unwrapMedia's image inspector, with the embedded EXIF thumbnail beside the full-resolution image" />
 </p>
 
----
+## Explore the media
 
-## ⚡ Core Workflow & Key Features
+### Image viewing and analysis
 
-```
-┌─────────────────┐     ┌──────────────────────────────┐     ┌──────────────────────────────┐
-│  Open Any Media │ ──► │  Interactive Structure Tree  │ ──► │  Forensics & Visual Overlays │
-│  (Drag & Drop)  │     │   & Byte-Offset Hex Sync     │     │ (Gain Map, QP, Waveform, AI) │
-└─────────────────┘     └──────────────────────────────┘     └──────────────────────────────┘
-```
+View still images alongside parsed container structure, EXIF and camera metadata, image dimensions, color information, and synchronized hex data. When a JPEG contains an embedded EXIF thumbnail, unwrapMedia can show it next to the full-resolution image. Gain-map and HDR metadata tools help inspect modern image formats and their auxiliary images.
 
-### 🖼️ Image & HDR Gain Map
-* **Deep Structure**: EXIF, Apple MakerNote, Samsung SEFD, and HEVC Grid tile outlines. Full ICC color-profile and container-detail parsing across JPEG, PNG, WebP, and BMP.
-* **HDR Gain Map**: Dedicated viewer for ISO 21496-1, Ultra HDR, Apple MPF, and Adobe HDRGM with headroom curves, raw XMP XML inspector, and gain map image extraction.
-* **Motion Photos**: Instant detection and playback for Samsung and Google Motion Photos.
+The showcase JPEGs include small embedded EXIF thumbnails, so the preview is part of the file—not a README decoration.
 
----
+### Video playback and frame analysis
 
-### 🎬 Video & Bitstream Forensics
+Play a clip while inspecting its container and codec details. Frame analysis visualizes frame types and sizes, and the filmstrip makes it easy to scan the clip and jump to a frame.
 
 <p align="center">
-  <img src="docs/screenshots/unwrapMedia-promo-video.jpg" width="880" alt="unwrapMedia Video Bitstream Inspector & Motion Vectors" />
+  <img src="docs/screenshots/showcase/02-video-filmstrip.jpg" width="920" alt="unwrapMedia playing a kitten video, with frame-type graph and a filmstrip of sampled frames" />
 </p>
 
-* **Modern Codecs**: In-depth header and parameter parsing for **APV**, **AV1**, **HEVC (H.265)**, **AVC (H.264)**, and **Dolby Vision**.
-* **A/V Sync & Drift Analysis**: Exact Video/Audio PTS alignment, initial lip-sync skew, duration mismatch root-cause diagnosis, and one-click fix commands.
-* **Visual Overlays**: Macroblock **Motion Vectors** and **QP Heatmap** rendered directly over video playback.
-* **Frame Drop Analysis**: Scatter plot detecting timestamp jitter across 200,000+ frames with 120 FPS LOD rendering.
-
----
-
-### 🎵 Audio & Raw PCM
+The original sample clip is [kitten-pounce.mp4](docs/showcase-media/video/kitten-pounce.mp4). Its short animated preview shows the motion represented by the filmstrip:
 
 <p align="center">
-  <img src="docs/screenshots/unwrapMedia-promo-audio.jpg" width="880" alt="unwrapMedia Audio Waveform & Spectrogram" />
+  <img src="docs/showcase-media/video/kitten-pounce-preview.gif" width="480" alt="An orange kitten chasing a yellow feather toy" />
 </p>
 
-* **GoldWave-style Waveform**: High-precision interactive peak waveforms with L/R channel solo, click-to-seek, and zoom/pan.
-* **Formats**: WAV, MP3, AAC/M4A, FLAC, OGG, Opus, AIFF, and headerless raw **PCM** (`.pcm`, `.raw`).
+### Motion Photo playback and inspection
 
----
+unwrapMedia detects Samsung- and Google-style Motion Photos, displays the still image, and can play, extract, and inspect the embedded video. The included campfire sample is a real JPEG Motion Photo with an embedded video segment.
 
-### 🔲 Raw Pixel & Comparison
-* **Raw Pixel Viewer**: Instant preview for headerless YUV420 (NV12/NV21/I420) and RGB dumps with multi-frame playback.
-* **Side-by-Side Compare**: Structure, metadata, and byte-level diffs between two files.
-* **Video Quality Benchmark**: Frame-by-frame VMAF, PSNR, and SSIM metrics calculation.
+<p align="center">
+  <img src="docs/screenshots/showcase/03-motion-photo-fire.jpg" width="920" alt="unwrapMedia showing the campfire still image, EXIF thumbnail, parsed JPEG and Samsung Motion Photo structure, and embedded video player" />
+</p>
 
----
+Try [campfire-motion-photo.jpg](docs/showcase-media/images/campfire-motion-photo.jpg) or its [standalone video](docs/showcase-media/video/campfire-motion.mp4). The short animation below previews the embedded clip:
 
-### 🤖 Diagnostics & AI Prompts
-* **Structure Check**: Immediate container defect linting categorized by severity (`CRITICAL`, `WARNING`, `INFO`).
-* **AI Diagnostic Prompts**: Generates spec-rich ISO/IEC prompt templates copied directly to the clipboard.
-* **CLI Mode**: Terminal commands (`dump`, `check`) for CI/CD integration.
+<p align="center">
+  <img src="docs/showcase-media/video/campfire-motion-preview.gif" width="480" alt="A campfire flickering at blue hour, previewing the Motion Photo's embedded video" />
+</p>
 
----
+### Media comparison
 
-## 📦 Supported Formats
+Compare two files to inspect visual pixel differences, metadata, container structure, and byte-level changes. For video quality work, the benchmark tools report metrics such as VMAF, PSNR, and SSIM.
 
-| Category | Supported Formats |
+The [cat comparison pair](docs/showcase-media/images/) contains two nearly matching images for visual comparison: the second has a teal collar and bell. Open both files and choose **Tools → Compare Files**.
+
+### Audio playback and analysis
+
+Listen while examining audio metadata and the waveform. The player supports navigation and zoom, with channel controls available for supported audio layouts.
+
+<p align="center">
+  <img src="docs/screenshots/showcase/04-audio-waveform.jpg" width="920" alt="unwrapMedia's audio inspector showing WAV structure, metadata, hex data, and a green waveform" />
+</p>
+
+Try the generated [gentle-tones.wav](docs/showcase-media/audio/gentle-tones.wav).
+
+## Diagnose timing and file health
+
+### A/V sync and frame timing
+
+The A/V sync analyzer compares audio and video presentation timelines to help investigate offset and duration differences. Frame-interval analysis visualizes timestamp spacing and irregular intervals that may indicate timing problems or dropped-frame candidates; it is diagnostic evidence, not a guarantee that every capture-side drop can be identified.
+
+Use [avsync-frame-gap.mp4](docs/showcase-media/video/avsync-frame-gap.mp4) to try both tools. This synthetic clip intentionally includes an audio delay and a video timestamp gap; see the sample-media notes for details.
+
+### AI-assisted diagnosis
+
+Structure checks flag parser-detected warnings, and the AI prompt generator prepares file-specific technical context that you can provide to an AI assistant. unwrapMedia generates the prompt; it does not require or bundle an AI service.
+
+### Structure tree, hex viewer, and CLI
+
+Explore parsed boxes and markers with byte offsets linked to the hex viewer. The command-line `dump` and `check` modes support scripted inspection and CI workflows.
+
+## Sample media
+
+The small, synthetic showcase assets are in [`docs/showcase-media/`](docs/showcase-media/README.md). They are generated for this repository; the A/V timing sample intentionally contains test anomalies. See the sample catalog for sizes, formats, and usage.
+
+## Supported formats
+
+| Category | Examples |
 |---|---|
-| **Image** | JPEG, PNG, GIF, WebP, AVIF, HEIC/HEIF, BMP, TIFF, Camera RAW (DNG, CR2, NEF, ARW) |
-| **Video** | MP4, MOV, M4V, WebM, APV, AV1, IVF (Codecs: APV, AV1, HEVC, AVC, Dolby Vision, VP8/VP9) |
-| **Audio** | WAV, MP3, M4A/AAC, FLAC, OGG, Opus, AIFF, Headerless Raw PCM (`.pcm`) |
-| **Raw Pixel** | `.raw`, `.rgb`, `.rgba`, `.yuv`, `.nv12`, `.nv21` |
+| Images | JPEG, PNG, GIF, WebP, AVIF, HEIC/HEIF, BMP, TIFF, camera RAW |
+| Video | MP4, MOV, M4V, WebM, IVF; AVC/H.264, HEVC/H.265, AV1, APV, VP8/VP9, Dolby Vision |
+| Audio | WAV, MP3, M4A/AAC, FLAC, OGG/Opus, AIFF, raw PCM |
+| Raw pixels | YUV (`NV12`, `NV21`, `I420`), RGB/RGBA dumps |
 
----
+## Get started
 
-## 🚀 Quick Start
+Download a package from [GitHub Actions](https://github.com/abracadabra799/unwrapMedia/actions), or build with JDK 21+:
 
-### Download Pre-built App
-Download the latest binaries from [Releases / GitHub Actions Artifacts](https://github.com/abracadabra799/unwrapMedia/actions):
-* **macOS**: `.dmg` (requires `brew install ffmpeg`)
-* **Windows**: `.exe` (installer bundled with ffmpeg/ffprobe)
-* **Linux**: `.deb` (bundled with ffmpeg/ffprobe)
-
-### Build from Source
-Requires JDK 21+ and Gradle:
 ```bash
-./gradlew :app:run         # Run application
-./gradlew test             # Run test suite
-./gradlew :app:package     # Build OS package
+./gradlew :app:run
+./gradlew test
+./gradlew :app:package
 ```
 
-### CLI Usage
+CLI examples:
+
 ```bash
-unwrapMedia dump <file>              # Dump full structure tree as JSON
-unwrapMedia check <file>             # Lint structural defects & warnings
-unwrapMedia check <file> --prompt    # Generate AI diagnostic prompt
-unwrapMedia check <file> -p -c       # Generate prompt and copy to clipboard
+unwrapMedia dump <file>              # Dump the parsed structure as JSON
+unwrapMedia check <file>             # Check for structural warnings
+unwrapMedia check <file> --prompt    # Generate an AI diagnostic prompt
 ```
 
----
+## License
 
-## 📄 License
-
-MIT -- see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).
