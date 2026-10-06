@@ -85,6 +85,11 @@ private val compareExecutor = Executors.newFixedThreadPool(4) { runnable ->
     Thread(runnable).apply { isDaemon = true }
 }
 
+private val progressiveCompareImageLoader = ProgressiveCompareImageLoader(
+    decodePreview = { encoded, edge -> ImageAnalyzer.decodeThumbnail(encoded, edge) },
+    decodeFinal = { encoded -> ImageAnalyzer.decodePrimaryBitmap(encoded) },
+)
+
 enum class MediaCompareTab {
     VISUAL,
     STRUCTURE,
@@ -588,7 +593,25 @@ fun ImageCompareWindow(
                         }
                     } else {
                         val forensic = ImageAnalyzer.analyze(file, root, reader)
-                        val (decodedBitmap, _) = ImageAnalyzer.decodePrimaryBitmapAndHistogram(file)
+                        var previewBitmap = forensic.embeddedThumbnail
+                        val decodedBitmap = progressiveCompareImageLoader.load(file, previewBitmap) { preview ->
+                            previewBitmap = preview
+                            EventQueue.invokeLater {
+                                onLoaded(
+                                    CompareMediaInfo(
+                                        file = file,
+                                        root = root,
+                                        forensic = forensic.copy(bitmap = preview),
+                                        bitmap = preview,
+                                        summary = summary,
+                                        fileSize = file.length(),
+                                        isVideo = false,
+                                        durationSeconds = 0.0,
+                                        isLoading = true,
+                                    )
+                                )
+                            }
+                        }
 
                         if (decodedBitmap != null) {
                             EventQueue.invokeLater {
@@ -613,8 +636,8 @@ fun ImageCompareWindow(
                                         CompareMediaInfo(
                                             file = file,
                                             root = root,
-                                            forensic = forensic.copy(bitmap = fallbackBitmap),
-                                            bitmap = fallbackBitmap,
+                                            forensic = forensic.copy(bitmap = fallbackBitmap ?: previewBitmap),
+                                            bitmap = fallbackBitmap ?: previewBitmap,
                                             summary = summary,
                                             fileSize = file.length(),
                                             isVideo = false,
@@ -968,15 +991,6 @@ fun FastStoneExplorerView(
         mutableStateOf(initialSelected.take(2))
     }
 
-    var toastMessage by remember { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(toastMessage) {
-        if (toastMessage != null) {
-            delay(2800)
-            toastMessage = null
-        }
-    }
-
     var searchQuery by remember { mutableStateOf("") }
     var isGridView by remember { mutableStateOf(true) }
 
@@ -1024,20 +1038,7 @@ fun FastStoneExplorerView(
     }
 
     fun toggleFileSelection(file: File) {
-        val existingIndex = selectedFiles.indexOfFirst { it.absolutePath == file.absolutePath }
-        if (existingIndex >= 0) {
-            selectedFiles = selectedFiles.filterIndexed { index, _ -> index != existingIndex }
-        } else {
-            if (selectedFiles.size < 2) {
-                selectedFiles = selectedFiles + file
-            } else {
-                toastMessage = if (language == AppLanguage.KO) {
-                    "⚠️ 최대 2개의 파일만 선택할 수 있습니다. 기존 선택을 해제하고 다시 선택하세요."
-                } else {
-                    "⚠️ You can select at most 2 files. Uncheck a file to select another."
-                }
-            }
-        }
+        selectedFiles = toggleThumbnailFileSelection(selectedFiles, file)
     }
 
     fun openCompareIfValid() {
@@ -1587,30 +1588,6 @@ fun FastStoneExplorerView(
         }
     }
 
-    // Warning Toast Popup
-    if (toastMessage != null) {
-        Surface(
-            color = Color(0xFF2B1D0C),
-            shape = RoundedCornerShape(8.dp),
-            border = androidx.compose.foundation.BorderStroke(1.5.dp, AppColors.NeonYellow),
-            shadowElevation = 8.dp,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 60.dp),
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = toastMessage ?: "",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = AppColors.NeonYellow,
-                )
-            }
-        }
-    }
 }
 }
 
@@ -2753,7 +2730,7 @@ private fun VisualDiffView(
     }
 
     // Video frame decoder when PTS changes
-    LaunchedEffect(currentPts, infoA.file, infoB.file) {
+    LaunchedEffect(currentPts, infoA.file, infoA.bitmap, infoA.isVideo, infoB.file, infoB.bitmap, infoB.isVideo) {
         if (infoA.isVideo) {
             FrameFullSizeDecoder.decodeFrameAsync(infoA.file, currentPts) { bm ->
                 if (bm != null) frameBitmapA = bm

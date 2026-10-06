@@ -125,6 +125,23 @@ class ImageAnalyzerTest {
     }
 
     @Test
+    fun `encoded bytes can produce a display preview and full bitmap without histogram work`() {
+        val image = BufferedImage(1800, 900, BufferedImage.TYPE_INT_RGB)
+        val file = File.createTempFile("image-analyzer-compare-decode-test", ".jpg")
+        file.deleteOnExit()
+        ImageIO.write(image, "jpg", file)
+        val encoded = file.readBytes()
+
+        val preview = ImageAnalyzer.decodeThumbnail(encoded, longestEdge = 600)
+        val fullBitmap = ImageAnalyzer.decodePrimaryBitmap(encoded)
+
+        assertEquals(600, preview?.width)
+        assertEquals(300, preview?.height)
+        assertEquals(1800, fullBitmap?.width)
+        assertEquals(900, fullBitmap?.height)
+    }
+
+    @Test
     fun `analyze does not compute the primary bitmap or histogram -- that's decodePrimaryBitmapAndHistogram's job`() {
         // Regression guard: the primary Skia raster decode + histogram pass is real, measurable
         // work (a large JPEG's decode alone measured at ~45ms) -- analyze() must stay cheap so a
