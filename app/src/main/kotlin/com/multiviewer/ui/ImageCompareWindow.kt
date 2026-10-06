@@ -13,7 +13,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -22,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -59,9 +61,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.rememberWindowState
+import com.multiviewer.cache.ThumbnailDiskCache
+import com.multiviewer.cache.ThumbnailSourceFingerprint
 import com.multiviewer.parser.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -73,10 +78,17 @@ import java.io.File
 import java.io.RandomAccessFile
 import java.util.Locale
 import java.util.concurrent.Executors
+import org.jetbrains.skia.EncodedImageFormat
+import org.jetbrains.skia.Image as SkiaImage
 
 private val compareExecutor = Executors.newFixedThreadPool(4) { runnable ->
     Thread(runnable).apply { isDaemon = true }
 }
+
+private val progressiveCompareImageLoader = ProgressiveCompareImageLoader(
+    decodePreview = { encoded, edge -> ImageAnalyzer.decodeThumbnail(encoded, edge) },
+    decodeFinal = { encoded -> ImageAnalyzer.decodePrimaryBitmap(encoded) },
+)
 
 enum class MediaCompareTab {
     VISUAL,
@@ -179,97 +191,250 @@ internal class ThumbnailRequestRegistry<T> {
         }
     }
 
-    fun complete(key: String, value: T): List<() -> Unit> = synchronized(listeners) {
-        listeners.remove(key).orEmpty().map { listener -> { listener(value) } }
+    /** Reserves a request for prefetch work that has no UI subscriber yet. */
+    fun ensure(key: String): Boolean = synchronized(listeners) {
+        if (listeners.containsKey(key)) {
+            false
+        } else {
+            listeners[key] = mutableListOf()
+            true
+        }
     }
 
-    fun discard(key: String) {
+    fun publish(key: String, value: T, isFinal: Boolean): List<(T) -> Unit> = synchronized(listeners) {
+        val waiting = if (isFinal) listeners.remove(key).orEmpty() else listeners[key].orEmpty()
+        waiting.toList()
+    }
+
+    /** Compatibility adapter for callers that previously requested a one-shot completion. */
+    fun complete(key: String, value: T): List<() -> Unit> =
+        publish(key, value, isFinal = true).map { listener -> { listener(value) } }
+
+    fun finish(key: String) {
         synchronized(listeners) { listeners.remove(key) }
     }
 }
 
 private object ExplorerThumbnailLoader {
-    private val cache = object : java.util.LinkedHashMap<String, ImageBitmap>(128, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?): Boolean {
-            return size > 200
-        }
+    private val diskCache by lazy {
+        ThumbnailDiskCache(File(System.getProperty("user.home"), ".unwrapMedia/cache/thumbnails"))
     }
+    private val cache = ThumbnailMemoryCache<ImageBitmap>()
     private val requests = ThumbnailRequestRegistry<ImageBitmap>()
-    private val thumbExecutor = Executors.newFixedThreadPool(3) { r ->
+    private val workQueue = ThumbnailPriorityQueue()
+    private val visiblePaths = mutableSetOf<String>()
+    private val prefetchPaths = mutableSetOf<String>()
+    private var listMode = false
+    private val lookaheadScheduler = ThumbnailLookaheadScheduler<File> { index, file ->
+        requestThumbnail(file, index, onLoaded = null)
+    }
+    private val workers = Executors.newFixedThreadPool(3) { r ->
         Thread(r).apply { isDaemon = true }
+    }.also { executor ->
+        repeat(3) {
+            executor.submit {
+                while (!Thread.currentThread().isInterrupted) {
+                    try {
+                        workQueue.takeNext().action()
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                    }
+                }
+            }
+        }
     }
 
-    fun getThumbnail(file: File, onLoaded: (ImageBitmap) -> Unit): ImageBitmap? {
+    fun updateGridViewport(
+        files: List<File>,
+        visibleIndices: Set<Int>,
+        columnCount: Int = 1,
+        listMode: Boolean = false,
+    ) {
+        synchronized(visiblePaths) {
+            this.listMode = listMode
+            visiblePaths.clear()
+            prefetchPaths.clear()
+            visibleIndices.forEach { index -> files.getOrNull(index)?.let { visiblePaths += it.absolutePath } }
+            val prefetchIndices = if (listMode) emptySet() else
+                thumbnailPrefetchIndices(visibleIndices, columnCount, files.size)
+            prefetchIndices.forEach { index -> files.getOrNull(index)?.let { prefetchPaths += it.absolutePath } }
+            workQueue.reprioritize { key -> priorityForPath(key) }
+        }
+        if (!listMode) lookaheadScheduler.update(files, visibleIndices, columnCount)
+    }
+
+    fun getThumbnail(file: File, itemIndex: Int? = null, onLoaded: (ImageBitmap) -> Unit): ImageBitmap? =
+        requestThumbnail(file, itemIndex, onLoaded)
+
+    private fun requestThumbnail(
+        file: File,
+        itemIndex: Int?,
+        onLoaded: ((ImageBitmap) -> Unit)?,
+    ): ImageBitmap? {
         val path = file.absolutePath
-        synchronized(cache) {
-            val cached = cache[path]
-            if (cached != null) return cached
+        val requestedAt = System.nanoTime()
+        val ext = file.extension.lowercase(Locale.US)
+        val cached = cache.get(file)
+        if (cached != null) {
+            ThumbnailMetrics.record(
+                event = "thumbnail",
+                mediaType = ext,
+                elapsedMs = (System.nanoTime() - requestedAt) / 1_000_000,
+                result = "cache_hit",
+            )
+            return cached
         }
 
-        if (requests.add(path, onLoaded)) {
-            thumbExecutor.submit {
-                var bitmap: ImageBitmap? = null
+        val shouldStart = if (onLoaded == null) requests.ensure(path) else requests.add(path, onLoaded)
+        if (shouldStart) {
+            val initialPriority = synchronized(visiblePaths) {
+                if (itemIndex == null) 0 else thumbnailPriorityForPath(path, visiblePaths, prefetchPaths, listMode)
+            }
+            workQueue.enqueue(path, initialPriority) {
+                val sourceFingerprint = ThumbnailSourceFingerprint.capture(file)
+                val workerStarted = System.nanoTime()
+                val queueMs = (workerStarted - requestedAt) / 1_000_000
+                val sourceBytes = runCatching { file.length() }.getOrNull()
+                val decodeStarted = System.nanoTime()
+                var route = if (ext in VIDEO_EXTENSIONS) "ffmpeg" else "skia"
+                var result = "failed"
+                var delivered = false
                 try {
-                    val ext = file.extension.lowercase(Locale.US)
-                    val isVid = ext in VIDEO_EXTENSIONS
-
-                    if (isVid) {
-                        bitmap = FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap(
-                            listOf(
-                                FfmpegLocator.ffmpegPath(), "-y",
-                                "-ss", "0.5",
-                                "-i", file.absolutePath,
-                                "-vf", "scale=160:-1",
-                                "-frames:v", "1",
-                                "-update", "1"
-                            ),
-                            tempExtension = ".jpg",
-                            timeoutMs = 8_000L,
-                        )
-                        if (bitmap == null) {
-                            bitmap = FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap(
-                                listOf(
-                                    FfmpegLocator.ffmpegPath(), "-y",
-                                    "-i", file.absolutePath,
-                                    "-vf", "scale=160:-1",
-                                    "-frames:v", "1",
-                                    "-update", "1"
-                                ),
-                                tempExtension = ".jpg",
-                                timeoutMs = 8_000L,
-                            )
+                    val cachedBytes = diskCache.get(file, longestEdge = 240, fingerprint = sourceFingerprint)
+                    val cachedBitmap = cachedBytes?.let { bytes ->
+                        runCatching {
+                            val image = SkiaImage.makeFromEncoded(bytes) ?: return@runCatching null
+                            try {
+                                image.toComposeImageBitmap()
+                            } finally {
+                                image.close()
+                            }
+                        }.getOrNull()
+                    }
+                    if (cachedBytes != null && cachedBitmap == null) {
+                        diskCache.remove(file, longestEdge = 240, fingerprint = sourceFingerprint)
+                    }
+                    if (cachedBitmap != null) {
+                        route = "disk_cache"
+                        result = route
+                        if (sourceFingerprint.matches(file)) {
+                            cache.put(file, cachedBitmap, sourceFingerprint)
+                            publishThumbnail(path, file, cachedBitmap, true, sourceFingerprint, ext, sourceBytes, queueMs, decodeStarted, requestedAt, result)
+                            delivered = true
+                        } else {
+                            requests.finish(path)
                         }
                     } else {
-                        // Explorer thumbnails must not retain a full-size image or calculate a
-                        // histogram. Decode to the display-sized bitmap instead.
-                        val primary = ImageAnalyzer.decodeThumbnail(file, longestEdge = 240)
-                        if (primary != null) {
-                            bitmap = primary
-                        } else {
-                            // HEIC / RAW / Other: the ffmpeg helper uses filter_complex rather
-                            // than -vf, which can coexist with HEIC's display transform.
-                            bitmap = FfmpegImageSnapshotDecoder.decodeThumbnailToBitmap(file, longestEdge = 240)
-                        }
-                    }
-
-                    if (bitmap != null) {
-                        synchronized(cache) {
-                            cache[path] = bitmap
-                        }
-                        val listeners = requests.complete(path, bitmap)
-                        EventQueue.invokeLater {
-                            listeners.forEach { it() }
-                        }
+                        val coordinator = ThumbnailLoadCoordinator<ImageBitmap>(
+                            preview = { source ->
+                                if (ext == "jpg" || ext == "jpeg") ImageAnalyzer.decodeEmbeddedJpegThumbnail(source, longestEdge = 240) else null
+                            },
+                            decodeFinal = { source ->
+                                if (ext in VIDEO_EXTENSIONS) {
+                                    route = "ffmpeg"
+                                    FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap(
+                                        listOf(FfmpegLocator.ffmpegPath(), "-y", "-ss", "0.5", "-i", source.absolutePath,
+                                            "-vf", "scale=160:-1", "-frames:v", "1", "-update", "1"),
+                                        tempExtension = ".jpg", timeoutMs = 8_000L,
+                                    ) ?: FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap(
+                                        listOf(FfmpegLocator.ffmpegPath(), "-y", "-i", source.absolutePath,
+                                            "-vf", "scale=160:-1", "-frames:v", "1", "-update", "1"),
+                                        tempExtension = ".jpg", timeoutMs = 8_000L,
+                                    )
+                                } else {
+                                    val primary = ImageAnalyzer.decodeThumbnail(source, longestEdge = 240)
+                                    if (primary != null) primary else {
+                                        route = "ffmpeg_fallback"
+                                        FfmpegImageSnapshotDecoder.decodeThumbnailToBitmap(source, longestEdge = 240)
+                                    }
+                                }
+                            },
+                            persistFinal = { source, finalBitmap, fingerprint ->
+                                if (route != "disk_cache" && fingerprint.matches(source)) {
+                                    encodeAndPersist(source, ext, finalBitmap, fingerprint)
+                                }
+                            },
+                            publish = { source, loaded, isFinal ->
+                                if (!sourceFingerprint.matches(source)) {
+                                    requests.finish(path)
+                                } else {
+                                    if (isFinal) {
+                                        result = route
+                                        cache.put(source, loaded, sourceFingerprint)
+                                        delivered = true
+                                    }
+                                    publishThumbnail(path, source, loaded, isFinal, sourceFingerprint, ext, sourceBytes, queueMs, decodeStarted, requestedAt, result)
+                                }
+                            },
+                            finishWithoutBitmap = { requests.finish(path) },
+                        )
+                        coordinator.load(file, sourceFingerprint)
                     }
                 } catch (_: Exception) {
+                    result = "error_$route"
+                    requests.finish(path)
                 } finally {
-                    if (bitmap == null) requests.discard(path)
+                    if (!delivered) {
+                        ThumbnailMetrics.record(
+                            event = "thumbnail", mediaType = ext, sourceBytes = sourceBytes,
+                            queueMs = queueMs, decodeMs = (System.nanoTime() - decodeStarted) / 1_000_000,
+                            elapsedMs = (System.nanoTime() - requestedAt) / 1_000_000, result = result,
+                        )
+                    }
                 }
             }
         }
         return null
     }
+
+    private fun priorityForPath(path: String): Int =
+        thumbnailPriorityForPath(path, visiblePaths, prefetchPaths, listMode)
+
+    private fun publishThumbnail(
+        path: String, source: File, bitmap: ImageBitmap, isFinal: Boolean,
+        fingerprint: ThumbnailSourceFingerprint, ext: String,
+        sourceBytes: Long?, queueMs: Long, decodeStarted: Long, requestedAt: Long, result: String,
+    ) {
+        val listeners = requests.publish(path, bitmap, isFinal)
+        val decodeFinishedAt = System.nanoTime()
+        EventQueue.invokeLater {
+            if (!fingerprint.matches(source)) {
+                requests.finish(path)
+                return@invokeLater
+            }
+            val publishedAt = System.nanoTime()
+            if (isFinal) ThumbnailMetrics.record(
+                event = "thumbnail", mediaType = ext, sourceBytes = sourceBytes, queueMs = queueMs,
+                decodeMs = (decodeFinishedAt - decodeStarted) / 1_000_000,
+                publishMs = (publishedAt - decodeFinishedAt) / 1_000_000,
+                elapsedMs = (publishedAt - requestedAt) / 1_000_000, result = result,
+            )
+            listeners.forEach { it(bitmap) }
+        }
+    }
+
+    private fun encodeAndPersist(
+        file: File,
+        ext: String,
+        bitmap: ImageBitmap,
+        fingerprint: ThumbnailSourceFingerprint,
+    ) {
+        val skiaImage = SkiaImage.makeFromBitmap(bitmap.asSkiaBitmap())
+        try {
+            val format = if (ext in LOSSLESS_THUMBNAIL_EXTENSIONS) EncodedImageFormat.PNG else EncodedImageFormat.JPEG
+            val encoded = skiaImage.encodeToData(format, 88) ?: return
+            try {
+                diskCache.put(file, longestEdge = 240, encodedThumbnail = encoded.bytes, fingerprint = fingerprint)
+            } finally {
+                encoded.close()
+            }
+        } finally {
+            skiaImage.close()
+        }
+    }
 }
+
+private val LOSSLESS_THUMBNAIL_EXTENSIONS = setOf("png", "apng", "gif", "webp", "tif", "tiff")
 
 
 enum class CompareSlot {
@@ -428,7 +593,25 @@ fun ImageCompareWindow(
                         }
                     } else {
                         val forensic = ImageAnalyzer.analyze(file, root, reader)
-                        val (decodedBitmap, _) = ImageAnalyzer.decodePrimaryBitmapAndHistogram(file)
+                        var previewBitmap = forensic.embeddedThumbnail
+                        val decodedBitmap = progressiveCompareImageLoader.load(file, previewBitmap) { preview ->
+                            previewBitmap = preview
+                            EventQueue.invokeLater {
+                                onLoaded(
+                                    CompareMediaInfo(
+                                        file = file,
+                                        root = root,
+                                        forensic = forensic.copy(bitmap = preview),
+                                        bitmap = preview,
+                                        summary = summary,
+                                        fileSize = file.length(),
+                                        isVideo = false,
+                                        durationSeconds = 0.0,
+                                        isLoading = true,
+                                    )
+                                )
+                            }
+                        }
 
                         if (decodedBitmap != null) {
                             EventQueue.invokeLater {
@@ -453,8 +636,8 @@ fun ImageCompareWindow(
                                         CompareMediaInfo(
                                             file = file,
                                             root = root,
-                                            forensic = forensic.copy(bitmap = fallbackBitmap),
-                                            bitmap = fallbackBitmap,
+                                            forensic = forensic.copy(bitmap = fallbackBitmap ?: previewBitmap),
+                                            bitmap = fallbackBitmap ?: previewBitmap,
                                             summary = summary,
                                             fileSize = file.length(),
                                             isVideo = false,
@@ -808,27 +991,29 @@ fun FastStoneExplorerView(
         mutableStateOf(initialSelected.take(2))
     }
 
-    var toastMessage by remember { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(toastMessage) {
-        if (toastMessage != null) {
-            delay(2800)
-            toastMessage = null
-        }
-    }
-
     var searchQuery by remember { mutableStateOf("") }
     var isGridView by remember { mutableStateOf(true) }
 
     val folderFiles = remember(currentFolder) {
+        val startedAt = System.nanoTime()
+        var result = "ok"
         try {
             if (currentFolder.exists() && currentFolder.isDirectory) {
                 currentFolder.listFiles()?.toList() ?: emptyList()
             } else {
+                result = "unavailable"
                 emptyList()
             }
         } catch (_: Exception) {
+            result = "error"
             emptyList()
+        }.also { files ->
+            ThumbnailMetrics.record(
+                event = "folder_list",
+                elapsedMs = (System.nanoTime() - startedAt) / 1_000_000,
+                itemCount = files.size,
+                result = result,
+            )
         }
     }
 
@@ -838,27 +1023,22 @@ fun FastStoneExplorerView(
     }
 
     val mediaFiles = remember(folderFiles, searchQuery) {
+        val startedAt = System.nanoTime()
         folderFiles.filter {
             it.isFile && !it.isHidden && it.extension.lowercase(Locale.US) in ALL_SUPPORTED_MEDIA_EXTENSIONS &&
                     (searchQuery.isBlank() || it.name.contains(searchQuery, ignoreCase = true))
-        }.sortedBy { it.name.lowercase(Locale.US) }
+        }.sortedBy { it.name.lowercase(Locale.US) }.also { files ->
+            ThumbnailMetrics.record(
+                event = "media_index",
+                elapsedMs = (System.nanoTime() - startedAt) / 1_000_000,
+                itemCount = files.size,
+                result = "ok",
+            )
+        }
     }
 
     fun toggleFileSelection(file: File) {
-        val existingIndex = selectedFiles.indexOfFirst { it.absolutePath == file.absolutePath }
-        if (existingIndex >= 0) {
-            selectedFiles = selectedFiles.filterIndexed { index, _ -> index != existingIndex }
-        } else {
-            if (selectedFiles.size < 2) {
-                selectedFiles = selectedFiles + file
-            } else {
-                toastMessage = if (language == AppLanguage.KO) {
-                    "⚠️ 최대 2개의 파일만 선택할 수 있습니다. 기존 선택을 해제하고 다시 선택하세요."
-                } else {
-                    "⚠️ You can select at most 2 files. Uncheck a file to select another."
-                }
-            }
-        }
+        selectedFiles = toggleThumbnailFileSelection(selectedFiles, file)
     }
 
     fun openCompareIfValid() {
@@ -1065,15 +1245,35 @@ fun FastStoneExplorerView(
                         )
                     }
                 } else {
+                    val gridState = rememberLazyGridState()
+                    LaunchedEffect(isGridView, gridState, mediaFiles) {
+                        if (!isGridView) {
+                            ExplorerThumbnailLoader.updateGridViewport(emptyList(), emptySet(), columnCount = 1, listMode = true)
+                        } else {
+                            snapshotFlow {
+                                val visibleItems = gridState.layoutInfo.visibleItemsInfo
+                                val visibleIndices = visibleItems.mapTo(mutableSetOf()) { it.index }
+                                val columnCount = visibleItems.groupingBy { it.offset.y }.eachCount().values.maxOrNull() ?: 1
+                                visibleIndices to columnCount
+                            }.distinctUntilChanged().collect { (visibleIndices, columnCount) ->
+                                ExplorerThumbnailLoader.updateGridViewport(
+                                    mediaFiles,
+                                    visibleIndices,
+                                    columnCount,
+                                )
+                            }
+                        }
+                    }
                     if (isGridView) {
                         LazyVerticalGrid(
                             columns = GridCells.Adaptive(minSize = 140.dp),
+                            state = gridState,
                             modifier = Modifier.fillMaxSize().padding(6.dp),
                             contentPadding = PaddingValues(4.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            items(mediaFiles, key = { it.absolutePath }) { file ->
+                            itemsIndexed(mediaFiles, key = { _, file -> file.absolutePath }) { itemIndex, file ->
                                 val selectedIndex = selectedFiles.indexOfFirst { it.absolutePath == file.absolutePath }
                                 val isSelected = selectedIndex >= 0
 
@@ -1082,7 +1282,7 @@ fun FastStoneExplorerView(
                                 }
 
                                 LaunchedEffect(file.absolutePath) {
-                                    val cached = ExplorerThumbnailLoader.getThumbnail(file) { loaded ->
+                                    val cached = ExplorerThumbnailLoader.getThumbnail(file, itemIndex) { loaded ->
                                         thumbnailBitmap = loaded
                                     }
                                     if (cached != null) {
@@ -1388,30 +1588,6 @@ fun FastStoneExplorerView(
         }
     }
 
-    // Warning Toast Popup
-    if (toastMessage != null) {
-        Surface(
-            color = Color(0xFF2B1D0C),
-            shape = RoundedCornerShape(8.dp),
-            border = androidx.compose.foundation.BorderStroke(1.5.dp, AppColors.NeonYellow),
-            shadowElevation = 8.dp,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 60.dp),
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = toastMessage ?: "",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = AppColors.NeonYellow,
-                )
-            }
-        }
-    }
 }
 }
 
@@ -2554,7 +2730,7 @@ private fun VisualDiffView(
     }
 
     // Video frame decoder when PTS changes
-    LaunchedEffect(currentPts, infoA.file, infoB.file) {
+    LaunchedEffect(currentPts, infoA.file, infoA.bitmap, infoA.isVideo, infoB.file, infoB.bitmap, infoB.isVideo) {
         if (infoA.isVideo) {
             FrameFullSizeDecoder.decodeFrameAsync(infoA.file, currentPts) { bm ->
                 if (bm != null) frameBitmapA = bm

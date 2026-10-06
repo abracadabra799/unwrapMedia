@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.sp
 
 enum class ThemeMode { DARK, LIGHT }
 
-private data class ThemePalette(
+internal data class ThemePalette(
     val background: Color, val surface: Color, val panel: Color, val border: Color,
     val dividerHighlight: Color, val dividerShadow: Color,
     val neonGreen: Color, val neonBlue: Color, val neonPurple: Color, val neonRed: Color, val neonYellow: Color, val neonOrange: Color,
@@ -46,12 +46,12 @@ private val DarkPalette = ThemePalette(
     frameTypeI = Color(0xFFE06C75), frameTypeP = Color(0xFF7EC699), frameTypeB = Color(0xFF6CA6E0),
 )
 
-private val LightPalette = ThemePalette(
-    background = Color(0xFFECEFF3), surface = Color(0xFFE2E6EC), panel = Color(0xFFD8DDE4), border = Color(0xFFBAC1CC),
-    dividerHighlight = Color(0xFFF6F8FA), dividerShadow = Color(0xFFA8B0BC),
-    neonGreen = Color(0xFF1A7F37), neonBlue = Color(0xFF0969DA), neonPurple = Color(0xFF8250DF), neonRed = Color(0xFFCF222E), neonYellow = Color(0xFF9A6700), neonOrange = Color(0xFFBC4C00),
-    textPrimary = Color(0xFF1F2328), textSecondary = Color(0xFF59636E), textMuted = Color(0xFF8C959F),
-    selection = Color(0xFFB6D4F8),
+internal val LightPalette = ThemePalette(
+    background = Color(0xFFF0F0F0), surface = Color(0xFFFFFFFF), panel = Color(0xFFE6E6E6), border = Color(0xFFB8B8B8),
+    dividerHighlight = Color(0xFFFFFFFF), dividerShadow = Color(0xFF9E9E9E),
+    neonGreen = Color(0xFF27823B), neonBlue = Color(0xFF2878B8), neonPurple = Color(0xFF7952A1), neonRed = Color(0xFFC43D3D), neonYellow = Color(0xFF8A6400), neonOrange = Color(0xFFB85C17),
+    textPrimary = Color(0xFF202020), textSecondary = Color(0xFF555555), textMuted = Color(0xFF737373),
+    selection = Color(0xFFB7D7F5),
     frameTypeI = Color(0xFFC53030), frameTypeP = Color(0xFF2F855A), frameTypeB = Color(0xFF2B6CB0),
 )
 
@@ -142,7 +142,28 @@ fun AppTheme(mode: ThemeMode, showPixelGrid: Boolean, content: @Composable () ->
     val palette = if (mode == ThemeMode.LIGHT) LightPalette else DarkPalette
     CompositionLocalProvider(LocalThemePalette provides palette, LocalShowPixelGrid provides showPixelGrid) {
         val colorScheme = if (mode == ThemeMode.LIGHT) {
-            lightColorScheme(background = AppColors.Background)
+            lightColorScheme(
+                primary = AppColors.NeonBlue,
+                onPrimary = Color.White,
+                primaryContainer = AppColors.Selection,
+                onPrimaryContainer = AppColors.TextPrimary,
+                secondary = AppColors.NeonGreen,
+                onSecondary = Color.White,
+                secondaryContainer = AppColors.Panel,
+                onSecondaryContainer = AppColors.TextPrimary,
+                tertiary = AppColors.NeonPurple,
+                onTertiary = Color.White,
+                error = AppColors.NeonRed,
+                onError = Color.White,
+                background = AppColors.Background,
+                onBackground = AppColors.TextPrimary,
+                surface = AppColors.Surface,
+                onSurface = AppColors.TextPrimary,
+                surfaceVariant = AppColors.Panel,
+                onSurfaceVariant = AppColors.TextSecondary,
+                outline = AppColors.Border,
+                outlineVariant = AppColors.Border,
+            )
         } else {
             darkColorScheme(background = AppColors.Background)
         }

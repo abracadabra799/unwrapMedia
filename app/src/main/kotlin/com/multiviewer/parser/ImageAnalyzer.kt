@@ -212,14 +212,28 @@ object ImageAnalyzer {
     // and other HEIF-family stills), which callers use as the signal to fall back to
     // FfmpegImageSnapshotDecoder instead.
     fun decodePrimaryBitmapAndHistogram(file: File): Pair<ImageBitmap?, HistogramData?> {
-        val primaryImage = try {
-            Image.makeFromEncoded(file.readBytes())
-        } catch (e: Exception) {
+        val encoded = try {
+            file.readBytes()
+        } catch (_: Exception) {
             null
         }
-        val primaryBitmap = primaryImage?.toComposeImageBitmap()
+        val primaryBitmap = encoded?.let(::decodePrimaryBitmap)
         val histogram = primaryBitmap?.let { calculateHistogram(it.asSkiaBitmap()) }
         return primaryBitmap to histogram
+    }
+
+    /** Decodes the primary bitmap without computing a histogram for callers that don't use one. */
+    internal fun decodePrimaryBitmap(encoded: ByteArray): ImageBitmap? {
+        val image = try {
+            Image.makeFromEncoded(encoded)
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        return try {
+            image.toComposeImageBitmap()
+        } finally {
+            image.close()
+        }
     }
 
     /**
@@ -234,6 +248,13 @@ object ImageAnalyzer {
         } catch (_: Exception) {
             null
         } ?: return null
+
+        return decodeThumbnail(encoded, longestEdge)
+    }
+
+    /** Decodes a display-sized bitmap from already-read encoded data. */
+    internal fun decodeThumbnail(encoded: ByteArray, longestEdge: Int): ImageBitmap? {
+        require(longestEdge > 0) { "longestEdge must be positive" }
 
         val scaled = try {
             Data.makeFromBytes(encoded).use { data ->
@@ -261,14 +282,56 @@ object ImageAnalyzer {
         } catch (_: Exception) {
             null
         } ?: return null
+        try {
+            val sourceLongest = maxOf(source.width, source.height)
+            if (sourceLongest <= longestEdge) return source.toComposeImageBitmap()
 
-        val sourceLongest = maxOf(source.width, source.height)
-        if (sourceLongest <= longestEdge) return source.toComposeImageBitmap()
+            val (targetWidth, targetHeight) = thumbnailDecodeDimensions(source.width, source.height, longestEdge)
+            val surface = Surface.makeRasterN32Premul(targetWidth, targetHeight)
+            try {
+                surface.canvas.drawImageRect(source, Rect.makeWH(targetWidth.toFloat(), targetHeight.toFloat()))
+                return surface.makeImageSnapshot().use { it.toComposeImageBitmap() }
+            } finally {
+                surface.close()
+            }
+        } finally {
+            source.close()
+        }
+    }
 
-        val (targetWidth, targetHeight) = thumbnailDecodeDimensions(source.width, source.height, longestEdge)
-        val surface = Surface.makeRasterN32Premul(targetWidth, targetHeight)
-        surface.canvas.drawImageRect(source, Rect.makeWH(targetWidth.toFloat(), targetHeight.toFloat()))
-        return surface.makeImageSnapshot().toComposeImageBitmap()
+    /** Decodes only an EXIF/embedded JPEG thumbnail, without rasterizing the primary image. */
+    fun decodeEmbeddedJpegThumbnail(file: File, longestEdge: Int): ImageBitmap? {
+        require(longestEdge > 0) { "longestEdge must be positive" }
+        return try {
+            ByteReader.open(file).use { reader ->
+                if (reader.length < 2 || reader.readUInt8(0) != 0xFF || reader.readUInt8(1) != 0xD8) {
+                    return@use null
+                }
+                val root = BoxNode(
+                    type = "root", offset = 0, headerSize = 0, size = reader.length,
+                    children = parseJpegSegments(reader, 0, reader.length),
+                )
+                val image = tryExtractEmbeddedJpeg(reader, root).image ?: return@use null
+                try {
+                    val (width, height) = thumbnailDecodeDimensions(image.width, image.height, longestEdge)
+                    if (width == image.width && height == image.height) {
+                        image.toComposeImageBitmap()
+                    } else {
+                        val surface = Surface.makeRasterN32Premul(width, height)
+                        try {
+                            surface.canvas.drawImageRect(image, Rect.makeWH(width.toFloat(), height.toFloat()))
+                            surface.makeImageSnapshot().use { it.toComposeImageBitmap() }
+                        } finally {
+                            surface.close()
+                        }
+                    }
+                } finally {
+                    image.close()
+                }
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     internal fun thumbnailDecodeDimensions(width: Int, height: Int, longestEdge: Int): Pair<Int, Int> {
