@@ -8,8 +8,42 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.assertNull
+import androidx.compose.ui.graphics.asSkiaBitmap
+import androidx.compose.ui.graphics.toComposeImageBitmap
+import org.jetbrains.skia.Image
+import org.jetbrains.skia.Surface
 
 class ImageAnalyzerTest {
+    @Test
+    fun `toComposeImageBitmap retains readable pixels after source image and snapshot are closed`() {
+        val source = BufferedImage(8, 6, BufferedImage.TYPE_INT_RGB).apply {
+            createGraphics().also { graphics ->
+                graphics.color = Color.RED
+                graphics.fillRect(0, 0, width, height)
+                graphics.dispose()
+            }
+        }
+        val encodedFile = File.createTempFile("compose-image-lifetime", ".png").apply { deleteOnExit() }
+        ImageIO.write(source, "png", encodedFile)
+
+        val sourceImage = Image.makeFromEncoded(encodedFile.readBytes())
+        val convertedImage = sourceImage.toComposeImageBitmap()
+        val surface = Surface.makeRasterN32Premul(sourceImage.width, sourceImage.height)
+        surface.canvas.drawImage(sourceImage, 0f, 0f)
+        val snapshot = surface.makeImageSnapshot()
+        val convertedSnapshot = snapshot.toComposeImageBitmap()
+
+        sourceImage.close()
+        snapshot.close()
+        surface.close()
+
+        listOf(convertedImage, convertedSnapshot).forEach { bitmap ->
+            val color = bitmap.asSkiaBitmap().getColor(3, 2)
+            assertTrue((color ushr 16 and 0xFF) > 0xC0, "Expected converted red pixel to remain readable")
+            assertTrue((color ushr 8 and 0xFF) < 0x40, "Expected converted green channel to remain red")
+        }
+    }
+
     @Test
     fun `decodeEmbeddedJpegThumbnail returns a bounded bitmap for a JPEG with IFD1 thumbnail`() {
         val file = jpegWithIfd1Thumbnail(outOfBounds = false)
