@@ -48,6 +48,11 @@
 
 두 파일의 시각적 픽셀 차이, 메타데이터, 컨테이너 구조, 바이트 단위 차이를 비교할 수 있습니다. 동영상 화질 비교 도구는 VMAF, PSNR, SSIM 등의 지표를 제공합니다.
 
+<p align="center">
+  <img src="docs/screenshots/showcase/05-media-comparison.jpg" width="920" alt="두 고양이 이미지의 시각적 차이와 분할 와이퍼를 보여주는 unwrapMedia 미디어 비교 분석기" />
+</p>
+
+[고양이 비교 샘플](docs/showcase-media/images/)은 거의 같은 이미지 두 장으로 구성되어 있으며, 두 번째 이미지에만 청록색 목걸이와 방울이 있습니다. 두 파일을 연 다음 **Tools → Compare Files**를 선택하면 비교 분석기에서 픽셀 차이를 확인할 수 있습니다.
 
 ### 오디오 재생 및 분석
 

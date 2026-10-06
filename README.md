@@ -47,6 +47,11 @@ Try [campfire-motion-photo.jpg](docs/showcase-media/images/campfire-motion-photo
 
 Compare two files to inspect visual pixel differences, metadata, container structure, and byte-level changes. For video quality work, the benchmark tools report metrics such as VMAF, PSNR, and SSIM.
 
+<p align="center">
+  <img src="docs/screenshots/showcase/05-media-comparison.jpg" width="920" alt="unwrapMedia's Media Comparison Analyzer comparing two cat images with a visual difference view and split wiper" />
+</p>
+
+Try the [cat comparison pair](docs/showcase-media/images/): the images are nearly identical, except the second has a teal collar and bell. Open both files and choose **Tools → Compare Files** to see the pixel difference in the analyzer.
 
 ### Audio playback and analysis
 
