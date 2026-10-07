@@ -4,7 +4,20 @@
 
 **unwrapMedia**는 데스크톱 미디어 뷰어이자 포렌식 분석 도구입니다. 이미지·동영상·오디오를 재생하고, 컨테이너 구조와 메타데이터, 바이트 데이터를 함께 살펴볼 수 있어 파일이 어떻게 구성되었는지 분석할 수 있습니다.
 
-## 미디어 열기와 분석
+## 지원 포맷
+
+| 분류 | 예시 |
+|---|---|
+| 이미지 | JPEG/JPG, PNG, GIF, WebP, AVIF, HEIC/HEIF, BMP, TIFF/TIF, 카메라 RAW (CR2, NEF, ARW, DNG; 메타데이터 및 내장 프리뷰 분석) |
+| 비디오 컨테이너/파일 | MP4, MOV, M4V, WebM, IVF, AVI, FLV, WMV, ASF; 독립 AV1 및 APV 스트림 |
+| 비디오 코덱 | AVC/H.264, HEVC/H.265, AV1, AV2 (Windows 재생), APV, VP8/VP9, Dolby Vision |
+| 오디오 | WAV, MP3, M4A, AAC, FLAC, OGG, Opus, AIFF/AIF/AIFC, WMA, Raw PCM |
+| Raw 픽셀 | RAW, RGB, RGBA, YUV, NV12, NV21 |
+
+코덱 재생과 분석 가능 여부는 컨테이너, 스트림 프로파일, 사용 가능한 디코더에 따라 달라집니다. 현재 AV2 재생은 Windows 전용입니다.
+
+
+## 미디어 재생과 분석(파싱)
 
 ### 이미지 뷰잉 및 분석
 
@@ -92,17 +105,7 @@ A/V 싱크 분석기는 오디오·비디오 프레젠테이션 타임라인을 
 
 작고 합성된 쇼케이스 파일은 [`docs/showcase-media/`](docs/showcase-media/README.md)에 있습니다. 모두 이 저장소를 위해 생성했으며 A/V 타이밍 샘플에는 테스트용 이상 구간이 의도적으로 들어 있습니다. 형식, 크기, 사용 방법은 샘플 목록을 참고하세요.
 
-## 지원 포맷
 
-| 분류 | 예시 |
-|---|---|
-| 이미지 | JPEG/JPG, PNG, GIF, WebP, AVIF, HEIC/HEIF, BMP, TIFF/TIF, 카메라 RAW (CR2, NEF, ARW, DNG; 메타데이터 및 내장 프리뷰 분석) |
-| 비디오 컨테이너/파일 | MP4, MOV, M4V, WebM, IVF, AVI, FLV, WMV, ASF; 독립 AV1 및 APV 스트림 |
-| 비디오 코덱 | AVC/H.264, HEVC/H.265, AV1, AV2 (Windows 재생), APV, VP8/VP9, Dolby Vision |
-| 오디오 | WAV, MP3, M4A, AAC, FLAC, OGG, Opus, AIFF/AIF/AIFC, WMA, Raw PCM |
-| Raw 픽셀 | RAW, RGB, RGBA, YUV, NV12, NV21 |
-
-코덱 재생과 분석 가능 여부는 컨테이너, 스트림 프로파일, 사용 가능한 디코더에 따라 달라집니다. 현재 AV2 재생은 Windows 전용입니다.
 
 ## 시작하기
 
