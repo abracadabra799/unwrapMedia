@@ -20,10 +20,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,7 +41,12 @@ import com.multiviewer.ui.AppColors
  * - JetBrains-style dark dropdown popup styling with crisp border and shortcut alignment
  */
 @Composable
-fun CustomAppMenuBar(menus: List<AppMenu>, modifier: Modifier = Modifier) {
+fun CustomAppMenuBar(
+    menus: List<AppMenu>,
+    navigationState: MenuBarNavigationState,
+    onNavigationStateChange: (MenuBarNavigationState) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Row(
         modifier = modifier
             .background(AppColors.Panel)
@@ -50,15 +54,36 @@ fun CustomAppMenuBar(menus: List<AppMenu>, modifier: Modifier = Modifier) {
             .padding(horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        menus.forEach { menu -> MenuDropdown(menu) }
+        menus.forEachIndexed { index, menu ->
+            MenuDropdown(
+                menu = menu,
+                expanded = navigationState.openMenuIndex == index,
+                onActivate = { onNavigationStateChange(navigationState.activate(index, menus.size)) },
+                onHover = { onNavigationStateChange(navigationState.hover(index, menus.size)) },
+                onDismiss = {
+                    if (navigationState.openMenuIndex == index) {
+                        onNavigationStateChange(navigationState.close())
+                    }
+                },
+            )
+        }
     }
 }
 
 @Composable
-private fun MenuDropdown(menu: AppMenu) {
-    var expanded by remember { mutableStateOf(false) }
+private fun MenuDropdown(
+    menu: AppMenu,
+    expanded: Boolean,
+    onActivate: () -> Unit,
+    onHover: () -> Unit,
+    onDismiss: () -> Unit,
+) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
+
+    LaunchedEffect(isHovered, expanded) {
+        if (isHovered && !expanded) onHover()
+    }
 
     val headerBgColor = when {
         expanded -> AppColors.Surface
@@ -74,7 +99,7 @@ private fun MenuDropdown(menu: AppMenu) {
                 .clickable(
                     interactionSource = interactionSource,
                     indication = null,
-                    onClick = { expanded = !expanded },
+                    onClick = onActivate,
                 )
                 .padding(horizontal = 8.dp, vertical = 4.dp),
             contentAlignment = Alignment.Center,
@@ -89,7 +114,7 @@ private fun MenuDropdown(menu: AppMenu) {
 
         DropdownMenu(
             expanded = expanded,
-            onDismissRequest = { expanded = false },
+            onDismissRequest = onDismiss,
             modifier = Modifier
                 .background(AppColors.Surface)
                 .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp)),
@@ -106,7 +131,7 @@ private fun MenuDropdown(menu: AppMenu) {
                             )
                         },
                         onClick = {
-                            expanded = false
+                            onDismiss()
                             entry.onClick()
                         },
                         enabled = entry.enabled,
@@ -138,7 +163,7 @@ private fun MenuDropdown(menu: AppMenu) {
                             )
                         },
                         onClick = {
-                            expanded = false
+                            onDismiss()
                             entry.onCheckedChange(!entry.checked)
                         },
                         modifier = Modifier.height(28.dp),

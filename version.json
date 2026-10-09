@@ -1,7 +1,7 @@
 {
-  "version": "1.19.4",
-  "releaseDate": "2026-10-06",
-  "releaseNotes": "• 탐색기 썸네일을 화면 우선순위로 로드하고 JPEG 임베디드 프리뷰 및 디스크 캐시로 표시 속도 개선\n• 미디어 비교 분석기에서 빠른 프리뷰를 먼저 표시한 뒤 원본 이미지를 점진적으로 로드\n• 밝은 테마의 배경·패널·글자·선택 색상을 중성 회색 기반으로 개선",
+  "version": "1.19.5",
+  "releaseDate": "2026-10-09",
+  "releaseNotes": "• 앱 표시 버전과 설치 패키지 버전을 1.19.5로 갱신",
   "windowsUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest",
   "macUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest"
 }

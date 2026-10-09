@@ -41,6 +41,7 @@ import com.multiviewer.ui.menu.AppKeyShortcut
 import com.multiviewer.ui.menu.AppMenu
 import com.multiviewer.ui.menu.CustomAppMenuBar
 import com.multiviewer.ui.menu.NativeAppMenuBar
+import com.multiviewer.ui.menu.MenuBarNavigationState
 import com.multiviewer.ui.menu.buildAppMenuBar
 import com.multiviewer.ui.menu.collectShortcuts
 import com.multiviewer.ui.menu.matches
@@ -321,6 +322,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
     // call and therefore unable to see that content lambda's own local vals, can still look up
     // shortcuts against the latest menu state.
     var menuBar by remember { mutableStateOf<List<AppMenu>>(emptyList()) }
+    var menuNavigation by remember { mutableStateOf(MenuBarNavigationState()) }
     
     // Log environment info for native library troubleshooting and initialize disk cache
     LaunchedEffect(Unit) {
@@ -369,6 +371,25 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 // even while no menu is open. macOS doesn't need this: NativeAppMenuBar's native
                 // menu bar already gets shortcut dispatch for free from Cocoa's own NSMenu.
                 if (!isMacOS) {
+                    if (menuNavigation.openMenuIndex != null &&
+                        !keyEvent.isCtrlPressed && !keyEvent.isMetaPressed && !keyEvent.isAltPressed && !keyEvent.isShiftPressed
+                    ) {
+                        when (keyEvent.key) {
+                            Key.DirectionLeft -> {
+                                menuNavigation = menuNavigation.move(-1, menuBar.size)
+                                return@Window true
+                            }
+                            Key.DirectionRight -> {
+                                menuNavigation = menuNavigation.move(1, menuBar.size)
+                                return@Window true
+                            }
+                            Key.Escape -> {
+                                menuNavigation = menuNavigation.close()
+                                return@Window true
+                            }
+                            else -> Unit
+                        }
+                    }
                     val matched = menuBar.collectShortcuts().find { (shortcut, _) -> shortcut.matches(keyEvent) }
                     if (matched != null) {
                         matched.second()
@@ -955,7 +976,12 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
             }
             Column(modifier = Modifier.fillMaxSize()) {
                 if (!isMacOS) {
-                    CustomAppMenuBar(builtMenuBar, modifier = Modifier.fillMaxWidth())
+                    CustomAppMenuBar(
+                        builtMenuBar,
+                        navigationState = menuNavigation,
+                        onNavigationStateChange = { menuNavigation = it },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                     HorizontalDivider(color = AppColors.Border)
                 }
                 Surface(modifier = Modifier.weight(1f).fillMaxWidth(), color = AppColors.Background) {
