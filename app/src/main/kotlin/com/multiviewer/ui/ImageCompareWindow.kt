@@ -987,8 +987,8 @@ fun FastStoneExplorerView(
         )
     }
 
-    var selectedFiles by remember {
-        mutableStateOf(initialSelected.take(2))
+    var compareSelection by remember {
+        mutableStateOf(CompareExplorerSelection.fromFiles(initialSelected.take(2)))
     }
 
     var searchQuery by remember { mutableStateOf("") }
@@ -1038,13 +1038,37 @@ fun FastStoneExplorerView(
     }
 
     fun toggleFileSelection(file: File) {
-        selectedFiles = toggleThumbnailFileSelection(selectedFiles, file)
+        compareSelection = compareSelection.toggleThumbnail(file)
     }
 
     fun openCompareIfValid() {
-        if (selectedFiles.size == 2) {
-            onOpenCompare(selectedFiles)
+        compareSelection.filesForCompare()?.let(onOpenCompare)
+    }
+
+    fun pickFileForSlot(slotIndex: Int) {
+        val selectedFile = if (slotIndex == 0) compareSelection.slotA else compareSelection.slotB
+        val dialog = FileDialog(
+            null as Frame?,
+            if (language == AppLanguage.KO) {
+                if (slotIndex == 0) "기준 미디어(A) 선택" else "비교 미디어(B) 선택"
+            } else {
+                if (slotIndex == 0) "Select Reference Media (A)" else "Select Comparison Media (B)"
+            },
+            FileDialog.LOAD,
+        )
+        dialog.directory = selectedFile?.parentFile?.takeIf { it.isDirectory }?.absolutePath
+            ?: appState.lastOpenedDirectory?.takeIf { it.isDirectory }?.absolutePath
+            ?: currentFolder.absolutePath
+        dialog.isMultipleMode = false
+        dialog.filenameFilter = java.io.FilenameFilter { _, name ->
+            name.substringAfterLast('.', "").lowercase(Locale.US) in ALL_SUPPORTED_MEDIA_EXTENSIONS
         }
+        dialog.isVisible = true
+        val pickedFile = dialog.file?.let { name -> dialog.directory?.let { directory -> File(directory, name) } }
+            ?: return
+        if (pickedFile.extension.lowercase(Locale.US) !in ALL_SUPPORTED_MEDIA_EXTENSIONS) return
+        compareSelection = compareSelection.assign(slotIndex, pickedFile)
+        appState.updateLastOpenedDirectory(pickedFile)
     }
 
     val explorerFocusRequester = remember { FocusRequester() }
@@ -1062,7 +1086,7 @@ fun FastStoneExplorerView(
                     if (keyEvent.type == KeyEventType.KeyDown) {
                         when (keyEvent.key) {
                             Key.Spacebar, Key.Enter -> {
-                                if (selectedFiles.size == 2) {
+                                if (compareSelection.isReadyToCompare) {
                                     openCompareIfValid()
                                     true
                                 } else {
@@ -1180,6 +1204,36 @@ fun FastStoneExplorerView(
             }
         }
 
+        // Independent A/B file pickers complement the current-folder thumbnail selection below.
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                CompareExplorerFileSlot(
+                    label = if (language == AppLanguage.KO) "A · 기준 파일" else "A · Reference file",
+                    file = compareSelection.slotA,
+                    color = Color(0xFF61AFEF),
+                    language = language,
+                    modifier = Modifier.weight(1f),
+                    onChoose = { pickFileForSlot(0) },
+                )
+                CompareExplorerFileSlot(
+                    label = if (language == AppLanguage.KO) "B · 비교 파일" else "B · Comparison file",
+                    file = compareSelection.slotB,
+                    color = Color(0xFF98C379),
+                    language = language,
+                    modifier = Modifier.weight(1f),
+                    onChoose = { pickFileForSlot(1) },
+                )
+            }
+        }
+
         // 2. Main Content Split: Subdirectory navigation sidebar + Media files explorer
         Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
             // Sidebar: Subfolders
@@ -1274,7 +1328,7 @@ fun FastStoneExplorerView(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             itemsIndexed(mediaFiles, key = { _, file -> file.absolutePath }) { itemIndex, file ->
-                                val selectedIndex = selectedFiles.indexOfFirst { it.absolutePath == file.absolutePath }
+                                val selectedIndex = compareSelection.indexOf(file)
                                 val isSelected = selectedIndex >= 0
 
                                 var thumbnailBitmap by remember(file.absolutePath) {
@@ -1400,7 +1454,7 @@ fun FastStoneExplorerView(
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             items(mediaFiles, key = { it.absolutePath }) { file ->
-                                val selectedIndex = selectedFiles.indexOfFirst { it.absolutePath == file.absolutePath }
+                                val selectedIndex = compareSelection.indexOf(file)
                                 val isSelected = selectedIndex >= 0
 
                                 var thumbnailBitmap by remember(file.absolutePath) {
@@ -1499,8 +1553,8 @@ fun FastStoneExplorerView(
         Spacer(Modifier.height(8.dp))
 
         // 3. Bottom Action Bar: Selection count, clear button, and Open Compare button
-        val count = selectedFiles.size
-        val isValidCount = count == 2 || count == 4
+        val count = compareSelection.selectedCount
+        val isValidCount = compareSelection.isReadyToCompare
 
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
@@ -1526,13 +1580,13 @@ fun FastStoneExplorerView(
                         color = if (isValidCount) AppColors.NeonGreen else if (count > 0) AppColors.NeonYellow else AppColors.TextSecondary,
                     )
 
-                    if (selectedFiles.isNotEmpty()) {
+                    if (count > 0) {
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = "( " + selectedFiles.mapIndexed { idx, f ->
-                                val badge = if (idx == 0) "①" else "②"
-                                "$badge ${f.name}"
-                            }.joinToString(", ") + " )",
+                            text = listOfNotNull(
+                                compareSelection.slotA?.let { "① ${it.name}" },
+                                compareSelection.slotB?.let { "② ${it.name}" },
+                            ).joinToString(" · "),
                             fontSize = 11.sp,
                             color = AppColors.TextSecondary,
                             maxLines = 1,
@@ -1546,7 +1600,7 @@ fun FastStoneExplorerView(
                             fontSize = 11.sp,
                             color = AppColors.NeonRed,
                             modifier = Modifier
-                                .clickable { selectedFiles = emptyList() }
+                                .clickable { compareSelection = compareSelection.clear() }
                                 .padding(2.dp)
                         )
                     }
@@ -1589,6 +1643,55 @@ fun FastStoneExplorerView(
     }
 
 }
+}
+
+@Composable
+private fun CompareExplorerFileSlot(
+    label: String,
+    file: File?,
+    color: Color,
+    language: AppLanguage,
+    modifier: Modifier = Modifier,
+    onChoose: () -> Unit,
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(6.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.55f)),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = color)
+                Text(
+                    text = file?.name ?: if (language == AppLanguage.KO) "파일을 선택하세요" else "Choose a file",
+                    fontSize = 12.sp,
+                    fontWeight = if (file != null) FontWeight.Medium else FontWeight.Normal,
+                    color = if (file != null) AppColors.TextPrimary else AppColors.TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = file?.parentFile?.absolutePath ?: if (language == AppLanguage.KO) "폴더 미선택" else "No folder selected",
+                    fontSize = 10.sp,
+                    color = AppColors.TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            OutlinedButton(
+                onClick = onChoose,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                modifier = Modifier.height(30.dp),
+            ) {
+                Text(if (language == AppLanguage.KO) "파일 찾기…" else "Browse…", fontSize = 11.sp)
+            }
+        }
+    }
 }
 
 @Composable
