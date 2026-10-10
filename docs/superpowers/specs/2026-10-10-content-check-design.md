@@ -35,6 +35,8 @@ Phases (each its own spec → plan → review → merge):
 
 One format: the existing `buildAnalysisCaseJson` (schema 1) with `videoIntegrity` and `imageIntegrity` (incl. `motionPhoto`). The window builds the image JSON from its in-memory results and passes it in; `buildImageIntegrityCaseJson` is deleted. Never overwrites an existing file.
 
+User decision (2026-10-10, handoff follow-up): retain Samsung SEF capture timestamps and MCC country codes in shared analysis-case JSON exactly as currently exported; do not redact these fields.
+
 ## Code structure
 
 - `ui/ContentCheckWindow.kt` — window shell, state, run orchestration.
