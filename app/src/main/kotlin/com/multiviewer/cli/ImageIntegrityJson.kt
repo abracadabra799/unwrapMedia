@@ -11,15 +11,46 @@ import java.security.MessageDigest
 
 private fun size(w: Int?, h: Int?): JsonValue = JsonValue.JString(if (w != null && h != null) "${w}x$h" else "unknown")
 
-fun motionPhotoJson(detected: Boolean, report: MotionPhotoIntegrityReport?): JsonValue? {
+/** Replaces temp-dir / inspected-file absolute paths in [text] with bare file names. */
+internal fun scrubPaths(text: String, file: File?): String {
+    var out = text
+    val prefixes = LinkedHashSet<String>()
+    file?.let {
+        prefixes += it.absolutePath
+        runCatching { it.canonicalPath }.getOrNull()?.let { c -> prefixes += c }
+    }
+    val tmpRaw = System.getProperty("java.io.tmpdir")
+    if (!tmpRaw.isNullOrEmpty()) {
+        val dirs = LinkedHashSet<String>()
+        val f = File(tmpRaw)
+        dirs += f.path
+        dirs += f.absolutePath
+        runCatching { f.canonicalPath }.getOrNull()?.let { dirs += it }
+        dirs += tmpRaw
+        for (d in dirs) {
+            val base = d.trimEnd('/', '\\')
+            if (base.isEmpty()) continue
+            val sep = Regex.escape(base) + "[/\\\\]+"
+            out = Regex(sep).replace(out, "")
+        }
+    }
+    // Inspected file: exact path -> name (longest first so nested paths win).
+    for (p in prefixes.sortedByDescending { it.length }) {
+        if (p.isNotEmpty()) out = out.replace(p, file!!.name)
+    }
+    return out
+}
+
+fun motionPhotoJson(detected: Boolean, report: MotionPhotoIntegrityReport?, file: File? = null, error: String? = null): JsonValue? {
     if (!detected) return null
+    if (error != null) return JsonValue.JObject(listOf("status" to JsonValue.JString("FAIL"), "error" to JsonValue.JString(scrubPaths(error, file))))
     if (report == null) return JsonValue.JObject(listOf("status" to JsonValue.JString("NOT_RUN")))
     fun check(section: String, c: SefCheckResult) = JsonValue.JObject(
         listOf(
             "section" to JsonValue.JString(section),
             "status" to JsonValue.JString(c.severity.toCheckStatus().name),
             "label" to JsonValue.JString(c.label),
-            "detail" to JsonValue.JString(c.detail),
+            "detail" to JsonValue.JString(scrubPaths(c.detail, file)),
         ),
     )
     val checks = buildList {
@@ -114,6 +145,7 @@ fun buildImageIntegrityCaseJson(
     decode: ImageDecodeReport?,
     motion: MotionPhotoIntegrityReport? = null,
     motionDetected: Boolean = false,
+    motionError: String? = null,
 ): String {
     val digest = MessageDigest.getInstance("SHA-256")
     file.inputStream().buffered().use { input ->
@@ -135,7 +167,7 @@ fun buildImageIntegrityCaseJson(
                     "sha256" to JsonValue.JString(digest.digest().joinToString("") { "%02x".format(it) }),
                 ),
             ),
-            "imageIntegrity" to imageIntegrityJson(structure, decode, motionPhotoJson(motionDetected, motion)),
+            "imageIntegrity" to imageIntegrityJson(structure, decode, motionPhotoJson(motionDetected, motion, file, motionError)),
         ),
     ).render()
 }

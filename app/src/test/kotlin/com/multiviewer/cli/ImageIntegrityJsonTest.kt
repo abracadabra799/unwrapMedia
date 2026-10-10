@@ -59,6 +59,32 @@ class ImageIntegrityJsonTest {
     }
 
     @Test
+    fun `motionPhotoJson scrubs temp directory and inspected file paths from details`() {
+        val tmp = System.getProperty("java.io.tmpdir").trimEnd('/', '\\')
+        val inspected = File(tmp, "secret-dir/photo.jpg")
+        val detail = "$tmp/motion-photo-decode-check123.mp4: Invalid data; ${inspected.absolutePath} bad"
+        val report = MotionPhotoIntegrityReport(
+            detectedFormats = listOf(MotionPhotoFormat.GOOGLE_XMP),
+            sefSection = null,
+            googleXmpChecks = emptyList(),
+            appleMpvdChecks = emptyList(),
+            decodeChecks = listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "decode", detail)),
+            overallSeverity = SefIntegritySeverity.CRITICAL,
+        )
+        val out = motionPhotoJson(true, report, file = inspected)!!.render()
+        assertTrue(out.contains("motion-photo-decode-check123.mp4: Invalid data"), out)
+        assertTrue(out.contains("photo.jpg bad"), out)
+        assertTrue(!out.contains(tmp), out)
+    }
+
+    @Test
+    fun `motionPhotoJson renders error as FAIL`() {
+        val out = motionPhotoJson(true, null, error = "boom")!!.render()
+        assertTrue(Regex("\"status\": \"FAIL\"").containsMatchIn(out), out)
+        assertTrue(out.contains("\"error\": \"boom\""), out)
+    }
+
+    @Test
     fun `plain jpeg check has no motionPhoto key`() {
         val result = checkFile(tempJpeg(jpegBytes())) as CheckResult.Success
         assertEquals(false, result.json.contains("motionPhoto"), result.json)

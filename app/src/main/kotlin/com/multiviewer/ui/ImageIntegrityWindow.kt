@@ -198,11 +198,12 @@ fun ImageIntegrityWindow(tab: TabState, language: AppLanguage, onCloseRequest: (
                     val target = File(dialog.directory, name)
                     val decodeSnapshot = decode
                     val motionSnapshot = motion
+                    val motionErrorSnapshot = motionError
                     scope.launch {
                         message = try {
                             withContext(Dispatchers.IO) {
                                 if (!target.createNewFile()) error(label("이미 존재하는 파일입니다", "File already exists"))
-                                target.writeText(buildImageIntegrityCaseJson(tab.file, snapshot, decodeSnapshot, motionSnapshot, motionDetected), Charsets.UTF_8)
+                                target.writeText(buildImageIntegrityCaseJson(tab.file, snapshot, decodeSnapshot, motionSnapshot, motionDetected, motionErrorSnapshot), Charsets.UTF_8)
                             }
                             label("저장됨: ", "Saved: ") + target.name
                         } catch (e: CancellationException) {

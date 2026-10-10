@@ -27,8 +27,16 @@ fun checkFile(file: File, decode: Boolean = false): CheckResult = when (val resu
             val structure = ImageIntegrityChecker.check(result.file, result.root)
             val decodeReport = if (decode) runBlocking { inspectImageDecode(result.file, structure) } else null
             val detected = hasMotionPhotoData(result.root)
-            val motionReport = if (decode && detected) MotionPhotoIntegrityAnalyzer.analyze(result.file, result.root) else null
-            imageIntegrityJson(structure, decodeReport, motionPhotoJson(detected, motionReport))
+            var motionReport: com.multiviewer.ui.MotionPhotoIntegrityReport? = null
+            var motionError: String? = null
+            if (decode && detected) {
+                try {
+                    motionReport = MotionPhotoIntegrityAnalyzer.analyze(result.file, result.root)
+                } catch (e: Exception) {
+                    motionError = e.message ?: e.toString()
+                }
+            }
+            imageIntegrityJson(structure, decodeReport, motionPhotoJson(detected, motionReport, result.file, motionError))
         } else {
             require(!decode) { "--decode requires an image file" }
             null
