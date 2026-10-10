@@ -32,10 +32,10 @@
 
 **Interfaces:** `suspend fun inspectAudioIntegrity(file: File, ffmpeg: String = FfmpegLocator.ffmpegPath(), ffprobe: String = FfmpegLocator.ffprobePath()): AudioIntegrityReport`; immutable report with overall status, per-stream metadata/observations, logs, mismatches, and `toJsonValue()`.
 
-- [ ] Add tests for compact ffprobe stream parsing, ashowinfo frame parsing, missing duration, rate/channel mismatches, duration tolerance and zero samples.
-- [ ] Run targeted tests, then implement stream-by-stream decoding using `integrityProcess`.
-- [ ] Add real FFmpeg tests: clean WAV, two-track container, silent video without audio, truncated WAV and cancellation. Missing executables return FAILED.
-- [ ] Run `timeout 900 ./gradlew :app:test --tests '*AudioIntegrityTest'` and commit the inspector.
+- [x] Add tests for compact ffprobe stream parsing, ashowinfo frame parsing, missing duration, rate/channel mismatches, duration tolerance and zero samples.
+- [x] Run targeted tests, then implement stream-by-stream decoding using `integrityProcess`.
+- [x] Add real FFmpeg tests: clean WAV, two-track container, silent video without audio, truncated WAV and cancellation. Missing executables return FAILED; audio extensions with no audio stream also fail.
+- [x] Run `timeout 900 ./gradlew :app:test --tests '*AudioIntegrityTest'` and commit the inspector.
 
 ### Task 2: UI, AI and export integration
 
@@ -43,8 +43,8 @@
 
 **Interfaces:** Consume `AudioIntegrityReport` and `inspectAudioIntegrity`; append optional audio report/error fields to snapshots and JSON builders to preserve current callers.
 
-- [ ] Extend planner tests: AUDIO → structure/audio, VIDEO → existing tabs plus audio; heavy steps include audio inspection.
-- [ ] Render per-stream status, observed vs declared duration/rate/channels, sample counts, capped logs and mismatches; distinguish not run, failed and no audio.
-- [ ] Run audio after video inspection, preserving independent failure handling and current-run guards. Publish results to AI and both JSON paths; add CLI `--decode` integration.
-- [ ] Test AI inclusion/path scrubbing and JSON additive fields; run targeted tests then the full suite.
-- [ ] Inspect real sample output, review diff, record verification and commit.
+- [x] Extend planner tests: AUDIO → structure/audio, VIDEO → existing tabs plus audio; heavy steps include audio inspection.
+- [x] Render per-stream status, observed vs declared duration/rate/channels, sample counts, capped logs and mismatches; distinguish not run, failed and no audio.
+- [x] Run audio after video inspection, preserving independent failure handling and current-run guards. Publish results to AI and both JSON paths; add CLI `--decode` integration.
+- [x] Test AI inclusion/path scrubbing and JSON additive fields; run targeted tests then the full suite.
+- [x] Exercise real FFmpeg samples in tests, review the diff, and commit the completed phase.
