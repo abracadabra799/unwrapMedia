@@ -139,3 +139,18 @@ internal fun heifGridBytes(tileRefs: Int = 2): ByteArray {
     val mdatPayloadOffset = HEIF_FTYP.size + meta(0).size + 8L
     return HEIF_FTYP + meta(mdatPayloadOffset) + box("mdat", mdatPayload)
 }
+
+/** Little-endian TIFF, IFD0 at 8: ImageWidth=4, ImageLength=2, Compression, StripOffsets, StripByteCounts
+ *  [+ JPEGInterchangeFormat/Length]. 8 strip bytes follow the IFD, then the optional JPEG preview. */
+internal fun tiffBytes(stripCountOverride: Long? = null, nextIfd: Long = 0, jpegPreview: ByteArray? = null): ByteArray {
+    fun entry(tag: Int, type: Int, count: Long, value: Long) = le16(tag) + le16(type) + le32(count) + le32(value)
+    val n = if (jpegPreview != null) 7 else 5
+    val dataStart = 8L + 2 + 12 * n + 4
+    val strip = ByteArray(8) { 0x55 }
+    val previewOffset = dataStart + strip.size
+    var entries = entry(0x100, 3, 1, 4) + entry(0x101, 3, 1, 2) +
+        entry(0x103, 3, 1, if (jpegPreview != null) 6 else 1) +
+        entry(0x111, 4, 1, dataStart) + entry(0x117, 4, 1, stripCountOverride ?: strip.size.toLong())
+    if (jpegPreview != null) entries += entry(0x201, 4, 1, previewOffset) + entry(0x202, 4, 1, jpegPreview.size.toLong())
+    return byteArrayOf(0x49, 0x49, 0x2A, 0) + le32(8) + le16(n) + entries + le32(nextIfd) + strip + (jpegPreview ?: ByteArray(0))
+}
