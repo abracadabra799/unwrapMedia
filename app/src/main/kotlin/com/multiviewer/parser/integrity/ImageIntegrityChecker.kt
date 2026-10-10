@@ -14,6 +14,7 @@ object ImageIntegrityChecker {
         val result = try {
             when (format) {
                 "JPEG" -> JpegIntegrity.check(root, reader)
+                "PNG" -> PngIntegrity.check(reader)
                 else -> FormatCheckResult(
                     listOf(IntegrityCheckItem("format", "Format", CheckStatus.SKIP, "Unrecognized image format; structure checks are not available")),
                 )

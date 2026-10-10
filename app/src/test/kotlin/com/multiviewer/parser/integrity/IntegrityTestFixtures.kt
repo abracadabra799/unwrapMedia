@@ -42,3 +42,29 @@ internal fun jpegBytes(
     out.write(trailing)
     return out.toByteArray()
 }
+
+internal val PNG_SIG = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+
+internal fun pngChunk(type: String, data: ByteArray, corruptCrc: Boolean = false): ByteArray {
+    val typeBytes = type.toByteArray(Charsets.US_ASCII)
+    val crc = java.util.zip.CRC32().apply { update(typeBytes); update(data) }.value
+    return be32(data.size.toLong()) + typeBytes + data + be32(if (corruptCrc) crc xor 1L else crc)
+}
+
+internal fun pngIdatPayload(): ByteArray {
+    val out = ByteArrayOutputStream()
+    java.util.zip.DeflaterOutputStream(out).use { it.write(byteArrayOf(0, 0x7F)) } // filter byte + one gray pixel
+    return out.toByteArray()
+}
+
+/** 1x1 8-bit grayscale PNG with a tEXt chunk before IDAT. */
+internal fun pngBytes(
+    corruptIdatCrc: Boolean = false,
+    corruptTextCrc: Boolean = false,
+    trailing: ByteArray = ByteArray(0),
+): ByteArray {
+    val ihdr = be32(1) + be32(1) + byteArrayOf(8, 0, 0, 0, 0)
+    return PNG_SIG + pngChunk("IHDR", ihdr) +
+        pngChunk("tEXt", "k\u0000v".toByteArray(Charsets.ISO_8859_1), corruptTextCrc) +
+        pngChunk("IDAT", pngIdatPayload(), corruptIdatCrc) + pngChunk("IEND", ByteArray(0)) + trailing
+}
