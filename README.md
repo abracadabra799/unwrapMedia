@@ -128,7 +128,7 @@ unwrapMedia check <image>            # 이미지: 구조 무결성 검사 결과
 unwrapMedia check <image> --decode   # 이미지: FFmpeg + Skia 디코딩 검사까지 실행
 ```
 
-이미지는 **분석 → 이미지 무결성 검사…**에서 포맷별 구조 검사(JPEG SOI/EOI·세그먼트 순서, PNG 청크 CRC·IEND, HEIF iloc 범위·그리드 타일, WebP RIFF 크기, GIF 트레일러, BMP 픽셀 배열 크기, TIFF/RAW IFD 순환·스트립 범위)와 FFmpeg·Skia 디코딩 검사를 실행합니다. 구조 검사 결과는 오프셋을 가지며 클릭하면 Hex 뷰에서 강조됩니다. 두 결과는 합치지 않고 나란히 표시합니다. FFmpeg는 잘린 JPEG를 경고 한 줄(`overread`)만 남기고 종료코드 0으로 끝내는 경우가 있어, 더 엄격한 Skia 디코더 결과를 함께 표시합니다. RAW 파일은 센서 데이터 대신 내장 JPEG 프리뷰만 디코딩합니다.
+이미지는 **분석 → 이미지 무결성 검사…**에서 포맷별 구조 검사(JPEG SOI/EOI·세그먼트 순서, PNG 청크 CRC·IEND, HEIF iloc 범위·그리드 타일, WebP RIFF 크기, GIF 트레일러, BMP 픽셀 배열 크기, TIFF/RAW IFD 순환·스트립 범위)와 FFmpeg·Skia 디코딩 검사를 실행합니다. 구조 검사 결과는 오프셋을 가지며 클릭하면 Hex 뷰에서 강조됩니다. 두 결과는 합치지 않고 나란히 표시합니다. FFmpeg는 잘린 JPEG를 경고 한 줄(`overread`)만 남기고 종료코드 0으로 끝내는 경우가 있어, 더 엄격한 Skia 디코더 결과를 함께 표시합니다. RAW 파일은 센서 데이터 대신 내장 JPEG 프리뷰만 디코딩합니다. 모션포토(삼성 SEF·구글 XMP·HEIC mpvd)가 감지되면 같은 창의 **모션포토** 탭과 CLI `--decode` JSON의 `motionPhoto`에서 내장 영상까지 검사합니다.
 
 ## 라이선스
 

@@ -2,13 +2,57 @@ package com.multiviewer.cli
 
 import com.multiviewer.parser.integrity.ImageStructureReport
 import com.multiviewer.ui.I18n
+import com.multiviewer.parser.SefCheckResult
 import com.multiviewer.ui.ImageDecodeReport
+import com.multiviewer.ui.MotionPhotoIntegrityReport
+import com.multiviewer.ui.toCheckStatus
 import java.io.File
 import java.security.MessageDigest
 
 private fun size(w: Int?, h: Int?): JsonValue = JsonValue.JString(if (w != null && h != null) "${w}x$h" else "unknown")
 
-fun imageIntegrityJson(structure: ImageStructureReport, decode: ImageDecodeReport?): JsonValue = JsonValue.JObject(
+fun motionPhotoJson(detected: Boolean, report: MotionPhotoIntegrityReport?): JsonValue? {
+    if (!detected) return null
+    if (report == null) return JsonValue.JObject(listOf("status" to JsonValue.JString("NOT_RUN")))
+    fun check(section: String, c: SefCheckResult) = JsonValue.JObject(
+        listOf(
+            "section" to JsonValue.JString(section),
+            "status" to JsonValue.JString(c.severity.toCheckStatus().name),
+            "label" to JsonValue.JString(c.label),
+            "detail" to JsonValue.JString(c.detail),
+        ),
+    )
+    val checks = buildList {
+        report.googleXmpChecks.forEach { add(check("google_xmp", it)) }
+        report.sefSection?.let { sef ->
+            sef.structuralChecks.forEach { add(check("sef_structure", it)) }
+            sef.semanticChecks.forEach { add(check("sef_semantic", it)) }
+            sef.directoryEntries.forEach { row ->
+                add(
+                    check(
+                        "sef_directory",
+                        SefCheckResult(
+                            row.status,
+                            row.name ?: "#${row.entryIndex}",
+                            "marker ${row.markerHex} offset ${row.declaredOffset} length ${row.declaredLength}",
+                        ),
+                    ),
+                )
+            }
+        }
+        report.appleMpvdChecks.forEach { add(check("heic_mpvd", it)) }
+        report.decodeChecks.forEach { add(check("video_decode", it)) }
+    }
+    return JsonValue.JObject(
+        listOf(
+            "status" to JsonValue.JString(report.overallSeverity.toCheckStatus().name),
+            "detectedFormats" to JsonValue.JArray(report.detectedFormats.map { JsonValue.JString(it.name) }),
+            "checks" to JsonValue.JArray(checks),
+        ),
+    )
+}
+
+fun imageIntegrityJson(structure: ImageStructureReport, decode: ImageDecodeReport?, motionPhoto: JsonValue? = null): JsonValue = JsonValue.JObject(
     listOf(
         "structure" to JsonValue.JObject(
             listOf(
@@ -60,11 +104,17 @@ fun imageIntegrityJson(structure: ImageStructureReport, decode: ImageDecodeRepor
                 ),
             )
         },
-    ),
+    ) + if (motionPhoto != null) listOf("motionPhoto" to motionPhoto) else emptyList(),
 )
 
 /** Reproducible case file: identity (name, size, SHA-256 — never the absolute path) + integrity results. */
-fun buildImageIntegrityCaseJson(file: File, structure: ImageStructureReport, decode: ImageDecodeReport?): String {
+fun buildImageIntegrityCaseJson(
+    file: File,
+    structure: ImageStructureReport,
+    decode: ImageDecodeReport?,
+    motion: MotionPhotoIntegrityReport? = null,
+    motionDetected: Boolean = false,
+): String {
     val digest = MessageDigest.getInstance("SHA-256")
     file.inputStream().buffered().use { input ->
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
@@ -85,7 +135,7 @@ fun buildImageIntegrityCaseJson(file: File, structure: ImageStructureReport, dec
                     "sha256" to JsonValue.JString(digest.digest().joinToString("") { "%02x".format(it) }),
                 ),
             ),
-            "imageIntegrity" to imageIntegrityJson(structure, decode),
+            "imageIntegrity" to imageIntegrityJson(structure, decode, motionPhotoJson(motionDetected, motion)),
         ),
     ).render()
 }

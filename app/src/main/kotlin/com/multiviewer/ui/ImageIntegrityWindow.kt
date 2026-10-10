@@ -96,6 +96,7 @@ fun ImageIntegrityWindow(tab: TabState, language: AppLanguage, onCloseRequest: (
     var running by remember(tab.file) { mutableStateOf(false) }
     var message by remember(tab.file) { mutableStateOf("") }
     var motion by remember(tab.file) { mutableStateOf<MotionPhotoIntegrityReport?>(null) }
+    var motionError by remember(tab.file) { mutableStateOf<String?>(null) }
     val motionDetected = remember(tab.root) { tab.root?.let { hasMotionPhotoData(it) } ?: false }
     var selectedTab by remember { mutableStateOf(0) }
     DisposableEffect(tab.file) { onDispose { job?.cancel() } }
@@ -140,8 +141,16 @@ fun ImageIntegrityWindow(tab: TabState, language: AppLanguage, onCloseRequest: (
                     val m = motion
                     val mStatus = m?.overallSeverity?.toCheckStatus()
                     Text(
-                        label("모션포토: ", "Motion photo: ") + (mStatus?.let { checkStatusLabel(it, ko) } ?: label("미검사", "Not run")),
-                        color = mStatus?.let { checkStatusColor(it) } ?: AppColors.TextMuted,
+                        label("모션포토: ", "Motion photo: ") + when {
+                            mStatus != null -> checkStatusLabel(mStatus, ko)
+                            motionError != null -> label("실패", "Failed")
+                            else -> label("미검사", "Not run")
+                        },
+                        color = when {
+                            mStatus != null -> checkStatusColor(mStatus)
+                            motionError != null -> AppColors.NeonRed
+                            else -> AppColors.TextMuted
+                        },
                     )
                 }
             }
@@ -151,11 +160,11 @@ fun ImageIntegrityWindow(tab: TabState, language: AppLanguage, onCloseRequest: (
                     running = true
                     decode = null
                     motion = null
+                    motionError = null
                     message = if (motionDetected) label("디코딩·모션포토 검사 중…", "Decoding and checking motion photo…") else label("디코딩 중…", "Decoding…")
                     job = scope.launch {
                         try {
                             decode = inspectImageDecode(tab.file, snapshot)
-                            message = ""
                             val root = tab.root
                             if (motionDetected && root != null) {
                                 try {
@@ -163,9 +172,11 @@ fun ImageIntegrityWindow(tab: TabState, language: AppLanguage, onCloseRequest: (
                                 } catch (e: CancellationException) {
                                     throw e
                                 } catch (e: Exception) {
-                                    message = label("모션포토 분석 실패: ", "Motion photo analysis failed: ") + (e.message ?: e.toString())
+                                    motionError = e.message ?: e.toString()
+                                    message = label("모션포토 분석 실패: ", "Motion photo analysis failed: ") + motionError
                                 }
                             }
+                            if (motionError == null) message = ""
                             selectedTab = 1
                         } catch (e: CancellationException) {
                             message = label("중단 · 검사 완료되지 않음", "Cancelled · inspection incomplete")
@@ -186,11 +197,12 @@ fun ImageIntegrityWindow(tab: TabState, language: AppLanguage, onCloseRequest: (
                     val name = dialog.file ?: return@OutlinedButton
                     val target = File(dialog.directory, name)
                     val decodeSnapshot = decode
+                    val motionSnapshot = motion
                     scope.launch {
                         message = try {
                             withContext(Dispatchers.IO) {
                                 if (!target.createNewFile()) error(label("이미 존재하는 파일입니다", "File already exists"))
-                                target.writeText(buildImageIntegrityCaseJson(tab.file, snapshot, decodeSnapshot), Charsets.UTF_8)
+                                target.writeText(buildImageIntegrityCaseJson(tab.file, snapshot, decodeSnapshot, motionSnapshot, motionDetected), Charsets.UTF_8)
                             }
                             label("저장됨: ", "Saved: ") + target.name
                         } catch (e: CancellationException) {
@@ -217,7 +229,9 @@ fun ImageIntegrityWindow(tab: TabState, language: AppLanguage, onCloseRequest: (
                 1 -> DecodePanel(decode, ko)
                 else -> {
                     val m = motion
-                    if (m == null) {
+                    if (m == null && motionError != null) {
+                        Text(label("모션포토 분석 실패: ", "Motion photo analysis failed: ") + motionError, color = AppColors.NeonRed)
+                    } else if (m == null) {
                         Text(
                             label(
                                 "'검사 시작'을 눌러 모션포토 영상 검사를 실행하세요. (영상 전체를 디코딩하므로 시간이 걸릴 수 있습니다)",

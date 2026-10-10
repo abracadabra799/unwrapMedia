@@ -4,6 +4,8 @@ import com.multiviewer.parser.WarningEntry
 import com.multiviewer.parser.collectWarnings
 import com.multiviewer.parser.integrity.ImageIntegrityChecker
 import com.multiviewer.ui.IMAGE_EXTENSIONS
+import com.multiviewer.ui.MotionPhotoIntegrityAnalyzer
+import com.multiviewer.ui.hasMotionPhotoData
 import com.multiviewer.ui.inspectImageDecode
 import kotlinx.coroutines.runBlocking
 import java.io.File
@@ -24,7 +26,9 @@ fun checkFile(file: File, decode: Boolean = false): CheckResult = when (val resu
         val imageIntegrity = if (result.file.extension.lowercase(Locale.US) in IMAGE_EXTENSIONS) {
             val structure = ImageIntegrityChecker.check(result.file, result.root)
             val decodeReport = if (decode) runBlocking { inspectImageDecode(result.file, structure) } else null
-            imageIntegrityJson(structure, decodeReport)
+            val detected = hasMotionPhotoData(result.root)
+            val motionReport = if (decode && detected) MotionPhotoIntegrityAnalyzer.analyze(result.file, result.root) else null
+            imageIntegrityJson(structure, decodeReport, motionPhotoJson(detected, motionReport))
         } else {
             require(!decode) { "--decode requires an image file" }
             null
