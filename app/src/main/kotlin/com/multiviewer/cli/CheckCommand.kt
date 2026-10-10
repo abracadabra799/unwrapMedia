@@ -6,6 +6,7 @@ import java.io.File
 fun runCheckCommand(args: List<String>): Int {
     var showPrompt = false
     var copyToClipboard = false
+    var decode = false
     var filePath: String? = null
 
     for (arg in args) {
@@ -13,6 +14,7 @@ fun runCheckCommand(args: List<String>): Int {
             "-p", "--prompt", "--ai" -> showPrompt = true
             "-c", "--clipboard", "--copy" -> copyToClipboard = true
             "--json" -> showPrompt = false
+            "--decode" -> decode = true
             "-h", "--help" -> {
                 printCheckHelp()
                 return 0
@@ -26,11 +28,11 @@ fun runCheckCommand(args: List<String>): Int {
     }
 
     if (filePath == null) {
-        System.err.println("Usage: unwrapMedia check <file> [--prompt] [--clipboard]")
+        System.err.println("Usage: unwrapMedia check <file> [--prompt] [--clipboard] [--decode]")
         return 1
     }
 
-    return when (val result = checkFile(File(filePath))) {
+    return when (val result = checkFile(File(filePath), decode = decode)) {
         is CheckResult.Success -> {
             val output = if (showPrompt) result.prompt else result.json
             println(output)
@@ -63,6 +65,7 @@ private fun printCheckHelp() {
           -p, --prompt, --ai       Generate a structured AI diagnostic prompt with domain context
           -c, --clipboard, --copy  Copy the output directly to the OS clipboard
           --json                   Output raw JSON inspection results (default)
+          --decode                 Images: also decode with FFmpeg and Skia (structure checks always run)
           -h, --help               Show this help message
         """.trimIndent(),
     )

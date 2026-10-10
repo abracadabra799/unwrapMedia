@@ -2,7 +2,12 @@ package com.multiviewer.cli
 
 import com.multiviewer.parser.WarningEntry
 import com.multiviewer.parser.collectWarnings
+import com.multiviewer.parser.integrity.ImageIntegrityChecker
+import com.multiviewer.ui.IMAGE_EXTENSIONS
+import com.multiviewer.ui.inspectImageDecode
+import kotlinx.coroutines.runBlocking
 import java.io.File
+import java.util.Locale
 
 sealed class CheckResult {
     data class Success(
@@ -13,10 +18,18 @@ sealed class CheckResult {
     data class Failure(val message: String) : CheckResult()
 }
 
-fun checkFile(file: File): CheckResult = when (val result = parseForCli(file)) {
+fun checkFile(file: File, decode: Boolean = false): CheckResult = when (val result = parseForCli(file)) {
     is CliParseResult.Success -> try {
         val warnings = collectWarnings(result.root)
-        val json = buildCheckJson(result.file, warnings)
+        val imageIntegrity = if (result.file.extension.lowercase(Locale.US) in IMAGE_EXTENSIONS) {
+            val structure = ImageIntegrityChecker.check(result.file, result.root)
+            val decodeReport = if (decode) runBlocking { inspectImageDecode(result.file, structure) } else null
+            imageIntegrityJson(structure, decodeReport)
+        } else {
+            require(!decode) { "--decode requires an image file" }
+            null
+        }
+        val json = buildCheckJson(result.file, warnings, imageIntegrity)
         val prompt = AiDiagnosticPromptBuilder.buildPrompt(result.file, result.root, warnings)
         CheckResult.Success(json = json, prompt = prompt, warningCount = warnings.size)
     } catch (e: Exception) {
@@ -25,13 +38,13 @@ fun checkFile(file: File): CheckResult = when (val result = parseForCli(file)) {
     is CliParseResult.Failure -> CheckResult.Failure(result.message)
 }
 
-fun buildCheckJson(file: File, warnings: List<WarningEntry>): String {
+fun buildCheckJson(file: File, warnings: List<WarningEntry>, imageIntegrity: JsonValue? = null): String {
     val wrapper = JsonValue.JObject(
         listOf(
             "file" to JsonValue.JString(file.name),
             "warningCount" to JsonValue.JNumber(warnings.size.toLong()),
             "warnings" to JsonValue.JArray(warnings.map { it.toJsonValue() }),
-        ),
+        ) + if (imageIntegrity != null) listOf("imageIntegrity" to imageIntegrity) else emptyList(),
     )
     return wrapper.render()
 }
