@@ -1,6 +1,11 @@
 package com.multiviewer.parser.integrity
 
+import com.multiviewer.parser.BoxNode
+import com.multiviewer.parser.parseFile
+import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import kotlin.test.assertEquals
 
 class JpegIntegrityTest {
@@ -63,5 +68,41 @@ class JpegIntegrityTest {
     @Test
     fun `baseline jpeg without DQT still fails`() {
         assertEquals(CheckStatus.FAIL, checkBytes(jpegBytes(withDqt = false), "jpg").item("jpeg.dqt").status)
+    }
+
+    /** Real JPEG followed by [extra] padding bytes, with the tree's post-EOI nodes replaced by [trailing]. */
+    private fun trailingDetail(vararg trailing: BoxNode): String {
+        val base = jpegBytes()
+        val f = File.createTempFile("integrity-trailing-", ".jpg").apply { deleteOnExit(); writeBytes(base + ByteArray(64)) }
+        val root = parseFile(f)
+        val eoi = root.children.indexOfFirst { it.type == "EOI" }
+        val tree = root.copy(children = root.children.subList(0, eoi + 1) + trailing.toList())
+        val item = ImageIntegrityChecker.check(f, tree).item("jpeg.trailing")
+        assertEquals(CheckStatus.INFO, item.status, item.detail)
+        return item.detail
+    }
+
+    private val hint = "video integrity"
+
+    @Test
+    fun `embedded motion photo video after EOI gets the video integrity hint`() {
+        val off = jpegBytes().size.toLong()
+        assertTrue(trailingDetail(BoxNode("EmbeddedVideoData", off, 0, 64)).contains(hint))
+    }
+
+    @Test
+    fun `SEF trailer with MotionPhoto_Data gets the video integrity hint`() {
+        val off = jpegBytes().size.toLong()
+        val sefd = BoxNode("sefd", off, 0, 64, children = listOf(BoxNode("MotionPhoto_Data", off, 0, 12)))
+        assertTrue(trailingDetail(sefd).contains(hint))
+    }
+
+    @Test
+    fun `plain SEF trailer without MotionPhoto_Data gets no video integrity hint`() {
+        val off = jpegBytes().size.toLong()
+        val sefd = BoxNode("sefd", off, 0, 64, children = listOf(BoxNode("Image_UTC_Data", off, 0, 13)))
+        val detail = trailingDetail(sefd)
+        assertTrue(detail.contains("Samsung SEF trailer"), detail)
+        assertFalse(detail.contains(hint), detail)
     }
 }

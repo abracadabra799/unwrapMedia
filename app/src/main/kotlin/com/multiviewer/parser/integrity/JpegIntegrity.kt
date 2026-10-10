@@ -101,7 +101,13 @@ object JpegIntegrity {
             if (trailing.any { it.type == "sefd" }) add("Samsung SEF trailer")
             if (trailing.any { it.type == "EmbeddedVideoData" }) add("embedded motion photo video")
         }.ifEmpty { listOf("additional JPEG segments") }
-        val videoHint = if (trailing.any { it.type == "sefd" || it.type == "EmbeddedVideoData" }) {
+        // Only a real motion photo gets the hint: mirrors hasMotionPhotoData's SEF rule
+        // (a plain Samsung SEF trailer without MotionPhoto_Data is not a motion photo).
+        val isMotionPhoto = trailing.any { node ->
+            node.type == "EmbeddedVideoData" ||
+                (node.type == "sefd" && (node.children.any { it.type == "MotionPhoto_Data" } || node.warnings.isNotEmpty()))
+        }
+        val videoHint = if (isMotionPhoto) {
             " — video integrity: see the Motion photo tab / `motionPhoto` JSON"
         } else ""
         return IntegrityCheckItem(
