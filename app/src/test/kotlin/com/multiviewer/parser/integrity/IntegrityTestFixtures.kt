@@ -103,3 +103,39 @@ internal fun webpBytes(riffSizeDelta: Long = 0, trailing: ByteArray = ByteArray(
     val body = "WEBP".toByteArray(Charsets.US_ASCII) + vp8x + chunk("VP8L", vp8l)
     return "RIFF".toByteArray(Charsets.US_ASCII) + le32(body.size + riffSizeDelta) + body + trailing
 }
+
+internal fun box(type: String, payload: ByteArray) = be32(8L + payload.size) + type.toByteArray(Charsets.US_ASCII) + payload
+internal fun fullBox(type: String, version: Int, payload: ByteArray) = box(type, byteArrayOf(version.toByte(), 0, 0, 0) + payload)
+private fun infe(id: Int, type: String) = fullBox("infe", 2, be16(id) + be16(0) + type.toByteArray(Charsets.US_ASCII) + byteArrayOf(0))
+private fun heifHdlr() = fullBox("hdlr", 0, be32(0) + "pict".toByteArray(Charsets.US_ASCII) + ByteArray(12) + byteArrayOf(0))
+private val HEIF_FTYP = box("ftyp", "heic".toByteArray(Charsets.US_ASCII) + be32(0) + "mif1heic".toByteArray(Charsets.US_ASCII))
+
+/** Single coded item 1 ('hvc1', 64x48 via ispe) stored in mdat. extentShift moves its iloc offset. */
+internal fun heifBytes(extentShift: Long = 0, primaryId: Int = 1): ByteArray {
+    val mdatPayload = ByteArray(16) { it.toByte() }
+    val iprp = box("iprp", box("ipco", fullBox("ispe", 0, be32(64) + be32(48))) +
+        fullBox("ipma", 0, be32(1) + be16(1) + byteArrayOf(1, 0x81.toByte())))
+    fun iloc(offset: Long) = fullBox("iloc", 0, byteArrayOf(0x44, 0x00) + be16(1) +
+        be16(1) + be16(0) + be16(1) + be32(offset) + be32(mdatPayload.size.toLong()))
+    fun meta(offset: Long) = fullBox("meta", 0, heifHdlr() + fullBox("pitm", 0, be16(primaryId)) +
+        fullBox("iinf", 0, be16(1) + infe(1, "hvc1")) + iloc(offset) + iprp)
+    val mdatPayloadOffset = HEIF_FTYP.size + meta(0).size + 8L
+    return HEIF_FTYP + meta(mdatPayloadOffset + extentShift) + box("mdat", mdatPayload)
+}
+
+/** Grid item 1 (1 row x 2 columns, output 128x64, descriptor in idat) + tile items 2 and 3 in mdat.
+ *  dimg references only the first [tileRefs] tiles. */
+internal fun heifGridBytes(tileRefs: Int = 2): ByteArray {
+    val gridDescriptor = byteArrayOf(0, 0, 0, 1) + be16(128) + be16(64)
+    val mdatPayload = ByteArray(16) { it.toByte() }
+    fun iloc(mdatOff: Long) = fullBox("iloc", 1, byteArrayOf(0x44, 0x00) + be16(3) +
+        be16(1) + be16(1) + be16(0) + be16(1) + be32(0) + be32(gridDescriptor.size.toLong()) +
+        be16(2) + be16(0) + be16(0) + be16(1) + be32(mdatOff) + be32(8) +
+        be16(3) + be16(0) + be16(0) + be16(1) + be32(mdatOff + 8) + be32(8))
+    val iref = fullBox("iref", 0, box("dimg", be16(1) + be16(tileRefs) + (2 until 2 + tileRefs).fold(ByteArray(0)) { a, id -> a + be16(id) }))
+    fun meta(mdatOff: Long) = fullBox("meta", 0, heifHdlr() + fullBox("pitm", 0, be16(1)) +
+        fullBox("iinf", 0, be16(3) + infe(1, "grid") + infe(2, "hvc1") + infe(3, "hvc1")) +
+        iloc(mdatOff) + iref + box("idat", gridDescriptor))
+    val mdatPayloadOffset = HEIF_FTYP.size + meta(0).size + 8L
+    return HEIF_FTYP + meta(mdatPayloadOffset) + box("mdat", mdatPayload)
+}

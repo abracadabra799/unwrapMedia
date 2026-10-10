@@ -18,6 +18,7 @@ object ImageIntegrityChecker {
                 "GIF" -> GifIntegrity.check(reader)
                 "BMP" -> BmpIntegrity.check(reader)
                 "WEBP" -> WebpIntegrity.check(reader)
+                "HEIF" -> HeifIntegrity.check(root, reader)
                 else -> FormatCheckResult(
                     listOf(IntegrityCheckItem("format", "Format", CheckStatus.SKIP, "Unrecognized image format; structure checks are not available")),
                 )
