@@ -54,16 +54,19 @@ data class ImageStructureReport(
 | `BmpIntegrity` | `BM` signature; `bfSize` vs file size; `bfOffBits` within file; pixel array size ≥ row-stride × |height| for uncompressed BI_RGB/BITFIELDS (short → FAIL) |
 | `TiffIntegrity` (TIFF, CR2, NEF, ARW, DNG) | byte-order mark + magic 42; every IFD offset (IFD chain, SubIFDs, Exif IFD) within file and no IFD visited twice (loop → FAIL); StripOffsets/StripByteCounts (and Tile*) counts equal and every range within file; JPEGInterchangeFormat/Length range within file |
 
-Common to all: a "Parser warnings" item aggregating the tree's existing `warnings` (each with its offset) as WARN; a "File size" item if the tree's last node ends past EOF (truncated → FAIL).
+Common to all: a "Parser warnings" item aggregating the tree's existing `warnings` (each with its offset) as WARN. Simple chunked formats (PNG, GIF, BMP, WebP, TIFF) are re-walked directly from bytes, because the checks need raw values (CRCs, LE sizes, IFD offsets) that the tree only exposes as display strings; JPEG and HEIF use the tree.
 
 `ImageIntegrityChecker.check(file, root, reader): ImageStructureReport` dispatches by detected format (tree root types / magic), not by extension alone.
 
 ## Decode verification (`ui/ImageDecodeCheck.kt`)
 
-- Command: `ffmpeg -nostdin -hide_banner -v error -i <file> -frames:v 1 -f null -` (animated GIF/WebP: all frames, no `-frames:v`). HEIC/AVIF go through FFmpeg's HEIF demuxer (tile grids supported by FFmpeg ≥ 7.1; the bundled/PATH version is reported in the result).
+- Primary decoder command: `ffmpeg -nostdin -hide_banner -v error -i <file> -frames:v 1 -an -sn -dn -f framecrc -` (animated GIF/WebP: all frames, no `-frames:v`). `framecrc` output gives the decoded frame count (one line per frame) and the decoded size (`#dimensions 0: WxH`, already rotated and grid-stitched — verified on a real 40-tile HEIC: `2252x4000`). HEIC/AVIF go through FFmpeg's HEIF demuxer; the FFmpeg version is reported in the result.
+- Secondary decoder: Skia (`org.jetbrains.skia.Codec.readPixels`) for JPEG, PNG, GIF, WebP and BMP. Measured on 2026-10-10: a truncated JPEG makes FFmpeg print only `overread 8` with exit code 0, while Skia throws `Incomplete input`; Skia's verdict is therefore recorded separately and an exception counts as an issue. Skia does not decode HEIF/TIFF/RAW → `SKIP`.
+- Known blind spot (measured): a HEIC truncated to 1/3 of its size still decodes in FFmpeg with **no** error output. Truncation of HEIF is caught only by the structure check (`iloc` extents past EOF), which is why the two verdicts are shown side by side.
 - RAW: extract the largest embedded JPEG preview (via the TIFF tree) and pipe its bytes to `ffmpeg -i pipe:0`; the result is labelled "embedded preview decoded, sensor data not verified".
 - Status (same names as Video Integrity): `NOT_RUN`, `CLEAN`, `ISSUES`, `FAILED`. **CLEAN requires exit code 0 AND no error output AND ≥ 1 decoded frame** (exit code alone has been shown in this project to miss concealed decode errors).
-- Resolution cross-check: `ffprobe` width/height vs the header-declared size (JPEG SOF, PNG IHDR, HEIF `ispe` of the primary/grid output, WebP, GIF LSD, BMP, TIFF ImageWidth/Length); mismatch → WARN item in the decode tab. EXIF orientation is ignored for this comparison.
+- Overall decode status = worst of FFmpeg and Skia (Skia `SKIP` is ignored; Skia exception → `ISSUES`).
+- Resolution cross-check: FFmpeg `#dimensions` vs the header-declared size (JPEG SOF, PNG IHDR, HEIF `ispe` of the primary/grid output, WebP, GIF LSD, BMP, TIFF ImageWidth/Length); mismatch → WARN item in the decode tab. A width/height swap counts as a match (FFmpeg applies EXIF/`irot` rotation).
 - Limits: 2-minute timeout per process, cancellation kills the child process, at most 500 log lines (truncation recorded). The process runner follows `ProcessManager`/`FfmpegLocator.configureEnvironment` like the other FFmpeg callers; it is a local helper on this branch and is deduplicated against Video Integrity's `integrityProcess` after both branches merge.
 - FFmpeg not found / failed to start → `FAILED` with the reason; structure results remain valid.
 
@@ -74,7 +77,7 @@ Common to all: a "Parser warnings" item aggregating the tree's existing `warning
 - Buttons: Start inspection, Cancel, Save analysis case (JSON, never overwrites an existing file).
 - Structure verification runs automatically on open (cheap). Decode verification runs on Start.
 - Tab 1 — **Structure**: table of check items (status chip, title, offset, length, detail). Clicking a row with an offset highlights that byte range in the main Hex view (`tab.parameterSetHighlightRange`, same mechanism Video Integrity uses).
-- Tab 2 — **Decode**: status, decoded frames, FFmpeg version, resolution comparison, error log.
+- Tab 2 — **Decode**: overall decode status, FFmpeg result (frames, version, log), Skia result, resolution comparison.
 - Uses `androidx.compose.material3.Text` throughout (Material2 `Text` is invisible on this app's theme).
 
 ## CLI
