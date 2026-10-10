@@ -436,8 +436,8 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var checkStructureWindowOpen by remember { mutableStateOf(false) }
         var aiPromptWindowOpen by remember { mutableStateOf(false) }
         var avSyncWindowOpen by remember { mutableStateOf(false) }
-        var bitstreamCorruptionWindowOpen by remember { mutableStateOf(false) }
         var sefIntegrityWindowOpen by remember { mutableStateOf(false) }
+        var videoIntegrityTab by remember { mutableStateOf<TabState?>(null) }
         var motionPhotoIntegrityWindowOpen by remember { mutableStateOf(false) }
         var imageIntegrityTab by remember { mutableStateOf<TabState?>(null) }
         var aboutWindowOpen by remember { mutableStateOf(false) }
@@ -517,6 +517,13 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 val hasVideoTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Video" } == true
 
                 item(
+                    I18n.menuVideoIntegrity(language),
+                    enabled = hasActiveFile && isVideo,
+                    shortcut = AppKeyShortcut(Key.B, meta = true, shift = true),
+                    onClick = { videoIntegrityTab = currentTab },
+                )
+
+                item(
                     I18n.menuDumpStructure(language),
                     enabled = hasActiveFile,
                     shortcut = AppKeyShortcut(Key.D, meta = true, shift = true),
@@ -541,12 +548,6 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     enabled = isVideo,
                     shortcut = AppKeyShortcut(Key.S, meta = true, shift = true),
                     onClick = { avSyncWindowOpen = true },
-                )
-                item(
-                    I18n.menuBitstreamCorruption(language),
-                    enabled = isVideo,
-                    shortcut = AppKeyShortcut(Key.B, meta = true, shift = true),
-                    onClick = { bitstreamCorruptionWindowOpen = true },
                 )
                 val hasSefData = currentTab?.root?.let { root -> findFirst(root) { it.type == "sefd" } } != null
                 item(
@@ -851,20 +852,8 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     avSyncWindowOpen = false
                 }
             }
-            if (bitstreamCorruptionWindowOpen) {
-                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
-                if (currentTab != null) {
-                    BitstreamCorruptionWindow(
-                        tab = currentTab,
-                        themeMode = themeMode,
-                        onCloseRequest = { bitstreamCorruptionWindowOpen = false },
-                        onJumpToHex = { range ->
-                            currentTab.parameterSetHighlightRange = range
-                        }
-                    )
-                } else {
-                    bitstreamCorruptionWindowOpen = false
-                }
+            videoIntegrityTab?.let { targetTab ->
+                VideoIntegrityWindow(targetTab, language, onCloseRequest = { videoIntegrityTab = null })
             }
             if (sefIntegrityWindowOpen) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)

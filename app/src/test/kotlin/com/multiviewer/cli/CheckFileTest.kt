@@ -136,6 +136,21 @@ class CheckFileTest {
     }
 
     @Test
+    fun `box boundary and incomplete header defects are critical regardless of box type`() {
+        val messages = listOf(
+            "Declared size 130 extends 32 byte(s) past the end of its parent",
+            "Declared size 4 is smaller than header size 8",
+            "Declared a 64-bit size but only 12 byte(s) remain",
+            "Trailing 4 byte(s): too short for a box header",
+        )
+        for (type in listOf("udta", "mdat", "?")) {
+            for (message in messages) {
+                assertEquals("CRITICAL", AiDiagnosticPromptBuilder.determineSeverity(type, message), "$type: $message")
+            }
+        }
+    }
+
+    @Test
     fun `determineSeverity categorizes critical, warning, and info correctly`() {
         assertEquals("CRITICAL", AiDiagnosticPromptBuilder.determineSeverity("mdat", "corrupt box length exceeds file size"))
         assertEquals("CRITICAL", AiDiagnosticPromptBuilder.determineSeverity("stbl", "missing required stsd box"))

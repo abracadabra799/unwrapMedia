@@ -42,7 +42,7 @@ object FfmpegLocator {
         val candidates = listOf(File(resourcesDir, "bin/$binaryName"), File(resourcesDir, binaryName))
         val found = candidates.firstOrNull { it.exists() }
         if (found == null) {
-            println("FfmpegLocator: bundled $binaryName not found under $resourcesDirPath (checked: ${candidates.map { it.path }}); falling back to PATH")
+            System.err.println("FfmpegLocator: bundled $binaryName not found under $resourcesDirPath (checked: ${candidates.map { it.path }}); falling back to PATH")
         } else {
             // jpackage's resource copy isn't guaranteed to preserve the executable bit CI's
             // chmod set on the staged binary -- set it again defensively so a permission-denied

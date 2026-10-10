@@ -5,6 +5,7 @@ import java.io.File
 import java.io.PrintStream
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class CheckCommandTest {
@@ -57,5 +58,57 @@ class CheckCommandTest {
         assertEquals("", stderr)
         assertTrue(stdout.contains("\"warningCount\""), "Expected a warningCount field in stdout, got: $stdout")
         file.delete()
+    }
+
+    @Test
+    fun `case option writes a JSON case and preserves normal JSON stdout`() {
+        val file = File.createTempFile("check-command-case-", ".png")
+        file.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "color=green:size=16x16",
+            "-frames:v", "1", file.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+        val caseFile = File.createTempFile("unwrap-case-", ".json")
+        caseFile.delete()
+
+        val (exitCode, stdout, stderr) = captureOutput {
+            runCheckCommand(listOf(file.absolutePath, "--case", caseFile.absolutePath))
+        }
+
+        assertEquals(0, exitCode)
+        assertEquals("", stderr)
+        assertTrue(stdout.contains("\"warningCount\""))
+        assertTrue(caseFile.isFile)
+        val caseJson = caseFile.readText()
+        assertTrue(caseJson.contains("\"schemaVersion\""))
+        assertTrue(caseJson.contains("\"sha256\""))
+        assertTrue(caseJson.contains("\"summary\""))
+        assertTrue(caseJson.contains("\"warnings\""))
+        assertFalse(caseJson.contains(file.parentFile.absolutePath))
+        file.delete()
+        caseFile.delete()
+    }
+
+    @Test
+    fun `case option refuses to overwrite an existing file`() {
+        val file = File.createTempFile("check-command-case-input-", ".png")
+        file.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "color=green:size=16x16",
+            "-frames:v", "1", file.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+        val caseFile = File.createTempFile("existing-case-", ".json")
+        caseFile.writeText("keep me")
+
+        val (exitCode, stdout, stderr) = captureOutput {
+            runCheckCommand(listOf(file.absolutePath, "--case", caseFile.absolutePath))
+        }
+
+        assertEquals(1, exitCode)
+        assertEquals("", stdout)
+        assertTrue(stderr.contains("already exists"))
+        assertEquals("keep me", caseFile.readText())
+        file.delete()
+        caseFile.delete()
     }
 }
