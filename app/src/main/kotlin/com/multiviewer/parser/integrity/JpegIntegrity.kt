@@ -101,9 +101,12 @@ object JpegIntegrity {
             if (trailing.any { it.type == "sefd" }) add("Samsung SEF trailer")
             if (trailing.any { it.type == "EmbeddedVideoData" }) add("embedded motion photo video")
         }.ifEmpty { listOf("additional JPEG segments") }
+        val videoHint = if (trailing.any { it.type == "sefd" || it.type == "EmbeddedVideoData" }) {
+            " — video integrity: see the Motion photo tab / `motionPhoto` JSON"
+        } else ""
         return IntegrityCheckItem(
             "jpeg.trailing", "Data after EOI", INFO,
-            "Recognized data after EOI: ${kinds.joinToString(", ")}", eoiEnd, fileLength - eoiEnd,
+            "Recognized data after EOI: ${kinds.joinToString(", ")}$videoHint", eoiEnd, fileLength - eoiEnd,
         )
     }
 }

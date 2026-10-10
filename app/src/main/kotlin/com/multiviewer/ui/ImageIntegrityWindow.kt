@@ -95,6 +95,8 @@ fun ImageIntegrityWindow(tab: TabState, language: AppLanguage, onCloseRequest: (
     var job by remember(tab.file) { mutableStateOf<Job?>(null) }
     var running by remember(tab.file) { mutableStateOf(false) }
     var message by remember(tab.file) { mutableStateOf("") }
+    var motion by remember(tab.file) { mutableStateOf<MotionPhotoIntegrityReport?>(null) }
+    val motionDetected = remember(tab.root) { tab.root?.let { hasMotionPhotoData(it) } ?: false }
     var selectedTab by remember { mutableStateOf(0) }
     DisposableEffect(tab.file) { onDispose { job?.cancel() } }
 
@@ -134,17 +136,36 @@ fun ImageIntegrityWindow(tab: TabState, language: AppLanguage, onCloseRequest: (
                 )
                 val ds = decode?.status ?: ImageDecodeStatus.NOT_RUN
                 Text(label("디코딩: ", "Decode: ") + headerDecodeLabel(decode != null, ds, ko), color = decodeStatusColor(ds))
+                if (motionDetected) {
+                    val m = motion
+                    val mStatus = m?.overallSeverity?.toCheckStatus()
+                    Text(
+                        label("모션포토: ", "Motion photo: ") + (mStatus?.let { checkStatusLabel(it, ko) } ?: label("미검사", "Not run")),
+                        color = mStatus?.let { checkStatusColor(it) } ?: AppColors.TextMuted,
+                    )
+                }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(enabled = !running && s != null, onClick = {
                     val snapshot = s ?: return@Button
                     running = true
                     decode = null
-                    message = label("디코딩 중…", "Decoding…")
+                    motion = null
+                    message = if (motionDetected) label("디코딩·모션포토 검사 중…", "Decoding and checking motion photo…") else label("디코딩 중…", "Decoding…")
                     job = scope.launch {
                         try {
                             decode = inspectImageDecode(tab.file, snapshot)
                             message = ""
+                            val root = tab.root
+                            if (motionDetected && root != null) {
+                                try {
+                                    motion = withContext(Dispatchers.IO) { MotionPhotoIntegrityAnalyzer.analyze(tab.file, root) }
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    message = label("모션포토 분석 실패: ", "Motion photo analysis failed: ") + (e.message ?: e.toString())
+                                }
+                            }
                             selectedTab = 1
                         } catch (e: CancellationException) {
                             message = label("중단 · 검사 완료되지 않음", "Cancelled · inspection incomplete")
@@ -155,7 +176,7 @@ fun ImageIntegrityWindow(tab: TabState, language: AppLanguage, onCloseRequest: (
                             running = false
                         }
                     }
-                }) { Text(label("디코딩 검사 시작", "Start decode check")) }
+                }) { Text(label("검사 시작", "Start inspection")) }
                 OutlinedButton(enabled = running, onClick = { job?.cancel() }) { Text(label("취소", "Cancel")) }
                 OutlinedButton(enabled = s != null && !running, onClick = {
                     val snapshot = s ?: return@OutlinedButton
@@ -184,13 +205,30 @@ fun ImageIntegrityWindow(tab: TabState, language: AppLanguage, onCloseRequest: (
             TabRow(selectedTabIndex = selectedTab) {
                 Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text(label("구조 검사", "Structure")) })
                 Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text(label("디코딩 검사", "Decode")) })
+                if (motionDetected) {
+                    Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text(label("모션포토", "Motion photo")) })
+                }
             }
             when (selectedTab) {
                 0 -> StructurePanel(s, structureError, ko) { item ->
                     val offset = item.offset ?: return@StructurePanel
                     tab.parameterSetHighlightRange = offset until offset + maxOf(1L, item.length ?: 1L)
                 }
-                else -> DecodePanel(decode, ko)
+                1 -> DecodePanel(decode, ko)
+                else -> {
+                    val m = motion
+                    if (m == null) {
+                        Text(
+                            label(
+                                "'검사 시작'을 눌러 모션포토 영상 검사를 실행하세요. (영상 전체를 디코딩하므로 시간이 걸릴 수 있습니다)",
+                                "Press 'Start inspection' to check the motion photo video. (It decodes the whole video, so it may take a while)",
+                            ),
+                            color = AppColors.TextSecondary,
+                        )
+                    } else {
+                        MotionPhotoReportContent(m, Modifier.fillMaxSize())
+                    }
+                }
             }
         }
     }
@@ -232,7 +270,7 @@ private fun StructurePanel(report: ImageStructureReport?, error: String?, ko: Bo
 private fun DecodePanel(report: ImageDecodeReport?, ko: Boolean) {
     if (report == null) {
         Text(
-            if (ko) "'디코딩 검사 시작'을 눌러 FFmpeg/Skia 디코딩 검사를 실행하세요." else "Press 'Start decode check' to run the FFmpeg/Skia decode check.",
+            if (ko) "'검사 시작'을 눌러 FFmpeg/Skia 디코딩 검사를 실행하세요." else "Press 'Start inspection' to run the FFmpeg/Skia decode check.",
             color = AppColors.TextSecondary,
         )
         return

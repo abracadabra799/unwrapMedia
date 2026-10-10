@@ -6,12 +6,39 @@ import com.multiviewer.parser.SefCheckResult
 import com.multiviewer.parser.SefIntegrityReport
 import com.multiviewer.parser.SefIntegritySeverity
 import com.multiviewer.parser.correctMp4StartOffset
+import com.multiviewer.parser.integrity.CheckStatus
 import com.multiviewer.parser.findFirst
 import com.multiviewer.parser.findMicroVideoOffset
 import com.multiviewer.parser.findMotionPhotoInDirectory
 import com.multiviewer.parser.findPresentationTimestampUs
 import com.multiviewer.parser.parseXmpDocument
 import java.io.File
+
+fun SefIntegritySeverity.toCheckStatus(): CheckStatus = when (this) {
+    SefIntegritySeverity.PASS -> CheckStatus.PASS
+    SefIntegritySeverity.INFO -> CheckStatus.INFO
+    SefIntegritySeverity.WARNING -> CheckStatus.WARN
+    SefIntegritySeverity.CRITICAL -> CheckStatus.FAIL
+    SefIntegritySeverity.SKIPPED -> CheckStatus.SKIP
+}
+
+/** Single shared "is this a motion photo" predicate: drives the Analysis menu gate and the Image Integrity tab. */
+fun hasMotionPhotoData(root: BoxNode): Boolean {
+    val r = root
+    return (findFirst(r) { it.type == "sefd" }?.let { sefd ->
+        // Mirrors MotionPhotoIntegrityAnalyzer.kt's detectedFormats gate: MotionPhoto_Data
+        // is mandatory for an intact trailer, but a structurally broken one (warnings
+        // non-empty -- SefdBoxDecoder bails with no children in that case) must still
+        // enable the menu so its CRITICAL diagnosis stays reachable.
+        sefd.children.any { it.type == "MotionPhoto_Data" } || sefd.warnings.isNotEmpty()
+    } == true) ||
+        findFirst(r) { it.type == "mpvd" || it.type == "EmbeddedVideoData" } != null ||
+        findFirst(r) {
+            it.fields.any { f ->
+                f.name == "xmp" && (f.value.contains("MotionPhoto", ignoreCase = true) || f.value.contains("MicroVideo", ignoreCase = true))
+            }
+        } != null
+}
 
 enum class MotionPhotoFormat { SAMSUNG_SEF, GOOGLE_XMP, APPLE_MPVD }
 
