@@ -433,13 +433,10 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var qualityCompareWindowOpen by remember { mutableStateOf(false) }
         var motionPhotoFrameIntervalWindowOpen by remember { mutableStateOf(false) }
         var dumpStructureWindowOpen by remember { mutableStateOf(false) }
-        var checkStructureWindowOpen by remember { mutableStateOf(false) }
         var aiPromptWindowOpen by remember { mutableStateOf(false) }
         var avSyncWindowOpen by remember { mutableStateOf(false) }
         var sefIntegrityWindowOpen by remember { mutableStateOf(false) }
-        var videoIntegrityTab by remember { mutableStateOf<TabState?>(null) }
-        var motionPhotoIntegrityWindowOpen by remember { mutableStateOf(false) }
-        var imageIntegrityTab by remember { mutableStateOf<TabState?>(null) }
+        var contentCheckTab by remember { mutableStateOf<TabState?>(null) }
         var aboutWindowOpen by remember { mutableStateOf(false) }
         var updateWindowOpen by remember { mutableStateOf(false) }
         var hasUpdateAvailable by remember { mutableStateOf(false) }
@@ -517,10 +514,10 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 val hasVideoTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Video" } == true
 
                 item(
-                    I18n.menuVideoIntegrity(language),
-                    enabled = hasActiveFile && isVideo,
-                    shortcut = AppKeyShortcut(Key.B, meta = true, shift = true),
-                    onClick = { videoIntegrityTab = currentTab },
+                    I18n.menuContentCheck(language),
+                    enabled = hasActiveFile,
+                    shortcut = AppKeyShortcut(Key.C, meta = true, shift = true),
+                    onClick = { contentCheckTab = currentTab },
                 )
 
                 item(
@@ -528,12 +525,6 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     enabled = hasActiveFile,
                     shortcut = AppKeyShortcut(Key.D, meta = true, shift = true),
                     onClick = { dumpStructureWindowOpen = true },
-                )
-                item(
-                    I18n.menuCheckStructure(language),
-                    enabled = hasActiveFile,
-                    shortcut = AppKeyShortcut(Key.C, meta = true, shift = true),
-                    onClick = { checkStructureWindowOpen = true },
                 )
                 separator()
                 item(
@@ -554,11 +545,6 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     I18n.menuSefIntegrityCheck(language),
                     enabled = hasSefData,
                     onClick = { sefIntegrityWindowOpen = true },
-                )
-                item(
-                    I18n.menuImageIntegrity(language),
-                    enabled = hasActiveFile && currentTab?.type == MediaType.IMAGE,
-                    onClick = { imageIntegrityTab = currentTab },
                 )
                 item(
                     I18n.menuViewFrameIntervals(language),
@@ -596,13 +582,6 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     I18n.menuMotionFrameDropAnalysis(language),
                     enabled = currentTab?.embeddedVideo != null,
                     onClick = { motionPhotoFrameIntervalWindowOpen = true },
-                )
-                separator()
-                val hasMotionPhoto = currentTab?.root?.let { hasMotionPhotoData(it) } ?: false
-                item(
-                    I18n.menuMotionPhotoIntegrityCheck(language),
-                    enabled = hasMotionPhoto,
-                    onClick = { motionPhotoIntegrityWindowOpen = true },
                 )
             }
             appMenu(I18n.menuTools(language)) {
@@ -819,13 +798,8 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     dumpStructureWindowOpen = false
                 }
             }
-            if (checkStructureWindowOpen) {
-                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
-                if (currentTab != null) {
-                    StructureCheckWindow(tab = currentTab, themeMode = themeMode, onCloseRequest = { checkStructureWindowOpen = false })
-                } else {
-                    checkStructureWindowOpen = false
-                }
+            contentCheckTab?.let { targetTab ->
+                ContentCheckWindow(targetTab, language) { contentCheckTab = null }
             }
             if (appState.aiPromptWindowOpen) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
@@ -852,9 +826,6 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     avSyncWindowOpen = false
                 }
             }
-            videoIntegrityTab?.let { targetTab ->
-                VideoIntegrityWindow(targetTab, language, onCloseRequest = { videoIntegrityTab = null })
-            }
             if (sefIntegrityWindowOpen) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val sefdNode = currentTab?.root?.let { root -> findFirst(root) { it.type == "sefd" } }
@@ -869,23 +840,6 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     )
                 } else {
                     sefIntegrityWindowOpen = false
-                }
-            }
-            imageIntegrityTab?.let { targetTab ->
-                ImageIntegrityWindow(targetTab, language, onCloseRequest = { imageIntegrityTab = null })
-            }
-            if (motionPhotoIntegrityWindowOpen) {
-                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
-                val currentRoot = currentTab?.root
-                if (currentTab != null && currentRoot != null) {
-                    MotionPhotoIntegrityWindow(
-                        file = currentTab.file,
-                        root = currentRoot,
-                        themeMode = themeMode,
-                        onCloseRequest = { motionPhotoIntegrityWindowOpen = false },
-                    )
-                } else {
-                    motionPhotoIntegrityWindowOpen = false
                 }
             }
             if (aboutWindowOpen) {

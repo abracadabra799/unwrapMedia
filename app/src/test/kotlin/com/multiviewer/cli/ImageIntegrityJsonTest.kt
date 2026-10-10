@@ -25,17 +25,6 @@ class ImageIntegrityJsonTest {
     }
 
     @Test
-    fun `analysis case json carries file identity and integrity`() {
-        val file = tempJpeg(jpegBytes())
-        val parsed = com.multiviewer.parser.parseFile(file)
-        val structure = com.multiviewer.parser.integrity.ImageIntegrityChecker.check(file, parsed)
-        val case = buildImageIntegrityCaseJson(file, structure, null)
-        assertTrue(case.contains("\"sha256\""), case)
-        assertTrue(case.contains("\"imageIntegrity\""), case)
-        assertTrue(!case.contains(file.parent), "case must not contain the absolute path")
-    }
-
-    @Test
     fun `motionPhotoJson is null when not detected and NOT_RUN when detected without report`() {
         assertNull(motionPhotoJson(false, null))
         assertTrue(motionPhotoJson(true, null)!!.render().contains("\"status\": \"NOT_RUN\""))

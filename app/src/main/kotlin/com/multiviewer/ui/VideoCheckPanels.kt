@@ -24,9 +24,15 @@ internal fun videoStatusLabel(value: IntegrityStatus, ko: Boolean): String {
 }
 
 @Composable
-internal fun VideoDecodePanel(report: VideoIntegrityReport, ko: Boolean, onShowPackets: () -> Unit, modifier: Modifier) {
+internal fun VideoDecodePanel(
+    report: VideoIntegrityReport,
+    ko: Boolean,
+    expandedDiagnostic: Int?,
+    onExpandedDiagnosticChange: (Int?) -> Unit,
+    onShowPackets: () -> Unit,
+    modifier: Modifier,
+) {
     fun label(korean: String, english: String) = if (ko) korean else english
-    var expandedDiagnostic by remember(report) { mutableStateOf<Int?>(null) }
     Text(videoStatusLabel(report.decodeStatus, ko) + label(" · 디코딩된 프레임: ", " · Decoded frames: ") + report.decodedFrames,
         color = AppColors.TextPrimary)
     Text(label("오류 로그만으로 정확한 패킷 위치를 확정할 수 없습니다. 패킷 탭에서 시간과 바이트 위치를 확인하세요.",
@@ -40,7 +46,7 @@ internal fun VideoDecodePanel(report: VideoIntegrityReport, ko: Boolean, onShowP
                 Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(diagnostic.message, fontFamily = FontFamily.Monospace, color = AppColors.TextPrimary)
                     Text(label("위치 미확인 · 원인 해설은 추정입니다", "Location unavailable · explanation is a hypothesis"), color = AppColors.TextSecondary)
-                    TextButton(onClick = { expandedDiagnostic = if (expandedDiagnostic == index) null else index }) {
+                    TextButton(onClick = { onExpandedDiagnosticChange(if (expandedDiagnostic == index) null else index) }) {
                         Text(label("오류 해설: ", "Explanation (Korean): ") + diagnostic.explanation.title)
                     }
                     if (expandedDiagnostic == index) {
@@ -58,9 +64,15 @@ internal fun VideoDecodePanel(report: VideoIntegrityReport, ko: Boolean, onShowP
 }
 
 @Composable
-internal fun VideoPacketPanel(report: VideoIntegrityReport, tab: TabState, ko: Boolean, modifier: Modifier) {
+internal fun VideoPacketPanel(
+    report: VideoIntegrityReport,
+    tab: TabState,
+    ko: Boolean,
+    selectedPacket: IntegrityPacket?,
+    onSelectedPacketChange: (IntegrityPacket) -> Unit,
+    modifier: Modifier,
+) {
     fun label(korean: String, english: String) = if (ko) korean else english
-    var selectedPacket by remember(report) { mutableStateOf<IntegrityPacket?>(null) }
     Text(videoStatusLabel(report.packetStatus, ko) + " · ${report.packets.size}" + if (report.packetsTruncated) " (limited to 100,000)" else "",
         color = AppColors.TextPrimary)
     Text(label("패킷을 선택하면 기존 Hex 뷰어에서 해당 범위를 강조합니다. N/A는 정보 없음입니다.",
@@ -73,7 +85,7 @@ internal fun VideoPacketPanel(report: VideoIntegrityReport, tab: TabState, ko: B
                 fontFamily = FontFamily.Monospace, color = AppColors.TextPrimary,
                 modifier = Modifier.fillMaxWidth().background(if (selectedPacket == packet) AppColors.Selection else AppColors.Background)
                     .clickable {
-                        selectedPacket = packet
+                        onSelectedPacketChange(packet)
                         val offset = packet.offset
                         val size = packet.size
                         if (offset != null && size != null && offset < tab.file.length() && size <= tab.file.length() - offset) {

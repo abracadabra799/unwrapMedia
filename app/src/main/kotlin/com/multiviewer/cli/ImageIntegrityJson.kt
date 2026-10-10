@@ -1,13 +1,11 @@
 package com.multiviewer.cli
 
 import com.multiviewer.parser.integrity.ImageStructureReport
-import com.multiviewer.ui.I18n
 import com.multiviewer.parser.SefCheckResult
 import com.multiviewer.ui.ImageDecodeReport
 import com.multiviewer.ui.MotionPhotoIntegrityReport
 import com.multiviewer.ui.toCheckStatus
 import java.io.File
-import java.security.MessageDigest
 
 private fun size(w: Int?, h: Int?): JsonValue = JsonValue.JString(if (w != null && h != null) "${w}x$h" else "unknown")
 
@@ -149,37 +147,3 @@ fun imageIntegrityJson(structure: ImageStructureReport, decode: ImageDecodeRepor
         },
     ) + if (motionPhoto != null) listOf("motionPhoto" to motionPhoto) else emptyList(),
 )
-
-/** Reproducible case file: identity (name, size, SHA-256 — never the absolute path) + integrity results. */
-fun buildImageIntegrityCaseJson(
-    file: File,
-    structure: ImageStructureReport,
-    decode: ImageDecodeReport?,
-    motion: MotionPhotoIntegrityReport? = null,
-    motionDetected: Boolean = false,
-    motionError: String? = null,
-): String {
-    val digest = MessageDigest.getInstance("SHA-256")
-    file.inputStream().buffered().use { input ->
-        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-        while (true) {
-            val n = input.read(buffer)
-            if (n < 0) break
-            digest.update(buffer, 0, n)
-        }
-    }
-    return JsonValue.JObject(
-        listOf(
-            "schemaVersion" to JsonValue.JNumber(1),
-            "tool" to JsonValue.JObject(listOf("name" to JsonValue.JString("unwrapMedia"), "version" to JsonValue.JString(I18n.APP_VERSION))),
-            "file" to JsonValue.JObject(
-                listOf(
-                    "name" to JsonValue.JString(file.name),
-                    "sizeBytes" to JsonValue.JNumber(file.length()),
-                    "sha256" to JsonValue.JString(digest.digest().joinToString("") { "%02x".format(it) }),
-                ),
-            ),
-            "imageIntegrity" to imageIntegrityJson(structure, decode, motionPhotoJson(motionDetected, motion, file, motionError)),
-        ),
-    ).render()
-}

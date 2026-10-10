@@ -25,7 +25,7 @@ import com.multiviewer.parser.SefDirectoryEntryRow
 import com.multiviewer.parser.SefIntegritySeverity
 
 // Shared between SefIntegrityWindow.kt (the standalone "SEF 무결성 검사" window) and
-// MotionPhotoIntegrityWindow.kt (which embeds the same SEF directory-entry table as one of its
+// MotionPhotoReportContent.kt (shown in the Content Check window; it embeds the same SEF directory-entry table as one of its
 // per-category sections) -- unlike this codebase's usual per-file-duplicate convention for small
 // helpers (e.g. SefIntegrityAnalyzer.kt's readUInt16LE/32LE), a real table's worth of composables
 // is large enough that duplicating it would mean fixing every future table bug twice.

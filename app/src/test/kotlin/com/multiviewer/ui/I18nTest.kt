@@ -19,8 +19,8 @@ class I18nTest {
         assertEquals("Analyze", I18n.menuAnalyze(AppLanguage.EN))
         assertEquals("구조 덤프", I18n.menuDumpStructure(AppLanguage.KO))
         assertEquals("Dump Structure", I18n.menuDumpStructure(AppLanguage.EN))
-        assertEquals("구조 정합성 검사", I18n.menuCheckStructure(AppLanguage.KO))
-        assertEquals("Validate Structure", I18n.menuCheckStructure(AppLanguage.EN))
+        assertEquals("컨텐츠 검사", I18n.menuContentCheck(AppLanguage.KO))
+        assertEquals("Content Check", I18n.menuContentCheck(AppLanguage.EN))
         assertEquals("AI 진단 실행", I18n.menuGenerateAiPrompt(AppLanguage.KO))
         assertEquals("Run AI Diagnosis", I18n.menuGenerateAiPrompt(AppLanguage.EN))
 
