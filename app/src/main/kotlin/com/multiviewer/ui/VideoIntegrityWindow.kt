@@ -33,17 +33,9 @@ fun VideoIntegrityWindow(tab: TabState, language: AppLanguage, onCloseRequest: (
     var report by remember(tab.file) { mutableStateOf<VideoIntegrityReport?>(null) }
     var status by remember(tab.file) { mutableStateOf(label("미검사", "Not inspected")) }
     var selectedTab by remember { mutableStateOf(0) }
-    var selectedPacket by remember(tab.file) { mutableStateOf<IntegrityPacket?>(null) }
-    var expandedDiagnostic by remember(report) { mutableStateOf<Int?>(null) }
     var saveMessage by remember(tab.file) { mutableStateOf("") }
     var saving by remember(tab.file) { mutableStateOf(false) }
     DisposableEffect(tab.file) { onDispose { job?.cancel() } }
-    fun statusLabel(value: IntegrityStatus): String = when (value) {
-        IntegrityStatus.NOT_RUN -> label("미검사", "Not inspected")
-        IntegrityStatus.CLEAN -> label("완료 · 오류 없음", "Completed · no errors")
-        IntegrityStatus.ISSUES -> label("완료 · 오류 발견", "Completed · errors found")
-        IntegrityStatus.FAILED -> label("검사 실패 · 정상 여부 확인 불가", "Failed · integrity unconfirmed")
-    }
     Window(onCloseRequest = { job?.cancel(); onCloseRequest() },
         state = rememberWindowState(width = 1080.dp, height = 760.dp),
         title = label("영상 무결성 검사", "Video Integrity") + " — ${tab.file.name}") {
@@ -54,7 +46,7 @@ fun VideoIntegrityWindow(tab: TabState, language: AppLanguage, onCloseRequest: (
                 "Software decoding of the first video track. Audio is not inspected."), color = AppColors.TextSecondary)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(enabled = !running && !saving, onClick = {
-                    running = true; report = null; selectedPacket = null; saveMessage = ""
+                    running = true; report = null; saveMessage = ""
                     job = scope.launch {
                         try {
                             report = inspectVideoIntegrity(tab.file) { phase, count ->
@@ -108,56 +100,9 @@ fun VideoIntegrityWindow(tab: TabState, language: AppLanguage, onCloseRequest: (
             val current = report
             if (current != null) {
                 if (selectedTab == 0) {
-                    Text(statusLabel(current.decodeStatus) + label(" · 디코딩된 프레임: ", " · Decoded frames: ") + current.decodedFrames,
-                        color = AppColors.TextPrimary)
-                    Text(label("오류 로그만으로 정확한 패킷 위치를 확정할 수 없습니다. 패킷 탭에서 시간과 바이트 위치를 확인하세요.",
-                        "Logs do not establish exact error packet positions. Inspect timestamps and byte positions in the packet tab."),
-                        color = AppColors.TextSecondary)
-                    if (current.logsTruncated) Text(label("로그 저장 한도에 도달했습니다. 일부 로그는 생략됩니다.", "Log limit reached; some messages omitted."))
-                    val diagnostics = remember(current) { current.logs.map(::explainIntegrityLog) }
-                    SelectionContainer(Modifier.weight(1f)) {
-                        LazyColumn(Modifier.fillMaxSize()) {
-                            itemsIndexed(diagnostics) { index, diagnostic ->
-                                Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(diagnostic.message, fontFamily = FontFamily.Monospace, color = AppColors.TextPrimary)
-                                    Text(label("위치 미확인 · 원인 해설은 추정입니다", "Location unavailable · explanation is a hypothesis"), color = AppColors.TextSecondary)
-                                    TextButton(onClick = { expandedDiagnostic = if (expandedDiagnostic == index) null else index }) {
-                                        Text(label("오류 해설: ", "Explanation (Korean): ") + diagnostic.explanation.title)
-                                    }
-                                    if (expandedDiagnostic == index) {
-                                        val explanation = diagnostic.explanation
-                                        Text(label("해석: ", "Interpretation: ") + explanation.summary, color = AppColors.TextPrimary)
-                                        Text(label("가능한 원인: ", "Possible cause: ") + explanation.probableCause, color = AppColors.TextPrimary)
-                                        Text(label("가능한 영향: ", "Possible impact: ") + explanation.visualImpact, color = AppColors.TextPrimary)
-                                        Text(label("추가 확인: ", "Next checks: ") + explanation.actionableFix, color = AppColors.TextPrimary)
-                                        TextButton(onClick = { selectedTab = 1 }) { Text(label("패킷 목록에서 직접 확인", "Inspect packet list manually")) }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    VideoDecodePanel(current, ko, onShowPackets = { selectedTab = 1 }, modifier = Modifier.weight(1f))
                 } else {
-                    Text(statusLabel(current.packetStatus) + " · ${current.packets.size}" + if (current.packetsTruncated) " (limited to 100,000)" else "",
-                        color = AppColors.TextPrimary)
-                    Text(label("패킷을 선택하면 기존 Hex 뷰어에서 해당 범위를 강조합니다. N/A는 정보 없음입니다.",
-                        "Select a packet to highlight its bytes in the main Hex viewer. N/A means unavailable."), color = AppColors.TextSecondary)
-                    Text("#     PTS(s)          DTS(s)          Offset         Bytes       Key", fontFamily = FontFamily.Monospace, color = AppColors.TextSecondary)
-                    LazyColumn(Modifier.weight(1f)) {
-                        items(current.packetLogs) { Text(it, color = AppColors.NeonRed) }
-                        items(current.packets, key = { it.index }) { packet ->
-                            Text("${packet.index.toString().padEnd(6)}${(packet.pts ?: "N/A").padEnd(16)}${(packet.dts ?: "N/A").padEnd(16)}${(packet.offset?.toString() ?: "N/A").padEnd(15)}${(packet.size?.toString() ?: "N/A").padEnd(12)}${if (packet.keyframe) "K" else ""}",
-                                fontFamily = FontFamily.Monospace, color = AppColors.TextPrimary,
-                                modifier = Modifier.fillMaxWidth().background(if (selectedPacket == packet) AppColors.Selection else AppColors.Background)
-                                    .clickable {
-                                        selectedPacket = packet
-                                        val offset = packet.offset
-                                        val size = packet.size
-                                        if (offset != null && size != null && offset < tab.file.length() && size <= tab.file.length() - offset) {
-                                            tab.parameterSetHighlightRange = offset until (offset + size)
-                                        }
-                                    }.padding(vertical = 5.dp))
-                        }
-                    }
+                    VideoPacketPanel(current, tab, ko, modifier = Modifier.weight(1f))
                 }
             }
         }
