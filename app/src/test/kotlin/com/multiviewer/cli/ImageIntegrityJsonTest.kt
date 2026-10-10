@@ -75,6 +75,8 @@ class ImageIntegrityJsonTest {
         assertTrue(out.contains("motion-photo-decode-check123.mp4: Invalid data"), out)
         assertTrue(out.contains("photo.jpg bad"), out)
         assertTrue(!out.contains(tmp), out)
+        // Verify that subpath "secret-dir" doesn't leak when inspected file is under tmpdir
+        assertTrue(!out.contains("secret-dir"), "Subpath should not leak: $out")
     }
 
     @Test

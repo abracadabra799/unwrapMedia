@@ -14,11 +14,19 @@ private fun size(w: Int?, h: Int?): JsonValue = JsonValue.JString(if (w != null 
 /** Replaces temp-dir / inspected-file absolute paths in [text] with bare file names. */
 internal fun scrubPaths(text: String, file: File?): String {
     var out = text
+    // Inspected file: exact path -> name FIRST (longest first so nested paths win).
+    // This must happen before stripping tmpdir, so paths like /tmp/secret-dir/photo.jpg
+    // get replaced before /tmp/ is removed.
     val prefixes = LinkedHashSet<String>()
     file?.let {
         prefixes += it.absolutePath
         runCatching { it.canonicalPath }.getOrNull()?.let { c -> prefixes += c }
     }
+    for (p in prefixes.sortedByDescending { it.length }) {
+        if (p.isNotEmpty()) out = out.replace(p, file!!.name)
+    }
+    // Then strip tmpdir prefixes with anchored regex to avoid matching subpaths.
+    // E.g., /var/tmp/x won't match when tmpdir is /tmp.
     val tmpRaw = System.getProperty("java.io.tmpdir")
     if (!tmpRaw.isNullOrEmpty()) {
         val dirs = LinkedHashSet<String>()
@@ -30,13 +38,9 @@ internal fun scrubPaths(text: String, file: File?): String {
         for (d in dirs) {
             val base = d.trimEnd('/', '\\')
             if (base.isEmpty()) continue
-            val sep = Regex.escape(base) + "[/\\\\]+"
+            val sep = "(?<![/\\\\w.-])" + Regex.escape(base) + "[/\\\\]+"
             out = Regex(sep).replace(out, "")
         }
-    }
-    // Inspected file: exact path -> name (longest first so nested paths win).
-    for (p in prefixes.sortedByDescending { it.length }) {
-        if (p.isNotEmpty()) out = out.replace(p, file!!.name)
     }
     return out
 }
