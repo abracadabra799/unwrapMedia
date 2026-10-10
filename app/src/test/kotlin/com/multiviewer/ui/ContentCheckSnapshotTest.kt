@@ -151,9 +151,46 @@ class ContentCheckSnapshotTest {
         val without = AiDiagnosticPromptBuilder.buildPrompt(file, null, emptyList())
         assertTrue(with.contains(header), with)
         assertFalse(without.contains(header), without)
-        // Sample for the task report.
-        println("=== SAMPLE CONTENT CHECK SECTION ===")
-        println(contentCheckPromptSection(snapshot, file))
-        println("=== END SAMPLE ===")
+    }
+
+    @Test
+    fun mediaTypeNotApplicableBranches() {
+        val text = contentCheckPromptSection(
+            ContentCheckSnapshot(corruptStructure(), null, false, null, null, null, mediaType = MediaType.VIDEO), file,
+        )
+        assertTrue(text.contains("이미지 디코딩: 해당 없음"), text)
+        assertFalse(text.contains("영상 디코딩: 해당 없음"), text)
+        val img = contentCheckPromptSection(
+            ContentCheckSnapshot(corruptStructure(), null, false, null, null, null, mediaType = MediaType.IMAGE), file,
+        )
+        assertTrue(img.contains("영상 디코딩: 해당 없음"), img)
+    }
+
+    @Test
+    fun failedStepsAreNotReportedAsNotRun() {
+        val text = contentCheckPromptSection(
+            ContentCheckSnapshot(
+                null, null, false, null, null, null,
+                structureError = "bad tree ${file.absolutePath}", imageDecodeError = "ffmpeg crashed ${file.absolutePath}",
+                videoError = "probe failed ${file.absolutePath}",
+            ),
+            file,
+        )
+        assertTrue(text.contains("구조 검사: 검사 실패 — bad tree"), text)
+        assertTrue(text.contains("이미지 디코딩: 검사 실패 — ffmpeg crashed"), text)
+        assertTrue(text.contains("영상 디코딩: 검사 실패 — probe failed"), text)
+        assertFalse(text.contains("미실행"), text)
+        assertFalse(text.contains(file.absolutePath), text)
+    }
+
+    @Test
+    fun runningStepsShowInProgress() {
+        val text = contentCheckPromptSection(
+            ContentCheckSnapshot(corruptStructure(), null, true, null, null, null, running = true), file,
+        )
+        assertTrue(text.contains("이미지 디코딩: 진행 중"), text)
+        assertTrue(text.contains("모션포토: 진행 중"), text)
+        assertTrue(text.contains("영상 디코딩: 진행 중"), text)
+        assertFalse(text.contains("미실행"), text)
     }
 }

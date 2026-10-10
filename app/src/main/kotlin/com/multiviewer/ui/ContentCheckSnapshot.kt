@@ -19,12 +19,18 @@ data class ContentCheckSnapshot(
     val motionError: String?,
     val video: VideoIntegrityReport?,
     val mediaType: MediaType? = null,
+    val structureError: String? = null,
+    val imageDecodeError: String? = null,
+    val videoError: String? = null,
+    /** True while a run is in progress: steps with no result and no error yet are still pending. */
+    val running: Boolean = false,
 )
 
 private const val MAX_ITEMS = 30
 private const val MAX_LOG_LINES = 20
 private const val NOT_RUN = "미실행"
 private const val NOT_APPLICABLE = "해당 없음"
+private const val IN_PROGRESS = "진행 중"
 
 private fun hex(v: Long): String = "0x" + v.toString(16).uppercase()
 
@@ -38,6 +44,7 @@ private fun <T> StringBuilder.appendCapped(items: List<T>, max: Int, indent: Str
 fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): String {
     fun scrub(text: String) = scrubPaths(text, file).replace('\n', ' ').trim()
     val type = snapshot.mediaType
+    val pending = if (snapshot.running) IN_PROGRESS else NOT_RUN
     val sb = StringBuilder()
     sb.appendLine("### [컨텐츠 검사 결과 (앱이 직접 검증한 사실)]")
     sb.appendLine(
@@ -48,7 +55,8 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
     // 1) Structure
     val s = snapshot.structure
     if (s == null) {
-        sb.appendLine("- 구조 검사: $NOT_RUN")
+        if (snapshot.structureError != null) sb.appendLine("- 구조 검사: 검사 실패 — ${scrub(snapshot.structureError)}")
+        else sb.appendLine("- 구조 검사: $NOT_RUN")
     } else {
         val problems = s.items.filter { it.status == CheckStatus.FAIL || it.status == CheckStatus.WARN }
         sb.appendLine("- 구조 검사 (${s.format}): ${s.overall.name} — 검사 항목 ${s.items.size}개 중 FAIL/WARN ${problems.size}개")
@@ -83,8 +91,9 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
                 sb.appendCapped(d.logs, MAX_LOG_LINES, "    ") { scrub(it) }
             }
         }
+        snapshot.imageDecodeError != null -> sb.appendLine("- 이미지 디코딩: 검사 실패 — ${scrub(snapshot.imageDecodeError)}")
         type != null && type != MediaType.IMAGE -> sb.appendLine("- 이미지 디코딩: $NOT_APPLICABLE")
-        else -> sb.appendLine("- 이미지 디코딩: $NOT_RUN")
+        else -> sb.appendLine("- 이미지 디코딩: $pending")
     }
 
     // 3) Motion photo
@@ -117,7 +126,7 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
             }
         }
         !snapshot.motionDetected -> sb.appendLine("- 모션포토: $NOT_APPLICABLE (모션포토 데이터 미감지)")
-        else -> sb.appendLine("- 모션포토: $NOT_RUN")
+        else -> sb.appendLine("- 모션포토: $pending")
     }
 
     // 4) Video
@@ -134,8 +143,9 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
                 sb.appendCapped(v.packetLogs, MAX_LOG_LINES, "    ") { scrub(it) }
             }
         }
+        snapshot.videoError != null -> sb.appendLine("- 영상 디코딩: 검사 실패 — ${scrub(snapshot.videoError)}")
         type != null && type != MediaType.VIDEO -> sb.appendLine("- 영상 디코딩: $NOT_APPLICABLE")
-        else -> sb.appendLine("- 영상 디코딩: $NOT_RUN")
+        else -> sb.appendLine("- 영상 디코딩: $pending")
     }
     return sb.toString()
 }

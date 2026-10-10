@@ -81,6 +81,8 @@ fun ContentCheckWindow(
     var motion by remember(tab.file) { mutableStateOf<MotionPhotoIntegrityReport?>(null) }
     var motionError by remember(tab.file) { mutableStateOf<String?>(null) }
     var video by remember(tab.file) { mutableStateOf<VideoIntegrityReport?>(null) }
+    var imageDecodeError by remember(tab.file) { mutableStateOf<String?>(null) }
+    var videoError by remember(tab.file) { mutableStateOf<String?>(null) }
     var job by remember(tab.file) { mutableStateOf<Job?>(null) }
     var running by remember(tab.file) { mutableStateOf(false) }
     var saving by remember(tab.file) { mutableStateOf(false) }
@@ -101,8 +103,11 @@ fun ContentCheckWindow(
     // Publish the current run's results to the tab for the AI prompt. These states are only ever
     // written by the current run (every write is behind the runId/current() guard), so a stale or
     // cancelled run can never reach the tab through here.
-    LaunchedEffect(tab, structure, imageDecode, motion, motionError, video, motionDetected, type) {
-        tab.contentCheck = ContentCheckSnapshot(structure, imageDecode, motionDetected, motion, motionError, video, type)
+    LaunchedEffect(tab, structure, structureError, imageDecode, imageDecodeError, motion, motionError, video, videoError, running, motionDetected, type) {
+        tab.contentCheck = ContentCheckSnapshot(
+            structure, imageDecode, motionDetected, motion, motionError, video, type,
+            structureError = structureError, imageDecodeError = imageDecodeError, videoError = videoError, running = running,
+        )
     }
 
     // Keyed on tab.root too: the window can open before the file's structure tree finishes loading.
@@ -208,6 +213,8 @@ fun ContentCheckWindow(
                     val myRun = ++runId
                     running = true
                     imageDecode = null
+                    imageDecodeError = null
+                    videoError = null
                     motion = null
                     motionError = null
                     video = null
@@ -221,7 +228,6 @@ fun ContentCheckWindow(
                     job = scope.launch {
                         // A cancelled or superseded run must never write results/state for the current one.
                         fun current() = isActive && myRun == runId
-                        var decodeFailure: String? = null
                         try {
                             for (step in runSteps) {
                                 when (step) {
@@ -235,8 +241,8 @@ fun ContentCheckWindow(
                                         } catch (e: Exception) {
                                             // Motion analysis is independent of image decode: record and carry on.
                                             if (!current()) return@launch
-                                            decodeFailure = e.message ?: e.toString()
-                                            message = label("검사 실패: ", "Inspection failed: ") + decodeFailure
+                                            imageDecodeError = e.message ?: e.toString()
+                                            message = label("검사 실패: ", "Inspection failed: ") + imageDecodeError
                                         }
                                     }
                                     HeavyStep.MOTION_PHOTO -> {
@@ -252,26 +258,34 @@ fun ContentCheckWindow(
                                             if (current()) {
                                                 motionError = e.message ?: e.toString()
                                                 message = label("모션포토 분석 실패: ", "Motion photo analysis failed: ") + motionError +
-                                                    (decodeFailure?.let { " / " + label("검사 실패: ", "Inspection failed: ") + it } ?: "")
+                                                    (imageDecodeError?.let { " / " + label("검사 실패: ", "Inspection failed: ") + it } ?: "")
                                             }
                                         }
                                         if (!current()) return@launch
                                     }
                                     HeavyStep.VIDEO_INTEGRITY -> {
-                                        val result = inspectVideoIntegrity(tab.file) { phase, count ->
-                                            scope.launch progress@{
-                                                if (!running || myRun != runId || job?.isActive != true) return@progress
-                                                message = if (phase == "packets") label("패킷 읽는 중: $count", "Reading packets: $count")
-                                                    else label("디코딩 중: $count 프레임", "Decoding: $count frames")
+                                        try {
+                                            val result = inspectVideoIntegrity(tab.file) { phase, count ->
+                                                scope.launch progress@{
+                                                    if (!running || myRun != runId || job?.isActive != true) return@progress
+                                                    message = if (phase == "packets") label("패킷 읽는 중: $count", "Reading packets: $count")
+                                                        else label("디코딩 중: $count 프레임", "Decoding: $count frames")
+                                                }
                                             }
+                                            if (!current()) return@launch
+                                            video = result
+                                        } catch (e: CancellationException) {
+                                            throw e
+                                        } catch (e: Exception) {
+                                            if (!current()) return@launch
+                                            videoError = e.message ?: e.toString()
+                                            message = label("검사 실패: ", "Inspection failed: ") + videoError
                                         }
-                                        if (!current()) return@launch
-                                        video = result
                                     }
                                 }
                             }
                             if (!current()) return@launch
-                            if (motionError == null && decodeFailure == null) {
+                            if (motionError == null && imageDecodeError == null && videoError == null) {
                                 message = if (HeavyStep.VIDEO_INTEGRITY in runSteps) {
                                     label("검사 종료 — 아래 단계별 결과를 확인하세요", "Inspection finished — see results below")
                                 } else {
