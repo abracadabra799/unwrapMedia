@@ -48,3 +48,17 @@ One format: the existing `buildAnalysisCaseJson` (schema 1) with `videoIntegrity
 
 - Unit: `contentTabs` / `heavySteps` for IMAGE (with/without motion), VIDEO, AUDIO, UNKNOWN; non-image structure items from parser warnings.
 - Full suite, compile, and a launched-app check that the menu exists, the old menus are gone, and the window opens for an image, a motion photo and a video.
+
+## Addendum (2026-10-10): AI diagnosis linked to Content Check
+
+User decisions:
+- Remove Analysis → `AI 진단 실행` (⌘⇧P becomes unassigned). The AI prompt window itself stays.
+- Image inspector structure card: remove the "🤖 AI 최적화 검토" chip shown when there are no warnings; the "🤖 AI 진단 실행" chip shown when there are warnings becomes "🔍 컨텐츠 검사" and opens the Content Check window.
+- Content Check window gets an **AI 진단** button that opens the AI prompt window for the same tab.
+- Content Check results are stored on the tab (`TabState.contentCheck: ContentCheckSnapshot?`, updated when structure finishes and when each heavy step finishes) and the AI prompt includes a section "컨텐츠 검사 결과 (앱이 직접 검증한 사실)":
+  - structure: FAIL/WARN items with id, title, offset, detail (max 30, count of omitted);
+  - image decode: status, FFmpeg status/version/frames/decoded size, Skia result, resolution check, up to 20 log lines;
+  - motion photo: detected formats, overall status, non-PASS checks (max 30), or error;
+  - video: decode/packet status, decoded frames, up to 20 log lines;
+  - steps not run are stated as "미실행"; all text passes through the existing path scrubbing (file name only, no tmpdir/absolute paths);
+  - the prompt instructs the model to treat these as verified facts and focus on cause and repair.

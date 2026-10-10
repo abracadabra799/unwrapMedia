@@ -69,3 +69,16 @@ README: replace the "동영상은 **분석 → 영상 무결성 검사…**" and
 - [ ] Tests: none new beyond Task 1 (UI); remove tests of deleted functions only. Run `timeout 900 ./gradlew :app:compileKotlin -q` and full `:app:test`.
 - [ ] Launch smoke: `./gradlew :app:run` is GUI — do not attempt to drive it; report that GUI verification is left to the controller.
 - [ ] Commit `feat(content-check): unified Content Check window replaces four menus`.
+
+---
+
+### Task 4: AI diagnosis linked to Content Check
+
+**Files:** Create `ui/ContentCheckSnapshot.kt` (data class + `contentCheckPromptSection(snapshot, file): String`); Modify `ui/AppState.kt` (TabState `contentCheck`, AppState `contentCheckTab` moved from Main.kt local state so other UI can open the window), `ui/ContentCheckWindow.kt` (publish snapshot; "AI 진단 / AI diagnosis" button), `cli/AiDiagnosticPromptBuilder.kt` (optional `contentCheck: ContentCheckSnapshot?` param → new section), `ui/AnalysisWindows.kt` (`AiPromptPreviewWindow` passes `tab.contentCheck`), `Main.kt` (remove AI 진단 실행 menu item; use `appState.contentCheckTab`), `ui/ImageInspectorUI.kt` (chips per spec addendum), `ui/I18n.kt` (remove `menuGenerateAiPrompt` if unused); Test `ui/ContentCheckSnapshotTest.kt`.
+
+`data class ContentCheckSnapshot(val structure: ImageStructureReport?, val imageDecode: ImageDecodeReport?, val motionDetected: Boolean, val motion: MotionPhotoIntegrityReport?, val motionError: String?, val video: VideoIntegrityReport?)`
+
+Section text (Korean, like the rest of the prompt), exact header `### [컨텐츠 검사 결과 (앱이 직접 검증한 사실)]`, followed by an instruction line telling the model these are verified facts from byte-level checks and real decoding, then the sub-sections in the spec addendum order. Use `scrubPaths(text, file)` from cli/ImageIntegrityJson.kt on every detail/log line. Limits: 30 items per list, 20 log lines per decoder, with "… N개 생략" lines.
+
+- [ ] Tests first (RED): structure with PASS/INFO/WARN/FAIL items → only WARN/FAIL listed with offsets; 35 FAIL items → 30 listed + "5개 생략"; snapshot with no decode/video → "미실행" lines; a log line containing `<java.io.tmpdir>/x.mp4` and the file's absolute path → scrubbed; `buildPrompt(..., contentCheck = snapshot)` contains the header, and `buildPrompt` without it does not.
+- [ ] Implement; wire window/button/menu/chips. Full suite + compile. Commit `feat(content-check): feed verified results into AI diagnosis; drop standalone AI menu`.
