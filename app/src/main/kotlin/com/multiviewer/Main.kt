@@ -971,11 +971,25 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                             }
                         ) {
                             appState.tabs.forEachIndexed { index, tab ->
+                                @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+                                androidx.compose.foundation.TooltipArea(
+                                    tooltip = {
+                                        Text(
+                                            tab.file.absolutePath,
+                                            style = AppTypography.labelLarge,
+                                            color = AppColors.TextPrimary,
+                                            modifier = Modifier
+                                                .background(AppColors.Panel, RoundedCornerShape(4.dp))
+                                                .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                        )
+                                    },
+                                ) {
                                 Tab(
                                     selected = index == safeSelectedTabIndex,
                                     onClick = { appState.selectedTabIndex = index },
                                     modifier = Modifier
-                                        .widthIn(min = 100.dp, max = 220.dp)
+                                        .widthIn(min = 100.dp)
                                         .pointerInput(tab) {
                                             @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
                                             awaitPointerEventScope {
@@ -988,16 +1002,15 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                                             }
                                         },
                                     text = {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
+                                        // Tabs size to the full file name (no max width): the tab row scrolls
+                                        // horizontally, and the full path is in the tooltip. No weight/fillMaxWidth
+                                        // here -- under the row's unbounded width they collapse the name to 0.
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
                                             Text(
                                                 text = tab.file.name,
                                                 style = AppTypography.labelLarge,
                                                 maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.weight(1f, fill = false)
+                                                softWrap = false,
                                             )
                                             Spacer(Modifier.width(4.dp))
                                             IconButton(
@@ -1009,6 +1022,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                                         }
                                     },
                                 )
+                                }
                             }
                         }
 
