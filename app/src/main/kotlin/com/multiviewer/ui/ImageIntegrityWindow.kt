@@ -79,6 +79,11 @@ private fun decodeStatusLabel(status: ImageDecodeStatus, ko: Boolean): String = 
     ImageDecodeStatus.FAILED -> if (ko) "실패 · 정상 여부 확인 불가" else "Failed · integrity unconfirmed"
 }
 
+/** A finished run that ended NOT_RUN (e.g. RAW without a preview) is "not verifiable", not "never started". */
+internal fun headerDecodeLabel(reportPresent: Boolean, status: ImageDecodeStatus, ko: Boolean): String =
+    if (reportPresent && status == ImageDecodeStatus.NOT_RUN) { if (ko) "검증 불가" else "Not verifiable" }
+    else decodeStatusLabel(status, ko)
+
 @Composable
 fun ImageIntegrityWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -> Unit) {
     val ko = language == AppLanguage.KO
@@ -128,7 +133,7 @@ fun ImageIntegrityWindow(tab: TabState, language: AppLanguage, onCloseRequest: (
                     color = s?.overall?.let { checkStatusColor(it) } ?: AppColors.TextMuted,
                 )
                 val ds = decode?.status ?: ImageDecodeStatus.NOT_RUN
-                Text(label("디코딩: ", "Decode: ") + decodeStatusLabel(ds, ko), color = decodeStatusColor(ds))
+                Text(label("디코딩: ", "Decode: ") + headerDecodeLabel(decode != null, ds, ko), color = decodeStatusColor(ds))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(enabled = !running && s != null, onClick = {

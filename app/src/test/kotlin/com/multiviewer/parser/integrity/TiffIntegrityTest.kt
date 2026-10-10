@@ -95,6 +95,18 @@ class TiffIntegrityTest {
     }
 
     @Test
+    fun `SubIFD next pointer onto a huge entry count warns, not fails`() {
+        val sub = 8 + ifdSize(1)
+        val junk = sub + ifdSize(1)
+        val r = checkBytes(rawTiff(listOf(
+            listOf(0x14A to sub) to 0L,
+            listOf(0x9000 to 0L) to junk,
+        )) + le16(0xFFFF) + ByteArray(20), "tif")
+        assertTrue(r.items.none { it.status == CheckStatus.FAIL }, r.items.toString())
+        assertEquals(CheckStatus.WARN, r.item("tiff.ifd").status, r.items.toString())
+    }
+
+    @Test
     fun `SubIFD chain looping back warns, not fails`() {
         val sub = 8 + ifdSize(1)
         val r = checkBytes(rawTiff(listOf(

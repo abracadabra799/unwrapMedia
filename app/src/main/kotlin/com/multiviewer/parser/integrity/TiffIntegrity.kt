@@ -119,7 +119,7 @@ object TiffIntegrity {
                 val count = u16(off)
                 val entriesEnd = off + 2 + 12L * count
                 if (count > MAX_ENTRIES || entriesEnd + 4 > len) {
-                    problems += IntegrityCheckItem("tiff.ifd", "IFD structure", FAIL,
+                    problems += IntegrityCheckItem("tiff.ifd", "IFD structure", severity,
                         "$name at offset $off declares $count entries that run past the end of the file", off, len - off)
                     return
                 }
@@ -130,7 +130,7 @@ object TiffIntegrity {
                     if (total > 4) {
                         val d = u32(e + 8)
                         if (d + total > len) {
-                            problems += IntegrityCheckItem("tiff.ifd", "IFD structure", FAIL,
+                            problems += IntegrityCheckItem("tiff.ifd", "IFD structure", severity,
                                 "$name tag 0x%04x: value data [%d, %d) lies outside the file".format(tag, d, d + total), e, 12)
                         }
                     }
