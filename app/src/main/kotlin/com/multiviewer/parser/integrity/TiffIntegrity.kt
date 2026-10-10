@@ -3,6 +3,7 @@ package com.multiviewer.parser.integrity
 import com.multiviewer.parser.ByteReader
 import com.multiviewer.parser.integrity.CheckStatus.FAIL
 import com.multiviewer.parser.integrity.CheckStatus.PASS
+import com.multiviewer.parser.integrity.CheckStatus.WARN
 
 /** TIFF and the TIFF-based RAW formats (CR2, NEF, ARW, DNG). Walks IFDs from raw bytes. */
 object TiffIntegrity {
@@ -94,20 +95,27 @@ object TiffIntegrity {
             }
         }
 
-        fun walkChain(start: Long, label: String, topLevel: Boolean) {
+        /** [ancestors]: IFDs on the route from IFD0 to this chain — revisiting one (or this chain) is a loop.
+         *  An IFD already walked via a different route (e.g. an Exif IFD shared by IFD0 and IFD1) is skipped silently.
+         *  Next-IFD pointers inside a non-top-level chain are WARN-level: writers leave junk there. */
+        fun walkChain(start: Long, label: String, topLevel: Boolean, ancestors: Set<Long>, followNext: Boolean) {
             var off = start
             var index = 0
+            val chain = HashSet<Long>()
             while (off != 0L) {
                 val name = if (topLevel) "IFD$index" else if (index == 0) label else "$label+$index"
+                val severity = if (!topLevel && index > 0) WARN else FAIL
                 if (visited.size >= MAX_IFDS) return
                 if (off < 8 || off + 2 > len) {
-                    problems += IntegrityCheckItem("tiff.ifd", "IFD structure", FAIL, "$name offset $off lies outside the file ($len bytes)")
+                    problems += IntegrityCheckItem("tiff.ifd", "IFD structure", severity, "$name offset $off lies outside the file ($len bytes)")
                     return
                 }
-                if (!visited.add(off)) {
-                    problems += IntegrityCheckItem("tiff.loop", "IFD loop", FAIL, "$name at offset $off was already visited (IFD loop)", off, 2)
+                if (off in chain || off in ancestors) {
+                    problems += IntegrityCheckItem("tiff.loop", "IFD loop", severity, "$name at offset $off was already visited (IFD loop)", off, 2)
                     return
                 }
+                if (!visited.add(off)) return
+                chain += off
                 val count = u16(off)
                 val entriesEnd = off + 2 + 12L * count
                 if (count > MAX_ENTRIES || entriesEnd + 4 > len) {
@@ -153,14 +161,21 @@ object TiffIntegrity {
                 ) {
                     candidates += stripOffsets[0] to stripCounts[0]
                 }
-                values(0x14A)?.forEachIndexed { i, sub -> walkChain(sub, "$name/SubIFD$i", topLevel = false) }
-                values(0x8769)?.firstOrNull()?.let { walkChain(it, "$name/ExifIFD", topLevel = false) }
+                val route = ancestors + chain
+                values(0x14A)?.forEachIndexed { i, sub -> walkChain(sub, "$name/SubIFD$i", topLevel = false, route, followNext = true) }
+                // The Exif IFD has no chain; its next-IFD field is often junk.
+                values(0x8769)?.firstOrNull()?.let { walkChain(it, "$name/ExifIFD", topLevel = false, route, followNext = false) }
+                if (!followNext) return
                 off = u32(entriesEnd)
                 index++
             }
         }
 
-        walkChain(u32(4), "IFD", topLevel = true)
+        val ifd0 = u32(4)
+        if (ifd0 == 0L) {
+            problems += IntegrityCheckItem("tiff.ifd", "IFD structure", FAIL, "IFD0 offset is 0: the file has no image directory", 4, 4)
+        }
+        walkChain(ifd0, "IFD", topLevel = true, emptySet(), followNext = true)
 
         val structural = problems.filter { it.id == "tiff.ifd" || it.id == "tiff.loop" }
         val data = problems.filter { it.id == "tiff.data" }

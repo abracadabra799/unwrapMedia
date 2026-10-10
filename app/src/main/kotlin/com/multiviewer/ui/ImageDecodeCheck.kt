@@ -55,11 +55,25 @@ internal fun imageDecodeStatus(exit: Int, frames: Long, logs: List<String>): Ima
     else -> ImageDecodeStatus.CLEAN
 }
 
+/** When FFmpeg was not run (e.g. animated WebP on FFmpeg < 8), an attempted Skia decode decides alone. */
 internal fun combineDecodeStatus(ffmpeg: ImageDecodeStatus, skia: SkiaDecodeResult): ImageDecodeStatus = when {
     ffmpeg == ImageDecodeStatus.FAILED -> ImageDecodeStatus.FAILED
     skia.attempted && !skia.ok -> ImageDecodeStatus.ISSUES
+    ffmpeg == ImageDecodeStatus.NOT_RUN && skia.attempted -> ImageDecodeStatus.CLEAN
     else -> ffmpeg
 }
+
+private val FFMPEG_MAJOR = Regex("""^n?(\d+)\.""")
+
+/** "8.1.2" -> 8, "n7.1" / "7.0.2-static" -> 7; git snapshots ("N-112233-g…") and unknown -> null. */
+internal fun ffmpegMajorVersion(version: String?): Int? =
+    version?.let { FFMPEG_MAJOR.find(it)?.groupValues?.get(1)?.toIntOrNull() }
+
+/** FFmpeg decodes animated WebP (ANIM/ANMF) only from 8.0; an unknown version is assumed to be recent. */
+internal fun ffmpegCannotDecodeAnimatedWebp(version: String?): Boolean = ffmpegMajorVersion(version)?.let { it < 8 } ?: false
+
+internal fun isAnimatedWebp(structure: ImageStructureReport): Boolean =
+    structure.format == "WEBP" && structure.items.any { it.id == "webp.image" && it.detail.startsWith("Animated") }
 
 /** A width/height swap matches: FFmpeg applies EXIF / irot rotation to the decoded frame. */
 internal fun resolutionCheck(declaredW: Int?, declaredH: Int?, decodedW: Int?, decodedH: Int?): CheckStatus = when {
@@ -177,11 +191,12 @@ suspend fun inspectImageDecode(
 
     if (isRaw && preview == null) {
         return@withContext ImageDecodeReport(
-            ImageDecodeStatus.FAILED, 0, null, null,
+            ImageDecodeStatus.NOT_RUN, 0, null, null,
             listOf("No decodable embedded JPEG preview found; RAW sensor data cannot be decoded"), false, version,
-            "RAW: no embedded preview", SkiaDecodeResult(false, false, "No embedded preview"), null, null,
+            "RAW: no embedded JPEG preview; not verifiable by decoding", SkiaDecodeResult(false, false, "No embedded preview"), null, null,
         )
     }
+    val skipFfmpeg = isAnimatedWebp(structure) && ffmpegCannotDecodeAnimatedWebp(version)
     val source = if (preview != null) {
         "Embedded JPEG preview at offset ${preview.first} (${preview.second.size} bytes); RAW sensor data not verified"
     } else "File"
@@ -202,7 +217,10 @@ suspend fun inspectImageDecode(
         if (structure.format !in ANIMATED_FORMATS) addAll(listOf("-frames:v", "1"))
         addAll(listOf("-an", "-sn", "-dn", "-f", "framecrc", "-"))
     }
-    val ffmpegStatus = try {
+    val ffmpegStatus = if (skipFfmpeg) {
+        log("FFmpeg $version cannot decode animated WebP (needs 8+)")
+        ImageDecodeStatus.NOT_RUN
+    } else try {
         val exit = runImageDecodeProcess(command, preview?.second, timeoutMs) { line ->
             when (val c = classifyFramecrcLine(line)) {
                 is FramecrcLine.Dimensions -> synchronized(lock) { if (width == null) { width = c.width; height = c.height } }

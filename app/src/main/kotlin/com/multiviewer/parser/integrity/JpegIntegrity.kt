@@ -13,6 +13,8 @@ import com.multiviewer.parser.integrity.CheckStatus.WARN
 object JpegIntegrity {
     // Huffman-coded frames; SOF9-15 are arithmetic-coded and need no DHT.
     private val HUFFMAN_SOF = setOf("SOF0", "SOF1", "SOF2", "SOF3", "SOF5", "SOF6", "SOF7")
+    // Lossless (predictive) frames carry no quantization tables.
+    private val LOSSLESS_SOF = setOf("SOF3", "SOF7", "SOF11", "SOF15")
 
     fun check(root: BoxNode, reader: ByteReader): FormatCheckResult {
         val nodes = root.children
@@ -44,7 +46,9 @@ object JpegIntegrity {
 
         if (sos != null) {
             val beforeScan = primary.filter { it.offset < sos.offset }
-            items += if (beforeScan.any { it.type == "DQT" }) {
+            items += if (sof != null && sof.type in LOSSLESS_SOF) {
+                IntegrityCheckItem("jpeg.dqt", "Quantization tables (DQT)", SKIP, "Lossless coding: DQT not required")
+            } else if (beforeScan.any { it.type == "DQT" }) {
                 IntegrityCheckItem("jpeg.dqt", "Quantization tables (DQT)", PASS, "DQT present before the first scan")
             } else {
                 IntegrityCheckItem("jpeg.dqt", "Quantization tables (DQT)", FAIL, "No DQT segment before the first SOS", sos.offset, sos.size)

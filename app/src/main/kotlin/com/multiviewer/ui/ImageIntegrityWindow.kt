@@ -93,12 +93,14 @@ fun ImageIntegrityWindow(tab: TabState, language: AppLanguage, onCloseRequest: (
     var selectedTab by remember { mutableStateOf(0) }
     DisposableEffect(tab.file) { onDispose { job?.cancel() } }
 
-    LaunchedEffect(tab.file) {
+    // Keyed on tab.root too: the window can open before the file's structure tree finishes loading.
+    LaunchedEffect(tab.file, tab.root) {
         val root = tab.root
         if (root == null) {
             structureError = label("파일 구조가 아직 로드되지 않았습니다", "The file structure is not loaded yet")
             return@LaunchedEffect
         }
+        structureError = null
         try {
             structure = withContext(Dispatchers.IO) { ImageIntegrityChecker.check(tab.file, root) }
         } catch (e: CancellationException) {

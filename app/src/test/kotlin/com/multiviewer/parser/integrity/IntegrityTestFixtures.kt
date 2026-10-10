@@ -24,6 +24,7 @@ internal fun le32(v: Long) = byteArrayOf(v.toByte(), (v shr 8).toByte(), (v shr 
 internal fun jpegBytes(
     withEoi: Boolean = true,
     withDht: Boolean = true,
+    withDqt: Boolean = true,
     sofMarker: Int = 0xC0,
     trailing: ByteArray = ByteArray(0),
 ): ByteArray {
@@ -33,7 +34,7 @@ internal fun jpegBytes(
         out.write(0xFF); out.write(marker); out.write(l shr 8); out.write(l and 0xFF); out.write(payload)
     }
     out.write(0xFF); out.write(0xD8)
-    seg(0xDB, byteArrayOf(0) + ByteArray(64) { 1 })
+    if (withDqt) seg(0xDB, byteArrayOf(0) + ByteArray(64) { 1 })
     seg(sofMarker, byteArrayOf(8, 0, 2, 0, 3, 1, 1, 0x11, 0))
     if (withDht) seg(0xC4, byteArrayOf(0x00, 1) + ByteArray(15) + byteArrayOf(0))
     seg(0xDA, byteArrayOf(1, 1, 0, 0, 63, 0))

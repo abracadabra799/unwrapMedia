@@ -51,4 +51,17 @@ class JpegIntegrityTest {
         assertEquals("UNKNOWN", r.format)
         assertEquals(CheckStatus.SKIP, r.item("format").status)
     }
+
+    @Test
+    fun `lossless jpeg without DQT skips the DQT check`() {
+        listOf(0xC3, 0xC7, 0xCB, 0xCF).forEach { sof ->
+            val item = checkBytes(jpegBytes(withDqt = false, sofMarker = sof), "jpg").item("jpeg.dqt")
+            assertEquals(CheckStatus.SKIP, item.status, "SOF 0x%02X".format(sof))
+        }
+    }
+
+    @Test
+    fun `baseline jpeg without DQT still fails`() {
+        assertEquals(CheckStatus.FAIL, checkBytes(jpegBytes(withDqt = false), "jpg").item("jpeg.dqt").status)
+    }
 }

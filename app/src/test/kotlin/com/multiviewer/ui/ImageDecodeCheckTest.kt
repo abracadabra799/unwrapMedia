@@ -85,4 +85,53 @@ class ImageDecodeCheckTest {
         assertEquals(CheckStatus.PASS, full.resolutionStatus)
         assertNotEquals(ImageDecodeStatus.CLEAN, run(jpeg.copyOf(jpeg.size / 2)).status)
     }
+
+    @Test
+    fun `RAW without an embedded preview is not run, not failed`() {
+        val f = File.createTempFile("decode-", ".dng"); f.deleteOnExit()
+        f.writeBytes(com.multiviewer.parser.integrity.tiffBytes())
+        val structure = ImageIntegrityChecker.check(f, parseFile(f))
+        val report = runBlocking { inspectImageDecode(f, structure, ffmpeg = "ffmpeg-does-not-exist") }
+        assertEquals(ImageDecodeStatus.NOT_RUN, report.ffmpegStatus)
+        assertEquals(ImageDecodeStatus.NOT_RUN, report.status)
+        assertFalse(report.skia.attempted)
+        assertTrue(report.source.contains("not verifiable by decoding"), report.source)
+    }
+
+    @Test
+    fun `ffmpeg major version is parsed`() {
+        assertEquals(8, ffmpegMajorVersion("8.1.2"))
+        assertEquals(7, ffmpegMajorVersion("n7.1"))
+        assertEquals(7, ffmpegMajorVersion("7.0.2-static"))
+        assertEquals(null, ffmpegMajorVersion("N-112233-gabcdef"))
+        assertEquals(null, ffmpegMajorVersion(null))
+    }
+
+    @Test
+    fun `animated webp needs ffmpeg 8`() {
+        assertTrue(ffmpegCannotDecodeAnimatedWebp("7.1"))
+        assertTrue(ffmpegCannotDecodeAnimatedWebp("n6.0"))
+        assertFalse(ffmpegCannotDecodeAnimatedWebp("8.0"))
+        assertFalse(ffmpegCannotDecodeAnimatedWebp("N-112233-gabcdef"))
+        assertFalse(ffmpegCannotDecodeAnimatedWebp(null))
+    }
+
+    @Test
+    fun `skia decides when ffmpeg was not run`() {
+        val ok = SkiaDecodeResult(attempted = true, ok = true, detail = "Decoded")
+        val bad = SkiaDecodeResult(attempted = true, ok = false, detail = "Incomplete input")
+        val skipped = SkiaDecodeResult(attempted = false, ok = false, detail = "n/a")
+        assertEquals(ImageDecodeStatus.CLEAN, combineDecodeStatus(ImageDecodeStatus.NOT_RUN, ok))
+        assertEquals(ImageDecodeStatus.ISSUES, combineDecodeStatus(ImageDecodeStatus.NOT_RUN, bad))
+        assertEquals(ImageDecodeStatus.NOT_RUN, combineDecodeStatus(ImageDecodeStatus.NOT_RUN, skipped))
+    }
+
+    @Test
+    fun `animated webp is detected from the structure report`() {
+        fun report(detail: String) = com.multiviewer.parser.integrity.ImageStructureReport(
+            "WEBP", listOf(com.multiviewer.parser.integrity.IntegrityCheckItem("webp.image", "Image data", CheckStatus.PASS, detail)),
+        )
+        assertTrue(isAnimatedWebp(report("Animated: 3 frame(s)")))
+        assertFalse(isAnimatedWebp(report("VP8L 1x1")))
+    }
 }
