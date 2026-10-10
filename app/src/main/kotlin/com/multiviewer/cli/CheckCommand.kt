@@ -7,12 +7,26 @@ fun runCheckCommand(args: List<String>): Int {
     var showPrompt = false
     var copyToClipboard = false
     var filePath: String? = null
+    var casePath: String? = null
+    var decode = false
 
-    for (arg in args) {
+    var index = 0
+    while (index < args.size) {
+        val arg = args[index]
         when (arg) {
             "-p", "--prompt", "--ai" -> showPrompt = true
             "-c", "--clipboard", "--copy" -> copyToClipboard = true
             "--json" -> showPrompt = false
+            "--decode" -> decode = true
+            "--case" -> {
+                val path = args.getOrNull(index + 1)
+                if (path == null || path.startsWith("-")) {
+                    System.err.println("Missing output path after --case")
+                    return 1
+                }
+                casePath = path
+                index++
+            }
             "-h", "--help" -> {
                 printCheckHelp()
                 return 0
@@ -23,15 +37,34 @@ fun runCheckCommand(args: List<String>): Int {
                 }
             }
         }
+        index++
     }
 
     if (filePath == null) {
-        System.err.println("Usage: unwrapMedia check <file> [--prompt] [--clipboard]")
+        System.err.println("Usage: unwrapMedia check <file> [--prompt] [--clipboard] [--decode] [--case <output.json>]")
         return 1
     }
 
-    return when (val result = checkFile(File(filePath))) {
+    if (decode && showPrompt) {
+        System.err.println("--decode cannot be combined with --prompt; use JSON or --case for decoding results")
+        return 1
+    }
+    return when (val result = checkFile(File(filePath), includeCase = casePath != null, decode = decode)) {
         is CheckResult.Success -> {
+            if (casePath != null) {
+                val outputFile = File(casePath)
+                try {
+                    if (!outputFile.createNewFile()) {
+                        System.err.println("Case output already exists: ${outputFile.path}")
+                        return 1
+                    }
+                    outputFile.writeText(result.analysisCaseJson ?: error("Analysis case was not generated"), Charsets.UTF_8)
+                } catch (e: Exception) {
+                    outputFile.delete()
+                    System.err.println("Failed to write analysis case ${outputFile.path}: ${e.message ?: e.toString()}")
+                    return 1
+                }
+            }
             val output = if (showPrompt) result.prompt else result.json
             println(output)
 
@@ -63,6 +96,8 @@ private fun printCheckHelp() {
           -p, --prompt, --ai       Generate a structured AI diagnostic prompt with domain context
           -c, --clipboard, --copy  Copy the output directly to the OS clipboard
           --json                   Output raw JSON inspection results (default)
+          --case <output.json>      Save a reproducible JSON analysis case (does not overwrite existing files)
+          --decode                 Decode the first video stream and map packets (up to 30 minutes per stage)
           -h, --help               Show this help message
         """.trimIndent(),
     )

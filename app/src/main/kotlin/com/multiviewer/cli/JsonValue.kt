@@ -9,6 +9,7 @@ sealed class JsonValue {
     data class JArray(val items: List<JsonValue>) : JsonValue()
     data class JString(val value: String) : JsonValue()
     data class JNumber(val value: Long) : JsonValue()
+    data class JBoolean(val value: Boolean) : JsonValue()
 }
 
 fun JsonValue.render(indent: Int = 0): String {
@@ -29,6 +30,7 @@ fun JsonValue.render(indent: Int = 0): String {
         }
         is JsonValue.JString -> jsonString(value)
         is JsonValue.JNumber -> value.toString()
+        is JsonValue.JBoolean -> value.toString()
     }
 }
 

@@ -13,6 +13,12 @@ object AiDiagnosticPromptBuilder {
     fun determineSeverity(type: String, message: String): String {
         val lower = message.lowercase(Locale.US)
         return when {
+            // BoxWalker reports structural damage without the generic error keywords below.
+            // Check incomplete headers before the broader "trailing" warning rule.
+            lower.contains("past the end of its parent") ||
+                lower.contains("smaller than header size") ||
+                (lower.contains("declared a 64-bit size") && lower.contains("byte(s) remain")) ||
+                lower.contains("too short for a box header") -> "CRITICAL"
             lower.contains("missing") || lower.contains("corrupt") || lower.contains("invalid length") ||
                 lower.contains("overflow") || lower.contains("out of bounds") || lower.contains("crash") ||
                 lower.contains("error") -> "CRITICAL"
