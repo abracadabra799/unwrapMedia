@@ -107,6 +107,21 @@ class AudioIntegrityTest {
         } finally { directory.deleteRecursively() }
     }
 
+    @Test
+    fun `audio file extension without audio streams is a failure`() = runBlocking {
+        val directory = Files.createTempDirectory("audio-no-stream-").toFile()
+        try {
+            val video = File(directory, "silent.mp4")
+            generate("-f", "lavfi", "-i", "color=size=16x16:duration=0.2", "-c:v", "mpeg4", video.path)
+            val disguisedAudio = File(directory, "silent.m4a")
+            video.copyTo(disguisedAudio)
+            val report = inspectAudioIntegrity(disguisedAudio)
+            assertEquals(IntegrityStatus.FAILED, report.status)
+            assertFalse(report.noAudio)
+            assertTrue(report.logs.any { it.contains("No audio streams") })
+        } finally { directory.deleteRecursively() }
+    }
+
     private fun generate(vararg args: String) {
         val process = ProcessBuilder(listOf(FfmpegLocator.ffmpegPath(), "-nostdin", "-v", "error") + args)
             .redirectErrorStream(true).also(FfmpegLocator::configureEnvironment).start()

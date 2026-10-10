@@ -9,6 +9,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.Locale
 import kotlin.math.abs
 
 data class AudioStreamMetadata(
@@ -181,6 +182,10 @@ suspend fun inspectAudioIntegrity(
     }
     if (probeExit != 0) {
         probeLogs.add("Audio probing failed (exit $probeExit)")
+        return@withContext AudioIntegrityReport(IntegrityStatus.FAILED, emptyList(), probeLogs.lines, probeLogs.truncated)
+    }
+    if (streams.isEmpty() && file.extension.lowercase(Locale.US) in AUDIO_EXTENSIONS) {
+        probeLogs.add("No audio streams found in an audio file")
         return@withContext AudioIntegrityReport(IntegrityStatus.FAILED, emptyList(), probeLogs.lines, probeLogs.truncated)
     }
     val reports = streams.map { stream ->
