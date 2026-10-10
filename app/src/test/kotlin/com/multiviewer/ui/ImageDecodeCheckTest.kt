@@ -63,6 +63,14 @@ class ImageDecodeCheckTest {
     }
 
     @Test
+    fun `skia decode of a truncated jpeg stays false across repeated calls`() {
+        val jpeg = realJpeg()
+        val truncated = jpeg.copyOf(jpeg.size / 2)
+        repeat(50) { assertFalse(skiaDecode(truncated).ok) }
+        assertTrue(skiaDecode(jpeg).ok)
+    }
+
+    @Test
     fun `ffmpeg integration - full jpeg is clean, truncated is not`() {
         assumeTrue(ffmpegAvailable(), "ffmpeg not on PATH")
         val jpeg = realJpeg()

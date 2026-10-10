@@ -89,18 +89,20 @@ internal fun classifyFramecrcLine(line: String): FramecrcLine {
 
 /** Skia (libjpeg-turbo/libpng/libwebp/wuffs) is stricter than FFmpeg about truncation: it throws "Incomplete input". */
 internal fun skiaDecode(bytes: ByteArray): SkiaDecodeResult = try {
-    val codec = Codec.makeFromData(Data.makeFromBytes(bytes))
-    val width = codec.width
-    val height = codec.height
-    if (width.toLong() * height > MAX_SKIA_PIXELS) {
-        SkiaDecodeResult(false, false, "Skipped: ${width}x$height exceeds the Skia decode limit")
-    } else {
-        val bitmap = Bitmap()
-        bitmap.allocPixels(codec.imageInfo)
-        codec.readPixels(bitmap)
-        bitmap.close()
-        codec.close()
-        SkiaDecodeResult(true, true, "Decoded ${width}x$height")
+    Data.makeFromBytes(bytes).use { data ->
+        Codec.makeFromData(data).use { codec ->
+            val width = codec.width
+            val height = codec.height
+            if (width.toLong() * height > MAX_SKIA_PIXELS) {
+                SkiaDecodeResult(false, false, "Skipped: ${width}x$height exceeds the Skia decode limit")
+            } else {
+                Bitmap().use { bitmap ->
+                    bitmap.allocPixels(codec.imageInfo)
+                    codec.readPixels(bitmap)
+                    SkiaDecodeResult(true, true, "Decoded ${width}x$height")
+                }
+            }
+        }
     }
 } catch (e: Exception) {
     SkiaDecodeResult(true, false, e.message ?: e.toString())
@@ -139,7 +141,7 @@ internal suspend fun runImageDecodeProcess(
                 }
                 val exit = process.waitFor()
                 if (cont.isActive) cont.resume(exit)
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 if (cont.isActive) cont.resumeWithException(e)
             } finally {
                 ProcessManager.terminate(process)
@@ -184,9 +186,10 @@ suspend fun inspectImageDecode(
         "Embedded JPEG preview at offset ${preview.first} (${preview.second.size} bytes); RAW sensor data not verified"
     } else "File"
 
+    val lock = Any()
     val logs = mutableListOf<String>()
     var logsTruncated = false
-    fun log(line: String) {
+    fun log(line: String) = synchronized(lock) {
         if (logs.size < MAX_LOG_LINES) logs += line.replace(file.absolutePath, file.name) else logsTruncated = true
     }
     var frames = 0L
@@ -202,15 +205,17 @@ suspend fun inspectImageDecode(
     val ffmpegStatus = try {
         val exit = runImageDecodeProcess(command, preview?.second, timeoutMs) { line ->
             when (val c = classifyFramecrcLine(line)) {
-                is FramecrcLine.Dimensions -> if (width == null) { width = c.width; height = c.height }
-                FramecrcLine.Frame -> frames++
+                is FramecrcLine.Dimensions -> synchronized(lock) { if (width == null) { width = c.width; height = c.height } }
+                FramecrcLine.Frame -> synchronized(lock) { frames++ }
                 FramecrcLine.Header -> Unit
                 is FramecrcLine.Log -> if (line.isNotBlank()) log(line)
             }
         }
         if (exit != 0) log("FFmpeg exited with code $exit")
-        if (frames == 0L) log("No frames decoded")
-        imageDecodeStatus(exit, frames, logs)
+        synchronized(lock) {
+            if (frames == 0L) log("No frames decoded")
+            imageDecodeStatus(exit, frames, logs)
+        }
     } catch (e: TimeoutCancellationException) {
         currentCoroutineContext().ensureActive()
         log("Decoding timed out (${timeoutMs / 1000} s)")
@@ -227,9 +232,11 @@ suspend fun inspectImageDecode(
         structure.format in SKIA_FORMATS -> skiaDecode(file.readBytes())
         else -> SkiaDecodeResult(false, false, "Skia does not decode ${structure.format}")
     }
-    ImageDecodeReport(
-        ffmpegStatus, frames, width, height, logs.toList(), logsTruncated, version, source, skia,
-        if (isRaw) null else structure.declaredWidth,
-        if (isRaw) null else structure.declaredHeight,
-    )
+    synchronized(lock) {
+        ImageDecodeReport(
+            ffmpegStatus, frames, width, height, logs.toList(), logsTruncated, version, source, skia,
+            if (isRaw) null else structure.declaredWidth,
+            if (isRaw) null else structure.declaredHeight,
+        )
+    }
 }
