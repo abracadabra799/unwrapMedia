@@ -38,7 +38,7 @@ internal fun scrubPaths(text: String, file: File?): String {
         for (d in dirs) {
             val base = d.trimEnd('/', '\\')
             if (base.isEmpty()) continue
-            val sep = "(?<![/\\\\w.-])" + Regex.escape(base) + "[/\\\\]+"
+            val sep = "(?<![\\w/\\\\.-])" + Regex.escape(base) + "[/\\\\]+"
             out = Regex(sep).replace(out, "")
         }
     }

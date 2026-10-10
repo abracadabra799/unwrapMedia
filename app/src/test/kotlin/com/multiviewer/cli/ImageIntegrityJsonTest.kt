@@ -80,6 +80,13 @@ class ImageIntegrityJsonTest {
     }
 
     @Test
+    fun `scrubPaths does not strip a tmpdir that is preceded by a word character`() {
+        val tmp = System.getProperty("java.io.tmpdir").trimEnd('/', '\\')
+        val text = "abc$tmp/keep.txt"
+        assertEquals(text, scrubPaths(text, null))
+    }
+
+    @Test
     fun `motionPhotoJson renders error as FAIL`() {
         val out = motionPhotoJson(true, null, error = "boom")!!.render()
         assertTrue(Regex("\"status\": \"FAIL\"").containsMatchIn(out), out)
