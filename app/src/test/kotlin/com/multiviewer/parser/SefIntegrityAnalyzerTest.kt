@@ -395,6 +395,27 @@ class SefIntegrityAnalyzerTest {
     }
 
     @Test
+    fun `inline ftyp video in MotionPhoto_Data and AutoPlay passes, other non-12 data warns`() {
+        val inlineMp4 = byteArrayOf(0, 0, 0, 0x1c, 'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte()) +
+            "isom".toByteArray() + ByteArray(40)
+        for ((marker, name) in listOf(0x0d01 to "MotionPhoto_Data", 0x0a30 to "MotionPhoto_AutoPlay")) {
+            val ok = buildSefTrailer(listOf(SefTestField(marker, name, inlineMp4)))
+            byteReaderOf(ok, "sef-inline-$name").use { reader ->
+                val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, ok.size.toLong(), ok.size.toLong())
+                val check = report.semanticChecks.first { it.label.contains(name) }
+                assertEquals(SefIntegritySeverity.PASS, check.severity)
+                assertTrue(check.detail.contains("ftyp"))
+            }
+            val junk = buildSefTrailer(listOf(SefTestField(marker, name, ByteArray(40) { 7 })))
+            byteReaderOf(junk, "sef-junk-$name").use { reader ->
+                val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, junk.size.toLong(), junk.size.toLong())
+                val check = report.semanticChecks.first { it.label.contains(name) }
+                assertEquals(SefIntegritySeverity.WARNING, check.severity)
+            }
+        }
+    }
+
+    @Test
     fun `MotionPhoto_AutoPlay with a non-12-byte payload is WARNING, not a crash`() {
         val trailer = buildSefTrailer(listOf(SefTestField(0x0a30, "MotionPhoto_AutoPlay", "not-a-pointer-payload".toByteArray())))
         byteReaderOf(trailer, "sef-autoplay-wrong-shape").use { reader ->

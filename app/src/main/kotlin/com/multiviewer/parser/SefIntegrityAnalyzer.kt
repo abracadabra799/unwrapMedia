@@ -218,11 +218,15 @@ object SefIntegrityAnalyzer {
                     fb.name == "MotionPhoto_Data" ->
                         if (fb.dataLength == 12)
                             checkMotionPhotoData(reader, fb, fileLength)
+                        else if (isInlineFtypVideo(reader, fb))
+                            inlineVideoResult(fb, "MotionPhoto_Data")
                         else
                             SefCheckResult(SefIntegritySeverity.WARNING, "Entry #${fb.entryIndex} MotionPhoto_Data bounds", "Expected exactly 12 bytes, found ${fb.dataLength} -- cannot verify bounds")
                     fb.name == "MotionPhoto_AutoPlay" ->
                         if (fb.dataLength == 12)
                             checkMotionPhotoAutoPlay(reader, fb, fileLength)
+                        else if (isInlineFtypVideo(reader, fb))
+                            inlineVideoResult(fb, "MotionPhoto_AutoPlay")
                         else
                             SefCheckResult(SefIntegritySeverity.WARNING, "Entry #${fb.entryIndex} MotionPhoto_AutoPlay bounds", "Expected exactly 12 bytes, found ${fb.dataLength} -- cannot verify bounds")
                     else -> checkTextOrJson(reader, fb)
@@ -289,6 +293,18 @@ private fun checkMcc(reader: ByteReader, fb: SefFieldBlock): SefCheckResult {
         SefCheckResult(SefIntegritySeverity.WARNING, "Entry #${fb.entryIndex} MCC", "$mcc is 3 digits but not in the current ITU E.212 Annex A assignment table")
     }
 }
+
+// Samsung JPEG motion photos store the MP4 itself in the SEF field (not a 12-byte pointer):
+// the field data begins with an ISO-BMFF box header whose bytes 4..7 are "ftyp".
+private fun isInlineFtypVideo(reader: ByteReader, fb: SefFieldBlock): Boolean {
+    if (fb.dataLength < 8) return false
+    val head = reader.readBytes(fb.dataStart, 8)
+    return head[4] == 'f'.code.toByte() && head[5] == 't'.code.toByte() &&
+        head[6] == 'y'.code.toByte() && head[7] == 'p'.code.toByte()
+}
+
+private fun inlineVideoResult(fb: SefFieldBlock, name: String): SefCheckResult =
+    SefCheckResult(SefIntegritySeverity.PASS, "Entry #${fb.entryIndex} $name bounds", "Video stored inline in the SEF field: ${fb.dataLength} bytes at offset ${fb.dataStart}, starting with an ftyp box")
 
 private fun checkMotionPhotoData(reader: ByteReader, fb: SefFieldBlock, fileLength: Long): SefCheckResult {
     val videoOffset = reader.readUInt32(fb.dataStart + 4)
