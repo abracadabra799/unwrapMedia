@@ -148,17 +148,21 @@ fun GifFilmstripPlayer(tab: TabState, animation: GifAnimationData, modifier: Mod
             }
         }
 
-        if (!tab.gifIsPlaying) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(4.dp)
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.5f))
-                    .clickable { tab.gifIsPlaying = true },
-                contentAlignment = Alignment.Center,
-            ) {
+        // Play/pause toggle, always visible (the design calls for a toggle; hiding it while playing
+        // left an infinitely looping GIF with no visible way to stop it).
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(4.dp)
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.5f))
+                .clickable { tab.gifIsPlaying = !tab.gifIsPlaying },
+            contentAlignment = Alignment.Center,
+        ) {
+            if (tab.gifIsPlaying) {
+                VideoPauseIcon(modifier = Modifier.size(16.dp), color = Color.White)
+            } else {
                 Icon(Icons.Filled.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(24.dp))
             }
         }

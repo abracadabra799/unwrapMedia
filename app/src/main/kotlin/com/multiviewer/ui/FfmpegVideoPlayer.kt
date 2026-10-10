@@ -848,7 +848,7 @@ fun FfmpegVideoPlayer(
 }
 
 @Composable
-private fun VideoPauseIcon(modifier: Modifier = Modifier, color: Color = Color.White) {
+internal fun VideoPauseIcon(modifier: Modifier = Modifier, color: Color = Color.White) {
     Canvas(modifier = modifier) {
         val barWidth = size.width * 0.3f
         val barHeight = size.height * 0.85f
