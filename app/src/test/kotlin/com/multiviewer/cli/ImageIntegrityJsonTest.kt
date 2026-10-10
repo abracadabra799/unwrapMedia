@@ -98,4 +98,28 @@ class ImageIntegrityJsonTest {
         val result = checkFile(tempJpeg(jpegBytes())) as CheckResult.Success
         assertEquals(false, result.json.contains("motionPhoto"), result.json)
     }
+
+    @Test
+    fun `motionPhotoJson scrubs the temp directory from an analyzer error`() {
+        val tmp = System.getProperty("java.io.tmpdir").trimEnd('/', '\\')
+        val out = motionPhotoJson(true, null, File(tmp, "photo.jpg"), error = "$tmp/x.mp4: boom")!!.render()
+        assertTrue(out.contains("\"error\": \"x.mp4: boom\""), out)
+        assertTrue(!out.contains(tmp), out)
+    }
+
+    @Test
+    fun `motionPhotoJson is SKIP when the analyzer confirmed no motion photo format`() {
+        val report = MotionPhotoIntegrityReport(
+            detectedFormats = emptyList(),
+            sefSection = null,
+            googleXmpChecks = emptyList(),
+            appleMpvdChecks = emptyList(),
+            decodeChecks = emptyList(),
+            overallSeverity = SefIntegritySeverity.PASS,
+        )
+        val out = motionPhotoJson(true, report)!!.render()
+        assertTrue(out.contains("\"status\": \"SKIP\""), out)
+        assertTrue(out.contains("\"detail\": \"No motion photo format confirmed by the analyzer\""), out)
+        assertTrue(!out.contains("PASS"), out)
+    }
 }

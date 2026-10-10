@@ -41,6 +41,8 @@ import com.multiviewer.parser.integrity.IntegrityCheckItem
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.FileDialog
@@ -94,6 +96,8 @@ fun ImageIntegrityWindow(tab: TabState, language: AppLanguage, onCloseRequest: (
     var decode by remember(tab.file) { mutableStateOf<ImageDecodeReport?>(null) }
     var job by remember(tab.file) { mutableStateOf<Job?>(null) }
     var running by remember(tab.file) { mutableStateOf(false) }
+    var runId by remember(tab.file) { mutableStateOf(0) }
+    fun cancelledMessage() = label("중단 · 검사 완료되지 않음", "Cancelled · inspection incomplete")
     var message by remember(tab.file) { mutableStateOf("") }
     var motion by remember(tab.file) { mutableStateOf<MotionPhotoIntegrityReport?>(null) }
     var motionError by remember(tab.file) { mutableStateOf<String?>(null) }
@@ -139,7 +143,7 @@ fun ImageIntegrityWindow(tab: TabState, language: AppLanguage, onCloseRequest: (
                 Text(label("디코딩: ", "Decode: ") + headerDecodeLabel(decode != null, ds, ko), color = decodeStatusColor(ds))
                 if (motionDetected) {
                     val m = motion
-                    val mStatus = m?.overallSeverity?.toCheckStatus()
+                    val mStatus = m?.verdictStatus()
                     Text(
                         label("모션포토: ", "Motion photo: ") + when {
                             mStatus != null -> checkStatusLabel(mStatus, ko)
@@ -157,38 +161,53 @@ fun ImageIntegrityWindow(tab: TabState, language: AppLanguage, onCloseRequest: (
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(enabled = !running && s != null, onClick = {
                     val snapshot = s ?: return@Button
+                    val myRun = ++runId
                     running = true
                     decode = null
                     motion = null
                     motionError = null
                     message = if (motionDetected) label("디코딩·모션포토 검사 중…", "Decoding and checking motion photo…") else label("디코딩 중…", "Decoding…")
                     job = scope.launch {
+                        // A cancelled or superseded run must never write results/state for the current one.
+                        fun current() = isActive && myRun == runId
                         try {
-                            decode = inspectImageDecode(tab.file, snapshot)
+                            val decoded = inspectImageDecode(tab.file, snapshot)
+                            if (!current()) return@launch
+                            decode = decoded
                             val root = tab.root
                             if (motionDetected && root != null) {
                                 try {
-                                    motion = withContext(Dispatchers.IO) { MotionPhotoIntegrityAnalyzer.analyze(tab.file, root) }
+                                    // The analyzer blocks (ffmpeg decode, up to ~60 s) and ignores cancellation;
+                                    // await() returns at once on Cancel, and the late result is discarded.
+                                    val result = async(Dispatchers.IO) { MotionPhotoIntegrityAnalyzer.analyze(tab.file, root) }.await()
+                                    if (current()) motion = result
                                 } catch (e: CancellationException) {
                                     throw e
                                 } catch (e: Exception) {
-                                    motionError = e.message ?: e.toString()
-                                    message = label("모션포토 분석 실패: ", "Motion photo analysis failed: ") + motionError
+                                    if (current()) {
+                                        motionError = e.message ?: e.toString()
+                                        message = label("모션포토 분석 실패: ", "Motion photo analysis failed: ") + motionError
+                                    }
                                 }
                             }
+                            if (!current()) return@launch
                             if (motionError == null) message = ""
                             selectedTab = 1
                         } catch (e: CancellationException) {
-                            message = label("중단 · 검사 완료되지 않음", "Cancelled · inspection incomplete")
+                            if (myRun == runId) message = cancelledMessage()
                             throw e
                         } catch (e: Exception) {
-                            message = label("검사 실패: ", "Inspection failed: ") + (e.message ?: e.toString())
+                            if (current()) message = label("검사 실패: ", "Inspection failed: ") + (e.message ?: e.toString())
                         } finally {
-                            running = false
+                            if (myRun == runId) running = false
                         }
                     }
                 }) { Text(label("검사 시작", "Start inspection")) }
-                OutlinedButton(enabled = running, onClick = { job?.cancel() }) { Text(label("취소", "Cancel")) }
+                OutlinedButton(enabled = running, onClick = {
+                    job?.cancel()
+                    running = false
+                    message = cancelledMessage()
+                }) { Text(label("취소", "Cancel")) }
                 OutlinedButton(enabled = s != null && !running, onClick = {
                     val snapshot = s ?: return@OutlinedButton
                     val dialog = FileDialog(null as Frame?, label("분석 케이스 저장", "Save analysis case"), FileDialog.SAVE)

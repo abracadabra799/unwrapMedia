@@ -29,6 +29,11 @@ internal fun motionPhotoFormatLabel(format: MotionPhotoFormat): String = when (f
 /** Badge row + per-section tables for a detected motion photo; shared by the standalone window and Image Integrity. */
 @Composable
 fun MotionPhotoReportContent(report: MotionPhotoIntegrityReport, modifier: Modifier = Modifier) {
+    if (report.detectedFormats.isEmpty()) {
+        // hasMotionPhotoData can gate a file in while the analyzer confirms no format; never show that as PASS.
+        Text("이 파일에서 모션포토 형식을 감지하지 못했습니다.", modifier = modifier)
+        return
+    }
     Column(modifier = modifier) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SeverityBadge(report.overallSeverity)
@@ -62,3 +67,7 @@ fun MotionPhotoReportContent(report: MotionPhotoIntegrityReport, modifier: Modif
         }
     }
 }
+
+/** Report verdict; detected-but-unconfirmed (no format confirmed by the analyzer) is SKIP, never PASS. */
+fun MotionPhotoIntegrityReport.verdictStatus(): com.multiviewer.parser.integrity.CheckStatus =
+    if (detectedFormats.isEmpty()) com.multiviewer.parser.integrity.CheckStatus.SKIP else overallSeverity.toCheckStatus()

@@ -53,7 +53,6 @@ fun MotionPhotoIntegrityWindow(
             when {
                 error != null -> Text("오류: $error", color = Color.Red)
                 isLoading || currentReport == null -> Text("분석 중...")
-                currentReport.detectedFormats.isEmpty() -> Text("이 파일에서 모션포토 형식을 감지하지 못했습니다.")
                 else -> {
                     MotionPhotoReportContent(currentReport)
                 }

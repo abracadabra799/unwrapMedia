@@ -49,6 +49,14 @@ fun motionPhotoJson(detected: Boolean, report: MotionPhotoIntegrityReport?, file
     if (!detected) return null
     if (error != null) return JsonValue.JObject(listOf("status" to JsonValue.JString("FAIL"), "error" to JsonValue.JString(scrubPaths(error, file))))
     if (report == null) return JsonValue.JObject(listOf("status" to JsonValue.JString("NOT_RUN")))
+    if (report.detectedFormats.isEmpty()) {
+        return JsonValue.JObject(
+            listOf(
+                "status" to JsonValue.JString("SKIP"),
+                "detail" to JsonValue.JString("No motion photo format confirmed by the analyzer"),
+            ),
+        )
+    }
     fun check(section: String, c: SefCheckResult) = JsonValue.JObject(
         listOf(
             "section" to JsonValue.JString(section),
