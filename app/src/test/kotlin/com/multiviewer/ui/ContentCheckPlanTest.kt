@@ -17,8 +17,9 @@ class ContentCheckPlanTest {
                 listOf(ContentTab.STRUCTURE, ContentTab.IMAGE_DECODE) + if (m) listOf(ContentTab.MOTION_PHOTO) else emptyList(),
                 contentTabs(MediaType.IMAGE, m),
             )
-            assertEquals(listOf(ContentTab.STRUCTURE, ContentTab.VIDEO_DECODE, ContentTab.VIDEO_PACKETS), contentTabs(MediaType.VIDEO, m))
-            for (t in listOf(MediaType.AUDIO, MediaType.RAW_PIXEL, MediaType.UNKNOWN)) {
+            assertEquals(listOf(ContentTab.STRUCTURE, ContentTab.VIDEO_DECODE, ContentTab.VIDEO_PACKETS, ContentTab.AUDIO), contentTabs(MediaType.VIDEO, m))
+            assertEquals(listOf(ContentTab.STRUCTURE, ContentTab.AUDIO), contentTabs(MediaType.AUDIO, m))
+            for (t in listOf(MediaType.RAW_PIXEL, MediaType.UNKNOWN)) {
                 assertEquals(listOf(ContentTab.STRUCTURE), contentTabs(t, m))
             }
         }
@@ -31,8 +32,9 @@ class ContentCheckPlanTest {
                 listOf(HeavyStep.IMAGE_DECODE) + if (m) listOf(HeavyStep.MOTION_PHOTO) else emptyList(),
                 heavySteps(MediaType.IMAGE, m),
             )
-            assertEquals(listOf(HeavyStep.VIDEO_INTEGRITY), heavySteps(MediaType.VIDEO, m))
-            for (t in listOf(MediaType.AUDIO, MediaType.RAW_PIXEL, MediaType.UNKNOWN)) {
+            assertEquals(listOf(HeavyStep.VIDEO_INTEGRITY, HeavyStep.AUDIO_INTEGRITY), heavySteps(MediaType.VIDEO, m))
+            assertEquals(listOf(HeavyStep.AUDIO_INTEGRITY), heavySteps(MediaType.AUDIO, m))
+            for (t in listOf(MediaType.RAW_PIXEL, MediaType.UNKNOWN)) {
                 assertEquals(emptyList(), heavySteps(t, m))
             }
         }

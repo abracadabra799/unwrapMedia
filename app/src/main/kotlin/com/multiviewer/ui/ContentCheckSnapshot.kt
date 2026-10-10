@@ -24,6 +24,8 @@ data class ContentCheckSnapshot(
     val videoError: String? = null,
     /** True while a run is in progress: steps with no result and no error yet are still pending. */
     val running: Boolean = false,
+    val audio: AudioIntegrityReport? = null,
+    val audioError: String? = null,
 )
 
 private const val MAX_ITEMS = 30
@@ -146,6 +148,27 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
         snapshot.videoError != null -> sb.appendLine("- 영상 디코딩: 검사 실패 — ${scrub(snapshot.videoError)}")
         type != null && type != MediaType.VIDEO -> sb.appendLine("- 영상 디코딩: $NOT_APPLICABLE")
         else -> sb.appendLine("- 영상 디코딩: $pending")
+    }
+    val audio = snapshot.audio
+    when {
+        audio != null -> {
+            sb.appendLine("- 오디오 디코딩 (모든 오디오 트랙): " + if (audio.noAudio) "해당 없음 — 오디오 트랙 없음" else audio.status.name)
+            sb.appendCapped(audio.logs, MAX_LOG_LINES, "  • ") { scrub(it) }
+            if (audio.logsTruncated) sb.appendLine("  • 프로브 로그 일부 생략")
+            sb.appendCapped(audio.streams, MAX_ITEMS, "") { r ->
+                buildString {
+                    appendLine("  • 트랙 #${r.stream.index} ${r.stream.codec}: ${r.status.name}; 프레임 ${r.decodedFrames}, 샘플 ${r.decodedSamples} (채널당)")
+                    appendLine("    샘플레이트: 선언 ${r.stream.sampleRate ?: "unknown"} / 디코딩 ${r.observedSampleRates}; 채널: 선언 ${r.stream.channels ?: "unknown"} / 디코딩 ${r.observedChannels}")
+                    appendLine("    길이: 선언 ${r.stream.durationSeconds ?: "unknown"} / 디코딩 ${r.decodedDurationSeconds} s; 허용 오차 ${r.durationToleranceSeconds} s")
+                    r.mismatches.forEach { appendLine("    ${scrub(it)}") }
+                    appendCapped(r.logs, MAX_LOG_LINES, "    ") { scrub(it) }
+                    if (r.logsTruncated) appendLine("    디코더 로그 일부 생략")
+                }.trimEnd()
+            }
+        }
+        snapshot.audioError != null -> sb.appendLine("- 오디오 디코딩: 검사 실패 — ${scrub(snapshot.audioError)}")
+        type != null && type != MediaType.AUDIO && type != MediaType.VIDEO -> sb.appendLine("- 오디오 디코딩: $NOT_APPLICABLE")
+        else -> sb.appendLine("- 오디오 디코딩: $pending")
     }
     return sb.toString()
 }

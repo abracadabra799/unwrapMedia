@@ -99,6 +99,7 @@ private fun printCheckHelp() {
           --case <output.json>      Save a reproducible JSON analysis case (does not overwrite existing files)
           --decode                 Videos: decode the first video stream and map packets (up to 30 minutes per stage)
                                    Images: also decode with FFmpeg and Skia, and analyze an embedded motion photo
+                                   Audio/video: decode all audio streams and cross-check duration, sample rate and channels
                                    (image structure checks always run)
           -h, --help               Show this help message
         """.trimIndent(),

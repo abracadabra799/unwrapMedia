@@ -81,6 +81,8 @@ fun ContentCheckWindow(
     var motion by remember(tab.file) { mutableStateOf<MotionPhotoIntegrityReport?>(null) }
     var motionError by remember(tab.file) { mutableStateOf<String?>(null) }
     var video by remember(tab.file) { mutableStateOf<VideoIntegrityReport?>(null) }
+    var audio by remember(tab.file) { mutableStateOf<AudioIntegrityReport?>(null) }
+    var audioError by remember(tab.file) { mutableStateOf<String?>(null) }
     var imageDecodeError by remember(tab.file) { mutableStateOf<String?>(null) }
     var videoError by remember(tab.file) { mutableStateOf<String?>(null) }
     var job by remember(tab.file) { mutableStateOf<Job?>(null) }
@@ -103,10 +105,11 @@ fun ContentCheckWindow(
     // Publish the current run's results to the tab for the AI prompt. These states are only ever
     // written by the current run (every write is behind the runId/current() guard), so a stale or
     // cancelled run can never reach the tab through here.
-    LaunchedEffect(tab, structure, structureError, imageDecode, imageDecodeError, motion, motionError, video, videoError, running, motionDetected, type) {
+    LaunchedEffect(tab, structure, structureError, imageDecode, imageDecodeError, motion, motionError, video, videoError, audio, audioError, running, motionDetected, type) {
         tab.contentCheck = ContentCheckSnapshot(
             structure, imageDecode, motionDetected, motion, motionError, video, type,
             structureError = structureError, imageDecodeError = imageDecodeError, videoError = videoError, running = running,
+            audio = audio, audioError = audioError,
         )
     }
 
@@ -193,13 +196,19 @@ fun ContentCheckWindow(
                             val st = v?.packetStatus ?: IntegrityStatus.NOT_RUN
                             Text(label("패킷: ", "Packets: ") + videoStatusLabel(st, ko), color = integrityStatusColor(st))
                         }
+                        ContentTab.AUDIO -> {
+                            val st = audio?.status ?: if (audioError != null) IntegrityStatus.FAILED else IntegrityStatus.NOT_RUN
+                            Text(label("오디오: ", "Audio: ") +
+                                if (audio?.noAudio == true) label("트랙 없음", "No tracks") else videoStatusLabel(st, ko),
+                                color = integrityStatusColor(st))
+                        }
                     }
                 }
             }
             if (type == MediaType.VIDEO) {
                 Text(
-                    label("첫 번째 영상 트랙을 소프트웨어로 디코딩합니다. 오디오 검사는 포함하지 않습니다.",
-                        "Software decoding of the first video track. Audio is not inspected."),
+                    label("첫 번째 영상 트랙과 모든 오디오 트랙을 소프트웨어로 디코딩합니다.",
+                        "Software decoding of the first video track and all audio streams."),
                     color = AppColors.TextSecondary,
                 )
             }
@@ -215,6 +224,8 @@ fun ContentCheckWindow(
                     imageDecode = null
                     imageDecodeError = null
                     videoError = null
+                    audio = null
+                    audioError = null
                     motion = null
                     motionError = null
                     video = null
@@ -282,11 +293,25 @@ fun ContentCheckWindow(
                                             message = label("검사 실패: ", "Inspection failed: ") + videoError
                                         }
                                     }
+                                    HeavyStep.AUDIO_INTEGRITY -> {
+                                        message = label("모든 오디오 트랙 디코딩 중…", "Decoding all audio streams…")
+                                        try {
+                                            val result = inspectAudioIntegrity(tab.file)
+                                            if (!current()) return@launch
+                                            audio = result
+                                        } catch (e: CancellationException) {
+                                            throw e
+                                        } catch (e: Exception) {
+                                            if (!current()) return@launch
+                                            audioError = e.message ?: e.toString()
+                                            message = label("오디오 검사 실패: ", "Audio inspection failed: ") + audioError
+                                        }
+                                    }
                                 }
                             }
                             if (!current()) return@launch
-                            if (motionError == null && imageDecodeError == null && videoError == null) {
-                                message = if (HeavyStep.VIDEO_INTEGRITY in runSteps) {
+                            if (motionError == null && imageDecodeError == null && videoError == null && audioError == null) {
+                                message = if (HeavyStep.VIDEO_INTEGRITY in runSteps || HeavyStep.AUDIO_INTEGRITY in runSteps) {
                                     label("검사 종료 — 아래 단계별 결과를 확인하세요", "Inspection finished — see results below")
                                 } else {
                                     ""
@@ -295,6 +320,7 @@ fun ContentCheckWindow(
                             selectedTab = when (runSteps.first()) {
                                 HeavyStep.IMAGE_DECODE, HeavyStep.MOTION_PHOTO -> ContentTab.IMAGE_DECODE
                                 HeavyStep.VIDEO_INTEGRITY -> ContentTab.VIDEO_DECODE
+                                HeavyStep.AUDIO_INTEGRITY -> ContentTab.AUDIO
                             }
                         } catch (e: CancellationException) {
                             if (myRun == runId) message = cancelledMessage()
@@ -325,6 +351,7 @@ fun ContentCheckWindow(
                     val motionSnapshot = motion
                     val motionErrorSnapshot = motionError
                     val videoSnapshot = video
+                    val audioSnapshot = audio
                     saving = true
                     scope.launch {
                         try {
@@ -333,6 +360,7 @@ fun ContentCheckWindow(
                                     tab.file, collectWarnings(root), buildMediaSummary(root, tab.file),
                                     integrityReport = videoSnapshot,
                                     imageIntegrity = imageJson(structureSnapshot, decodeSnapshot, motionSnapshot, motionErrorSnapshot),
+                                    audioIntegrity = audioSnapshot,
                                 )
                                 // CREATE_NEW: never overwrite an existing file.
                                 Files.writeString(output.toPath(), caseJson, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
@@ -355,6 +383,7 @@ fun ContentCheckWindow(
                     val motionSnapshot = motion
                     val motionErrorSnapshot = motionError
                     val videoSnapshot = video
+                    val audioSnapshot = audio
                     scope.launch {
                         val copiedText = label("복사됨", "Copied")
                         message = try {
@@ -362,6 +391,7 @@ fun ContentCheckWindow(
                                 buildCheckJson(
                                     tab.file, collectWarnings(root), videoSnapshot,
                                     imageJson(structureSnapshot, decodeSnapshot, motionSnapshot, motionErrorSnapshot),
+                                    audioSnapshot,
                                 )
                             }
                             if (ClipboardUtil.copyToClipboard(json)) copiedText else label("복사 실패", "Copy failed")
@@ -396,11 +426,13 @@ fun ContentCheckWindow(
                         ContentTab.MOTION_PHOTO -> label("모션포토", "Motion photo")
                         ContentTab.VIDEO_DECODE -> label("영상 디코딩", "Video decode")
                         ContentTab.VIDEO_PACKETS -> label("패킷 매핑", "Packet mapping")
+                        ContentTab.AUDIO -> label("오디오", "Audio")
                     }
                     Tab(selected = shownTab == t, onClick = { selectedTab = t }, text = { Text(title) })
                 }
             }
             when (shownTab) {
+                ContentTab.AUDIO -> AudioCheckPanel(audio, audioError, ko, Modifier.weight(1f))
                 ContentTab.STRUCTURE -> ImageStructurePanel(s, structureError, ko) { item ->
                     val offset = item.offset ?: return@ImageStructurePanel
                     tab.parameterSetHighlightRange = offset until offset + maxOf(1L, item.length ?: 1L)

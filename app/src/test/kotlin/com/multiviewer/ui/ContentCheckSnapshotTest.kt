@@ -13,6 +13,25 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ContentCheckSnapshotTest {
+    @Test
+    fun audioFactsAndFailuresReachPromptWithoutPaths() {
+        val measurements = AudioMeasurements().apply { add(AudioFrame(48000, 2, 4800)) }
+        val report = AudioIntegrityReport(IntegrityStatus.CLEAN, listOf(measurements.report(
+            AudioStreamMetadata(2, "aac", 44100, 1, 2.0), 0, listOf("bad ${file.absolutePath}"))))
+        val snapshot = ContentCheckSnapshot(null, null, false, null, null, null, MediaType.AUDIO, audio = report)
+        val text = contentCheckPromptSection(snapshot, file)
+        assertTrue(text.contains("오디오 디코딩"), text)
+        assertTrue(text.contains("4800"), text)
+        assertTrue(text.contains("48000"), text)
+        assertTrue(text.contains("44100"), text)
+        assertFalse(text.contains(file.absolutePath), text)
+        val failed = contentCheckPromptSection(snapshot.copy(audio = null, audioError = "failed ${file.absolutePath}"), file)
+        assertTrue(failed.contains("오디오 디코딩: 검사 실패"), failed)
+        assertFalse(failed.contains(file.absolutePath), failed)
+        val absent = contentCheckPromptSection(snapshot.copy(audio = AudioIntegrityReport(IntegrityStatus.CLEAN, emptyList())), file)
+        assertTrue(absent.contains("오디오 트랙 없음"), absent)
+    }
+
     private val file: File = File.createTempFile("cc-snapshot-", ".jpg").apply {
         writeBytes(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xDB.toByte(), 0, 4, 0, 0))
     }
@@ -173,12 +192,14 @@ class ContentCheckSnapshotTest {
                 null, null, false, null, null, null,
                 structureError = "bad tree ${file.absolutePath}", imageDecodeError = "ffmpeg crashed ${file.absolutePath}",
                 videoError = "probe failed ${file.absolutePath}",
+                audioError = "audio failed ${file.absolutePath}",
             ),
             file,
         )
         assertTrue(text.contains("구조 검사: 검사 실패 — bad tree"), text)
         assertTrue(text.contains("이미지 디코딩: 검사 실패 — ffmpeg crashed"), text)
         assertTrue(text.contains("영상 디코딩: 검사 실패 — probe failed"), text)
+        assertTrue(text.contains("오디오 디코딩: 검사 실패 — audio failed"), text)
         assertFalse(text.contains("미실행"), text)
         assertFalse(text.contains(file.absolutePath), text)
     }

@@ -6,6 +6,9 @@ import com.multiviewer.parser.MediaSummary
 import com.multiviewer.parser.buildMediaSummary
 import com.multiviewer.parser.integrity.ImageIntegrityChecker
 import com.multiviewer.ui.I18n
+import com.multiviewer.ui.AUDIO_EXTENSIONS
+import com.multiviewer.ui.AudioIntegrityReport
+import com.multiviewer.ui.inspectAudioIntegrity
 import com.multiviewer.ui.IMAGE_EXTENSIONS
 import com.multiviewer.ui.MotionPhotoIntegrityAnalyzer
 import com.multiviewer.ui.VIDEO_EXTENSIONS
@@ -34,8 +37,10 @@ fun checkFile(file: File, includeCase: Boolean = false, decode: Boolean = false,
         val extension = result.file.extension.lowercase(Locale.US)
         val isVideo = extension in VIDEO_EXTENSIONS
         val isImage = extension in IMAGE_EXTENSIONS
-        require(!decode || isVideo || isImage) { "--decode requires a video or image file" }
+        val isAudio = extension in AUDIO_EXTENSIONS
+        require(!decode || isVideo || isImage || isAudio) { "--decode requires a video, image or audio file" }
         val integrity = integrityReport ?: if (decode && isVideo) runBlocking { inspectVideoIntegrity(result.file) } else null
+        val audio = if (decode && (isAudio || isVideo)) runBlocking { inspectAudioIntegrity(result.file) } else null
         val warnings = collectWarnings(result.root)
         val imageIntegrity = if (isImage) {
             val structure = ImageIntegrityChecker.check(result.file, result.root)
@@ -54,12 +59,12 @@ fun checkFile(file: File, includeCase: Boolean = false, decode: Boolean = false,
         } else {
             null
         }
-        val json = buildCheckJson(result.file, warnings, integrity, imageIntegrity)
+        val json = buildCheckJson(result.file, warnings, integrity, imageIntegrity, audio)
         val prompt = AiDiagnosticPromptBuilder.buildPrompt(result.file, result.root, warnings)
         val caseJson = if (includeCase) {
             buildAnalysisCaseJson(
                 result.file, warnings, buildMediaSummary(result.root, result.file),
-                integrityReport = integrity, imageIntegrity = imageIntegrity,
+                integrityReport = integrity, imageIntegrity = imageIntegrity, audioIntegrity = audio,
             )
         } else {
             null
@@ -78,6 +83,7 @@ fun buildAnalysisCaseJson(
     appVersion: String = I18n.APP_VERSION,
     integrityReport: VideoIntegrityReport? = null,
     imageIntegrity: JsonValue? = null,
+    audioIntegrity: AudioIntegrityReport? = null,
 ): String {
     val digest = MessageDigest.getInstance("SHA-256")
     file.inputStream().buffered().use { input ->
@@ -109,6 +115,9 @@ fun buildAnalysisCaseJson(
             "analysis" to JsonValue.JObject(
                 listOf(
                     "category" to JsonValue.JString(summary.category.name),
+                    "audioIntegrity" to (audioIntegrity?.toJsonValue() ?: JsonValue.JObject(listOf(
+                        "status" to JsonValue.JString("NOT_RUN"),
+                    ))),
                     "videoIntegrity" to (integrityReport?.toJsonValue() ?: JsonValue.JObject(listOf(
                         "decodeStatus" to JsonValue.JString("NOT_RUN"),
                         "packetStatus" to JsonValue.JString("NOT_RUN"),
@@ -155,6 +164,7 @@ fun buildCheckJson(
     warnings: List<WarningEntry>,
     integrityReport: VideoIntegrityReport? = null,
     imageIntegrity: JsonValue? = null,
+    audioIntegrity: AudioIntegrityReport? = null,
 ): String {
     val wrapper = JsonValue.JObject(
         listOf(
@@ -162,7 +172,8 @@ fun buildCheckJson(
             "warningCount" to JsonValue.JNumber(warnings.size.toLong()),
             "warnings" to JsonValue.JArray(warnings.map { it.toJsonValue() }),
         ) + (if (integrityReport != null) listOf("videoIntegrity" to integrityReport.toJsonValue()) else emptyList()) +
-            (if (imageIntegrity != null) listOf("imageIntegrity" to imageIntegrity) else emptyList()),
+            (if (imageIntegrity != null) listOf("imageIntegrity" to imageIntegrity) else emptyList()) +
+            (if (audioIntegrity != null) listOf("audioIntegrity" to audioIntegrity.toJsonValue()) else emptyList()),
     )
     return wrapper.render()
 }
