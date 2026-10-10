@@ -302,6 +302,9 @@ class TabState(val file: File) {
 
     // Cached Bitstream corruption scan report for this tab
     var bitstreamCorruptionReport: BitstreamCorruptionReport? by mutableStateOf(null)
+
+    // Latest Content Check results for this tab (published by ContentCheckWindow); fed into the AI prompt.
+    var contentCheck: ContentCheckSnapshot? by mutableStateOf(null)
 }
 
 enum class LeftPanelMode {
@@ -342,6 +345,8 @@ class AppState {
     }
 
     var aiPromptWindowOpen: Boolean by mutableStateOf(false)
+    // Tab whose Content Check window is open (null = closed). In AppState so the inspector can open it too.
+    var contentCheckTab: TabState? by mutableStateOf(null)
     var aiPromptTargetWarning: com.multiviewer.parser.WarningEntry? by mutableStateOf(null)
 
     var imageCompareWindowOpen: Boolean by mutableStateOf(false)

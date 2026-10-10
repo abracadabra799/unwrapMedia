@@ -436,7 +436,6 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var aiPromptWindowOpen by remember { mutableStateOf(false) }
         var avSyncWindowOpen by remember { mutableStateOf(false) }
         var sefIntegrityWindowOpen by remember { mutableStateOf(false) }
-        var contentCheckTab by remember { mutableStateOf<TabState?>(null) }
         var aboutWindowOpen by remember { mutableStateOf(false) }
         var updateWindowOpen by remember { mutableStateOf(false) }
         var hasUpdateAvailable by remember { mutableStateOf(false) }
@@ -517,7 +516,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     I18n.menuContentCheck(language),
                     enabled = hasActiveFile,
                     shortcut = AppKeyShortcut(Key.C, meta = true, shift = true),
-                    onClick = { contentCheckTab = currentTab },
+                    onClick = { appState.contentCheckTab = currentTab },
                 )
 
                 item(
@@ -525,13 +524,6 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     enabled = hasActiveFile,
                     shortcut = AppKeyShortcut(Key.D, meta = true, shift = true),
                     onClick = { dumpStructureWindowOpen = true },
-                )
-                separator()
-                item(
-                    I18n.menuGenerateAiPrompt(language),
-                    enabled = hasActiveFile,
-                    shortcut = AppKeyShortcut(Key.P, meta = true, shift = true),
-                    onClick = { appState.aiPromptWindowOpen = true },
                 )
                 separator()
                 item(
@@ -798,8 +790,21 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     dumpStructureWindowOpen = false
                 }
             }
-            contentCheckTab?.let { targetTab ->
-                ContentCheckWindow(targetTab, language) { contentCheckTab = null }
+            appState.contentCheckTab?.let { targetTab ->
+                ContentCheckWindow(
+                    targetTab,
+                    language,
+                    onAiDiagnosis = {
+                        // The AI window renders for the selected tab: select the content-check tab first
+                        // so it diagnoses this file (and its published Content Check snapshot).
+                        val index = appState.tabs.indexOf(targetTab)
+                        if (index >= 0) {
+                            appState.selectedTabIndex = index
+                            appState.aiPromptTargetWarning = null
+                            appState.aiPromptWindowOpen = true
+                        }
+                    },
+                ) { appState.contentCheckTab = null }
             }
             if (appState.aiPromptWindowOpen) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)

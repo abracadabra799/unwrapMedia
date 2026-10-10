@@ -35,6 +35,7 @@ object AiDiagnosticPromptBuilder {
         warnings: List<WarningEntry>,
         avSyncReport: com.multiviewer.ui.AvSyncReport? = null,
         targetWarning: WarningEntry? = null,
+        contentCheck: com.multiviewer.ui.ContentCheckSnapshot? = null,
     ): String {
         val fileSizeStr = formatFileSize(file.length())
         val extension = file.extension.lowercase(Locale.US)
@@ -110,15 +111,30 @@ object AiDiagnosticPromptBuilder {
         }
         sb.appendLine()
 
+        // Content Check window's verified results (structure / real decode), when it has run for this tab.
+        if (contentCheck != null) {
+            sb.append(com.multiviewer.ui.contentCheckPromptSection(contentCheck, file))
+            sb.appendLine()
+        }
+
         if (warnings.isEmpty()) {
             sb.appendLine("### [2. unwrapMedia 바이너리 검증 결과]")
-            sb.appendLine("✓ 구조적 결함이나 스펙 위반 경고가 감지되지 않은 정상 파일입니다.")
+            if (contentCheck != null) {
+                sb.appendLine("✓ 박스/마커 파서 경고는 감지되지 않았습니다. (위 컨텐츠 검사 결과를 함께 확인하세요)")
+            } else {
+                sb.appendLine("✓ 구조적 결함이나 스펙 위반 경고가 감지되지 않은 정상 파일입니다.")
+            }
             sb.appendLine()
             sb.appendLine("### [3. 표준 규격 및 프레임워크 컨텍스트]")
             sb.appendLine("- 관련 표준 스펙: $specs")
             sb.appendLine("- 주요 타깃 환경: $targetEnvironments")
             sb.appendLine()
             sb.appendLine("### [4. 요청 사항]")
+            if (contentCheck != null) {
+                sb.appendLine("1. 위 컨텐츠 검사 결과에 FAIL/WARN 또는 디코딩 이상이 있다면, 이를 검증된 사실로 보고 근본 원인과 무손실 복구 방법(FFmpeg 커맨드 또는 바이너리 패치)을 우선 제시해 주세요.")
+                sb.appendLine("2. 이상이 없다면, 이 미디어의 표준 호환성과 재생/디코딩 효율을 높이기 위한 최적화 방안을 제안해 주세요.")
+                return sanitizePrompt(sb.toString())
+            }
             sb.appendLine("1. 이 미디어 컨테이너의 표준 호환성(Web Streaming, Android/iOS 호환성 등)을 더욱 높이기 위한 최적화 방안(예: faststart, moov 위치, 청크 정렬 등)을 제안해 주세요.")
             sb.appendLine("2. 모바일 기기(Android MediaCodec/Apple AVFoundation) 및 웹 브라우저에서의 재생/디코딩 효율을 높이기 위한 인코딩/먹싱 권장 설정을 설명해 주세요.")
             return sanitizePrompt(sb.toString())

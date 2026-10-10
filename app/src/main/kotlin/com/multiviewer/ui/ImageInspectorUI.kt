@@ -553,21 +553,7 @@ private fun WarningsTabContent(
 ) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         if (warnings.isEmpty()) {
-            // No defects -- the AI run still adds value: Android/web playback
-            // compatibility + encode/mux optimization advice for a clean file.
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("✓ 구조적 이상 없음", style = AppTypography.bodyLarge.copy(color = AppColors.NeonGreen))
-                AiRunChip(label = "🤖 AI 최적화 검토") { appState.aiPromptWindowOpen = true }
-            }
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "결함은 없습니다. Android/웹 재생 호환성과 인코딩·먹싱 최적화 제안을 AI에게 받을 수 있습니다.",
-                style = AppTypography.bodyMedium.copy(color = AppColors.TextSecondary, fontSize = 12.sp),
-            )
+            Text("✓ 구조적 이상 없음", style = AppTypography.bodyLarge.copy(color = AppColors.NeonGreen))
             return@Column
         }
         val listState = rememberLazyListState()
@@ -583,7 +569,7 @@ private fun WarningsTabContent(
                             "⚠ ${warnings.size}개의 구조적 이상 징후",
                             style = AppTypography.labelLarge.copy(color = AppColors.NeonRed),
                         )
-                        AiRunChip(label = "🤖 AI 진단 실행") { appState.aiPromptWindowOpen = true }
+                        AiRunChip(label = "🔍 컨텐츠 검사") { appState.contentCheckTab = tab }
                     }
                     Spacer(Modifier.height(8.dp))
                 }

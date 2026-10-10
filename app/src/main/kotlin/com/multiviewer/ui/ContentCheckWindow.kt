@@ -66,7 +66,12 @@ private fun integrityStatusColor(status: IntegrityStatus): Color = when (status)
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ContentCheckWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -> Unit) {
+fun ContentCheckWindow(
+    tab: TabState,
+    language: AppLanguage,
+    onAiDiagnosis: () -> Unit,
+    onCloseRequest: () -> Unit,
+) {
     val ko = language == AppLanguage.KO
     fun label(korean: String, english: String) = if (ko) korean else english
     val scope = rememberCoroutineScope()
@@ -92,6 +97,13 @@ fun ContentCheckWindow(tab: TabState, language: AppLanguage, onCloseRequest: () 
     val tabs = contentTabs(type, motionDetected)
     val steps = heavySteps(type, motionDetected)
     DisposableEffect(tab.file) { onDispose { job?.cancel() } }
+
+    // Publish the current run's results to the tab for the AI prompt. These states are only ever
+    // written by the current run (every write is behind the runId/current() guard), so a stale or
+    // cancelled run can never reach the tab through here.
+    LaunchedEffect(tab, structure, imageDecode, motion, motionError, video, motionDetected, type) {
+        tab.contentCheck = ContentCheckSnapshot(structure, imageDecode, motionDetected, motion, motionError, video, type)
+    }
 
     // Keyed on tab.root too: the window can open before the file's structure tree finishes loading.
     LaunchedEffect(tab.file, tab.root, type) {
@@ -350,6 +362,7 @@ fun ContentCheckWindow(tab: TabState, language: AppLanguage, onCloseRequest: () 
                         }
                     }
                 }) { Text(label("JSON 복사", "Copy JSON")) }
+                OutlinedButton(enabled = tab.root != null, onClick = onAiDiagnosis) { Text(label("AI 진단", "AI diagnosis")) }
             }
             if (steps.isEmpty()) {
                 Text(

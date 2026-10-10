@@ -309,13 +309,14 @@ fun AiPromptPreviewWindow(
     val allWarnings = remember(root) { root?.let { collectWarnings(it) } ?: emptyList() }
     var selectedWarning by remember(initialTargetWarning) { mutableStateOf(initialTargetWarning) }
 
-    val promptText = remember(tab.file, tab.root, tab.avSyncReport, selectedWarning) {
+    val promptText = remember(tab.file, tab.root, tab.avSyncReport, tab.contentCheck, selectedWarning) {
         AiDiagnosticPromptBuilder.buildPrompt(
             file = tab.file,
             root = root,
             warnings = allWarnings,
             avSyncReport = tab.avSyncReport,
             targetWarning = selectedWarning,
+            contentCheck = tab.contentCheck,
         )
     }
 
@@ -427,11 +428,12 @@ fun AiPromptPreviewWindow(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
-                            val noDefects = allWarnings.isEmpty()
+                            // With Content Check results the prompt asks for cause/repair first, so it is not a pure optimization review.
+                            val noDefects = allWarnings.isEmpty() && tab.contentCheck == null
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        if (noDefects) "AI 최적화 검토 프롬프트" else "AI 진단 프롬프트",
+                                        if (noDefects) "AI 최적화 제안 프롬프트" else "AI 진단 프롬프트",
                                         style = AppTypography.headlineSmall.copy(fontSize = 18.sp, fontWeight = FontWeight.Bold),
                                         color = AppColors.NeonPurple,
                                     )
