@@ -439,6 +439,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var bitstreamCorruptionWindowOpen by remember { mutableStateOf(false) }
         var sefIntegrityWindowOpen by remember { mutableStateOf(false) }
         var motionPhotoIntegrityWindowOpen by remember { mutableStateOf(false) }
+        var imageIntegrityTab by remember { mutableStateOf<TabState?>(null) }
         var aboutWindowOpen by remember { mutableStateOf(false) }
         var updateWindowOpen by remember { mutableStateOf(false) }
         var hasUpdateAvailable by remember { mutableStateOf(false) }
@@ -552,6 +553,11 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     I18n.menuSefIntegrityCheck(language),
                     enabled = hasSefData,
                     onClick = { sefIntegrityWindowOpen = true },
+                )
+                item(
+                    I18n.menuImageIntegrity(language),
+                    enabled = hasActiveFile && currentTab?.type == MediaType.IMAGE,
+                    onClick = { imageIntegrityTab = currentTab },
                 )
                 item(
                     I18n.menuViewFrameIntervals(language),
@@ -889,6 +895,9 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 } else {
                     sefIntegrityWindowOpen = false
                 }
+            }
+            imageIntegrityTab?.let { targetTab ->
+                ImageIntegrityWindow(targetTab, language, onCloseRequest = { imageIntegrityTab = null })
             }
             if (motionPhotoIntegrityWindowOpen) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
