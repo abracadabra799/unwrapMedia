@@ -22,7 +22,7 @@ fun SefIntegritySeverity.toCheckStatus(): CheckStatus = when (this) {
     SefIntegritySeverity.SKIPPED -> CheckStatus.SKIP
 }
 
-/** Single shared "is this a motion photo" predicate: drives the Analysis menu gate and the Image Integrity tab. */
+/** Single shared "is this a motion photo" predicate: drives the Content Check window's `contentTabs` gate for the Motion photo tab. */
 fun hasMotionPhotoData(root: BoxNode): Boolean {
     val r = root
     return (findFirst(r) { it.type == "sefd" }?.let { sefd ->

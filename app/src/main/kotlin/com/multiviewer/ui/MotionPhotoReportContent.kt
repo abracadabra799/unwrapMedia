@@ -26,7 +26,7 @@ internal fun motionPhotoFormatLabel(format: MotionPhotoFormat): String = when (f
     MotionPhotoFormat.APPLE_MPVD -> "HEIC 임베디드 비디오 (mpvd)"
 }
 
-/** Badge row + per-section tables for a detected motion photo; shared by the standalone window and Image Integrity. */
+/** Badge row + per-section tables for a detected motion photo; shown in the Content Check window's Motion photo tab. */
 @Composable
 fun MotionPhotoReportContent(report: MotionPhotoIntegrityReport, modifier: Modifier = Modifier) {
     if (report.detectedFormats.isEmpty()) {

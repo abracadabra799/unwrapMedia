@@ -3,6 +3,8 @@ package com.multiviewer.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -62,6 +64,7 @@ private fun integrityStatusColor(status: IntegrityStatus): Color = when (status)
  * Analysis → 컨텐츠 검사 / Content Check: one window per file that runs every applicable check
  * for its media type (structure on open; image decode / motion photo / video integrity on 검사 시작).
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ContentCheckWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -> Unit) {
     val ko = language == AppLanguage.KO
@@ -132,7 +135,10 @@ fun ContentCheckWindow(tab: TabState, language: AppLanguage, onCloseRequest: () 
             val s = structure
             val v = video
             Text(tab.file.name, color = AppColors.TextPrimary)
-            Row(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 Text(label("유형: ", "Type: ") + type.name, color = AppColors.TextSecondary)
                 if (type == MediaType.IMAGE) {
                     Text(label("형식: ", "Format: ") + (s?.format ?: "…"), color = AppColors.TextSecondary)
@@ -203,13 +209,23 @@ fun ContentCheckWindow(tab: TabState, language: AppLanguage, onCloseRequest: () 
                     job = scope.launch {
                         // A cancelled or superseded run must never write results/state for the current one.
                         fun current() = isActive && myRun == runId
+                        var decodeFailure: String? = null
                         try {
                             for (step in runSteps) {
                                 when (step) {
                                     HeavyStep.IMAGE_DECODE -> {
-                                        val decoded = inspectImageDecode(tab.file, snapshot!!)
-                                        if (!current()) return@launch
-                                        imageDecode = decoded
+                                        try {
+                                            val decoded = inspectImageDecode(tab.file, snapshot!!)
+                                            if (!current()) return@launch
+                                            imageDecode = decoded
+                                        } catch (e: CancellationException) {
+                                            throw e
+                                        } catch (e: Exception) {
+                                            // Motion analysis is independent of image decode: record and carry on.
+                                            if (!current()) return@launch
+                                            decodeFailure = e.message ?: e.toString()
+                                            message = label("검사 실패: ", "Inspection failed: ") + decodeFailure
+                                        }
                                     }
                                     HeavyStep.MOTION_PHOTO -> {
                                         val root = tab.root ?: continue
@@ -223,7 +239,8 @@ fun ContentCheckWindow(tab: TabState, language: AppLanguage, onCloseRequest: () 
                                         } catch (e: Exception) {
                                             if (current()) {
                                                 motionError = e.message ?: e.toString()
-                                                message = label("모션포토 분석 실패: ", "Motion photo analysis failed: ") + motionError
+                                                message = label("모션포토 분석 실패: ", "Motion photo analysis failed: ") + motionError +
+                                                    (decodeFailure?.let { " / " + label("검사 실패: ", "Inspection failed: ") + it } ?: "")
                                             }
                                         }
                                         if (!current()) return@launch
@@ -242,7 +259,7 @@ fun ContentCheckWindow(tab: TabState, language: AppLanguage, onCloseRequest: () 
                                 }
                             }
                             if (!current()) return@launch
-                            if (motionError == null) {
+                            if (motionError == null && decodeFailure == null) {
                                 message = if (HeavyStep.VIDEO_INTEGRITY in runSteps) {
                                     label("검사 종료 — 아래 단계별 결과를 확인하세요", "Inspection finished — see results below")
                                 } else {
