@@ -97,3 +97,12 @@ Common to all: a "Parser warnings" item aggregating the tree's existing `warning
 - Decode status function tested as pure logic (exit code / log / frame count matrix).
 - FFmpeg integration tests (skipped when FFmpeg is unavailable): valid JPEG/PNG → CLEAN; truncated JPEG → ISSUES or FAILED, never CLEAN.
 - Manual verification against real corrupted files of each major format before declaring done.
+
+## Addendum (2026-10-10): Motion photo integration
+
+Chosen by the user over "keep separate" / "hint only": the Image Integrity window and `check --decode` JSON also run the existing `MotionPhotoIntegrityAnalyzer` (Google XMP, Samsung SEF, HEIC `mpvd`, embedded-video FFmpeg decode) when the file contains a motion photo (same detection predicate as the existing menu, moved into one shared function).
+
+- Window: third verdict "모션포토" in the header and a third "모션포토" tab, both only when detected. The tab reuses the standalone Motion Photo window's content via a shared composable (no duplicated UI or analysis). Runs on "Start inspection" together with image decoding (it decodes the whole video); the analyzer's FFmpeg call is not interruptible (30 s timeout), so Cancel discards its result.
+- JSON: `imageIntegrity.motionPhoto` — absent when not detected, `{"status":"NOT_RUN"}` when detected without `--decode`, else status + detectedFormats + flattened checks with sections `google_xmp`, `sef_structure`, `sef_semantic`, `sef_directory`, `heic_mpvd`, `video_decode`.
+- Severity mapping to image statuses: PASS→PASS, INFO→INFO, WARNING→WARN, CRITICAL→FAIL, SKIPPED→SKIP.
+- The standalone Motion Photo Integrity Check menu stays.
