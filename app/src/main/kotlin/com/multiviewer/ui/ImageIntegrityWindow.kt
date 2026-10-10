@@ -41,7 +41,6 @@ import com.multiviewer.parser.integrity.IntegrityCheckItem
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -179,7 +178,7 @@ fun ImageIntegrityWindow(tab: TabState, language: AppLanguage, onCloseRequest: (
                                 try {
                                     // The analyzer blocks (ffmpeg decode, up to ~60 s) and ignores cancellation;
                                     // await() returns at once on Cancel, and the late result is discarded.
-                                    val result = async(Dispatchers.IO) { MotionPhotoIntegrityAnalyzer.analyze(tab.file, root) }.await()
+                                    val result = awaitDetached { MotionPhotoIntegrityAnalyzer.analyze(tab.file, root) }
                                     if (current()) motion = result
                                 } catch (e: CancellationException) {
                                     throw e
