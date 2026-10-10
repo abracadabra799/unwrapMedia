@@ -405,6 +405,7 @@ class SefIntegrityAnalyzerTest {
                 val check = report.semanticChecks.first { it.label.contains(name) }
                 assertEquals(SefIntegritySeverity.PASS, check.severity)
                 assertTrue(check.detail.contains("ftyp"))
+                assertEquals(name == "MotionPhoto_AutoPlay", check.detail.contains("header only; this preview clip is not decoded"), check.detail)
             }
             val junk = buildSefTrailer(listOf(SefTestField(marker, name, ByteArray(40) { 7 })))
             byteReaderOf(junk, "sef-junk-$name").use { reader ->

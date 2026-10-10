@@ -304,7 +304,9 @@ private fun isInlineFtypVideo(reader: ByteReader, fb: SefFieldBlock): Boolean {
 }
 
 private fun inlineVideoResult(fb: SefFieldBlock, name: String): SefCheckResult =
-    SefCheckResult(SefIntegritySeverity.PASS, "Entry #${fb.entryIndex} $name bounds", "Video stored inline in the SEF field: ${fb.dataLength} bytes at offset ${fb.dataStart}, starting with an ftyp box")
+    SefCheckResult(SefIntegritySeverity.PASS, "Entry #${fb.entryIndex} $name bounds", "Video stored inline in the SEF field: ${fb.dataLength} bytes at offset ${fb.dataStart}, starting with an ftyp box" +
+        // Only MotionPhoto_Data's clip is decoded (by the motion-photo decode check); the AutoPlay preview is not.
+        if (name == "MotionPhoto_AutoPlay") " (header only; this preview clip is not decoded)" else "")
 
 private fun checkMotionPhotoData(reader: ByteReader, fb: SefFieldBlock, fileLength: Long): SefCheckResult {
     val videoOffset = reader.readUInt32(fb.dataStart + 4)
