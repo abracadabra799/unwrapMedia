@@ -174,6 +174,22 @@ class ContentCheckSnapshotTest {
     }
 
     @Test
+    fun aggregatedCapturedLogsAreBoundedAndReportOmissionsInPromptFacts() {
+        val logs = (1..500).map { "probe log $it" }
+        val snapshot = ContentCheckSnapshot(
+            corruptStructure(), null, false, null, null, null, MediaType.AUDIO,
+            audio = AudioIntegrityReport(IntegrityStatus.ISSUES, emptyList(), logs = logs),
+        )
+
+        val text = contentCheckPromptSection(snapshot, file)
+
+        assertTrue(text.contains("probe log 20"), text)
+        assertFalse(text.contains("probe log 500"), text)
+        assertTrue(text.contains("근거 일부 생략"), text)
+        assertTrue(text.length < 20_000, "Prompt section should remain bounded (${text.length} chars)")
+    }
+
+    @Test
     fun motionReportListsNonPassChecksAndError() {
         val report = MotionPhotoIntegrityReport(
             detectedFormats = listOf(MotionPhotoFormat.GOOGLE_XMP),

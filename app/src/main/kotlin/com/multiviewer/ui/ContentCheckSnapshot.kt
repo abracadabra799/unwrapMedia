@@ -32,6 +32,8 @@ data class ContentCheckSnapshot(
 
 private const val MAX_ITEMS = 30
 private const val MAX_LOG_LINES = 20
+private const val MAX_PROMPT_FACTS_PER_FINDING = 30
+private const val MAX_PROMPT_TEXT_CHARS = 1_000
 private const val NOT_RUN = "미실행"
 private const val NOT_APPLICABLE = "해당 없음"
 private const val IN_PROGRESS = "진행 중"
@@ -75,6 +77,11 @@ private fun errorFinding(id: String, stage: FindingStage, error: String) = Conte
 /** Text section for the AI diagnosis prompt; every free-text value passes through [scrubPaths]. */
 fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): String {
     fun scrub(text: String) = scrubPaths(text, file).replace('\n', ' ').trim()
+    fun promptText(text: String): String {
+        val safe = scrub(text)
+        return if (safe.length <= MAX_PROMPT_TEXT_CHARS) safe
+        else safe.take(MAX_PROMPT_TEXT_CHARS) + "… (문자 일부 생략)"
+    }
     val type = snapshot.mediaType
     val pending = if (snapshot.running) IN_PROGRESS else NOT_RUN
     val sb = StringBuilder()
@@ -86,17 +93,20 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
     val normalizedFindings = contentCheckFindings(snapshot)
     sb.appendLine("### [검증된 사실]")
     sb.appendCapped(normalizedFindings, MAX_ITEMS, "- ") { finding ->
-        val facts = (listOf(finding.summary) + finding.verifiedFacts).distinct().joinToString("; ") { scrub(it) }
-        "[${finding.status.name}] ${finding.id}: $facts"
+        val allFacts = (listOf(finding.summary) + finding.verifiedFacts).distinct()
+        val facts = allFacts.take(MAX_PROMPT_FACTS_PER_FINDING).joinToString("; ") { promptText(it) }
+        val omitted = allFacts.size - MAX_PROMPT_FACTS_PER_FINDING
+        "[${finding.status.name}] ${finding.id}: $facts" +
+            if (omitted > 0) "; 근거 일부 생략 (${omitted}개)" else ""
     }
     val hypotheses = normalizedFindings.filter { !it.hypothesis.isNullOrBlank() }
     sb.appendLine("### [가능성 / 가설]")
     if (hypotheses.isEmpty()) sb.appendLine("- 원인을 특정할 수 있는 해석이 없습니다.")
-    else sb.appendCapped(hypotheses, MAX_ITEMS, "- ") { finding -> "${finding.id}: ${scrub(finding.hypothesis!!)}" }
+    else sb.appendCapped(hypotheses, MAX_ITEMS, "- ") { finding -> "${finding.id}: ${promptText(finding.hypothesis!!)}" }
     val nextChecks = normalizedFindings.flatMap { finding -> finding.nextChecks.map { finding.id to it } }
     sb.appendLine("### [다음 확인]")
     if (nextChecks.isEmpty()) sb.appendLine("- 추가 확인 항목이 없습니다.")
-    else sb.appendCapped(nextChecks, MAX_ITEMS, "- ") { (id, check) -> "$id: ${scrub(check)}" }
+    else sb.appendCapped(nextChecks, MAX_ITEMS, "- ") { (id, check) -> "$id: ${promptText(check)}" }
 
     // 1) Structure
     if (type == MediaType.AUDIO) {

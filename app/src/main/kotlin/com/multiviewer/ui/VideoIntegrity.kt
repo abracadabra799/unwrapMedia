@@ -59,12 +59,10 @@ data class VideoIntegrityReport(
                 add("locationStatus" to JsonValue.JString(diagnostic.locationStatus))
                 add("interpretationStatus" to JsonValue.JString(if (diagnostic.hasSpecificRule) "HYPOTHESIS" else "UNAVAILABLE"))
                 add("title" to JsonValue.JString(if (diagnostic.hasSpecificRule) diagnostic.explanation.title else "Decoder message"))
-                if (diagnostic.hasSpecificRule) {
-                    add("summary" to JsonValue.JString(diagnostic.explanation.summary))
-                    add("possibleCause" to JsonValue.JString(diagnostic.explanation.probableCause))
-                    add("possibleImpact" to JsonValue.JString(diagnostic.explanation.visualImpact))
-                    add("nextChecks" to JsonValue.JString(diagnostic.explanation.actionableFix))
-                }
+                add("summary" to JsonValue.JString(diagnostic.explanation.summary.takeIf { diagnostic.hasSpecificRule } ?: ""))
+                add("possibleCause" to JsonValue.JString(diagnostic.explanation.probableCause.takeIf { diagnostic.hasSpecificRule } ?: ""))
+                add("possibleImpact" to JsonValue.JString(diagnostic.explanation.visualImpact.takeIf { diagnostic.hasSpecificRule } ?: ""))
+                add("nextChecks" to JsonValue.JString(diagnostic.explanation.actionableFix.takeIf { diagnostic.hasSpecificRule } ?: ""))
             })
         }),
         "packetLogs" to JsonValue.JArray(packetLogs.map(JsonValue::JString)),

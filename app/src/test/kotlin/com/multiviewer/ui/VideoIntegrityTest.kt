@@ -42,7 +42,10 @@ class VideoIntegrityTest {
         ).toJsonValue().render()
 
         assertTrue(json.contains("\"interpretationStatus\": \"UNAVAILABLE\""))
-        assertFalse(json.contains("\"possibleCause\""))
+        assertTrue(json.contains("\"summary\": \"\""))
+        assertTrue(json.contains("\"possibleCause\": \"\""))
+        assertTrue(json.contains("\"possibleImpact\": \"\""))
+        assertTrue(json.contains("\"nextChecks\": \"\""))
         assertTrue(json.contains("vendor-specific decoder note: retrying"))
     }
 
