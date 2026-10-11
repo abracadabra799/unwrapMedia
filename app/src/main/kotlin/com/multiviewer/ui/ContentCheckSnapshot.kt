@@ -3,6 +3,7 @@ package com.multiviewer.ui
 import com.multiviewer.cli.scrubPaths
 import com.multiviewer.parser.SefCheckResult
 import com.multiviewer.parser.integrity.CheckStatus
+import com.multiviewer.parser.integrity.AudioStructureReport
 import com.multiviewer.parser.integrity.ImageStructureReport
 import java.io.File
 
@@ -26,6 +27,7 @@ data class ContentCheckSnapshot(
     val running: Boolean = false,
     val audio: AudioIntegrityReport? = null,
     val audioError: String? = null,
+    val audioStructure: AudioStructureReport? = null,
 )
 
 private const val MAX_ITEMS = 30
@@ -42,6 +44,34 @@ private fun <T> StringBuilder.appendCapped(items: List<T>, max: Int, indent: Str
     if (items.size > max) appendLine("$indent… ${items.size - max}개 생략")
 }
 
+private fun contentCheckFindings(snapshot: ContentCheckSnapshot): List<ContentFinding> = buildList {
+    snapshot.structure?.let { addAll(structureFindings(it, FindingStage.STRUCTURE)) }
+    snapshot.audioStructure?.let { addAll(audioStructureFindings(it)) }
+    snapshot.imageDecode?.let { addAll(imageDecodeFindings(it)) }
+    snapshot.motion?.let { addAll(motionPhotoFindings(it)) }
+    snapshot.video?.let {
+        val presentation = videoFindings(it)
+        addAll(presentation.decoderFindings)
+        addAll(presentation.packetFindings)
+    }
+    snapshot.audio?.let {
+        val presentation = audioFindings(it)
+        addAll(presentation.probeFindings)
+        addAll(presentation.trackFindings)
+    }
+    snapshot.structureError?.let { add(errorFinding("structure.error", FindingStage.STRUCTURE, it)) }
+    snapshot.audioError?.let { add(errorFinding("audio.error", FindingStage.AUDIO_DECODE, it)) }
+    snapshot.imageDecodeError?.let { add(errorFinding("image.decode.error", FindingStage.IMAGE_DECODE, it)) }
+    snapshot.motionError?.let { add(errorFinding("motion.error", FindingStage.MOTION_PHOTO, it)) }
+    snapshot.videoError?.let { add(errorFinding("video.error", FindingStage.VIDEO_DECODE, it)) }
+}
+
+private fun errorFinding(id: String, stage: FindingStage, error: String) = ContentFinding(
+    id = id, stage = stage, status = CheckStatus.FAIL, title = "Inspection failed", location = null,
+    offset = null, length = null, summary = safeFindingText(error),
+    verifiedFacts = listOf("Inspection failed: ${safeFindingText(error)}"),
+).sanitizeFindingPaths()
+
 /** Text section for the AI diagnosis prompt; every free-text value passes through [scrubPaths]. */
 fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): String {
     fun scrub(text: String) = scrubPaths(text, file).replace('\n', ' ').trim()
@@ -50,23 +80,64 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
     val sb = StringBuilder()
     sb.appendLine("### [컨텐츠 검사 결과 (앱이 직접 검증한 사실)]")
     sb.appendLine(
-        "아래 항목은 unwrapMedia가 바이트 단위 구조 검증과 실제 디코딩으로 직접 확인한 사실입니다. " +
-            "추측이 아닌 검증된 사실로 취급하고, 결과를 다시 의심하기보다 원인과 복구 방법에 집중해 주세요.",
+        "아래 검사 결과는 관측 사실과 가능한 해석을 분리해 제공합니다. 가능한 원인과 후속 확인은 확정 진단이 아닌 가설입니다.",
     )
 
+    val normalizedFindings = contentCheckFindings(snapshot)
+    sb.appendLine("### [검증된 사실]")
+    sb.appendCapped(normalizedFindings, MAX_ITEMS, "- ") { finding ->
+        val facts = (listOf(finding.summary) + finding.verifiedFacts).distinct().joinToString("; ") { scrub(it) }
+        "[${finding.status.name}] ${finding.id}: $facts"
+    }
+    val hypotheses = normalizedFindings.filter { !it.hypothesis.isNullOrBlank() }
+    sb.appendLine("### [가능성 / 가설]")
+    if (hypotheses.isEmpty()) sb.appendLine("- 원인을 특정할 수 있는 해석이 없습니다.")
+    else sb.appendCapped(hypotheses, MAX_ITEMS, "- ") { finding -> "${finding.id}: ${scrub(finding.hypothesis!!)}" }
+    val nextChecks = normalizedFindings.flatMap { finding -> finding.nextChecks.map { finding.id to it } }
+    sb.appendLine("### [다음 확인]")
+    if (nextChecks.isEmpty()) sb.appendLine("- 추가 확인 항목이 없습니다.")
+    else sb.appendCapped(nextChecks, MAX_ITEMS, "- ") { (id, check) -> "$id: ${scrub(check)}" }
+
     // 1) Structure
-    val s = snapshot.structure
-    if (s == null) {
-        if (snapshot.structureError != null) sb.appendLine("- 구조 검사: 검사 실패 — ${scrub(snapshot.structureError)}")
-        else sb.appendLine("- 구조 검사: $NOT_RUN")
+    if (type == MediaType.AUDIO) {
+        val audioStructure = snapshot.audioStructure
+        if (audioStructure == null) {
+            if (snapshot.structureError != null) sb.appendLine("- 오디오 구조 검사: 검사 실패 — ${scrub(snapshot.structureError)}")
+            else sb.appendLine("- 오디오 구조 검사: $pending")
+        } else {
+            val problems = audioStructure.items.filter { it.status in setOf(CheckStatus.FAIL, CheckStatus.WARN, CheckStatus.SKIP) }
+            sb.appendLine("- 오디오 구조 검사 (${audioStructure.format}): ${audioStructure.overall.name} — 검사 항목 ${audioStructure.items.size}개 중 FAIL/WARN/SKIP ${problems.size}개")
+            sb.appendCapped(problems, MAX_ITEMS, "  • ") { item ->
+                val location = item.offset?.let { off -> " @ ${hex(off)}" + (item.length?.let { " (${it}B)" } ?: "") } ?: ""
+                "[${item.status.name}] ${item.id} — ${scrub(item.title)}$location: ${scrub(item.detail)}"
+            }
+            val parserProblems = audioStructure.parserWarnings.filter { it.status in setOf(CheckStatus.FAIL, CheckStatus.WARN, CheckStatus.SKIP) }
+            val parserStatus = when {
+                parserProblems.any { it.status == CheckStatus.FAIL } -> CheckStatus.FAIL
+                parserProblems.any { it.status == CheckStatus.WARN } -> CheckStatus.WARN
+                parserProblems.any { it.status == CheckStatus.SKIP } -> CheckStatus.SKIP
+                else -> CheckStatus.PASS
+            }
+            sb.appendLine("- 파서 경고: ${parserStatus.name} — 항목 ${audioStructure.parserWarnings.size}개 중 문제 ${parserProblems.size}개")
+            sb.appendCapped(parserProblems, MAX_ITEMS, "  • ") { item ->
+                val location = item.offset?.let { off -> " @ ${hex(off)}" + (item.length?.let { " (${it}B)" } ?: "") } ?: ""
+                "[${item.status.name}] ${item.id} — ${scrub(item.title)}$location: ${scrub(item.detail)}"
+            }
+        }
     } else {
-        val problems = s.items.filter { it.status == CheckStatus.FAIL || it.status == CheckStatus.WARN }
-        sb.appendLine("- 구조 검사 (${s.format}): ${s.overall.name} — 검사 항목 ${s.items.size}개 중 FAIL/WARN ${problems.size}개")
-        sb.appendCapped(problems, MAX_ITEMS, "  • ") { item ->
-            val location = item.offset?.let { off ->
-                " @ ${hex(off)}" + (item.length?.let { " (${it}B)" } ?: "")
-            } ?: ""
-            "[${item.status.name}] ${item.id} — ${scrub(item.title)}$location: ${scrub(item.detail)}"
+        val s = snapshot.structure
+        if (s == null) {
+            if (snapshot.structureError != null) sb.appendLine("- 구조 검사: 검사 실패 — ${scrub(snapshot.structureError)}")
+            else sb.appendLine("- 구조 검사: $NOT_RUN")
+        } else {
+            val problems = s.items.filter { it.status == CheckStatus.FAIL || it.status == CheckStatus.WARN }
+            sb.appendLine("- 구조 검사 (${s.format}): ${s.overall.name} — 검사 항목 ${s.items.size}개 중 FAIL/WARN ${problems.size}개")
+            sb.appendCapped(problems, MAX_ITEMS, "  • ") { item ->
+                val location = item.offset?.let { off ->
+                    " @ ${hex(off)}" + (item.length?.let { " (${it}B)" } ?: "")
+                } ?: ""
+                "[${item.status.name}] ${item.id} — ${scrub(item.title)}$location: ${scrub(item.detail)}"
+            }
         }
     }
 

@@ -1,6 +1,8 @@
 package com.multiviewer.ui
 
 import com.multiviewer.parser.BoxNode
+import com.multiviewer.parser.integrity.AudioStructureChecker
+import com.multiviewer.parser.integrity.AudioStructureReport
 import com.multiviewer.parser.integrity.ImageIntegrityChecker
 import com.multiviewer.parser.integrity.ImageStructureReport
 import java.io.File
@@ -28,3 +30,6 @@ fun heavySteps(type: MediaType, motionDetected: Boolean): List<HeavyStep> = when
 fun contentStructureReport(file: File, root: BoxNode, type: MediaType): ImageStructureReport =
     if (type == MediaType.IMAGE) ImageIntegrityChecker.check(file, root)
     else ImageStructureReport(format = type.name, items = ImageIntegrityChecker.parserWarningItems(root))
+
+fun contentAudioStructureReport(file: File, root: BoxNode): AudioStructureReport =
+    AudioStructureChecker.check(file, root)

@@ -8,6 +8,7 @@ import com.multiviewer.parser.parseFile
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class ContentCheckPlanTest {
     @Test
@@ -59,6 +60,19 @@ class ContentCheckPlanTest {
         assertEquals(1, r.items.size)
         assertEquals("parser.warnings", r.items[0].id)
         assertEquals(CheckStatus.PASS, r.items[0].status)
+    }
+
+    @Test
+    fun audioStructureUsesDedicatedReport() {
+        val f = File.createTempFile("audio-structure-", ".wav").also {
+            it.deleteOnExit()
+            it.writeBytes("RIFF\u0004\u0000\u0000\u0000WAVE".toByteArray(Charsets.ISO_8859_1))
+        }
+
+        val report = contentAudioStructureReport(f, BoxNode("root", 0, 0, f.length()))
+
+        assertEquals("WAVE", report.format)
+        assertEquals(CheckStatus.FAIL, report.overall)
     }
 
     @Test

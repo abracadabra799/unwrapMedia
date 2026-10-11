@@ -4,15 +4,50 @@ import com.multiviewer.cli.AiDiagnosticPromptBuilder
 import com.multiviewer.parser.SefCheckResult
 import com.multiviewer.parser.SefIntegritySeverity
 import com.multiviewer.parser.integrity.CheckStatus
+import com.multiviewer.parser.integrity.AudioStructureReport
 import com.multiviewer.parser.integrity.ImageStructureReport
 import com.multiviewer.parser.integrity.IntegrityCheckItem
 import java.io.File
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertFalse
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class ContentCheckSnapshotTest {
+    @Test
+    fun audioStructureFactsAndParserWarningsReachPromptSeparately() {
+        val structure = AudioStructureReport(
+            "WAVE",
+            listOf(IntegrityCheckItem("wave.data.missing", "Audio data chunk", CheckStatus.FAIL, "Required data chunk missing", 12, 8)),
+            listOf(IntegrityCheckItem("parser.warning", "Parser warning (RIFF)", CheckStatus.WARN, "Chunk extends past file", 20, 4)),
+        )
+        val snapshot = ContentCheckSnapshot(null, null, false, null, null, null, MediaType.AUDIO, audioStructure = structure)
+
+        val text = contentCheckPromptSection(snapshot, file)
+
+        assertTrue(text.contains("오디오 구조 검사 (WAVE): FAIL"), text)
+        assertTrue(text.contains("wave.data.missing"), text)
+        assertTrue(text.contains("파서 경고"), text)
+        assertTrue(text.contains("Chunk extends past file"), text)
+    }
+
+    @Test
+    fun skippedAudioStructureIsNotPresentedAsClean() {
+        val structure = AudioStructureReport(
+            "UNKNOWN",
+            listOf(IntegrityCheckItem("audio.format", "Audio format", CheckStatus.SKIP, "Unrecognized audio format")),
+            emptyList(),
+        )
+        val snapshot = ContentCheckSnapshot(null, null, false, null, null, null, MediaType.AUDIO, audioStructure = structure)
+
+        val text = contentCheckPromptSection(snapshot, file)
+
+        assertTrue(text.contains("오디오 구조 검사 (UNKNOWN): SKIP"), text)
+        assertTrue(text.contains("[SKIP] audio.format"), text)
+        assertFalse(text.contains("오디오 구조 검사 (UNKNOWN): PASS"), text)
+    }
+
     @Test
     fun audioFactsAndFailuresReachPromptWithoutPaths() {
         val measurements = AudioMeasurements().apply { add(AudioFrame(48000, 2, 4800)) }
@@ -81,8 +116,8 @@ class ContentCheckSnapshotTest {
         assertTrue(text.contains("0x14"), text)
         assertTrue(text.contains("0x1F40"), text)
         assertTrue(text.contains("EOI missing (file truncated)"), text)
-        assertFalse(text.contains("jpeg.soi"), text)
-        assertFalse(text.contains("jpeg.app1"), text)
+        assertTrue(text.contains("[PASS] structure.jpeg.soi"), text)
+        assertTrue(text.contains("[INFO] structure.jpeg.app1"), text)
     }
 
     @Test
@@ -213,5 +248,100 @@ class ContentCheckSnapshotTest {
         assertTrue(text.contains("모션포토: 진행 중"), text)
         assertTrue(text.contains("영상 디코딩: 진행 중"), text)
         assertFalse(text.contains("미실행"), text)
+    }
+
+    @Test
+    fun everyMediaTypePublishesFindingFactsToPrompt() {
+        val video = VideoIntegrityReport(
+            IntegrityStatus.CLEAN, IntegrityStatus.ISSUES, 1, emptyList(), listOf("packet timestamp discontinuity"),
+            listOf(IntegrityPacket(0, "0.0", "0.0", 12, 8, true)),
+        )
+        val audio = AudioIntegrityReport(IntegrityStatus.CLEAN, listOf(AudioStreamReport(
+            AudioStreamMetadata(0, "aac", 48000, 2, 1.0), IntegrityStatus.CLEAN,
+            1, 48000, 1.0, setOf(48000), setOf(2), 0.1, emptyList(), emptyList(),
+        )))
+        val motion = MotionPhotoIntegrityReport(
+            listOf(MotionPhotoFormat.GOOGLE_XMP), null,
+            listOf(SefCheckResult(SefIntegritySeverity.WARNING, "Motion offset", "Offset is 12 bytes late")),
+            emptyList(), emptyList(), SefIntegritySeverity.WARNING,
+        )
+        val snapshot = ContentCheckSnapshot(
+            corruptStructure(), corruptDecode(), true, motion, null, video, MediaType.IMAGE,
+            audio = audio,
+            audioStructure = AudioStructureReport("WAVE", listOf(
+                IntegrityCheckItem("wave.data", "Data chunk", CheckStatus.FAIL, "Data chunk missing"),
+            ), emptyList()),
+        )
+
+        val text = contentCheckPromptSection(snapshot, file)
+
+        listOf("jpeg.eoi", "image.decode", "Motion offset", "video.packet.log", "audio.track", "wave.data")
+            .forEach { assertTrue(it in text, text) }
+    }
+
+    @Test
+    fun hypothesesAreNotListedAsVerifiedFacts() {
+        val report = VideoIntegrityReport(
+            IntegrityStatus.ISSUES, IntegrityStatus.CLEAN, 0, listOf("Invalid NAL unit size"), emptyList(), emptyList(),
+        )
+
+        val text = contentCheckPromptSection(ContentCheckSnapshot(null, null, false, null, null, report), file)
+        val factsEnd = text.indexOf("### [가능성")
+
+        assertTrue(text.contains("### [검증된 사실]"), text)
+        assertTrue(text.contains("### [가능성 / 가설]"), text)
+        assertTrue(factsEnd >= 0, text)
+        val verifiedFacts = text.substringAfter("### [검증된 사실]").substringBefore("### [가능성 / 가설]")
+        assertFalse(verifiedFacts.contains("가능한 원인"), text)
+        assertTrue(text.substring(factsEnd).contains("video.decode.log.0: NAL Unit"), text)
+    }
+
+    @Test
+    fun contentFindingPromptContinuesToScrubPaths() {
+        val report = VideoIntegrityReport(
+            IntegrityStatus.ISSUES, IntegrityStatus.CLEAN, 0,
+            listOf("decoder failed at ${file.absolutePath}"), emptyList(), emptyList(),
+        )
+
+        val text = contentCheckPromptSection(ContentCheckSnapshot(null, null, false, null, null, report), file)
+
+        assertFalse(file.absolutePath in text, text)
+        assertTrue("decoder failed" in text, text)
+    }
+
+    @Test
+    fun structureAndPacketRangesRemainSelectable() {
+        val structureFinding = structureFindings(corruptStructure(), FindingStage.STRUCTURE)
+            .first { it.id == "structure.jpeg.dqt" }
+        val packet = videoFindings(VideoIntegrityReport(
+            IntegrityStatus.CLEAN, IntegrityStatus.CLEAN, 1, emptyList(), emptyList(),
+            listOf(IntegrityPacket(0, "0", "0", 12, 8, false)),
+        )).packetRows.single()
+        val packetFinding = ContentFinding("packet", FindingStage.VIDEO_PACKETS, CheckStatus.WARN,
+            "Packet", null, packet.offset, packet.size, "packet", emptyList())
+
+        assertTrue(isSelectableContentRange(structureFinding, 100))
+        assertTrue(isSelectableContentRange(packetFinding, 100))
+        assertEquals(12L, packet.offset)
+        assertEquals(8L, packet.size)
+    }
+
+    @Test
+    fun pendingSkippedAndFailedStatesRemainDistinct() {
+        val skipped = ImageDecodeReport(
+            ImageDecodeStatus.NOT_RUN, 0, null, null, emptyList(), false, null, "ffmpeg",
+            SkiaDecodeResult(false, false, "not run"), null, null,
+        )
+        val text = contentCheckPromptSection(
+            ContentCheckSnapshot(null, skipped, false, null, null, null, running = true), file,
+        )
+
+        assertTrue("미실행" in text || "진행 중" in text, text)
+        assertTrue("SKIP" in text, text)
+        val failed = contentCheckPromptSection(
+            ContentCheckSnapshot(null, null, false, null, null, null, imageDecodeError = "decoder failed"), file,
+        )
+        assertTrue("검사 실패" in failed, failed)
+        assertFalse("이미지 디코딩: 미실행" in failed, failed)
     }
 }

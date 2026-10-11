@@ -1,0 +1,127 @@
+package com.multiviewer.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+
+internal fun contentFindingTableRows(findings: List<ContentFinding>, showAll: Boolean): List<ContentFinding> =
+    orderedContentFindings(findings, showAll)
+
+internal fun contentFindingTableSummary(findings: List<ContentFinding>): ContentFindingSummary =
+    contentFindingSummary(findings)
+
+private fun findingStatusLabel(status: com.multiviewer.parser.integrity.CheckStatus, ko: Boolean): String =
+    if (status == com.multiviewer.parser.integrity.CheckStatus.SKIP) {
+        if (ko) "미검증" else "Unverified"
+    } else checkStatusLabel(status, ko)
+
+internal fun isSelectableContentRange(finding: ContentFinding, fileLength: Long): Boolean {
+    val offset = finding.offset ?: return false
+    val length = finding.length ?: return false
+    if (offset < 0 || length <= 0 || fileLength < 0) return false
+    val end = offset + length
+    return end >= offset && end <= fileLength
+}
+
+@Composable
+internal fun ContentFindingSummaryBar(findings: List<ContentFinding>, ko: Boolean, modifier: Modifier = Modifier) {
+    val counts = contentFindingTableSummary(findings)
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text(if (ko) "검사 항목 ${counts.total}" else "Findings ${counts.total}", color = AppColors.TextPrimary, fontSize = 12.sp)
+        Text((if (ko) "실패 " else "Fail ") + counts.failures, color = AppColors.NeonRed, fontSize = 12.sp)
+        Text((if (ko) "경고 " else "Warn ") + counts.warnings, color = AppColors.NeonYellow, fontSize = 12.sp)
+        Text((if (ko) "정상 " else "Pass ") + counts.passed, color = AppColors.NeonGreen, fontSize = 12.sp)
+        Text((if (ko) "미검증 " else "Unverified ") + counts.unverified, color = AppColors.TextMuted, fontSize = 12.sp)
+    }
+}
+
+@Composable
+internal fun ContentFindingTable(
+    findings: List<ContentFinding>,
+    fileLength: Long,
+    ko: Boolean,
+    modifier: Modifier = Modifier,
+    onSelectRange: (Long, Long) -> Unit = { _, _ -> },
+) {
+    var showAll by remember { mutableStateOf(false) }
+    val expanded = remember { mutableStateMapOf<String, Boolean>() }
+    val rows = contentFindingTableRows(findings, showAll)
+    Column(modifier.fillMaxSize()) {
+        ContentFindingSummaryBar(findings, ko, Modifier.padding(bottom = 3.dp))
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Checkbox(checked = showAll, onCheckedChange = { showAll = it })
+            Text(if (ko) "통과·미검증 항목 포함" else "Show pass and unverified checks", color = AppColors.TextSecondary, fontSize = 12.sp)
+        }
+        Row(Modifier.fillMaxWidth().background(AppColors.Panel).padding(vertical = 5.dp)) {
+            Text(if (ko) "상태" else "Status", color = AppColors.TextSecondary, modifier = Modifier.width(72.dp), fontSize = 11.sp)
+            Text(if (ko) "검사" else "Check", color = AppColors.TextSecondary, modifier = Modifier.width(185.dp), fontSize = 11.sp)
+            Text(if (ko) "위치" else "Location", color = AppColors.TextSecondary, modifier = Modifier.width(130.dp), fontSize = 11.sp)
+            Text(if (ko) "결과" else "Finding", color = AppColors.TextSecondary, fontSize = 11.sp)
+        }
+        LazyColumn(Modifier.weight(1f)) {
+            itemsIndexed(rows, key = { index, finding -> "${finding.id}#$index" }) { index, finding ->
+                val rowKey = "${finding.id}#$index"
+                val isExpanded = expanded[rowKey] == true
+                Column(Modifier.fillMaxWidth().clickable { expanded[rowKey] = !isExpanded }) {
+                    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                        Text(findingStatusLabel(finding.status, ko), color = checkStatusColor(finding.status), modifier = Modifier.width(72.dp), fontSize = 11.sp)
+                        Text(finding.title, color = AppColors.TextPrimary, modifier = Modifier.width(185.dp), fontSize = 12.sp)
+                        Text(contentFindingLocationLabel(finding, ko), color = AppColors.TextSecondary,
+                            fontFamily = FontFamily.Monospace, modifier = Modifier.width(130.dp), fontSize = 11.sp)
+                        Text(finding.summary, color = AppColors.TextSecondary, fontSize = 12.sp)
+                    }
+                    if (isExpanded) {
+                        Column(Modifier.fillMaxWidth().padding(start = 72.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            finding.verifiedFacts.take(30).forEach { fact -> DetailLine(if (ko) "검증된 사실" else "Verified facts", fact) }
+                            finding.hypothesis?.let { DetailLine(if (ko) "가능성 / 가설" else "Possible cause / hypothesis", it) }
+                            finding.nextChecks.take(10).forEach { DetailLine(if (ko) "다음 확인" else "Next checks", it) }
+                            if (finding.verifiedFacts.size > 30 || finding.nextChecks.size > 10) {
+                                Text(if (ko) "세부 정보 일부 생략됨" else "Some details omitted", color = AppColors.TextMuted, fontSize = 11.sp)
+                            }
+                            if (isSelectableContentRange(finding, fileLength)) {
+                                Text(if (ko) "Hex에서 바이트 범위 선택" else "Select byte range in Hex",
+                                    color = AppColors.NeonBlue, modifier = Modifier.clickable {
+                                        onSelectRange(finding.offset!!, finding.length!!)
+                                    }.padding(vertical = 3.dp), fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+            }
+            if (rows.isEmpty()) item {
+                Text(if (ko) "표시할 항목이 없습니다" else "No findings to display", color = AppColors.TextMuted, modifier = Modifier.padding(12.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailLine(label: String, value: String) {
+    Row(Modifier.fillMaxWidth()) {
+        Text("$label: ", color = AppColors.TextPrimary, fontSize = 11.sp)
+        androidx.compose.foundation.text.selection.SelectionContainer {
+            Text(value.take(4000), color = AppColors.TextSecondary, fontSize = 11.sp)
+        }
+    }
+}

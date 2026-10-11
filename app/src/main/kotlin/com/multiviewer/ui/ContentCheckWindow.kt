@@ -38,6 +38,7 @@ import com.multiviewer.cli.motionPhotoJson
 import com.multiviewer.parser.buildMediaSummary
 import com.multiviewer.parser.collectWarnings
 import com.multiviewer.parser.integrity.ImageStructureReport
+import com.multiviewer.parser.integrity.AudioStructureReport
 import com.multiviewer.util.ClipboardUtil
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +46,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import java.awt.FileDialog
 import java.awt.Frame
@@ -76,6 +78,7 @@ fun ContentCheckWindow(
     fun label(korean: String, english: String) = if (ko) korean else english
     val scope = rememberCoroutineScope()
     var structure by remember(tab.file) { mutableStateOf<ImageStructureReport?>(null) }
+    var audioStructure by remember(tab.file) { mutableStateOf<AudioStructureReport?>(null) }
     var structureError by remember(tab.file) { mutableStateOf<String?>(null) }
     var imageDecode by remember(tab.file) { mutableStateOf<ImageDecodeReport?>(null) }
     var motion by remember(tab.file) { mutableStateOf<MotionPhotoIntegrityReport?>(null) }
@@ -105,11 +108,12 @@ fun ContentCheckWindow(
     // Publish the current run's results to the tab for the AI prompt. These states are only ever
     // written by the current run (every write is behind the runId/current() guard), so a stale or
     // cancelled run can never reach the tab through here.
-    LaunchedEffect(tab, structure, structureError, imageDecode, imageDecodeError, motion, motionError, video, videoError, audio, audioError, running, motionDetected, type) {
+    LaunchedEffect(tab, structure, audioStructure, structureError, imageDecode, imageDecodeError, motion, motionError, video, videoError, audio, audioError, running, motionDetected, type) {
         tab.contentCheck = ContentCheckSnapshot(
             structure, imageDecode, motionDetected, motion, motionError, video, type,
             structureError = structureError, imageDecodeError = imageDecodeError, videoError = videoError, running = running,
             audio = audio, audioError = audioError,
+            audioStructure = audioStructure,
         )
     }
 
@@ -121,8 +125,14 @@ fun ContentCheckWindow(
             return@LaunchedEffect
         }
         structureError = null
+        structure = null
+        audioStructure = null
         try {
-            structure = withContext(Dispatchers.IO) { contentStructureReport(tab.file, root, type) }
+            if (type == MediaType.AUDIO) {
+                audioStructure = runInterruptible(Dispatchers.IO) { contentAudioStructureReport(tab.file, root) }
+            } else {
+                structure = withContext(Dispatchers.IO) { contentStructureReport(tab.file, root, type) }
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -165,10 +175,11 @@ fun ContentCheckWindow(
                 }
                 for (t in tabs) {
                     when (t) {
-                        ContentTab.STRUCTURE -> Text(
-                            label("구조: ", "Structure: ") + (s?.overall?.let { checkStatusLabel(it, ko) } ?: "…"),
-                            color = s?.overall?.let { checkStatusColor(it) } ?: AppColors.TextMuted,
-                        )
+                        ContentTab.STRUCTURE -> {
+                            val status = if (type == MediaType.AUDIO) audioStructure?.overall else s?.overall
+                            Text(label("구조: ", "Structure: ") + (status?.let { checkStatusLabel(it, ko) } ?: "…"),
+                                color = status?.let { checkStatusColor(it) } ?: AppColors.TextMuted)
+                        }
                         ContentTab.IMAGE_DECODE -> {
                             val ds = imageDecode?.status ?: ImageDecodeStatus.NOT_RUN
                             Text(label("디코딩: ", "Decode: ") + headerDecodeLabel(imageDecode != null, ds, ko), color = decodeStatusColor(ds))
@@ -433,9 +444,12 @@ fun ContentCheckWindow(
             }
             when (shownTab) {
                 ContentTab.AUDIO -> AudioCheckPanel(audio, audioError, ko, Modifier.weight(1f))
-                ContentTab.STRUCTURE -> ImageStructurePanel(s, structureError, ko) { item ->
-                    val offset = item.offset ?: return@ImageStructurePanel
-                    tab.parameterSetHighlightRange = offset until offset + maxOf(1L, item.length ?: 1L)
+                ContentTab.STRUCTURE -> if (type == MediaType.AUDIO) {
+                    AudioStructurePanel(audioStructure, structureError, ko, tab.file.length()) { offset, length ->
+                        tab.parameterSetHighlightRange = offset until (offset + length)
+                    }
+                } else ImageStructurePanel(s, structureError, ko, tab.file.length()) { offset, length ->
+                    tab.parameterSetHighlightRange = offset until (offset + length)
                 }
                 ContentTab.IMAGE_DECODE -> ImageDecodePanel(imageDecode, ko)
                 ContentTab.MOTION_PHOTO -> {
@@ -451,7 +465,7 @@ fun ContentCheckWindow(
                             color = AppColors.TextSecondary,
                         )
                     } else {
-                        MotionPhotoReportContent(m, Modifier.fillMaxSize())
+                        ContentFindingTable(motionPhotoFindings(m), tab.file.length(), ko, Modifier.fillMaxSize())
                     }
                 }
                 ContentTab.VIDEO_DECODE, ContentTab.VIDEO_PACKETS -> {
