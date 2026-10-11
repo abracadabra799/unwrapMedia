@@ -9,9 +9,13 @@ private const val MAX_MP4_FINDINGS = 1000
 internal fun checkM4aStructure(reader: ByteReader, root: BoxNode): List<IntegrityCheckItem> {
     val items = mutableListOf<IntegrityCheckItem>()
     var findingsTruncated = false
+    var omittedFailure = false
     fun add(id: String, title: String, status: CheckStatus, detail: String, node: BoxNode? = null) {
         if (items.size < MAX_MP4_FINDINGS) items += IntegrityCheckItem("m4a.$id", title, status, detail, node?.offset, node?.size)
-        else findingsTruncated = true
+        else {
+            findingsTruncated = true
+            omittedFailure = omittedFailure || status == CheckStatus.FAIL
+        }
     }
     val tracks = descendants(root).filter { it.type == "trak" && descendants(it).any { child ->
         child.type == "hdlr" && child.fields.any { field -> field.name == "handler_type" && field.value == "soun" }
@@ -52,8 +56,10 @@ internal fun checkM4aStructure(reader: ByteReader, root: BoxNode): List<Integrit
     }
     if (checkedTracks > 0) add("audioTrack", "Audio sample tables", CheckStatus.PASS,
         "$checkedTracks audio track(s) had in-bounds stsz and chunk-offset tables")
-    if (findingsTruncated) items += IntegrityCheckItem("m4a.findings.truncated", "Finding limit", CheckStatus.WARN,
-        "More than $MAX_MP4_FINDINGS findings occurred; additional findings were omitted")
+    if (findingsTruncated) items += IntegrityCheckItem("m4a.findings.truncated", "Finding limit",
+        if (omittedFailure) CheckStatus.FAIL else CheckStatus.WARN,
+        if (omittedFailure) "More than $MAX_MP4_FINDINGS findings occurred; an additional structural failure was omitted"
+        else "More than $MAX_MP4_FINDINGS findings occurred; additional findings were omitted")
     return items.ifEmpty { listOf(IntegrityCheckItem("m4a.structure", "M4A structure", CheckStatus.SKIP, "No supported audio sample table was found")) }
 }
 

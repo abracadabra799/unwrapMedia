@@ -465,7 +465,9 @@ fun ContentCheckWindow(
                             color = AppColors.TextSecondary,
                         )
                     } else {
-                        ContentFindingTable(motionPhotoFindings(m), tab.file.length(), ko, Modifier.fillMaxSize())
+                        ContentFindingTable(motionPhotoFindings(m), tab.file.length(), ko, Modifier.fillMaxSize()) { offset, length ->
+                            tab.parameterSetHighlightRange = offset until (offset + length)
+                        }
                     }
                 }
                 ContentTab.VIDEO_DECODE, ContentTab.VIDEO_PACKETS -> {

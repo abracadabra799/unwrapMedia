@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -22,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -44,6 +46,23 @@ internal fun isSelectableContentRange(finding: ContentFinding, fileLength: Long)
     return end >= offset && end <= fileLength
 }
 
+internal const val MAX_COLLAPSED_FINDING_SUMMARY_LENGTH = 240
+private const val MAX_EXPANDED_FINDING_SUMMARY_LENGTH = 4000
+
+internal fun contentFindingCollapsedSummary(summary: String): String =
+    if (summary.length <= MAX_COLLAPSED_FINDING_SUMMARY_LENGTH) summary
+    else summary.take(MAX_COLLAPSED_FINDING_SUMMARY_LENGTH - 1).trimEnd() + "…"
+
+internal fun contentFindingExpandedSummary(summary: String): String = summary.take(MAX_EXPANDED_FINDING_SUMMARY_LENGTH)
+
+internal fun canSelectContentFindingRange(finding: ContentFinding, fileLength: Long, callbackAvailable: Boolean): Boolean =
+    callbackAvailable && isSelectableContentRange(finding, fileLength)
+
+internal fun unknownDecoderCauseLabel(finding: ContentFinding, ko: Boolean): String? =
+    if (finding.stage == FindingStage.VIDEO_DECODE && finding.id.startsWith("video.decode.log.") && finding.hypothesis == null) {
+        if (ko) "원인 미확정" else "Cause not determined"
+    } else null
+
 @Composable
 internal fun ContentFindingSummaryBar(findings: List<ContentFinding>, ko: Boolean, modifier: Modifier = Modifier) {
     val counts = contentFindingTableSummary(findings)
@@ -62,7 +81,7 @@ internal fun ContentFindingTable(
     fileLength: Long,
     ko: Boolean,
     modifier: Modifier = Modifier,
-    onSelectRange: (Long, Long) -> Unit = { _, _ -> },
+    onSelectRange: ((Long, Long) -> Unit)? = null,
 ) {
     var showAll by remember { mutableStateOf(false) }
     val expanded = remember { mutableStateMapOf<String, Boolean>() }
@@ -89,20 +108,31 @@ internal fun ContentFindingTable(
                         Text(finding.title, color = AppColors.TextPrimary, modifier = Modifier.width(185.dp), fontSize = 12.sp)
                         Text(contentFindingLocationLabel(finding, ko), color = AppColors.TextSecondary,
                             fontFamily = FontFamily.Monospace, modifier = Modifier.width(130.dp), fontSize = 11.sp)
-                        Text(finding.summary, color = AppColors.TextSecondary, fontSize = 12.sp)
+                        Text(contentFindingCollapsedSummary(finding.summary), color = AppColors.TextSecondary,
+                            fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                     if (isExpanded) {
                         Column(Modifier.fillMaxWidth().padding(start = 72.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            finding.verifiedFacts.take(30).forEach { fact -> DetailLine(if (ko) "검증된 사실" else "Verified facts", fact) }
+                            if (finding.summary.length > MAX_COLLAPSED_FINDING_SUMMARY_LENGTH) {
+                                DetailLine(if (ko) "전체 결과" else "Full result", contentFindingExpandedSummary(finding.summary))
+                            }
+                            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 260.dp)) {
+                                itemsIndexed(finding.verifiedFacts, key = { factIndex, _ -> "${finding.id}.fact.$factIndex" }) { _, fact ->
+                                    DetailLine(if (ko) "검증된 사실" else "Verified facts", fact)
+                                }
+                            }
                             finding.hypothesis?.let { DetailLine(if (ko) "가능성 / 가설" else "Possible cause / hypothesis", it) }
+                            unknownDecoderCauseLabel(finding, ko)?.let {
+                                DetailLine(if (ko) "가능성 / 가설" else "Possible cause / hypothesis", it)
+                            }
                             finding.nextChecks.take(10).forEach { DetailLine(if (ko) "다음 확인" else "Next checks", it) }
-                            if (finding.verifiedFacts.size > 30 || finding.nextChecks.size > 10) {
+                            if (finding.summary.length > MAX_EXPANDED_FINDING_SUMMARY_LENGTH || finding.nextChecks.size > 10) {
                                 Text(if (ko) "세부 정보 일부 생략됨" else "Some details omitted", color = AppColors.TextMuted, fontSize = 11.sp)
                             }
-                            if (isSelectableContentRange(finding, fileLength)) {
+                            if (onSelectRange != null && canSelectContentFindingRange(finding, fileLength, callbackAvailable = true)) {
                                 Text(if (ko) "Hex에서 바이트 범위 선택" else "Select byte range in Hex",
                                     color = AppColors.NeonBlue, modifier = Modifier.clickable {
-                                        onSelectRange(finding.offset!!, finding.length!!)
+                                        onSelectRange.invoke(finding.offset!!, finding.length!!)
                                     }.padding(vertical = 3.dp), fontSize = 11.sp)
                             }
                         }

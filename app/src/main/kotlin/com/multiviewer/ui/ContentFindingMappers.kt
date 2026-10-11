@@ -50,7 +50,7 @@ fun imageDecodeFindings(report: ImageDecodeReport): List<ContentFinding> = build
             add("FFmpeg status: ${report.ffmpegStatus}")
             add("Decoded frames: ${report.decodedFrames}")
             report.ffmpegVersion?.let { add("FFmpeg version: $it") }
-            addAll(report.logs.take(20))
+            addAll(report.logs)
         },
     ))
     if (report.skia.attempted) add(ContentFinding(
@@ -110,15 +110,17 @@ fun videoFindings(report: VideoIntegrityReport): VideoFindingPresentation {
             ))
         }
         report.logs.forEachIndexed { index, message ->
-            val explanation = explainIntegrityLog(message).explanation
+            val diagnostic = explainIntegrityLog(message)
+            val explanation = diagnostic.explanation
             add(ContentFinding(
                 id = "video.decode.log.$index", stage = FindingStage.VIDEO_DECODE,
-                status = mapIntegrityStatus(report.decodeStatus), title = explanation.title, location = null,
+                status = mapIntegrityStatus(report.decodeStatus),
+                title = if (diagnostic.hasSpecificRule) explanation.title else "Decoder message", location = null,
                 offset = null, length = null, summary = message,
                 verifiedFacts = listOf(message),
-                hypothesis = listOf(explanation.summary, explanation.probableCause, explanation.visualImpact)
-                    .filter(String::isNotBlank).joinToString(" ").ifBlank { null },
-                nextChecks = listOf(explanation.actionableFix).filter(String::isNotBlank),
+                hypothesis = if (diagnostic.hasSpecificRule) listOf(explanation.summary, explanation.probableCause, explanation.visualImpact)
+                    .filter(String::isNotBlank).joinToString(" ").ifBlank { null } else null,
+                nextChecks = if (diagnostic.hasSpecificRule) listOf(explanation.actionableFix).filter(String::isNotBlank) else emptyList(),
             ))
         }
     }
@@ -154,7 +156,7 @@ fun audioFindings(report: AudioIntegrityReport): AudioFindingPresentation {
             id = "audio.decode.probe", stage = FindingStage.AUDIO_DECODE,
             status = mapIntegrityStatus(report.probeStatus), title = "Audio probe", location = null,
             offset = null, length = null, summary = "Audio stream discovery: ${report.probeStatus}",
-            verifiedFacts = listOf("Probe status: ${report.probeStatus}") + report.logs.take(20) +
+            verifiedFacts = listOf("Probe status: ${report.probeStatus}") + report.logs +
                 if (report.logsTruncated) listOf("Probe logs were truncated") else emptyList(),
         ),
     )
@@ -170,7 +172,7 @@ fun audioFindings(report: AudioIntegrityReport): AudioFindingPresentation {
                 "Declared channels: ${stream.stream.channels ?: "unknown"}; observed: ${stream.observedChannels.sorted().joinToString().ifEmpty { "unknown" }}",
                 "Decoded samples per channel: ${stream.decodedSamples}",
                 "Decoded duration: ${stream.decodedDurationSeconds}s",
-            ) + stream.mismatches + stream.logs.take(20) +
+            ) + stream.mismatches + stream.logs +
                 if (stream.logsTruncated) listOf("Track decoder logs were truncated") else emptyList(),
         )
     }

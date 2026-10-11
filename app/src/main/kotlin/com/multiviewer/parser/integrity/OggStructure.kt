@@ -9,9 +9,13 @@ private const val OGG_UINT32_MASK = 0xffff_ffffL
 internal fun checkOggStructure(reader: ByteReader): List<IntegrityCheckItem> {
     val items = mutableListOf<IntegrityCheckItem>()
     var findingsTruncated = false
+    var omittedFailure = false
     fun add(id: String, title: String, status: CheckStatus, detail: String, offset: Long? = null, length: Long? = null) {
         if (items.size < OGG_MAX_ITEMS) items += IntegrityCheckItem("ogg.$id", title, status, detail, offset, length)
-        else findingsTruncated = true
+        else {
+            findingsTruncated = true
+            omittedFailure = omittedFailure || status == CheckStatus.FAIL
+        }
     }
     val streams = HashMap<Long, OggStreamState>()
     var position = 0L
@@ -103,8 +107,10 @@ internal fun checkOggStructure(reader: ByteReader): List<IntegrityCheckItem> {
             "Codec-specific checks are unavailable for serial $serial")
     }
     if (pageCount > 0) add("pages", "Ogg pages", CheckStatus.PASS, "$pageCount complete Ogg page(s) checked")
-    if (findingsTruncated) items += IntegrityCheckItem("ogg.findings.truncated", "Finding limit", CheckStatus.WARN,
-        "More than $OGG_MAX_ITEMS findings occurred; additional findings were omitted")
+    if (findingsTruncated) items += IntegrityCheckItem("ogg.findings.truncated", "Finding limit",
+        if (omittedFailure) CheckStatus.FAIL else CheckStatus.WARN,
+        if (omittedFailure) "More than $OGG_MAX_ITEMS findings occurred; an additional structural failure was omitted"
+        else "More than $OGG_MAX_ITEMS findings occurred; additional findings were omitted")
     return items
 }
 

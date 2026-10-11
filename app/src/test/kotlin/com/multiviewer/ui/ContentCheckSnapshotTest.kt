@@ -165,11 +165,11 @@ class ContentCheckSnapshotTest {
     }
 
     @Test
-    fun decodeLogsAreCappedAtTwenty() {
+    fun decodeLogsRemainBoundedInDetailedPromptSection() {
         val decode = corruptDecode().copy(logs = (1..25).map { "log line $it" })
         val text = contentCheckPromptSection(ContentCheckSnapshot(corruptStructure(), decode, false, null, null, null), file)
         assertTrue(text.contains("log line 20"), text)
-        assertFalse(text.contains("log line 21"), text)
+        assertTrue(text.contains("log line 21"), text)
         assertTrue(text.contains("5개 생략"), text)
     }
 

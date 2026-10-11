@@ -58,6 +58,12 @@ class M4aStructureTest {
         assertTrue(check(fixture(handler = "vide")).any { it.id == "m4a.audioTrack" && it.status == CheckStatus.SKIP })
     }
 
+    @Test
+    fun findingLimitPreservesLateStructuralFailure() {
+        val items = check(fixture(trackCount = 251, lastTrackOffsetOverride = 0x7fff_ffffL))
+        assertTrue(items.any { it.id == "m4a.findings.truncated" && it.status == CheckStatus.FAIL }, items.takeLast(3).toString())
+    }
+
     private fun check(bytes: ByteArray): List<IntegrityCheckItem> {
         val file = File.createTempFile("m4a-structure-", ".m4a").also { it.deleteOnExit(); it.writeBytes(bytes) }
         val tree = parseFile(file)
@@ -73,10 +79,12 @@ class M4aStructureTest {
         includeStsc: Boolean = true,
         handler: String = "soun",
         fragmented: Boolean = false,
+        trackCount: Int = 1,
+        lastTrackOffsetOverride: Long? = null,
     ): ByteArray {
         val ftyp = box("ftyp", "M4A \u0000\u0000\u0000\u0000M4A ".toByteArray(Charsets.ISO_8859_1))
         val mdat = box("mdat", byteArrayOf(1, 2, 3, 4))
-        fun moov(offset: Long): ByteArray {
+        fun track(offset: Long): ByteArray {
             val sizeEntries = sizes.fold(ByteArray(0)) { bytes, size -> bytes + be32(size) }
             val stsz = box("stsz", byteArrayOf(0, 0, 0, 0) + be32(if (variableSizes) 0 else 4) + be32(sampleCount) + sizeEntries)
             val chunkData = if (co64) be64(offset) else be32(offset)
@@ -86,7 +94,18 @@ class M4aStructureTest {
             val minf = box("minf", stbl)
             val hdlr = box("hdlr", ByteArray(8) + handler.toByteArray(Charsets.US_ASCII) + ByteArray(12))
             val mdia = box("mdia", hdlr + minf)
-            return box("moov", box("trak", mdia) + if (fragmented) box("mvex", byteArrayOf()) else byteArrayOf())
+            return box("trak", mdia)
+        }
+        fun moov(defaultOffset: Long): ByteArray {
+            val tracks = (0 until trackCount).map { index ->
+                val offset = when {
+                    lastTrackOffsetOverride != null && index == trackCount - 1 -> lastTrackOffsetOverride
+                    offsetOverride != null -> offsetOverride
+                    else -> defaultOffset
+                }
+                track(offset)
+            }.fold(ByteArray(0), ByteArray::plus)
+            return box("moov", tracks + if (fragmented) box("mvex", byteArrayOf()) else byteArrayOf())
         }
         val placeholder = moov(0)
         val mdatOffset = (ftyp.size + placeholder.size + 8).toLong()

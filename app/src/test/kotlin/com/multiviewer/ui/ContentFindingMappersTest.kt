@@ -78,6 +78,31 @@ class ContentFindingMappersTest {
         assertTrue(finding.hypothesis!!.isNotBlank())
     }
 
+    @Test fun unmatchedDecoderMessageDoesNotReceiveInventedCause() {
+        val finding = videoFindings(VideoIntegrityReport(
+            decodeStatus = IntegrityStatus.ISSUES, packetStatus = IntegrityStatus.NOT_RUN, decodedFrames = 0,
+            logs = listOf("vendor-specific decoder note: retrying"), packetLogs = emptyList(), packets = emptyList(),
+        )).decoderFindings.single()
+
+        assertEquals("vendor-specific decoder note: retrying", finding.summary)
+        assertNull(finding.hypothesis)
+        assertTrue(finding.nextChecks.isEmpty())
+        assertEquals("Cause not determined", unknownDecoderCauseLabel(finding, ko = false))
+    }
+
+    @Test fun imageAndAudioAdaptersRetainCapturedLogsBeyondTwentyEntries() {
+        val logs = (1..25).map { "captured decoder message $it" }
+        val image = ImageDecodeReport(
+            ffmpegStatus = ImageDecodeStatus.ISSUES, decodedFrames = 1, decodedWidth = 1, decodedHeight = 1,
+            logs = logs, logsTruncated = false, ffmpegVersion = null, source = "ffmpeg",
+            skia = SkiaDecodeResult(true, true, "decoded"), declaredWidth = 1, declaredHeight = 1,
+        )
+        val audio = AudioIntegrityReport(IntegrityStatus.ISSUES, emptyList(), logs = logs)
+
+        assertTrue("captured decoder message 25" in imageDecodeFindings(image).first().verifiedFacts)
+        assertTrue("captured decoder message 25" in audioFindings(audio).probeFindings.single().verifiedFacts)
+    }
+
     @Test fun preservesPacketLocationAndRange() {
         val report = VideoIntegrityReport(
             decodeStatus = IntegrityStatus.CLEAN, packetStatus = IntegrityStatus.ISSUES, decodedFrames = 2,

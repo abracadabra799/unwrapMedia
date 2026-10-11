@@ -40,6 +40,21 @@ class ContentFindingTableTest {
         assertFalse(isSelectableContentRange(finding("no-range", CheckStatus.WARN), 7))
     }
 
+    @Test fun collapsedSummaryIsBoundedWhileExpandedTextRemainsAvailable() {
+        val longSummary = "diagnostic ".repeat(100)
+        val collapsed = contentFindingCollapsedSummary(longSummary)
+
+        assertTrue(collapsed.length <= MAX_COLLAPSED_FINDING_SUMMARY_LENGTH)
+        assertTrue(collapsed.endsWith("…"))
+        assertEquals(longSummary.take(4000), contentFindingExpandedSummary(longSummary))
+    }
+
+    @Test fun rangeActionRequiresConnectedSelectionCallback() {
+        val ranged = finding("range", CheckStatus.WARN, 3, 2)
+        assertTrue(canSelectContentFindingRange(ranged, 5, callbackAvailable = true))
+        assertFalse(canSelectContentFindingRange(ranged, 5, callbackAvailable = false))
+    }
+
     private fun finding(id: String, status: CheckStatus, offset: Long? = null, length: Long? = null) = ContentFinding(
         id = id, stage = FindingStage.STRUCTURE, status = status, title = id,
         location = null, offset = offset, length = length, summary = id, verifiedFacts = listOf(id),

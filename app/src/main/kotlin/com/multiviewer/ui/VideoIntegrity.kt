@@ -12,12 +12,13 @@ enum class IntegrityStatus { NOT_RUN, CLEAN, ISSUES, FAILED }
 data class IntegrityDiagnostic(val message: String, val explanation: ErrorExplanation) {
     // Decoder output does not establish the input packet responsible for an error.
     val locationStatus: String get() = "UNAVAILABLE"
+    val hasSpecificRule: Boolean get() = explanation.hasSpecificRule
 }
 
 fun explainIntegrityLog(message: String): IntegrityDiagnostic {
     val explanation = runCatching { BitstreamCorruptionScanner.interpretDecoderError(message) }.getOrElse {
         ErrorExplanation("디코더 오류", message, "로그만으로 원인을 확정할 수 없습니다.",
-            "디코딩 실패 또는 영상 왜곡 가능", actionableFix = "패킷 및 코덱 파라미터를 원본과 비교하세요.")
+            "디코딩 실패 또는 영상 왜곡 가능", actionableFix = "패킷 및 코덱 파라미터를 원본과 비교하세요.", hasSpecificRule = false)
     }
     // Legacy explanations may infer byte ranges or recommend a repair as if it were proven.
     // Reuse the diagnostic context, but offer evidence gathering instead of invented locations.
@@ -53,16 +54,18 @@ data class VideoIntegrityReport(
         "logs" to JsonValue.JArray(logs.map(JsonValue::JString)),
         "diagnostics" to JsonValue.JArray(logs.map { message ->
             val diagnostic = explainIntegrityLog(message)
-            JsonValue.JObject(listOf(
-                "message" to JsonValue.JString(message),
-                "locationStatus" to JsonValue.JString(diagnostic.locationStatus),
-                "interpretationStatus" to JsonValue.JString("HYPOTHESIS"),
-                "title" to JsonValue.JString(diagnostic.explanation.title),
-                "summary" to JsonValue.JString(diagnostic.explanation.summary),
-                "possibleCause" to JsonValue.JString(diagnostic.explanation.probableCause),
-                "possibleImpact" to JsonValue.JString(diagnostic.explanation.visualImpact),
-                "nextChecks" to JsonValue.JString(diagnostic.explanation.actionableFix),
-            ))
+            JsonValue.JObject(buildList {
+                add("message" to JsonValue.JString(message))
+                add("locationStatus" to JsonValue.JString(diagnostic.locationStatus))
+                add("interpretationStatus" to JsonValue.JString(if (diagnostic.hasSpecificRule) "HYPOTHESIS" else "UNAVAILABLE"))
+                add("title" to JsonValue.JString(if (diagnostic.hasSpecificRule) diagnostic.explanation.title else "Decoder message"))
+                if (diagnostic.hasSpecificRule) {
+                    add("summary" to JsonValue.JString(diagnostic.explanation.summary))
+                    add("possibleCause" to JsonValue.JString(diagnostic.explanation.probableCause))
+                    add("possibleImpact" to JsonValue.JString(diagnostic.explanation.visualImpact))
+                    add("nextChecks" to JsonValue.JString(diagnostic.explanation.actionableFix))
+                }
+            })
         }),
         "packetLogs" to JsonValue.JArray(packetLogs.map(JsonValue::JString)),
         "packets" to JsonValue.JArray(packets.map { p ->

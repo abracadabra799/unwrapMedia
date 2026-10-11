@@ -49,6 +49,14 @@ class OggStructureTest {
         assertTrue(check(page(7, 0, 2, "unknown".toByteArray())).any { it.id == "ogg.codec" && it.status == CheckStatus.SKIP })
     }
 
+    @Test
+    fun findingLimitPreservesFailuresAfterTheCap() {
+        val pages = (0 until 500).fold(ByteArray(0)) { bytes, serial -> bytes + page(serial, 1, 4, byteArrayOf()) }
+        val afterEos = page(0, 2, 0, byteArrayOf())
+        val items = check(pages + afterEos)
+        assertTrue(items.any { it.id == "ogg.findings.truncated" && it.status == CheckStatus.FAIL }, items.takeLast(3).toString())
+    }
+
     private fun check(bytes: ByteArray): List<IntegrityCheckItem> = ByteReader.open(
         File.createTempFile("ogg-structure-", ".ogg").also { it.deleteOnExit(); it.writeBytes(bytes) },
     ).use(::checkOggStructure)

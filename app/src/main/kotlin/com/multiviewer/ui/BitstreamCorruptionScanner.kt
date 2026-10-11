@@ -25,6 +25,7 @@ data class ErrorExplanation(
     val pixelCoordinates: Pair<Int, Int>? = null,
     val bufferOverrunBytes: Int? = null,
     val actionableFix: String,
+    val hasSpecificRule: Boolean = true,
 )
 
 /**
@@ -392,7 +393,8 @@ object BitstreamCorruptionScanner {
             summary = errorLine.substringAfter("] ").take(100),
             probableCause = "비표준 코덱 플래그 또는 패킷 바이트 불일치",
             visualImpact = "하드웨어 가속 디코더에서 예기치 않은 디코딩 지연 또는 왜곡 가능",
-            actionableFix = "Hex 뷰에서 해당 프레임 오프셋을 점검하고 표준 적합성을 확인하세요."
+            actionableFix = "Hex 뷰에서 해당 프레임 오프셋을 점검하고 표준 적합성을 확인하세요.",
+            hasSpecificRule = false,
         )
     }
 }

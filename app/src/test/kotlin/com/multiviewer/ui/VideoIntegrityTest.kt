@@ -35,6 +35,18 @@ class VideoIntegrityTest {
     }
 
     @Test
+    fun `unmatched decoder messages do not export inferred causes`() {
+        val json = VideoIntegrityReport(
+            IntegrityStatus.ISSUES, IntegrityStatus.NOT_RUN, 0,
+            listOf("vendor-specific decoder note: retrying"), emptyList(), emptyList(),
+        ).toJsonValue().render()
+
+        assertTrue(json.contains("\"interpretationStatus\": \"UNAVAILABLE\""))
+        assertFalse(json.contains("\"possibleCause\""))
+        assertTrue(json.contains("vendor-specific decoder note: retrying"))
+    }
+
+    @Test
     fun `packet mapping preserves absent timestamps and byte positions`() {
         val packet = parseIntegrityPacket("packet|pts_time=N/A|dts_time=-0.083333|size=42|pos=1234|flags=K__", 0)!!
         assertNull(packet.pts)
