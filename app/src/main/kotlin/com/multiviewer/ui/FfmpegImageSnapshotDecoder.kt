@@ -41,8 +41,12 @@ object FfmpegImageSnapshotDecoder {
             timeoutMs = 10_000L,
         )
 
-    fun decodeFirstFrameAsync(file: File, root: BoxNode? = null, onResult: (ImageBitmap?) -> Unit) {
-        Thread {
+    fun decodeFirstFrameAsync(
+        file: File, root: BoxNode? = null,
+        execute: (() -> Unit) -> Unit = { work -> Thread(work).apply { isDaemon = true }.start() },
+        onResult: (ImageBitmap?) -> Unit,
+    ) {
+        execute {
             // Attempt 1: Direct full-resolution decode (PNG format to avoid JPEG 65k/buffer limits on 200MP stills)
             var result = decodeSingleFrameToBitmap(
                 listOf(FfmpegLocator.ffmpegPath(), "-y", "-i", file.absolutePath, "-frames:v", "1", "-update", "1"),
@@ -69,14 +73,18 @@ object FfmpegImageSnapshotDecoder {
             }
 
             EventQueue.invokeLater { onResult(result) }
-        }.apply { isDaemon = true }.start()
+        }
     }
 
     // Decodes a HEIC's embedded "thmb" item (see extractHevcThumbnailAnnexB) via ffmpeg's raw HEVC
     // demuxer -- this parser's own fast-path thumbnail extraction only handles JPEG-coded items;
     // modern HEIC thumbnail items are commonly HEVC-coded instead, which is what this covers.
-    fun decodeEmbeddedHevcThumbnailAsync(file: File, root: BoxNode, onResult: (ImageBitmap?) -> Unit) {
-        Thread {
+    fun decodeEmbeddedHevcThumbnailAsync(
+        file: File, root: BoxNode,
+        execute: (() -> Unit) -> Unit = { work -> Thread(work).apply { isDaemon = true }.start() },
+        onResult: (ImageBitmap?) -> Unit,
+    ) {
+        execute {
             val annexB = try {
                 extractHevcThumbnailAnnexB(file, root)
             } catch (e: Exception) {
@@ -84,13 +92,13 @@ object FfmpegImageSnapshotDecoder {
             }
             if (annexB == null) {
                 EventQueue.invokeLater { onResult(null) }
-                return@Thread
+                return@execute
             }
             val tempH265 = try {
                 File.createTempFile("hevc-thumb-item-", ".h265")
             } catch (e: Exception) {
                 EventQueue.invokeLater { onResult(null) }
-                return@Thread
+                return@execute
             }
             val result = try {
                 tempH265.writeBytes(annexB)
@@ -102,7 +110,7 @@ object FfmpegImageSnapshotDecoder {
                 tempH265.delete()
             }
             EventQueue.invokeLater { onResult(result) }
-        }.apply { isDaemon = true }.start()
+        }
     }
 
     // Shared "ffmpeg <inputArgs> -> one JPEG/PNG frame -> Skia decode" pipeline. Runs synchronously on
@@ -112,6 +120,7 @@ object FfmpegImageSnapshotDecoder {
         tempExtension: String = ".png",
         timeoutMs: Long = DEFAULT_TIMEOUT_MS,
     ): ImageBitmap? {
+        if (Thread.currentThread().isInterrupted) return null
         val tempFile = try {
             File.createTempFile("ffmpeg-snapshot-", tempExtension)
         } catch (e: Exception) {

@@ -270,9 +270,7 @@ fun ContentCheckWindow(
                                     HeavyStep.MOTION_PHOTO -> {
                                         val root = tab.root ?: continue
                                         try {
-                                            // The analyzer blocks (ffmpeg decode, up to ~60 s) and ignores cancellation;
-                                            // await() returns at once on Cancel, and the late result is discarded.
-                                            val result = awaitDetached { MotionPhotoIntegrityAnalyzer.analyze(tab.file, root) }
+                                            val result = runInterruptible(Dispatchers.IO) { MotionPhotoIntegrityAnalyzer.analyze(tab.file, root) }
                                             if (current()) motion = result
                                         } catch (e: CancellationException) {
                                             throw e

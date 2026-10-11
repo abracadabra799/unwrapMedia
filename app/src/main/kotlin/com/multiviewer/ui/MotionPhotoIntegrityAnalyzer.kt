@@ -183,6 +183,8 @@ internal fun probeVideoDurationUs(file: File, video: com.multiviewer.parser.Embe
         val output = readProcessOutputWithTimeout(process, 30) { process.inputStream.bufferedReader().readText().trim() }
         process.waitFor()
         output?.toDoubleOrNull()?.let { (it * 1_000_000).toLong() }
+    } catch (e: InterruptedException) {
+        throw e
     } catch (e: Exception) {
         null
     } finally {
@@ -248,6 +250,8 @@ internal fun analyzeDecodability(file: File, video: com.multiviewer.parser.Embed
                 listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "임베디드 비디오 디코딩 확인", "ffmpeg가 디코딩 오류를 보고했습니다 (exit=$exitCode): $truncated"))
             }
         }
+    } catch (e: InterruptedException) {
+        throw e
     } catch (e: Exception) {
         listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "임베디드 비디오 디코딩 확인", "ffmpeg 실행 실패: ${e.message}"))
     } finally {

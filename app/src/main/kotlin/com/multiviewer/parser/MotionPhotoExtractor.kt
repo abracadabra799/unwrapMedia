@@ -41,6 +41,7 @@ fun extractEmbeddedVideo(source: File, video: EmbeddedVideo, destination: File) 
         destination.outputStream().use { out ->
             var offset = video.start
             while (offset < video.end) {
+                if (Thread.currentThread().isInterrupted) throw InterruptedException("Embedded video extraction cancelled")
                 val chunkSize = minOf(chunkSizeLimit, video.end - offset).toInt()
                 out.write(reader.readBytes(offset, chunkSize))
                 offset += chunkSize

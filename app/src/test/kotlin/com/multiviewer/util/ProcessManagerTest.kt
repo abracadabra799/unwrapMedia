@@ -10,6 +10,25 @@ import kotlin.test.assertTrue
 
 class ProcessManagerTest {
 
+    @Test
+    fun `terminate stops a child even when its parent exits immediately`() {
+        val parent = ProcessBuilder("sh", "-c", "sleep 30 & echo ${'$'}!; wait").start()
+        val child = ProcessHandle.of(parent.inputReader().readLine().toLong()).orElseThrow()
+        try {
+            ProcessManager.register(parent)
+            ProcessManager.terminate(parent)
+            assertTrue(parent.waitFor(2, TimeUnit.SECONDS))
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            while (child.isAlive && System.nanoTime() < deadline) Thread.sleep(10)
+            assertFalse(child.isAlive, "Parent exited but its child survived termination")
+        } finally {
+            child.destroyForcibly()
+            parent.destroyForcibly()
+            parent.waitFor(2, TimeUnit.SECONDS)
+            ProcessManager.unregister(parent)
+        }
+    }
+
     /** No-op fake so tests don't spawn real OS processes. */
     private class NoopProcess : Process() {
         @Volatile private var alive = true

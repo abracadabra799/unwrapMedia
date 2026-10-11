@@ -1,14 +1,15 @@
 package com.multiviewer.parser
 
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.graphics.asComposeImageBitmap
+import androidx.compose.ui.graphics.asSkiaBitmap
 import org.jetbrains.skia.Bitmap
 import org.jetbrains.skia.Codec
 import org.jetbrains.skia.Data
-import org.jetbrains.skia.Image
 import java.io.File
 
 const val MAX_GIF_FRAMES = 500
+private const val MAX_GIF_DECODED_BYTES = 32L * 1024 * 1024
 
 data class GifAnimationData(
     val frames: List<ImageBitmap>,
@@ -27,31 +28,48 @@ data class GifAnimationData(
 // mutated out from under an already-captured ImageBitmap by a later loop iteration. Returns null
 // if the file can't be decoded as an image at all (corrupt bytes, wrong format) -- callers should
 // fall back to the existing single-frame decodePrimaryBitmapAndHistogram path in that case.
-fun decodeGifAnimation(file: File, maxFrames: Int = MAX_GIF_FRAMES): GifAnimationData? {
+fun decodeGifAnimation(
+    file: File,
+    maxFrames: Int = MAX_GIF_FRAMES,
+    maxDecodedBytes: Long = MAX_GIF_DECODED_BYTES,
+): GifAnimationData? {
+    if (maxFrames <= 0 || maxDecodedBytes <= 0) return null
+    val frames = mutableListOf<ImageBitmap>()
+    var delivered = false
     return try {
-        val codec = Codec.makeFromData(Data.makeFromBytes(file.readBytes()))
-        val totalFrameCount = codec.frameCount
-        val framesInfo = codec.framesInfo
-        val decodedCount = minOf(totalFrameCount, maxFrames).coerceAtLeast(1)
-
-        val frames = mutableListOf<ImageBitmap>()
-        val durationsMs = mutableListOf<Int>()
-        for (index in 0 until decodedCount) {
-            val bitmap = Bitmap()
-            bitmap.allocPixels(codec.imageInfo)
-            codec.readPixels(bitmap, index)
-            frames.add(Image.makeFromBitmap(bitmap).toComposeImageBitmap())
-            durationsMs.add(if (index < framesInfo.size) framesInfo[index].duration else 0)
+        if (Thread.currentThread().isInterrupted) throw InterruptedException("GIF decode cancelled")
+        Data.makeFromBytes(file.readBytes()).use { data ->
+            Codec.makeFromData(data).use { codec ->
+                val totalFrameCount = codec.frameCount
+                val framesInfo = codec.framesInfo
+                val info = codec.imageInfo
+                val frameBytes = info.width.toLong() * info.height * 4
+                if (frameBytes <= 0 || frameBytes > maxDecodedBytes) return null
+                val decodedCount = minOf(totalFrameCount.coerceAtLeast(1).toLong(), maxFrames.toLong(), maxDecodedBytes / frameBytes).toInt()
+                val durationsMs = mutableListOf<Int>()
+                for (index in 0 until decodedCount) {
+                    if (Thread.currentThread().isInterrupted) throw InterruptedException("GIF decode cancelled")
+                    val bitmap = Bitmap()
+                    try {
+                        if (!bitmap.allocPixels(info)) { bitmap.close(); return null }
+                        codec.readPixels(bitmap, index)
+                        // Transfer ownership directly to Compose, avoiding a second full-frame copy.
+                        frames.add(bitmap.asComposeImageBitmap())
+                    } catch (e: Exception) {
+                        bitmap.close()
+                        throw e
+                    }
+                    durationsMs.add(if (index < framesInfo.size) framesInfo[index].duration else 0)
+                }
+                GifAnimationData(frames, durationsMs, codec.repetitionCount, totalFrameCount, totalFrameCount > decodedCount)
+                    .also { delivered = true }
+            }
         }
-
-        GifAnimationData(
-            frames = frames,
-            durationsMs = durationsMs,
-            loopCount = codec.repetitionCount,
-            totalFrameCount = totalFrameCount,
-            truncated = totalFrameCount > decodedCount,
-        )
+    } catch (e: InterruptedException) {
+        throw e
     } catch (e: Exception) {
         null
+    } finally {
+        if (!delivered) frames.forEach { it.asSkiaBitmap().close() }
     }
 }

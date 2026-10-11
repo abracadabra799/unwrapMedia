@@ -2,6 +2,8 @@ package com.multiviewer.util
 
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 
 /**
  * Global process tracker ensuring no zombie ffmpeg/ffprobe processes remain
@@ -9,6 +11,10 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object ProcessManager {
     private val activeProcesses = Collections.newSetFromMap(ConcurrentHashMap<Process, Boolean>())
+    private val terminating = ConcurrentHashMap<Process, List<ProcessHandle>>()
+    private val cleanup = ScheduledThreadPoolExecutor(4) { task ->
+        Thread(task, "media-process-cleanup").apply { isDaemon = true }
+    }.apply { removeOnCancelPolicy = true }
 
     /** Number of processes currently tracked. For leak assertions in tests. */
     internal val activeCount: Int get() = activeProcesses.size
@@ -40,59 +46,52 @@ object ProcessManager {
      */
     fun terminate(process: Process?) {
         if (process == null) return
-        activeProcesses.remove(process)
+        // Save descendants BEFORE signalling the parent: after it exits they are reparented
+        // and cannot be found through its PID. Keep this snapshot until forced cleanup ends.
+        val children = descendants(process)
+        if (terminating.putIfAbsent(process, children) != null) return
         try {
-            if (process.isAlive) {
-                process.destroy()
-                // If it doesn't exit promptly, force kill
-                Thread {
-                    try {
-                        Thread.sleep(200)
-                        if (process.isAlive) {
-                            killDescendantsAndForcibly(process)
-                        }
-                    } catch (_: Throwable) {
-                        killDescendantsAndForcibly(process)
-                    }
-                }.apply { isDaemon = true }.start()
+            children.asReversed().forEach { runCatching { if (it.isAlive) it.destroy() } }
+            runCatching { if (process.isAlive) process.destroy() }
+            val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(200)
+            while (System.nanoTime() < deadline && (process.isAlive || children.any { it.isAlive })) {
+                try { Thread.sleep(10) } catch (_: InterruptedException) { break }
             }
-        } catch (_: Throwable) {
-            killDescendantsAndForcibly(process)
+            if (process.isAlive || children.any { it.isAlive }) forceStop(process, children)
+            runCatching { if (process.isAlive) process.waitFor(200, TimeUnit.MILLISECONDS) }
+        } finally {
+            activeProcesses.remove(process)
+            terminating.remove(process)
         }
     }
 
-    private fun killDescendantsAndForcibly(process: Process) {
-        try {
-            ProcessHandle.of(process.pid()).ifPresent { h ->
-                h.descendants().forEach { it.destroyForcibly() }
-            }
-        } catch (_: Throwable) {}
-        try {
-            process.destroyForcibly()
-        } catch (_: Throwable) {}
+    private fun descendants(process: Process): List<ProcessHandle> = runCatching {
+        ProcessHandle.of(process.pid()).orElse(null)?.descendants()?.use { it.toList() }.orEmpty()
+    }.getOrDefault(emptyList())
+
+    private fun forceStop(process: Process, children: List<ProcessHandle>) {
+        (children + descendants(process)).distinctBy { it.pid() }.asReversed().forEach {
+            runCatching { if (it.isAlive) it.destroyForcibly() }
+        }
+        runCatching { if (process.isAlive) process.destroyForcibly() }
+    }
+
+    /** Cancellation must not depend on a blocked stdout read producing another line. */
+    fun watchCancellation(process: Process, cancelled: () -> Boolean): AutoCloseable {
+        val watch = cleanup.scheduleWithFixedDelay({
+            if (cancelled()) terminate(process)
+        }, 0, 50, TimeUnit.MILLISECONDS)
+        return AutoCloseable { watch.cancel(false) }
     }
 
     /**
      * Force kills all currently active processes.
      */
     fun destroyAll() {
-        val iterator = activeProcesses.iterator()
-        while (iterator.hasNext()) {
-            val p = iterator.next()
-            iterator.remove()
-            try {
-                if (p.isAlive) {
-                    // Kill children first (a PTY shell's CLI child would otherwise
-                    // survive). Go via ProcessHandle.of(pid) because pty4j's
-                    // WinConPtyProcess doesn't implement toHandle()/descendants().
-                    try {
-                        ProcessHandle.of(p.pid()).ifPresent { h ->
-                            h.descendants().forEach { it.destroyForcibly() }
-                        }
-                    } catch (_: Throwable) {}
-                    p.destroyForcibly()
-                }
-            } catch (_: Throwable) {}
+        for (p in activeProcesses.toSet() + terminating.keys) {
+            forceStop(p, terminating[p].orEmpty())
+            activeProcesses.remove(p)
+            terminating.remove(p)
         }
     }
 }

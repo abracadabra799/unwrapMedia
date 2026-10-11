@@ -8,6 +8,12 @@ import kotlin.test.assertTrue
 
 class FrameTypeAnalyzerTest {
     @Test
+    fun `progress snapshots grow geometrically to avoid quadratic list copying`() {
+        assertEquals(2_000, nextFrameSnapshotThreshold(1_000))
+        assertEquals(4_000, nextFrameSnapshotThreshold(2_000))
+        assertEquals(20_000, nextFrameSnapshotThreshold(10_000))
+    }
+    @Test
     fun `probeFrameTypes reads type, size, and timestamp for every frame of a real synthetic video`() {
         val video = File.createTempFile("frame-type-analyzer-test-", ".mp4")
         video.deleteOnExit()

@@ -7,6 +7,7 @@ import java.awt.EventQueue
 import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 
 private const val THUMBNAIL_DECODE_WIDTH_PX = 120
@@ -51,11 +52,16 @@ object FrameThumbnailDecoder {
         startIndex: Int,
         startPtsSeconds: Double,
         count: Int,
+        onComplete: () -> Unit = {},
         onProgress: (Map<Int, ImageBitmap>) -> Unit,
-    ) {
-        thumbnailDecoderExecutor.submit {
-            decodeRangeStreaming(file, startIndex, startPtsSeconds, count) { partialMap ->
-                EventQueue.invokeLater { onProgress(partialMap) }
+    ): Future<*> {
+        return thumbnailDecoderExecutor.submit {
+            try {
+                decodeRangeStreaming(file, startIndex, startPtsSeconds, count) { partialMap ->
+                    EventQueue.invokeLater { onProgress(partialMap) }
+                }
+            } finally {
+                EventQueue.invokeLater(onComplete)
             }
         }
     }
@@ -112,7 +118,7 @@ object FrameThumbnailDecoder {
                     try {
                         val bytes = thumbFile.readBytes()
                         if (bytes.isNotEmpty()) {
-                            val bitmap = Image.makeFromEncoded(bytes).toComposeImageBitmap()
+                            val bitmap = Image.makeFromEncoded(bytes).use { it.toComposeImageBitmap() }
                             processedOffsets.add(offset)
                             batch[startIndex + offset] = bitmap
                             thumbFile.delete()

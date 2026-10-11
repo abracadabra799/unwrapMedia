@@ -4,8 +4,23 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.test.assertFailsWith
 
 class ProcessOutputReaderTest {
+    @Test
+    fun `interrupted caller stops the process and propagates interruption`() {
+        val process = ProcessBuilder("sleep", "30").start()
+        try {
+            Thread.currentThread().interrupt()
+            assertFailsWith<InterruptedException> {
+                readProcessOutputWithTimeout(process, 30) { process.inputStream.read() }
+            }
+        } finally {
+            Thread.interrupted()
+            assertTrue(process.waitFor(2, java.util.concurrent.TimeUnit.SECONDS))
+            process.destroyForcibly()
+        }
+    }
     @Test
     fun `readProcessOutputWithTimeout returns the read result for a fast-completing process`() {
         val process = ProcessBuilder("echo", "hello").start()

@@ -38,6 +38,9 @@ import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
+import java.util.concurrent.Future
 
 // Fallback aspect ratio (width/height) used only until the first thumbnail decodes and reveals
 // the video's actual aspect -- 16:9 is a reasonable landscape-video default guess. Fixing cell
@@ -78,20 +81,36 @@ fun FrameThumbnailFilmstrip(tab: TabState, frames: List<FrameInfo>, modifier: Mo
     }
 
     LaunchedEffect(listState, frames, tab.file) {
-        snapshotFlow {
+        val context = currentCoroutineContext()
+        val requests = mutableListOf<Future<*>>()
+        try { snapshotFlow {
             val visible = listState.layoutInfo.visibleItemsInfo
             if (visible.isEmpty()) IntRange.EMPTY else visible.first().index..visible.last().index
         }.collect { visibleRange ->
+            requests.removeAll { it.isDone }
+            tab.filmstripThumbnails.protect(visibleRange)
             val alreadyCachedOrPending = tab.thumbnailCache.keys + tab.pendingThumbnailIndices
             val range = missingThumbnailRange(visibleRange, FILMSTRIP_PREFETCH_MARGIN, frames.size, alreadyCachedOrPending)
                 ?: return@collect
             tab.pendingThumbnailIndices = tab.pendingThumbnailIndices + range
-            FrameThumbnailDecoder.decodeRangeAsync(
+            requests += FrameThumbnailDecoder.decodeRangeAsync(
                 tab.file, range.first, frames[range.first].ptsSeconds, range.last - range.first + 1,
+                onComplete = {
+                    if (context.isActive && !tab.isClosed) {
+                        tab.pendingThumbnailIndices = tab.pendingThumbnailIndices - range.toSet()
+                    }
+                },
             ) { decoded ->
-                tab.thumbnailCache = tab.thumbnailCache + decoded
-                tab.pendingThumbnailIndices = tab.pendingThumbnailIndices - decoded.keys
+                if (context.isActive && !tab.isClosed) {
+                    tab.filmstripThumbnails.putAll(decoded)
+                    tab.thumbnailCache = tab.filmstripThumbnails.snapshot()
+                    tab.pendingThumbnailIndices = tab.pendingThumbnailIndices - decoded.keys
+                }
             }
+        } } finally {
+            requests.forEach { it.cancel(true) }
+            tab.pendingThumbnailIndices = emptySet()
+            tab.filmstripThumbnails.protect(emptySet())
         }
     }
 

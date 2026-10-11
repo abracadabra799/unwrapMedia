@@ -29,6 +29,10 @@ fun <T> readProcessOutputWithTimeout(process: Process, timeoutSeconds: Long, rea
         future.cancel(true)
         com.multiviewer.util.ProcessManager.terminate(process)
         null
+    } catch (e: InterruptedException) {
+        future.cancel(true)
+        com.multiviewer.util.ProcessManager.terminate(process)
+        throw e
     } catch (e: Exception) {
         com.multiviewer.util.ProcessManager.terminate(process)
         null

@@ -73,6 +73,7 @@ fun decodeAv2Bitstream(
     val diagnostic = error.get()
     return when {
         diagnostic != null -> AvmDecodeResult(frameCount.get(), processResult.stderr, diagnostic)
+        processResult.callbackError != null -> AvmDecodeResult(frameCount.get(), processResult.stderr, processResult.callbackError)
         cancelRequested() -> AvmDecodeResult(frameCount.get(), processResult.stderr, cancelled = true)
         stopped.get() && frameCount.get() > 0 -> AvmDecodeResult(frameCount.get(), processResult.stderr)
         processResult.exitCode != 0 -> AvmDecodeResult(

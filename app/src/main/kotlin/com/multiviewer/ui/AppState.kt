@@ -7,7 +7,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import com.multiviewer.parser.*
 import com.multiviewer.util.withTempFile
-import java.awt.EventQueue
 import java.io.File
 
 private const val MAX_OPEN_FILES = 20
@@ -109,6 +108,7 @@ data class ImageForensicData(
 )
 
 class TabState(val file: File) {
+    internal val backgroundTasks = TabBackgroundTasks()
     // Set by AppState.closeTab. Polled (not observed) from background threads, so it's a plain
     // @Volatile field rather than Compose state -- nothing recomposes on it; it exists so in-flight
     // background scans can notice their tab is gone and stop instead of finishing work nobody will
@@ -249,6 +249,9 @@ class TabState(val file: File) {
     // rapid double-trigger (e.g. two scroll events before the first batch returns) doesn't launch
     // two overlapping ffmpeg calls covering the same range.
     var thumbnailCache: Map<Int, androidx.compose.ui.graphics.ImageBitmap> by mutableStateOf(emptyMap())
+    internal val filmstripThumbnails = WeightedLruCache<Int, ImageBitmap>(8L * 1024 * 1024, 400) {
+        it.width.toLong() * it.height * 4
+    }
     var pendingThumbnailIndices: Set<Int> by mutableStateOf(emptySet())
 
     // Full-size frame preview popup (see FrameFullSizeDecoder.kt) -- true while the popup window
@@ -473,10 +476,10 @@ class AppState {
         val tab = TabState(file)
         tabs.add(tab)
         selectedTabIndex = tabs.size - 1
-        runInBackground {
+        tab.backgroundTasks.submit {
             val frameCount = rawPixelFrameCount(file.length(), width, height, format)
             val bitmap = if (frameCount > 0) decodeRawPixelFile(file, width, height, format, byteOrder, frameIndex = 0) else null
-            EventQueue.invokeLater {
+            tab.postIfOpen {
                 tab.type = MediaType.RAW_PIXEL
                 tab.rawPixelParams = RawPixelParams(width, height, format, byteOrder, frameCount, fps)
                 tab.rawPixelFrameIndex = 0
@@ -513,9 +516,9 @@ class AppState {
         val clamped = frameIndex.coerceIn(0, (params.frameCount - 1).coerceAtLeast(0))
         if (clamped == tab.rawPixelFrameIndex) return
         tab.rawPixelFrameIndex = clamped
-        runInBackground {
+        tab.backgroundTasks.submit {
             val bitmap = decodeRawPixelFile(tab.file, params.width, params.height, params.format, params.byteOrder, clamped)
-            EventQueue.invokeLater {
+            tab.postIfOpen {
                 if (tab.rawPixelFrameIndex == clamped) {
                     tab.imageForensic = (tab.imageForensic ?: ImageForensicData()).copy(bitmap = bitmap)
                 }
@@ -656,9 +659,9 @@ class AppState {
         // graph alone issues ~600 individual seek+read syscalls) — cheap on a fast local SSD but
         // slow enough on some setups (notably Windows, where each of those reads carries far more
         // per-syscall overhead) to freeze the whole UI if run inline. Run it on a background
-        // thread and marshal results back via EventQueue.invokeLater, same pattern already used
+        // thread and marshal results back via tab.postIfOpen, same pattern already used
         // for the ffmpeg HEIC fallback decode below.
-        Thread {
+        tab.backgroundTasks.submit {
             try {
                 val (root, mediaSummary, resolution, hardBlockMessage, embeddedVideo, motionPhotoPreview, gainmapInfo, finalImageForensic, type) = ByteReader.open(file).use { reader ->
                     val root = parseFile(file, reader)
@@ -719,18 +722,20 @@ class AppState {
                 }
 
                 if (hardBlockMessage != null) {
-                    EventQueue.invokeLater {
+                    tab.postIfOpen {
                         val idx = tabs.indexOf(tab)
                         if (idx >= 0) tabs.removeAt(idx)
+                        tab.isClosed = true
+                        tab.backgroundTasks.close()
                         if (selectedTabIndex >= tabs.size) selectedTabIndex = (tabs.size - 1).coerceAtLeast(0)
                         openFileError = hardBlockMessage
                     }
-                    return@Thread
+                    return@submit
                 }
 
                 val warning = resolution?.let { (w, h) -> resolutionWarningMessage(w, h, type == MediaType.VIDEO) }
 
-                EventQueue.invokeLater {
+                tab.postIfOpen {
                     tab.root = root
                     tab.type = type
                     tab.mediaSummary = mediaSummary
@@ -746,11 +751,11 @@ class AppState {
                         // so opening a video/audio file doesn't wait on spawning it. The tab is
                         // already interactive (structure tree, hex view, general summary) with
                         // this filling in a moment later, same as the image decode below.
-                        runInBackground {
+                        tab.backgroundTasks.submit {
                             val details = probeStreamDetails(file)
                             if (details != null) {
                                 val enriched = mergeStreamCodecDetails(mediaSummary, details.videoFields, details.audioFields)
-                                EventQueue.invokeLater { tab.mediaSummary = enriched }
+                                tab.postIfOpen { tab.mediaSummary = enriched }
                             }
                         }
                     }
@@ -770,8 +775,10 @@ class AppState {
                             // image means it's very likely HEVC-coded instead (common in modern
                             // HEIC files) -- try that specific path too, independently of the
                             // primary image decode below.
-                            FfmpegImageSnapshotDecoder.decodeEmbeddedHevcThumbnailAsync(file, root) { thumbBitmap ->
-                                if (thumbBitmap != null) {
+                            FfmpegImageSnapshotDecoder.decodeEmbeddedHevcThumbnailAsync(
+                                file, root, execute = { work -> tab.backgroundTasks.submit(work) },
+                            ) { thumbBitmap ->
+                                if (!tab.isClosed && thumbBitmap != null) {
                                     val current = tab.imageForensic ?: finalImageForensic
                                     val orientedThumb = ImageAnalyzer.orientImageBitmap(thumbBitmap, current.thumbnailOrientationCode)
                                     tab.imageForensic = current.copy(embeddedThumbnail = orientedThumb)
@@ -779,17 +786,20 @@ class AppState {
                             }
                         }
 
-                        runInBackground {
+                        tab.backgroundTasks.submit {
                             val (bitmap, histogram) = ImageAnalyzer.decodePrimaryBitmapAndHistogram(file)
                             if (bitmap != null) {
-                                EventQueue.invokeLater {
+                                tab.postIfOpen {
                                     val current = tab.imageForensic ?: finalImageForensic
                                     tab.imageForensic = current.copy(bitmap = bitmap, histogram = histogram, isDecodingFallback = false)
                                 }
                             } else {
                                 // Skia has no HEIF/HEVC decoder — fall back to ffmpeg (already async
-                                // and posts back via EventQueue.invokeLater itself).
-                                FfmpegImageSnapshotDecoder.decodeFirstFrameAsync(file, root) { fallbackBitmap ->
+                                // and posts back via tab.postIfOpen itself).
+                                FfmpegImageSnapshotDecoder.decodeFirstFrameAsync(
+                                    file, root, execute = { work -> tab.backgroundTasks.submit(work) },
+                                ) fallback@{ fallbackBitmap ->
+                                    if (tab.isClosed) return@fallback
                                     val current = tab.imageForensic ?: finalImageForensic
                                     // Do NOT substitute the full-resolution primary decode as the
                                     // "thumbnail" when the real embedded thumbnail item couldn't be
@@ -813,9 +823,9 @@ class AppState {
                             // primary boxes as a fallback for as long as this hasn't finished, and
                             // GifFilmstripPlayer itself falls back to a plain static frame when this
                             // decode fails outright (see GifFrameDecoder.kt).
-                            runInBackground {
+                            tab.backgroundTasks.submit {
                                 val animation = decodeGifAnimation(file)
-                                EventQueue.invokeLater { tab.gifAnimation = animation }
+                                tab.postIfOpen { tab.gifAnimation = animation }
                             }
                         }
                     } else {
@@ -823,12 +833,12 @@ class AppState {
                     }
                 }
             } catch (e: Exception) {
-                EventQueue.invokeLater {
+                tab.postIfOpen {
                     tab.error = e.message ?: "Failed to open file"
                     tab.isLoading = false
                 }
             }
-        }.apply { isDaemon = true }.start()
+        }
     }
 
     fun closeTab(index: Int) {
@@ -841,7 +851,13 @@ class AppState {
             else -> selectedTabIndex
         }
         selectedTabIndex = nextIndex
-        tabs.removeAt(index).isClosed = true
+        val tab = tabs.removeAt(index)
+        tab.isClosed = true
+        tab.backgroundTasks.close()
+        tab.filmstripThumbnails.clear()
+        tab.thumbnailCache = emptyMap()
+        tab.gifAnimation = null
+        tab.fullSizeFrameBitmap = null
     }
 
     fun closeTabByFile(file: File) {
@@ -856,10 +872,10 @@ class AppState {
         tab.isAnalyzingFrames = true
         tab.frameAnalysisLoadedCount = 0
         tab.frameAnalysisProgress = null
-        runInBackground {
+        tab.backgroundTasks.submit {
             kotlinx.coroutines.runBlocking {
                 probeFrameTypesStreaming(tab.file, isCancelled = { tab.isClosed }).collect { progress ->
-                    EventQueue.invokeLater {
+                    tab.postIfOpen {
                         tab.gopFrames = progress.frames
                         tab.frameAnalysisLoadedCount = progress.loadedCount
                         tab.frameAnalysisProgress = if (progress.estimatedTotal != null && progress.estimatedTotal > 0) {
@@ -879,7 +895,7 @@ class AppState {
         val video = tab.embeddedVideo ?: return
         if (tab.isAnalyzingMotionPhotoCodec || tab.motionPhotoCodecDetailsLoaded) return
         tab.isAnalyzingMotionPhotoCodec = true
-        runInBackground {
+        tab.backgroundTasks.submit {
             // The extracted video is deleted even if the extract or the probe throws -- see
             // withTempFile. Previously the delete sat after the probe, so a probe failure stranded
             // the whole extracted video in the temp directory for the rest of the session.
@@ -891,7 +907,7 @@ class AppState {
                     null
                 }
             }
-            EventQueue.invokeLater {
+            tab.postIfOpen {
                 val summary = tab.mediaSummary
                 if (details != null && summary != null) {
                     val currentSections = summary.motionPhotoVideoSections ?: emptyList()
@@ -908,7 +924,7 @@ class AppState {
         val video = tab.embeddedVideo ?: return
         if (tab.isAnalyzingMotionPhotoFrames || tab.motionPhotoGopFrames != null) return
         tab.isAnalyzingMotionPhotoFrames = true
-        runInBackground {
+        tab.backgroundTasks.submit {
             // Same contract as analyzeMotionPhotoCodecDetails above: the extracted video goes away
             // on every path, including the ones that throw.
             val scanned = withTempFile("motion-photo-frame-interval-", ".${video.extension}") { temp ->
@@ -917,7 +933,7 @@ class AppState {
                     val videoInfo = probeVideo(temp)
                     kotlinx.coroutines.runBlocking {
                         probeFrameTypesStreaming(temp, isCancelled = { tab.isClosed }).collect { progress ->
-                            EventQueue.invokeLater {
+                            tab.postIfOpen {
                                 tab.motionPhotoGopFrames = progress.frames
                                 tab.motionPhotoVideoFps = videoInfo?.fps
                                 if (progress.isComplete) {
@@ -932,7 +948,7 @@ class AppState {
                 }
             }
             if (scanned != true) {
-                EventQueue.invokeLater {
+                tab.postIfOpen {
                     tab.motionPhotoGopFrames = emptyList()
                     tab.isAnalyzingMotionPhotoFrames = false
                 }

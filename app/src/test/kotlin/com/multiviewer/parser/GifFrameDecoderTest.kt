@@ -67,6 +67,19 @@ private fun writeTwoFrameGif(): File {
 
 class GifFrameDecoderTest {
     @Test
+    fun `pixel budget truncates frames before allocating the next bitmap`() {
+        val animation = decodeGifAnimation(writeTwoFrameGif(), maxDecodedBytes = 4)
+        assertNotNull(animation)
+        assertEquals(1, animation.frames.size)
+        assertEquals(2, animation.totalFrameCount)
+        assertTrue(animation.truncated)
+    }
+
+    @Test
+    fun `pixel budget rejects a canvas that cannot fit one frame`() {
+        assertEquals(null, decodeGifAnimation(writeTwoFrameGif(), maxDecodedBytes = 3))
+    }
+    @Test
     fun `decodes both frames of a two-frame animated GIF with correct durations`() {
         val animation = decodeGifAnimation(writeTwoFrameGif())
         assertNotNull(animation)

@@ -3,6 +3,10 @@ package com.multiviewer.ui
 import com.multiviewer.cache.MediaIndexCache
 import com.multiviewer.util.ProcessManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -17,10 +21,11 @@ data class FrameAnalysisProgress(
     val isComplete: Boolean,
 )
 
-// isCancelled is polled per ffprobe output line so a scan whose tab has been closed stops reading
-// instead of running the file to completion -- runInBackground's pool is only 2 threads wide, so an
-// abandoned scan blocks other tabs' work behind it. Flow cancellation alone can't do this: the
-// blocking stdout read below is not interruptible, so nothing unwinds until ffprobe itself is done.
+internal fun nextFrameSnapshotThreshold(frameCount: Int): Int =
+    (frameCount.toLong() * 2).coerceAtMost(Int.MAX_VALUE.toLong()).toInt().coerceAtLeast(frameCount + 1)
+
+// isCancelled and the coroutine job are both observed independently of stdout: a tab may close
+// while this blocking read is silent, in which case a line-based cancellation check alone hangs.
 fun probeFrameTypesStreaming(
     file: File,
     estimatedDurationSec: Double? = null,
@@ -28,6 +33,8 @@ fun probeFrameTypesStreaming(
     chunkSize: Int = 1000,
     isCancelled: () -> Boolean = { false },
 ): Flow<FrameAnalysisProgress> = flow {
+    if (isCancelled()) return@flow
+    val context = currentCoroutineContext()
     val cached = MediaIndexCache.get(file)
     if (cached != null) {
         emit(FrameAnalysisProgress(cached, cached.size, cached.size, isComplete = true))
@@ -42,6 +49,7 @@ fun probeFrameTypesStreaming(
     // neither Flow cancellation nor the coroutine machinery interrupts the blocking stdout read
     // below, so without this the process outlives its collector.
     var process: Process? = null
+    var cancellationWatch: AutoCloseable? = null
     try {
         process = ProcessManager.register(
             ProcessBuilder(
@@ -51,10 +59,11 @@ fun probeFrameTypesStreaming(
             ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD)
                 .also { FfmpegLocator.configureEnvironment(it) }.start()
         )
+        cancellationWatch = ProcessManager.watchCancellation(process) { isCancelled() || !context.isActive }
 
         val values = mutableMapOf<String, String>()
         val frames = ArrayList<FrameInfo>(estimatedTotal ?: 10000)
-        var chunkCount = 0
+        var nextSnapshot = chunkSize.coerceAtLeast(1)
 
         var cancelled = false
         process.inputStream.bufferedReader().useLines { lines ->
@@ -75,8 +84,7 @@ fun probeFrameTypesStreaming(
                     val byteOffset = values["pkt_pos"]?.toLongOrNull()
                     if (pts != null && size != null && type != null) {
                         frames.add(FrameInfo(frames.size, type, size, pts, byteOffset))
-                        chunkCount++
-                        if (chunkCount >= chunkSize) {
+                        if (frames.size >= nextSnapshot) {
                             emit(
                                 FrameAnalysisProgress(
                                     frames = ArrayList(frames),
@@ -85,7 +93,7 @@ fun probeFrameTypesStreaming(
                                     isComplete = false,
                                 )
                             )
-                            chunkCount = 0
+                            nextSnapshot = nextFrameSnapshotThreshold(frames.size)
                         }
                     }
                     values.clear()
@@ -94,16 +102,21 @@ fun probeFrameTypesStreaming(
         }
         // A cancelled scan read only part of the file: emitting or caching that partial list would
         // let a later scan read it back from the cache as if it were the complete frame index.
-        if (cancelled) return@flow
+        context.ensureActive()
+        if (cancelled || isCancelled()) return@flow
         process.waitFor()
 
         if (frames.isNotEmpty()) {
             MediaIndexCache.put(file, frames)
         }
         emit(FrameAnalysisProgress(frames, frames.size, estimatedTotal, isComplete = true))
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: Exception) {
-        emit(FrameAnalysisProgress(emptyList(), 0, estimatedTotal, isComplete = true))
+        context.ensureActive()
+        if (!isCancelled()) emit(FrameAnalysisProgress(emptyList(), 0, estimatedTotal, isComplete = true))
     } finally {
+        cancellationWatch?.close()
         ProcessManager.terminate(process)
         process?.let { ProcessManager.unregister(it) }
     }

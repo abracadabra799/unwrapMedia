@@ -22,7 +22,7 @@ import java.util.concurrent.ThreadFactory
 // instead serializes the overflow instead of letting it pile on -- a task queues briefly rather
 // than racing every other task for CPU/IO. Sized at 2 (matching MAX_OPEN_FILES): each open tab
 // gets a slot; a third task just waits its turn instead of adding a third contender.
-private val backgroundExecutor = Executors.newFixedThreadPool(
+internal val backgroundExecutor = Executors.newFixedThreadPool(
     2,
     ThreadFactory { runnable -> Thread(runnable).apply { isDaemon = true } },
 )
