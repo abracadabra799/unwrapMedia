@@ -472,4 +472,26 @@ class MotionPhotoIntegrityAnalyzerTest {
         val report = MotionPhotoIntegrityAnalyzer.analyze(file, root)
         assertTrue(MotionPhotoFormat.SAMSUNG_SEF in report.detectedFormats)
     }
+
+    @Test
+    fun `analyze populates deepAnalysis compatibilityMatrix and checks`() {
+        val payload = "mpv2".toByteArray() + ByteArray(8).also {
+            it[3] = 10
+            it[7] = 5
+        }
+        val trailerBytes = buildSefTrailer(listOf(SefTestField(0x0d01, "MotionPhoto_Data", payload)))
+        val file = File.createTempFile("motion-photo-deep-test", ".bin")
+        file.deleteOnExit()
+        file.writeBytes(trailerBytes)
+        val sefdNode = BoxNode(
+            type = "sefd", offset = 0, headerSize = 0, size = trailerBytes.size.toLong(),
+            children = listOf(BoxNode(type = "MotionPhoto_Data", offset = 0, headerSize = 0, size = 16)),
+        )
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = trailerBytes.size.toLong(), children = listOf(sefdNode))
+        val report = MotionPhotoIntegrityAnalyzer.analyze(file, root)
+
+        kotlin.test.assertNotNull(report.deepAnalysis)
+        kotlin.test.assertNotNull(report.deepAnalysis?.compatibilityMatrix)
+        assertTrue(report.deepAnalysis?.compatibilityMatrix?.entries?.isNotEmpty() == true)
+    }
 }

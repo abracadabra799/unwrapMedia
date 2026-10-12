@@ -42,6 +42,12 @@ fun hasMotionPhotoData(root: BoxNode): Boolean {
 
 enum class MotionPhotoFormat { SAMSUNG_SEF, GOOGLE_XMP, APPLE_MPVD }
 
+data class MotionPhotoDeepAnalysis(
+    val frameMatch: com.multiviewer.parser.motionphoto.FrameMatchResult?,
+    val livePhotoPair: com.multiviewer.parser.motionphoto.LivePhotoPairReport?,
+    val compatibilityMatrix: com.multiviewer.parser.motionphoto.CompatibilityMatrixReport,
+)
+
 data class MotionPhotoIntegrityReport(
     val detectedFormats: List<MotionPhotoFormat>,
     val sefSection: SefIntegrityReport?,
@@ -49,6 +55,7 @@ data class MotionPhotoIntegrityReport(
     val appleMpvdChecks: List<SefCheckResult>,
     val decodeChecks: List<SefCheckResult>,
     val overallSeverity: SefIntegritySeverity,
+    val deepAnalysis: MotionPhotoDeepAnalysis? = null,
 )
 
 // Verifies a Google-format (Container:Directory "MotionPhoto" semantic, current schema, or the
@@ -319,7 +326,93 @@ object MotionPhotoIntegrityAnalyzer {
                 else -> SefIntegritySeverity.PASS
             }
 
-            MotionPhotoIntegrityReport(detectedFormats, sefSection, googleChecks, appleChecks, decodeChecks, overall)
+            val deepAnalysis = try {
+                analyzeDeepMotionPhoto(file, root, reader, video)
+            } catch (_: Exception) {
+                null
+            }
+
+            MotionPhotoIntegrityReport(detectedFormats, sefSection, googleChecks, appleChecks, decodeChecks, overall, deepAnalysis)
         }
+    }
+
+    private fun analyzeDeepMotionPhoto(
+        file: File,
+        root: BoxNode,
+        reader: ByteReader,
+        video: com.multiviewer.parser.EmbeddedVideo?,
+    ): MotionPhotoDeepAnalysis {
+        var videoRoot: BoxNode? = null
+        var sampleTable: com.multiviewer.parser.VideoSampleTable? = null
+
+        if (video != null) {
+            val tempVideo = File.createTempFile("motion-photo-deep-probe", ".${video.extension}")
+            try {
+                com.multiviewer.parser.extractEmbeddedVideo(file, video, tempVideo)
+                videoRoot = try { com.multiviewer.parser.parseFile(tempVideo) } catch (_: Exception) { null }
+                if (videoRoot != null) {
+                    ByteReader.open(tempVideo).use { vReader ->
+                        sampleTable = com.multiviewer.parser.buildVideoSampleTable(vReader, videoRoot)
+                    }
+                }
+            } catch (_: Exception) {
+                // Extraction failure fallback
+            } finally {
+                tempVideo.delete()
+            }
+        } else {
+            // Standalone video file case
+            sampleTable = com.multiviewer.parser.buildVideoSampleTable(reader, root)
+        }
+
+        // 1. Frame match
+        val targetTimestampUs = com.multiviewer.parser.motionphoto.extractPresentationTimestampUs(root)
+        val frameMatch = if (sampleTable != null && targetTimestampUs != null) {
+            com.multiviewer.parser.motionphoto.matchFrameToTimestamp(sampleTable, targetTimestampUs)
+        } else {
+            null
+        }
+
+        // 2. Apple Live Photo Pair
+        val stillMeta = com.multiviewer.parser.motionphoto.extractAppleStillMetadata(root)
+        val videoMeta = if (videoRoot != null) {
+            com.multiviewer.parser.motionphoto.extractAppleVideoMetadata(videoRoot)
+        } else {
+            com.multiviewer.parser.motionphoto.extractAppleVideoMetadata(root)
+        }
+
+        val pairCandidate = com.multiviewer.parser.motionphoto.findLivePhotoPairCandidate(file)
+        val livePhotoPair = if (pairCandidate != null) {
+            val pairRoot = try { com.multiviewer.parser.parseFile(pairCandidate) } catch (_: Exception) { null }
+            val pairStill = pairRoot?.let { com.multiviewer.parser.motionphoto.extractAppleStillMetadata(it) }
+            val pairVideo = pairRoot?.let { com.multiviewer.parser.motionphoto.extractAppleVideoMetadata(it) }
+            when {
+                stillMeta != null && pairVideo != null ->
+                    com.multiviewer.parser.motionphoto.inspectLivePhotoPair(stillMeta, pairVideo, file, pairCandidate)
+                videoMeta != null && pairStill != null ->
+                    com.multiviewer.parser.motionphoto.inspectLivePhotoPair(pairStill, videoMeta, pairCandidate, file)
+                else ->
+                    com.multiviewer.parser.motionphoto.inspectLivePhotoPair(stillMeta, videoMeta, file, pairCandidate)
+            }
+        } else if (stillMeta != null || videoMeta != null) {
+            com.multiviewer.parser.motionphoto.inspectLivePhotoPair(stillMeta, videoMeta, file, null)
+        } else {
+            null
+        }
+
+        // 3. Compatibility matrix
+        val hasPair = livePhotoPair?.status == com.multiviewer.parser.motionphoto.LivePhotoPairStatus.MATCHED
+        val specs = com.multiviewer.parser.motionphoto.extractMotionPhotoProfileSpecs(
+            root = root,
+            hasPair = hasPair,
+            videoCodec = sampleTable?.codec?.name,
+        )
+        val compatMatrix = com.multiviewer.parser.motionphoto.evaluateMotionPhotoCompatibility(specs)
+
+        return MotionPhotoDeepAnalysis(
+            frameMatch = frameMatch,
+            livePhotoPair = livePhotoPair,
+            compatibilityMatrix = compatMatrix,
+        )
     }
 }
