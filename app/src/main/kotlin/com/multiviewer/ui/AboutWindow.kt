@@ -13,8 +13,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.painter.BitmapPainter
-import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -27,8 +25,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.rememberWindowState
-import org.jetbrains.skia.Image as SkiaImage
-import java.io.File
 
 @Composable
 fun AboutWindow(
@@ -41,15 +37,7 @@ fun AboutWindow(
         size = DpSize(560.dp, 620.dp),
     )
 
-    val appIcon = remember {
-        try {
-            val iconBytes = File("icons/app_source.png").takeIf { it.exists() }?.readBytes()
-                ?: Thread.currentThread().contextClassLoader?.getResourceAsStream("icons/app_source.png")?.readBytes()
-            iconBytes?.let { BitmapPainter(SkiaImage.makeFromEncoded(it).toComposeImageBitmap()) }
-        } catch (_: Exception) {
-            null
-        }
-    }
+    val appIcon = appIconPainter
 
     Window(
         onCloseRequest = onCloseRequest,

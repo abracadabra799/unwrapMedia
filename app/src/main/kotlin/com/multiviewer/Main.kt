@@ -51,9 +51,6 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.graphics.painter.BitmapPainter
-import androidx.compose.ui.graphics.toComposeImageBitmap
-import org.jetbrains.skia.Image
 import java.awt.EventQueue
 import java.awt.FileDialog
 import java.awt.Frame
@@ -338,15 +335,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         }
     }
 
-    val appIcon = remember {
-        try {
-            val iconBytes = File("icons/app_source.png").takeIf { it.exists() }?.readBytes()
-                ?: Thread.currentThread().contextClassLoader?.getResourceAsStream("icons/app_source.png")?.readBytes()
-            iconBytes?.let { BitmapPainter(Image.makeFromEncoded(it).toComposeImageBitmap()) }
-        } catch (e: Exception) {
-            null
-        }
-    }
+    val appIcon = com.multiviewer.ui.appIconPainter
     val windowState = rememberWindowState(
         position = WindowPosition(Alignment.Center),
         // 1366x768 is still a common laptop resolution (notably on Windows) -- 1280x800 leaves

@@ -16,8 +16,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.painter.BitmapPainter
-import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -33,7 +31,6 @@ import androidx.compose.ui.window.rememberWindowState
 import com.multiviewer.update.UpdateChecker
 import com.multiviewer.update.UpdateInfo
 import kotlinx.coroutines.launch
-import org.jetbrains.skia.Image as SkiaImage
 import java.awt.Desktop
 import java.io.File
 import java.net.URI
@@ -57,15 +54,7 @@ fun UpdateWindow(
         size = DpSize(520.dp, 440.dp),
     )
 
-    val appIcon = remember {
-        try {
-            val iconBytes = File("icons/app_source.png").takeIf { it.exists() }?.readBytes()
-                ?: Thread.currentThread().contextClassLoader?.getResourceAsStream("icons/app_source.png")?.readBytes()
-            iconBytes?.let { BitmapPainter(SkiaImage.makeFromEncoded(it).toComposeImageBitmap()) }
-        } catch (_: Exception) {
-            null
-        }
-    }
+    val appIcon = appIconPainter
 
     val coroutineScope = rememberCoroutineScope()
     var currentState by remember { mutableStateOf(UpdateState.CHECKING) }
