@@ -20,8 +20,8 @@ Read `AGENTS.md` (repo root) for build/test commands, workflow and hard rules. T
 | 5 | MV/QP overlay for HEVC and AV1 (currently H.264 only) | **Shipped (merged into main)**. Spec/plan: `docs/superpowers/{specs,plans}/2026-10-13-hevc-av1-mv-qp-overlay*`. |
 | 6 | HRD/VBV buffer simulation | **Shipped (merged into main)**. Spec/plan: `docs/superpowers/{specs,plans}/2026-10-13-hrd-vbv-buffer-simulation*`. |
 | 7 | MV-HEVC spatial video | **Shipped (merged into main)**. Spec/plan: `docs/superpowers/{specs,plans}/2026-10-13-mv-hevc-spatial-video*`. |
-| 8 | Timed metadata tracks (camm / gyro / GPS) on a timeline | **Next action: ready to brainstorm / implement** |
-| 9 | HDR scopes (nits false colour, waveform, vectorscope, gamut, gain-map headroom slider) | not started |
+| 8 | Timed metadata tracks (camm / gyro / GPS) on a timeline | **Shipped (merged into main)**. Spec/plan: `docs/superpowers/{specs,plans}/2026-10-13-timed-metadata-tracks-timeline*`. |
+| 9 | HDR scopes (nits false colour, waveform, vectorscope, gamut, gain-map headroom slider) | **Next action: ready to brainstorm / implement** |
 | 10 | ADB integration (device browse/pull, `media_codecs.xml` / `dumpsys media.codec`) | not started |
 | 11 | MPEG-TS, VVC, loudness (LUFS) | not started |
 
