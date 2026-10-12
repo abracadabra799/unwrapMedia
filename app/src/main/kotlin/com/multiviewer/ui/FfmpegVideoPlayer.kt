@@ -613,7 +613,9 @@ fun FfmpegVideoPlayer(
         onDispose {
             stopped.set(true)
             readerThread?.interrupt()
-            com.multiviewer.util.ProcessManager.terminate(process)
+            // Async: onDispose runs on the UI thread on every seek, and the SIGTERM grace period
+            // must not stall it.
+            com.multiviewer.util.ProcessManager.terminateAsync(process)
             audioTrack?.destroy()
             audioTrackRef = null
         }

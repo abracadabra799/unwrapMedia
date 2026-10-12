@@ -130,4 +130,35 @@ class ProcessManagerTest {
         ProcessManager.terminate(p)
         assertEquals(base, ProcessManager.activeCount)
     }
+    // onDispose runs on the UI thread: a seek or tab close must not wait out the SIGTERM grace
+    // period there. A child that ignores SIGTERM is the worst case (grace + force kill).
+    @Test
+    fun `terminateAsync returns at once and runs the callback only after the process is dead`() {
+        val process = ProcessBuilder("sh", "-c", "trap '' TERM; echo ready; sleep 30").start()
+        process.inputReader().readLine()
+        ProcessManager.register(process)
+        val done = CountDownLatch(1)
+        var aliveInCallback = true
+        val started = System.nanoTime()
+        ProcessManager.terminateAsync(process) {
+            aliveInCallback = process.isAlive
+            done.countDown()
+        }
+        val elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
+        try {
+            assertTrue(elapsedMs < 100, "terminateAsync blocked the caller for ${elapsedMs}ms")
+            assertTrue(done.await(5, TimeUnit.SECONDS), "callback never ran")
+            assertFalse(aliveInCallback, "callback ran before the process was gone")
+        } finally {
+            process.destroyForcibly()
+            ProcessManager.unregister(process)
+        }
+    }
+
+    @Test
+    fun `terminateAsync of null still runs the callback`() {
+        val done = CountDownLatch(1)
+        ProcessManager.terminateAsync(null) { done.countDown() }
+        assertTrue(done.await(2, TimeUnit.SECONDS))
+    }
 }

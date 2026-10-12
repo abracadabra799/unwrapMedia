@@ -54,14 +54,35 @@ object ProcessManager {
             children.asReversed().forEach { runCatching { if (it.isAlive) it.destroy() } }
             runCatching { if (process.isAlive) process.destroy() }
             val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(200)
-            while (System.nanoTime() < deadline && (process.isAlive || children.any { it.isAlive })) {
-                try { Thread.sleep(10) } catch (_: InterruptedException) { break }
+            try {
+                // waitFor returns the moment the parent exits -- the usual case for ffmpeg on SIGTERM --
+                // instead of always paying at least one 10ms poll tick.
+                process.waitFor(200, TimeUnit.MILLISECONDS)
+                while (System.nanoTime() < deadline && children.any { it.isAlive }) Thread.sleep(10)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
             }
             if (process.isAlive || children.any { it.isAlive }) forceStop(process, children)
             runCatching { if (process.isAlive) process.waitFor(200, TimeUnit.MILLISECONDS) }
         } finally {
             activeProcesses.remove(process)
             terminating.remove(process)
+        }
+    }
+
+    /**
+     * [terminate] off the calling thread, for UI-thread teardown (onDispose on seek / tab close),
+     * where the SIGTERM grace period would otherwise stall the frame. The process stays registered
+     * until it is gone, so destroyAll() still reaches it. [then] runs once it is dead, e.g. to
+     * delete a temp input file Windows would refuse to delete while ffmpeg still holds it.
+     */
+    fun terminateAsync(process: Process?, then: () -> Unit = {}) {
+        cleanup.execute {
+            try {
+                terminate(process)
+            } finally {
+                runCatching(then)
+            }
         }
     }
 

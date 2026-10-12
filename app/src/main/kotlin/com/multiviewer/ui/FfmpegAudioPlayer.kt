@@ -283,8 +283,11 @@ fun FfmpegAudioPlayer(
         onDispose {
             stopped.set(true)
             readerThread?.interrupt()
-            com.multiviewer.util.ProcessManager.terminate(process)
-            if (inputFile != file) inputFile.delete()
+            // Async (UI thread, every seek); the raw temp input is deleted only once ffmpeg has
+            // released it -- Windows refuses to delete a file another process still holds open.
+            com.multiviewer.util.ProcessManager.terminateAsync(process) {
+                if (inputFile != file) inputFile.delete()
+            }
         }
     }
 

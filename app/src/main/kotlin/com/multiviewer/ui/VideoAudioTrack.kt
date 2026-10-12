@@ -190,6 +190,7 @@ internal class VideoAudioTrack(
     fun destroy() {
         stopped.set(true)
         thread?.interrupt()
-        ProcessManager.terminate(process)
+        // Called from the player's onDispose on the UI thread.
+        ProcessManager.terminateAsync(process)
     }
 }
