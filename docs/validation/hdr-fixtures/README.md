@@ -9,6 +9,7 @@ that carry none, so it cannot be used to check for missing HDR10+.
 | File | Content |
 |---|---|
 | hevc_hdr10plus.mp4 | 30 frames, keyint 10, no B-frames; in-band MDCV/CLL on sync samples; HDR10+ on every frame except 12-14; MaxSCL jump at frame 17; no mdcv/clli boxes |
+| hevc_hev1.mp4 | Same stream as hevc_hdr10plus.mp4 remuxed with ffmpeg's default `hev1` sample entry |
 | hevc_box.mp4 | 30 frames with B-frames (ctts); `mdcv`/`clli` boxes in the `hvc1` sample entry |
 | h264_hdr.mp4 | 10 frames, keyint 5; MDCV/CLL SEI on IDR samples |
 | av1_hdr.mp4 | 10 frames, keyint 5; HDR_MDCV/HDR_CLL metadata OBUs on keyframes |

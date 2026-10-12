@@ -14,6 +14,8 @@ fun registerAllDecoders() {
     BoxRegistry.register("ispe", IspeBoxDecoder)
     BoxRegistry.register("avc1", VisualSampleEntryDecoder)
     BoxRegistry.register("hvc1", VisualSampleEntryDecoder)
+    BoxRegistry.register("hev1", VisualSampleEntryDecoder)
+    BoxRegistry.register("avc3", VisualSampleEntryDecoder)
     BoxRegistry.register("av01", VisualSampleEntryDecoder)
     BoxRegistry.register("av02", VisualSampleEntryDecoder)
     BoxRegistry.register("apv1", VisualSampleEntryDecoder)

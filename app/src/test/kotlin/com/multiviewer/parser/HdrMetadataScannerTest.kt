@@ -36,6 +36,15 @@ class HdrMetadataScannerTest {
     }
 
     @Test
+    fun `hev1 sample entry is detected and scanned`() {
+        val file = fixture("hevc_hev1.mp4")
+        assertEquals(VideoCodec.HEVC, detectVideoCodec(parseFile(file)))
+        val r = scan("hevc_hev1.mp4")
+        assertEquals(30, r.records.size)
+        assertEquals(listOf(12, 13, 14), r.records.filter { it.hdr10Plus == null }.map { it.frameNumber })
+    }
+
+    @Test
     fun `B-frame file is in presentation order`() {
         val r = scan("hevc_box.mp4")
         assertTrue(r.records.zipWithNext().all { (a, b) -> a.ptsSeconds < b.ptsSeconds })

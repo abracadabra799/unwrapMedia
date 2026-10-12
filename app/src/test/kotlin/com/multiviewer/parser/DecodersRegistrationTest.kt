@@ -8,7 +8,7 @@ class DecodersRegistrationTest {
     fun `all box-detail-parsing decoders are registered, not falling back to LeafBoxDecoder`() {
         registerAllDecoders()
         val typesThatMustHaveADecoder = listOf(
-            "avc1", "hvc1", "av01", "av02", "mp4a", "avcC", "hvcC", "av1C", "av2C", "elst",
+            "avc1", "hvc1", "hev1", "avc3", "av01", "av02", "mp4a", "avcC", "hvcC", "av1C", "av2C", "elst",
             "dref", "url ", "urn ", "colr", "pasp", "iinf", "infe", "mpvd", "sefd", "iloc",
             "keys", "ilst", "data", "dvcC", "dvvC", "mdcv", "clli",
         )

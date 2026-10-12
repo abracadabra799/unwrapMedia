@@ -15,6 +15,7 @@ ffmpeg -hide_banner -loglevel error -y -f lavfi -i "$SRC" -frames:v 30 -pix_fmt 
   -f hevc "$WORK/hdr.hevc"
 python3 -I "$HERE/inject_hdr10plus.py" "$WORK/hdr.hevc" "$WORK/hdr10p.hevc"
 ffmpeg -hide_banner -loglevel error -y -r 30 -i "$WORK/hdr10p.hevc" -c copy -tag:v hvc1 "$OUT/hevc_hdr10plus.mp4"
+ffmpeg -hide_banner -loglevel error -y -r 30 -i "$WORK/hdr10p.hevc" -c copy "$OUT/hevc_hev1.mp4"
 
 # 2. HEVC with container mdcv/clli boxes and B-frames (re-encode so libx265 exports coded side data)
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i "$SRC" -frames:v 30 -pix_fmt yuv420p10le -c:v libx265 \
