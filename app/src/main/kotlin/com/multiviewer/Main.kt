@@ -437,6 +437,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var avSyncWindowOpen by remember { mutableStateOf(false) }
         var c2paTab by remember { mutableStateOf<TabState?>(null) }
         var hdrMetadataTab by remember { mutableStateOf<TabState?>(null) }
+        var hrdBufferTab by remember { mutableStateOf<TabState?>(null) }
         var sefIntegrityWindowOpen by remember { mutableStateOf(false) }
         var aboutWindowOpen by remember { mutableStateOf(false) }
         var updateWindowOpen by remember { mutableStateOf(false) }
@@ -554,6 +555,11 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     I18n.menuHdrSeiAnalysis(language),
                     enabled = hasMetadataCodec,
                     onClick = { hdrMetadataTab = currentTab },
+                )
+                item(
+                    I18n.menuHrdBufferSimulation(language),
+                    enabled = hasVideoTrack,
+                    onClick = { hrdBufferTab = currentTab },
                 )
                 item(I18n.menuC2pa(language), enabled = currentTab != null && !currentTab.isLoading && selectedTabHasC2pa, onClick = { c2paTab = currentTab })
             }
@@ -854,6 +860,13 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     hdrMetadataTab = null
                 } else {
                     HdrMetadataWindow(tab = t, language = language, onCloseRequest = { hdrMetadataTab = null })
+                }
+            }
+            hrdBufferTab?.let { t ->
+                if (appState.tabs.none { it === t }) {
+                    hrdBufferTab = null
+                } else {
+                    HrdBufferSimulationWindow(tab = t, language = language, onCloseRequest = { hrdBufferTab = null })
                 }
             }
             if (sefIntegrityWindowOpen) {

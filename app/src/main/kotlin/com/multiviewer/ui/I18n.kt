@@ -37,6 +37,7 @@ object I18n {
     fun menuDumpStructure(lang: AppLanguage) = if (lang == AppLanguage.KO) "구조 덤프" else "Dump Structure"
     fun menuAvSyncAnalysis(lang: AppLanguage) = if (lang == AppLanguage.KO) "A/V 싱크 및 드리프트 정밀 분석" else "A/V Sync & Drift Analysis"
     fun menuSefIntegrityCheck(lang: AppLanguage) = if (lang == AppLanguage.KO) "SEF 무결성 검사" else "SEF Integrity Check"
+    fun menuHrdBufferSimulation(lang: AppLanguage) = if (lang == AppLanguage.KO) "HRD/VBV 버퍼 시뮬레이션" else "HRD/VBV Buffer Simulation"
 
     // Menu: Motion Photo
     fun menuMotionPhoto(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토" else "Motion Photo"

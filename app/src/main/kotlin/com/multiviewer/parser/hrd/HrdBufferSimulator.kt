@@ -75,10 +75,11 @@ fun simulateHrdBuffer(
 
         val incomingBytes = (bytesPerSec * deltaT).toLong()
         val beforeRemoval = (currentBuffer + incomingBytes).coerceAtMost(cpbSizeBytes)
-        currentBuffer = beforeRemoval - frame.sizeBytes
+        val rawBuffer = beforeRemoval - frame.sizeBytes
+        val isUnderflow = rawBuffer < 0L
+        currentBuffer = if (isUnderflow) 0L else rawBuffer
 
-        val isUnderflow = currentBuffer < 0L
-        val occupancy = (currentBuffer.toDouble() / cpbSizeBytes.toDouble() * 100.0)
+        val occupancy = (rawBuffer.toDouble() / cpbSizeBytes.toDouble() * 100.0)
         val isWarning = occupancy in 0.0..15.0
 
         if (isUnderflow) underflowFrames.add(frame.index)
@@ -89,7 +90,7 @@ fun simulateHrdBuffer(
                 frameIndex = frame.index,
                 dtsSeconds = frame.dtsSeconds,
                 frameSizeBytes = frame.sizeBytes,
-                bufferLevelBytes = currentBuffer,
+                bufferLevelBytes = rawBuffer,
                 occupancyPercent = occupancy,
                 isUnderflow = isUnderflow,
                 isWarning = isWarning,

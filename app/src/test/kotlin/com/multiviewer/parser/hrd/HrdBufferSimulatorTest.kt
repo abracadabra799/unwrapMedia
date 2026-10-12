@@ -61,6 +61,41 @@ class HrdBufferSimulatorTest {
     }
 
     @Test
+    fun `detects warning when occupancy dips below 15 percent`() {
+        // CPB: 100,000 bytes. Initial delay: 0.1s -> initial buffer: 10,000 bytes (10%)
+        val frames = listOf(
+            VideoFrameItem(index = 0, sizeBytes = 1_000L, dtsSeconds = 0.0, ptsSeconds = 0.0, isKeyframe = true),
+        )
+        val report = simulateHrdBuffer(
+            frames = frames,
+            bitrateBps = 800_000L,
+            cpbSizeBytes = 100_000L,
+            initialDelaySeconds = 0.1,
+        )
+        // 10,000 - 1,000 = 9,000 bytes = 9.0% -> warning!
+        assertEquals(0, report.underflowCount)
+        assertEquals(listOf(0), report.warningFrames)
+        assertTrue(report.points[0].isWarning)
+    }
+
+    @Test
+    fun `caps buffer level at cpbSizeBytes`() {
+        // Initial delay 2.0s -> 200,000 bytes, but CPB is 100,000 bytes -> capped at 100,000
+        val frames = listOf(
+            VideoFrameItem(index = 0, sizeBytes = 10_000L, dtsSeconds = 0.0, ptsSeconds = 0.0, isKeyframe = true),
+        )
+        val report = simulateHrdBuffer(
+            frames = frames,
+            bitrateBps = 800_000L, // 100,000 B/s
+            cpbSizeBytes = 100_000L,
+            initialDelaySeconds = 2.0,
+        )
+        // 100,000 - 10,000 = 90,000 = 90.0%
+        assertEquals(90_000L, report.points[0].bufferLevelBytes)
+        assertEquals(90.0, report.points[0].occupancyPercent)
+    }
+
+    @Test
     fun `handles empty frame list gracefully`() {
         val report = simulateHrdBuffer(
             frames = emptyList(),
