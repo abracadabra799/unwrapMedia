@@ -1,0 +1,1 @@
+{"claim_generator":"unwrapMedia-fixture/1.0","title":"fixture","thumbnail":{"format":"none","identifier":"none"},"assertions":[{"label":"c2pa.actions","data":{"actions":[{"action":"c2pa.created","digitalSourceType":"http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture"}]}}]}

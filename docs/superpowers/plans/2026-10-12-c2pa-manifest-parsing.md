@@ -77,7 +77,9 @@ Test helpers already available in package `com.multiviewer.parser` (import them)
 
 ---
 
-### Task 1: Fixtures
+### Task 1: Fixtures — ✅ DONE (committed with the handoff, 2026-10-12)
+
+The six fixtures are in `app/src/test/resources/c2pa/` with the sizes below, `docs/validation/c2pa-fixtures/README.md` and `manifest.json` exist, and the Python dump tools used for planning are in `docs/validation/c2pa-fixtures/tools/`. Skip to Task 2. (The steps below are kept as the record of how they were produced.)
 
 **Files:**
 - Create: `app/src/test/resources/c2pa/C.jpg`, `CA.jpg`, `video1.mp4`, `signed.heif`, `signed_small.webp`, `no_manifest.jpg`
