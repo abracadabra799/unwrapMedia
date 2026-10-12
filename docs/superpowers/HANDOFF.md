@@ -14,17 +14,19 @@ Read `AGENTS.md` (repo root) for build/test commands, workflow and hard rules. T
 | # | Item | Status |
 |---|---|---|
 | 1 | SEI / HDR metadata analysis (H.264/HEVC SEI, AV1 metadata OBU, HDR10+, mdcv/clli, per-frame Detail section, Analyze window with trend graph, 4 anomaly rules, CSV) | **Shipped** in 1.20.0. Spec/plan: `docs/superpowers/{specs,plans}/2026-10-12-sei-hdr-metadata-analysis*`. GUI manual pass still owed to the user. |
-| 2 | C2PA Content Credentials + motion-photo interaction — split into **2a** structure/display, **2b** hard-binding hash recomputation + motion-photo/XMP/SEF range mapping ("does this edit break the binding?"), **2c** COSE_Sign1 + X.509 chain + timestamp verification using **JDK crypto only** (user's decision, no external crypto library) | **2a/2b: Shipped (merged into main)**. Spec/plan: `docs/superpowers/{specs,plans}/2026-10-12-c2pa-hard-binding*`. GUI manual pass still owed to user. **2c: ready to brainstorm**. |
+| 2 | C2PA Content Credentials + motion-photo interaction — split into **2a** structure/display, **2b** hard-binding hash recomputation + motion-photo/XMP/SEF range mapping ("does this edit break the binding?"), **2c** COSE_Sign1 + X.509 chain + timestamp verification using **JDK crypto only** (user's decision, no external crypto library) | **Shipped (2a, 2b, 2c merged into main)**. Spec/plan: `docs/superpowers/{specs,plans}/2026-10-12-c2pa-signature-verification*`. GUI manual pass owed to user. |
+| 3 | Motion photo deep analysis: still ↔ video frame match at `MicroVideoPresentationTimestampUs`, Apple Live Photo pair check, cross-platform compatibility matrix | **Next action: ready to brainstorm** |
 
-## Next action: brainstorm C2PA phase 2c
+## Next action: brainstorm Item 3 (Motion photo deep analysis)
 
-- Phase 2b (hard-binding hash recomputation + motion-photo/XMP/SEF range mapping & edit-impact diagnostics) is complete and fast-forward merged into `main`.
-  - `c2pa.hash.data` verifies JPEG/WebP (C.jpg, CA.jpg, s26-camera.jpg, signed_small.webp).
-  - `c2pa.hash.bmff.v3` verifies root offset prefixing (signed.heif).
-  - `c2pa.hash.bmff.v2` evaluates S26 motion photos, confirming Samsung camera's `/sefd` exclusion and diagnosing motion-photo video append mismatches.
-  - New "하드 바인딩" (Hard Binding) tab added to `C2paWindow` with status badge, edit impact cards, and structure coverage table.
-- Phase 2c topic: COSE_Sign1 signature, X.509 certificate chain, timestamp token, and trust verification using **JDK crypto APIs only** (no external crypto dependencies; c2patool for fixture verification).
-- Next step: Brainstorm phase 2c with the user to align on crypto verification scope and trust-root architecture, followed by design spec and implementation plan.
+- Roadmap Item 2 (C2PA Content Credentials 2a, 2b, 2c) is completely **Shipped and merged into `main`**.
+  - 2a: Manifest stores, claim, assertions, ingredients, thumbnails, and JUMBF tree nodes.
+  - 2b: Hard-binding hash recomputation (`c2pa.hash.data`, `c2pa.hash.bmff` v2/v3) and structure coverage mapping (motion-photo video append, SEF trailer `/sefd` exclusion impact).
+  - 2c: Cryptographic verification of COSE_Sign1 signatures (ES256, PS256, RS256), X.509 certificate chains, and assertion URI hash integrity using **JDK crypto only**.
+- Next topic: **Item 3 — Motion photo deep analysis**:
+  - Still ↔ video frame match at `MicroVideoPresentationTimestampUs` (or `MotionPhoto_PresentationTimestampUs`).
+  - Apple Live Photo pair check (UUID metadata / `quicktime:CreationDate` matching between JPEG/HEIC and MOV).
+  - Cross-platform compatibility matrix (Samsung vs Google vs Apple Live Photo vs Xiaomi).
 
 ## Facts worth knowing for C2PA (verified on real files)
 
