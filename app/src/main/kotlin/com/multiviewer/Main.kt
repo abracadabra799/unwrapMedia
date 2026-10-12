@@ -435,7 +435,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var dumpStructureWindowOpen by remember { mutableStateOf(false) }
         var aiPromptWindowOpen by remember { mutableStateOf(false) }
         var avSyncWindowOpen by remember { mutableStateOf(false) }
-        var hdrMetadataWindowOpen by remember { mutableStateOf(false) }
+        var hdrMetadataTab by remember { mutableStateOf<TabState?>(null) }
         var sefIntegrityWindowOpen by remember { mutableStateOf(false) }
         var aboutWindowOpen by remember { mutableStateOf(false) }
         var updateWindowOpen by remember { mutableStateOf(false) }
@@ -443,6 +443,9 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var latestUpdateVersion by remember { mutableStateOf("") }
         // Codec view popup window mode (Motion Vectors / QP Heatmap). null = popup closed.
         var codecViewPopupWindowMode by remember { mutableStateOf<CodecViewMode?>(null) }
+        // The menu DSL lambdas aren't composable, so the codec probe is remembered here per tree.
+        val selectedTabRoot = appState.tabs.getOrNull(appState.selectedTabIndex)?.root
+        val selectedTabVideoCodec = remember(selectedTabRoot) { selectedTabRoot?.let { com.multiviewer.parser.detectVideoCodec(it) } }
         val builtMenuBar = buildAppMenuBar {
             appMenu(I18n.menuFile(language)) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
@@ -544,11 +547,11 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     enabled = hasVideoTrack,
                     onClick = { frameIntervalWindowOpen = true },
                 )
-                val hasMetadataCodec = isVideo && currentTab?.root?.let { com.multiviewer.parser.detectVideoCodec(it) } != null
+                val hasMetadataCodec = isVideo && selectedTabVideoCodec != null
                 item(
                     I18n.menuHdrSeiAnalysis(language),
                     enabled = hasMetadataCodec,
-                    onClick = { hdrMetadataWindowOpen = true },
+                    onClick = { hdrMetadataTab = currentTab },
                 )
             }
             appMenu(I18n.menuMotionPhoto(language)) {
@@ -838,12 +841,12 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     avSyncWindowOpen = false
                 }
             }
-            if (hdrMetadataWindowOpen) {
-                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
-                if (currentTab != null) {
-                    HdrMetadataWindow(tab = currentTab, language = language, onCloseRequest = { hdrMetadataWindowOpen = false })
+            // Pinned to the tab it was opened for: switching tabs must not re-target the scan.
+            hdrMetadataTab?.let { t ->
+                if (appState.tabs.none { it === t }) {
+                    hdrMetadataTab = null
                 } else {
-                    hdrMetadataWindowOpen = false
+                    HdrMetadataWindow(tab = t, language = language, onCloseRequest = { hdrMetadataTab = null })
                 }
             }
             if (sefIntegrityWindowOpen) {
