@@ -75,17 +75,25 @@ fun C2paWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -> Unit)
                 loading -> Text(label("읽는 중…", "Reading…"), color = AppColors.TextPrimary)
                 s == null || s.manifests.isEmpty() -> Text(label("C2PA 매니페스트를 읽을 수 없습니다. 구조 트리의 경고를 확인하세요.", "Cannot read C2PA manifests. Check warnings in the structure tree."), color = AppColors.NeonYellow)
                 else -> {
+                    val m = s.manifests.getOrNull(selected) ?: s.manifests.last()
+                    val vReport = remember(m) { com.multiviewer.parser.c2pa.verifyC2paManifest(m) }
+                    val sigStatusLabel = when (vReport.state) {
+                        com.multiviewer.parser.c2pa.VerificationState.VALID -> label("서명 검증 완료 (공식)", "signature valid (trusted)")
+                        com.multiviewer.parser.c2pa.VerificationState.UNTRUSTED -> label("서명 검증 완료 (테스트/자체 서명)", "signature valid (test/self-signed)")
+                        com.multiviewer.parser.c2pa.VerificationState.INVALID -> label("서명 검증 실패 (변조 의심)", "signature invalid (tampered)")
+                        com.multiviewer.parser.c2pa.VerificationState.UNSUPPORTED -> label("서명 검증 미지원", "signature unsupported")
+                    }
                     Text(
-                        "${s.location.container} · ${label("매니페스트", "manifests")} ${s.manifests.size} · ${label("서명 검증 전", "signatures not verified")}",
+                        "${s.location.container} · ${label("매니페스트", "manifests")} ${s.manifests.size} · $sigStatusLabel",
                         color = AppColors.TextPrimary, fontSize = 13.sp,
                     )
                     Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         LazyColumn(modifier = Modifier.width(300.dp).fillMaxHeight()) {
                             items(s.manifests.size) { i ->
-                                val m = s.manifests[i]
+                                val mi = s.manifests[i]
                                 val isActive = i == s.manifests.lastIndex
                                 Text(
-                                    (if (isActive) "★ " else "") + (m.claim?.title ?: m.label),
+                                    (if (isActive) "★ " else "") + (mi.claim?.title ?: mi.label),
                                     color = if (i == selected) AppColors.NeonBlue else AppColors.TextPrimary,
                                     fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
                                     fontSize = 13.sp,
@@ -94,10 +102,9 @@ fun C2paWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -> Unit)
                                         .clickable { selected = i }
                                         .padding(6.dp),
                                 )
-                                Text(m.label, color = AppColors.TextMuted, fontSize = 10.sp, modifier = Modifier.padding(start = 6.dp, bottom = 6.dp))
+                                Text(mi.label, color = AppColors.TextMuted, fontSize = 10.sp, modifier = Modifier.padding(start = 6.dp, bottom = 6.dp))
                             }
                         }
-                        val m = s.manifests.getOrNull(selected) ?: s.manifests.last()
                         Column(modifier = Modifier.fillMaxSize()) {
                             val tabs = listOf(
                                 label("개요", "Overview"),
@@ -138,6 +145,7 @@ private fun Row2(name: String, value: String?) {
 
 @Composable
 private fun OverviewTab(m: C2paManifest, label: (String, String) -> String) {
+    val vReport = remember(m) { com.multiviewer.parser.c2pa.verifyC2paManifest(m) }
     LazyColumn(modifier = Modifier.fillMaxSize().padding(top = 8.dp)) {
         item {
             Row2("label", m.label)
@@ -157,11 +165,27 @@ private fun OverviewTab(m: C2paManifest, label: (String, String) -> String) {
             }
             val sig = m.signature
             Row2(label("서명 알고리즘", "signature alg"), sig?.algorithm)
-            Row2(label("서명 인증서 (검증 전)", "signer cert (not verified)"), sig?.certificateSubject)
-            Row2(label("발급자 (검증 전)", "issuer (not verified)"), sig?.certificateIssuer)
+            Row2(label("서명 인증서", "signer cert"), sig?.certificateSubject)
+            Row2(label("발급자", "issuer"), sig?.certificateIssuer)
             Row2(label("인증서 체인 길이", "chain length"), sig?.chainLength?.toString())
             sig?.error?.let { Text(label("서명 정보 오류: ", "Signature info error: ") + it, color = AppColors.NeonRed, fontSize = 12.sp) }
             m.warnings.forEach { Text("⚠ $it", color = AppColors.NeonYellow, fontSize = 12.sp) }
+
+            Column(modifier = Modifier.fillMaxWidth().padding(top = 10.dp).background(AppColors.Surface).padding(8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(label("암호화 서명 검증 결과", "Cryptographic Verification"), color = AppColors.NeonBlue, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                val badgeColor = when (vReport.state) {
+                    com.multiviewer.parser.c2pa.VerificationState.VALID -> AppColors.NeonBlue
+                    com.multiviewer.parser.c2pa.VerificationState.UNTRUSTED -> AppColors.NeonYellow
+                    com.multiviewer.parser.c2pa.VerificationState.INVALID -> AppColors.NeonRed
+                    com.multiviewer.parser.c2pa.VerificationState.UNSUPPORTED -> AppColors.TextSecondary
+                }
+                Row2(label("서명 검증 상태", "Verification State"), vReport.summaryMessage)
+                Row2(label("서명 유효성", "Signature Validity"), if (vReport.signatureValid) label("유효함 (PASS)", "Valid (PASS)") else label("불일치/실패 (FAIL)", "Invalid (FAIL)"))
+                Row2(label("인증서 체인", "Certificate Chain"), if (vReport.chainValid) label("유효함 (체인 길이: ${vReport.chainLength})", "Valid (Length: ${vReport.chainLength})") else label("체인 검증 실패", "Invalid"))
+                Row2(label("신뢰 수준", "Trust Level"), if (vReport.isTestCredential) label("테스트/자체 서명 자격 증명 (Untrusted Test)", "Test / Self-signed (Untrusted)") else label("공식 신뢰 체인 (Trusted)", "Trusted"))
+                Row2(label("어설션 해시 일치", "Assertion Hashes"), "${vReport.matchedAssertionCount} / ${vReport.totalAssertionCount}")
+                vReport.errors.forEach { Text("⚠ $it", color = AppColors.NeonRed, fontSize = 11.sp) }
+            }
         }
     }
 }
