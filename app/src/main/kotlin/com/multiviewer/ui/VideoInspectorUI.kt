@@ -13,6 +13,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 
 @Composable
@@ -26,7 +27,7 @@ fun VideoInspectorUI(
     // offered at all -- only H.264 is known to export the side data codecview needs (see
     // codecViewSupportedFor).
     LaunchedEffect(tab.file) {
-        tab.videoCodecName = withContext(Dispatchers.IO) { probeVideoCodecName(tab.file) }
+        tab.videoCodecName = runInterruptible(Dispatchers.IO) { probeVideoCodecName(tab.file) }
     }
 
     // Parses the video track's avcC box once per tab -- independent of tab.videoCodecName's own

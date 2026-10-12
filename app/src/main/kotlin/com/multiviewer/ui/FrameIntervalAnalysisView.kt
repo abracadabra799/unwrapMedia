@@ -46,7 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.runInterruptible
 
 private const val GRAPH_POINT_RADIUS_DP = 2.5f
 private const val GRAPH_HIGHLIGHT_RADIUS_DP = 5f
@@ -391,7 +391,7 @@ fun FrameIntervalAnalysisWindow(appState: AppState, tab: TabState, onCloseReques
     }
     var videoInfo by remember(tab) { mutableStateOf<VideoInfo?>(null) }
     LaunchedEffect(tab) {
-        videoInfo = withContext(Dispatchers.IO) { probeVideo(tab.file) }
+        videoInfo = runInterruptible(Dispatchers.IO) { probeVideo(tab.file) }
     }
 
     FrameIntervalAnalysisWindowContent(

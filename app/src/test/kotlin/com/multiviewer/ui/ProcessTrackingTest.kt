@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.runInterruptible
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -243,4 +244,13 @@ class ProcessTrackingTest {
     @Test
     fun `BitstreamCorruptionScanner ffprobe is killed when its coroutine is cancelled`() =
         assertCancellingKillsFfprobe("bitstream") { BitstreamCorruptionScanner.scan(it) }
+
+    // Short probes go through readProcessOutputWithTimeout from composables. withContext(IO) never
+    // interrupts the blocked thread on cancellation; runInterruptible does, and the helper turns that
+    // interrupt into killing the process instead of waiting out its timeout.
+    @Test
+    fun `timeout-bounded probe is killed when its runInterruptible caller is cancelled`() =
+        assertCancellingKillsFfprobe("interruptible") { fifo ->
+            runInterruptible(Dispatchers.IO) { probeFrameTimestamps(fifo) }
+        }
 }

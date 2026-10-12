@@ -53,7 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.runInterruptible
 import org.jetbrains.skia.ColorAlphaType
 import org.jetbrains.skia.ColorType
 import org.jetbrains.skia.Image
@@ -361,7 +361,7 @@ fun FfmpegVideoPlayer(
 
     LaunchedEffect(file) {
         probing = true
-        val info = withContext(Dispatchers.IO) { probeVideo(file) }
+        val info = runInterruptible(Dispatchers.IO) { probeVideo(file) }
         // Flip probing off (and let the player UI render) after the two cheap probes (video format
         // above, audio format below) -- do not wait on the expensive full-file frame-timestamp scan
         // that follows. The player already
@@ -377,11 +377,11 @@ fun FfmpegVideoPlayer(
         // If audioInfo were still null then, no VideoAudioTrack would be created and the first
         // playthrough would be silent. probeAudioFormat is one cheap ffprobe, same cost class as the
         // probeVideo call already awaited above.
-        audioInfo = if (info != null) withContext(Dispatchers.IO) { probeAudioFormat(file) } else null
+        audioInfo = if (info != null) runInterruptible(Dispatchers.IO) { probeAudioFormat(file) } else null
         probedInfo = info
         probing = false
         if (info != null) {
-            val timestamps = withContext(Dispatchers.IO) { probeFrameTimestamps(file) }
+            val timestamps = runInterruptible(Dispatchers.IO) { probeFrameTimestamps(file) }
             frameTimestamps = timestamps
             if ((probedInfo?.duration ?: 0.0) <= 0.0 && !timestamps.isNullOrEmpty()) {
                 val lastPts = timestamps.last()

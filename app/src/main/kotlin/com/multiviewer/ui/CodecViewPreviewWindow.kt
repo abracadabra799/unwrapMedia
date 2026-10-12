@@ -94,8 +94,11 @@ fun CodecViewPreviewWindow(
         // Probe codec-specific QP info for HEVC / AV1
         val codec = tab.videoCodecName
         if (codec == "hevc") {
-            kotlinx.coroutines.Dispatchers.IO.let {
-                val slice = com.multiviewer.parser.probeHevcFrameSliceQpWithFfmpeg(tab.file, f.ptsSeconds)
+            // runInterruptible, not `Dispatchers.IO.let` (which never left the UI thread): stepping
+            // frames froze the window for each ffmpeg probe, and cancellation now kills a stale one.
+            kotlinx.coroutines.runInterruptible(kotlinx.coroutines.Dispatchers.IO) {
+                com.multiviewer.parser.probeHevcFrameSliceQpWithFfmpeg(tab.file, f.ptsSeconds)
+            }.let { slice ->
                 if (slice != null) {
                     frameQpInfoText = "HEVC ${slice.sliceType} · Slice QP ${slice.sliceQp} (Delta: ${if (slice.sliceQpDelta >= 0) "+${slice.sliceQpDelta}" else "${slice.sliceQpDelta}"})"
                 }

@@ -28,7 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.runInterruptible
 import java.awt.EventQueue
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
@@ -137,7 +137,7 @@ fun FfmpegAudioPlayer(
 
     LaunchedEffect(file) {
         probing = true
-        val info = withContext(Dispatchers.IO) {
+        val info = runInterruptible(Dispatchers.IO) {
             if (rawAudioParams != null) {
                 AudioFileInfo(
                     sampleRate = rawAudioParams.sampleRate,
@@ -154,7 +154,7 @@ fun FfmpegAudioPlayer(
         probedInfo = info
         probing = false
         if (info != null) {
-            waveformPeaks = withContext(Dispatchers.IO) {
+            waveformPeaks = runInterruptible(Dispatchers.IO) {
                 computeWaveformPeaks(file, info, bucketCount = waveformBucketCountFor(info.duration), rawAudioParams = rawAudioParams)
             }
         }
