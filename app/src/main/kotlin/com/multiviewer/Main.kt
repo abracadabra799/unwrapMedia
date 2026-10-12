@@ -435,6 +435,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var dumpStructureWindowOpen by remember { mutableStateOf(false) }
         var aiPromptWindowOpen by remember { mutableStateOf(false) }
         var avSyncWindowOpen by remember { mutableStateOf(false) }
+        var c2paTab by remember { mutableStateOf<TabState?>(null) }
         var hdrMetadataTab by remember { mutableStateOf<TabState?>(null) }
         var sefIntegrityWindowOpen by remember { mutableStateOf(false) }
         var aboutWindowOpen by remember { mutableStateOf(false) }
@@ -445,6 +446,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var codecViewPopupWindowMode by remember { mutableStateOf<CodecViewMode?>(null) }
         // The menu DSL lambdas aren't composable, so the codec probe is remembered here per tree.
         val selectedTabRoot = appState.tabs.getOrNull(appState.selectedTabIndex)?.root
+        val selectedTabHasC2pa = remember(selectedTabRoot) { selectedTabRoot?.let { com.multiviewer.parser.c2pa.hasC2paManifestStore(it) } == true }
         val selectedTabVideoCodec = remember(selectedTabRoot) { selectedTabRoot?.let { com.multiviewer.parser.detectVideoCodec(it) } }
         val builtMenuBar = buildAppMenuBar {
             appMenu(I18n.menuFile(language)) {
@@ -553,6 +555,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     enabled = hasMetadataCodec,
                     onClick = { hdrMetadataTab = currentTab },
                 )
+                item(I18n.menuC2pa(language), enabled = currentTab != null && !currentTab.isLoading && selectedTabHasC2pa, onClick = { c2paTab = currentTab })
             }
             appMenu(I18n.menuMotionPhoto(language)) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
@@ -842,6 +845,10 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 }
             }
             // Pinned to the tab it was opened for: switching tabs must not re-target the scan.
+            c2paTab?.let { t ->
+                if (appState.tabs.none { it === t }) c2paTab = null
+                else com.multiviewer.ui.C2paWindow(tab = t, language = language, onCloseRequest = { c2paTab = null })
+            }
             hdrMetadataTab?.let { t ->
                 if (appState.tabs.none { it === t }) {
                     hdrMetadataTab = null
