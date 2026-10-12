@@ -52,3 +52,41 @@ class IsoSampleTableTest {
         assertNull(buildVideoSampleTable(byteReaderOf(ByteArray(8)), BoxNode("root", 0, 0, 8)))
     }
 }
+
+class IsoSampleTableWarningTest {
+    private val file = File(javaClass.getResource("/hdr/hevc_hdr10plus.mp4")!!.toURI())
+
+    private fun BoxNode.mapTree(f: (BoxNode) -> BoxNode): BoxNode = f(copy(children = children.map { it.mapTree(f) }))
+
+    @Test
+    fun `stsz shorter than stts produces a disagreement warning`() {
+        val root = parseFile(file).mapTree { n ->
+            if (n.type == "stsz") n.copy(table = n.table!!.copy(entryCount = 20)) else n
+        }
+        val t = assertNotNull(ByteReader.open(file).use { buildVideoSampleTable(it, root) })
+        assertEquals(20, t.samples.size)
+        assertTrue(
+            "HEVC sample tables disagree: stts=30, stsz=20, chunk offsets=20; indexed 20" in t.warnings,
+            t.warnings.toString(),
+        )
+    }
+
+    @Test
+    fun `mvex box produces the fragmented MP4 warning`() {
+        val root = parseFile(file).let { it.copy(children = it.children + BoxNode("mvex", 0, 8, 8)) }
+        val t = assertNotNull(ByteReader.open(file).use { buildVideoSampleTable(it, root) })
+        assertEquals(30, t.samples.size)
+        assertEquals(
+            listOf("Fragmented MP4 (moof) is not supported; only samples in the moov sample tables were scanned"),
+            t.warnings,
+        )
+    }
+
+    @Test
+    fun `detectVideoCodec uses the first video trak sample entry`() {
+        // an hvcC outside any trak (e.g. a HEIC item property) is not a video track
+        val stray = BoxNode("root", 0, 0, 0, children = listOf(BoxNode("hvcC", 0, 8, 8)))
+        assertNull(detectVideoCodec(stray))
+        assertEquals(VideoCodec.HEVC, detectVideoCodec(parseFile(file)))
+    }
+}

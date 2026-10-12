@@ -116,18 +116,22 @@ data class VideoSampleTable(
 
 const val MAX_VIDEO_INDEXED_SAMPLES = 1_000_000
 
-private val SAMPLE_ENTRY_CODECS = mapOf(
+internal val SAMPLE_ENTRY_CODECS = mapOf(
     "avc1" to VideoCodec.H264, "avc3" to VideoCodec.H264,
     "hvc1" to VideoCodec.HEVC, "hev1" to VideoCodec.HEVC,
     "av01" to VideoCodec.AV1,
 )
 
+// The first trak whose sample entry is H.264/HEVC/AV1, paired with that sample entry.
+internal fun firstVideoSampleEntry(root: BoxNode): Pair<BoxNode, BoxNode>? =
+    boxDescendants(root).filter { it.type == "trak" }.firstNotNullOfOrNull { trak ->
+        boxDescendants(trak).firstOrNull { it.type in SAMPLE_ENTRY_CODECS }?.let { trak to it }
+    }
+
 // Indexes the first trak whose sample entry is H.264/HEVC/AV1. nalLengthSize comes from
 // avcC (byte 4) / hvcC (byte 21), low two bits + 1; null for AV1.
 fun buildVideoSampleTable(reader: ByteReader, root: BoxNode, maxSamples: Int = MAX_VIDEO_INDEXED_SAMPLES): VideoSampleTable? {
-    val (trak, entry) = boxDescendants(root).filter { it.type == "trak" }.firstNotNullOfOrNull { trak ->
-        boxDescendants(trak).firstOrNull { it.type in SAMPLE_ENTRY_CODECS }?.let { trak to it }
-    } ?: return null
+    val (trak, entry) = firstVideoSampleEntry(root) ?: return null
     val codec = SAMPLE_ENTRY_CODECS.getValue(entry.type)
     val nalLengthSize = when (codec) {
         VideoCodec.H264 -> entry.children.firstOrNull { it.type == "avcC" }?.takeIf { it.size - it.headerSize >= 5 }
@@ -150,7 +154,12 @@ fun buildVideoSampleTable(reader: ByteReader, root: BoxNode, maxSamples: Int = M
     val sync = readSyncSampleNumbers(reader, child("stss"), warnings, label, maxSamples)
     val composition = readCompositionOffsets(reader, child("ctts"), warnings, label, maxSamples)
     val count = minOf(timings.size, sizes.size, offsets.size)
-    if (count == 0 && (timings.isNotEmpty() || sizes.isNotEmpty() || offsets.isNotEmpty())) warnings += "$label sample tables have inconsistent counts"
+    if (count < maxOf(timings.size, sizes.size, offsets.size)) {
+        warnings += "$label sample tables disagree: stts=${timings.size}, stsz=${sizes.size}, chunk offsets=${offsets.size}; indexed $count"
+    }
+    if (boxDescendants(root).any { it.type == "mvex" || it.type == "moof" }) {
+        warnings += "Fragmented MP4 (moof) is not supported; only samples in the moov sample tables were scanned"
+    }
     val samples = (0 until count).map { i ->
         VideoSample(
             index = i, offset = offsets[i], size = sizes[i], decodeTime = timings[i].first,

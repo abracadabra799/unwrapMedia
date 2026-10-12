@@ -9,13 +9,10 @@ private const val H264_NAL_SEI = 6
 private const val HEVC_NAL_PREFIX_SEI = 39
 private const val HEVC_NAL_SUFFIX_SEI = 40
 
-// Judged from config boxes only, so UI code can gate per-frame sample reads without touching data.
-fun detectVideoCodec(root: BoxNode): VideoCodec? = when {
-    findFirst(root) { it.type == "hvcC" } != null -> VideoCodec.HEVC
-    findFirst(root) { it.type == "avcC" } != null -> VideoCodec.H264
-    findFirst(root) { it.type == "av1C" } != null -> VideoCodec.AV1
-    else -> null
-}
+// Judged from the first video trak's sample entry only (same rule as buildVideoSampleTable), so UI
+// code can gate per-frame sample reads without touching data.
+fun detectVideoCodec(root: BoxNode): VideoCodec? =
+    firstVideoSampleEntry(root)?.let { (_, entry) -> SAMPLE_ENTRY_CODECS.getValue(entry.type) }
 
 fun readFrameMetadataUnits(file: File, codec: VideoCodec, nalLengthSize: Int?, sampleOffset: Long, sampleSize: Long): List<MetadataUnit> =
     try {
