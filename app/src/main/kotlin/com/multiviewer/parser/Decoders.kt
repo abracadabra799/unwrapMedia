@@ -30,6 +30,8 @@ fun registerAllDecoders() {
     BoxRegistry.register("url ", UrlBoxDecoder)
     BoxRegistry.register("urn ", UrnBoxDecoder)
     BoxRegistry.register("colr", ColrBoxDecoder)
+    BoxRegistry.register("mdcv", MdcvBoxDecoder)
+    BoxRegistry.register("clli", ClliBoxDecoder)
     BoxRegistry.register("pasp", PaspBoxDecoder)
     BoxRegistry.register("irot", IrotBoxDecoder)
     BoxRegistry.register("imir", ImirBoxDecoder)
