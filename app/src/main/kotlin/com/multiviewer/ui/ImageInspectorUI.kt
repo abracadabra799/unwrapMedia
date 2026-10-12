@@ -678,6 +678,30 @@ private fun DetailPropertiesTabContent(appState: AppState, tab: TabState) {
         } else {
             null
         }
+        // SEI / AV1 metadata of the selected frame. Gated on a VIDEO tab and a codec config box so
+        // selecting a frame in an image (e.g. a HEIC motion photo, whose tree also has hvcC) never
+        // reads sample bytes from the wrong offsets.
+        val metadataCodec = remember(root) { root?.let { com.multiviewer.parser.detectVideoCodec(it) } }
+        val frameMetadataUnits = if (selectedFrame != null && metadataCodec != null && tab.type == MediaType.VIDEO) {
+            val byteOffset = selectedFrame.byteOffset
+            val nalLengthSize = when (metadataCodec) {
+                com.multiviewer.parser.VideoCodec.H264 -> tab.avcLengthSize
+                com.multiviewer.parser.VideoCodec.HEVC -> tab.hevcLengthSize
+                com.multiviewer.parser.VideoCodec.AV1 -> null
+            }
+            produceState<List<com.multiviewer.parser.MetadataUnit>?>(null, selectedFrame, metadataCodec, nalLengthSize) {
+                value = null
+                if (byteOffset != null && (metadataCodec == com.multiviewer.parser.VideoCodec.AV1 || nalLengthSize != null)) {
+                    value = withContext(Dispatchers.IO) {
+                        com.multiviewer.parser.readFrameMetadataUnits(
+                            tab.file, metadataCodec, nalLengthSize, byteOffset, selectedFrame.sizeBytes.toLong(),
+                        )
+                    }
+                }
+            }.value
+        } else {
+            null
+        }
         LaunchedEffect(tab.selectedFrame) { tab.parameterSetHighlightRange = null }
         Box(modifier = Modifier.fillMaxSize()) {
             androidx.compose.foundation.text.selection.SelectionContainer(modifier = Modifier.fillMaxSize()) {
@@ -857,6 +881,23 @@ private fun DetailPropertiesTabContent(appState: AppState, tab: TabState) {
                                 frameHeader.transferCharacteristics?.let { PropertyRow("Transfer Characteristics", it.toString()) }
                                 frameHeader.matrixCoefficients?.let { PropertyRow("Matrix Coefficients", it.toString()) }
                                 frameHeader.fullRangeFlag?.let { PropertyRow("Full Range", if (it) "Yes" else "No") }
+                            }
+                            frameMetadataUnits?.let { units ->
+                                Spacer(Modifier.height(8.dp))
+                                Text("SEI / Metadata", style = AppTypography.labelLarge.copy(color = AppColors.NeonBlue))
+                                if (units.isEmpty()) {
+                                    PropertyRow("Messages", "None in this frame")
+                                }
+                                units.forEach { unit ->
+                                    PropertyRow(
+                                        "${unit.name} [${unit.source.label} ${unit.typeCode}]",
+                                        com.multiviewer.parser.summarizeMetadata(unit),
+                                        onClick = { tab.parameterSetHighlightRange = unit.unitOffset until unit.unitOffset + unit.unitSize },
+                                    )
+                                    com.multiviewer.parser.describeMetadata(unit).forEach { (label, value) ->
+                                        PropertyRow("    $label", value)
+                                    }
+                                }
                             }
                         }
                     }
