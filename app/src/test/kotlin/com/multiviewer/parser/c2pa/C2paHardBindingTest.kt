@@ -147,5 +147,54 @@ class C2paHardBindingTest {
             assertTrue(hex(storedHash) != hex(computed))
         }
     }
+
+    @Test
+    fun `verifyC2paHardBinding reports MATCH on C_jpg`() {
+        val file = fixture("C.jpg")
+        val root = parseFile(file)
+        val store = assertNotNull(readC2paManifestStore(file, root))
+        val report = verifyC2paHardBinding(file, root, store)
+
+        assertEquals(BindingStatus.MATCH, report.comparison.status)
+        assertEquals("SHA-256", report.comparison.algorithm)
+        assertEquals(report.comparison.storedHashHex, report.comparison.computedHashHex)
+        assertTrue(report.coverageItems.isNotEmpty())
+    }
+
+    @Test
+    fun `verifyC2paHardBinding reports MATCH on signed_heif`() {
+        val file = fixture("signed.heif")
+        val root = parseFile(file)
+        val store = assertNotNull(readC2paManifestStore(file, root))
+        val report = verifyC2paHardBinding(file, root, store)
+
+        assertEquals(BindingStatus.MATCH, report.comparison.status)
+        assertEquals(report.comparison.storedHashHex, report.comparison.computedHashHex)
+    }
+
+    @Test
+    fun `verifyC2paHardBinding reports MISMATCH on s26-motion-photo_heic with accurate impact`() {
+        val file = fixture("s26-motion-photo.heic")
+        val root = parseFile(file)
+        val store = assertNotNull(readC2paManifestStore(file, root))
+        val report = verifyC2paHardBinding(file, root, store)
+
+        assertEquals(BindingStatus.MISMATCH, report.comparison.status)
+        assertTrue(report.editImpact.sefTrailerSafe)
+        assertTrue(!report.editImpact.motionPhotoVideoSafe)
+    }
+
+    @Test
+    fun `verifyC2paHardBinding reports MATCH on s26-camera_jpg`() {
+        val file = fixture("s26-camera.jpg")
+        val root = parseFile(file)
+        val store = assertNotNull(readC2paManifestStore(file, root))
+        val report = verifyC2paHardBinding(file, root, store)
+
+        assertEquals(BindingStatus.MATCH, report.comparison.status)
+        assertEquals(report.comparison.storedHashHex, report.comparison.computedHashHex)
+        assertTrue(!report.editImpact.sefTrailerSafe)
+    }
 }
+
 

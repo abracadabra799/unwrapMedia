@@ -1,5 +1,6 @@
 package com.multiviewer.parser.c2pa
 
+import com.multiviewer.parser.BoxNode
 import com.multiviewer.parser.ByteReader
 import java.io.File
 import java.security.MessageDigest
@@ -176,4 +177,82 @@ fun computeBmffV2Hash(reader: ByteReader, exclusions: List<BmffExclusion>, algor
     }
     return md.digest()
 }
+
+data class C2paHardBindingReport(
+    val comparison: HashComparison,
+    val coverageItems: List<StructureCoverageItem>,
+    val editImpact: EditImpactAssessment
+)
+
+fun bytesToHex(bytes: ByteArray): String =
+    bytes.joinToString("") { "%02x".format(it) }
+
+fun verifyC2paHardBinding(file: File, root: BoxNode, store: C2paManifestStore): C2paHardBindingReport {
+    val active = store.active
+    if (active == null) {
+        val emptyComparison = HashComparison("-", BindingStatus.UNSUPPORTED, "-", "-", 0L, 0L, "No active manifest found")
+        val editImpact = evaluateEditImpact(store.location.container, emptyList(), emptyList())
+        return C2paHardBindingReport(emptyComparison, emptyList(), editImpact)
+    }
+
+    val hashAssertion = active.assertions.firstOrNull { it.label.startsWith("c2pa.hash.") }
+    val cbor = (hashAssertion?.content as? C2paAssertionContent.Cbor)?.value
+    if (hashAssertion == null || cbor == null) {
+        val emptyComparison = HashComparison("-", BindingStatus.UNSUPPORTED, "-", "-", 0L, 0L, "No hash assertion found in manifest")
+        val editImpact = evaluateEditImpact(store.location.container, emptyList(), emptyList())
+        return C2paHardBindingReport(emptyComparison, emptyList(), editImpact)
+    }
+
+    val storedHashBytes = cbor.asMap()?.get("hash")?.asBytes() ?: ByteArray(0)
+    val storedHashHex = bytesToHex(storedHashBytes)
+    val alg = cbor.asMap()?.get("alg")?.asText() ?: "sha256"
+
+    val dataExclusions = if (hashAssertion.label == "c2pa.hash.data") parseDataExclusions(cbor) else emptyList()
+    val bmffExclusions = if (hashAssertion.label.startsWith("c2pa.hash.bmff")) parseBmffExclusions(cbor) else emptyList()
+
+    val coverageItems = buildStructureCoverage(root, dataExclusions, bmffExclusions)
+    val editImpact = evaluateEditImpact(store.location.container, bmffExclusions, dataExclusions)
+
+    val fileLength = file.length()
+    var excludedBytes = 0L
+    for (item in coverageItems) {
+        if (item.status == CoverageStatus.EXCLUDED) {
+            excludedBytes += item.size
+        }
+    }
+    val hashedBytes = maxOf(0L, fileLength - excludedBytes)
+
+    val (computedBytes, err) = try {
+        ByteReader.open(file).use { reader ->
+            when {
+                hashAssertion.label == "c2pa.hash.data" -> computeDataHash(reader, dataExclusions, alg) to null
+                hashAssertion.label.endsWith(".v3") -> computeBmffV3Hash(reader, bmffExclusions, alg) to null
+                else -> computeBmffV2Hash(reader, bmffExclusions, alg) to null
+            }
+        }
+    } catch (e: Exception) {
+        ByteArray(0) to (e.message ?: e.toString())
+    }
+
+    val computedHashHex = bytesToHex(computedBytes)
+    val status = when {
+        err != null -> BindingStatus.UNSUPPORTED
+        computedBytes.isEmpty() || storedHashBytes.isEmpty() -> BindingStatus.UNSUPPORTED
+        storedHashBytes.contentEquals(computedBytes) -> BindingStatus.MATCH
+        else -> BindingStatus.MISMATCH
+    }
+
+    val comparison = HashComparison(
+        algorithm = normalizeDigestAlgorithm(alg),
+        status = status,
+        storedHashHex = storedHashHex,
+        computedHashHex = computedHashHex,
+        excludedByteCount = excludedBytes,
+        hashedByteCount = hashedBytes,
+        error = err
+    )
+
+    return C2paHardBindingReport(comparison, coverageItems, editImpact)
+}
+
 
