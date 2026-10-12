@@ -53,6 +53,7 @@ import java.awt.FileDialog
 import java.awt.Frame
 import java.io.File
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 @Composable
 fun HdrMetadataWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -> Unit) {
@@ -71,12 +72,22 @@ fun HdrMetadataWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -
         var relativeText by remember { mutableStateOf("50") }
         var absoluteText by remember { mutableStateOf("100") }
         var selectedFrame by remember(tab.file) { mutableStateOf<Int?>(null) }
+        var cancelled by remember(tab.file) { mutableStateOf(false) }
+        var saveStatus by remember(tab.file) { mutableStateOf<String?>(null) }
+        val cancelRequested = remember(tab.file) { AtomicBoolean(false) }
         val tableState = rememberLazyListState()
         val scope = rememberCoroutineScope()
+        val unsupportedMessage = label("지원하지 않는 비디오 트랙입니다 (MP4/MOV의 H.264·HEVC·AV1만 지원)", "Unsupported video track (H.264/HEVC/AV1 in MP4/MOV only)")
 
         // Runs in this Window's composition: closing the window cancels the LaunchedEffect's job,
-        // which isCancelled observes between samples.
+        // which isCancelled observes between samples; the Cancel button sets cancelRequested.
         LaunchedEffect(tab.file) {
+            // Non-video tabs (e.g. a motion photo's embedded MP4) must never trigger sample reads.
+            if (tab.type != MediaType.VIDEO) {
+                error = unsupportedMessage
+                scanning = false
+                return@LaunchedEffect
+            }
             val root = tab.root
             if (root == null) {
                 error = label("파싱된 구조가 없습니다", "No parsed structure")
@@ -86,7 +97,7 @@ fun HdrMetadataWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -
             val job = coroutineContext[Job]
             val scanned = withContext(Dispatchers.IO) {
                 try {
-                    scanHdrMetadata(tab.file, root, isCancelled = { job?.isActive == false }) { done, total ->
+                    scanHdrMetadata(tab.file, root, isCancelled = { job?.isActive == false || cancelRequested.get() }) { done, total ->
                         progress = if (total > 0) done.toFloat() / total else 0f
                     }
                 } catch (e: Exception) {
@@ -96,15 +107,38 @@ fun HdrMetadataWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -
             }
             result = scanned
             if (scanned == null && error == null) {
-                error = label("지원하지 않는 비디오 트랙입니다 (MP4/MOV의 H.264·HEVC·AV1만 지원)", "Unsupported video track (H.264/HEVC/AV1 in MP4/MOV only)")
+                if (cancelRequested.get()) cancelled = true else error = unsupportedMessage
             }
             scanning = false
         }
 
+        val relativeValue = relativeText.toDoubleOrNull()?.takeIf { it >= 0.0 }
+        val absoluteValue = absoluteText.toDoubleOrNull()?.takeIf { it >= 0.0 }
         val thresholds = HdrThresholds(
-            relativeChange = (relativeText.toDoubleOrNull() ?: 50.0) / 100.0,
-            absoluteChangeNits = absoluteText.toDoubleOrNull() ?: 100.0,
+            relativeChange = (relativeValue ?: 50.0) / 100.0,
+            absoluteChangeNits = absoluteValue ?: 100.0,
         )
+
+        fun saveCsv(title: String, defaultName: String, content: String) {
+            val dialog = FileDialog(null as Frame?, title, FileDialog.SAVE)
+            dialog.file = defaultName
+            dialog.isVisible = true
+            val output = dialog.file?.let { File(dialog.directory, it) }
+            dialog.dispose()
+            if (output == null) return
+            scope.launch {
+                val failure = withContext(Dispatchers.IO) {
+                    try {
+                        // BOM so Windows Excel reads UTF-8 ("→", Korean) correctly.
+                        output.writeText("﻿" + content)
+                        null
+                    } catch (e: Exception) {
+                        e.message ?: e.toString()
+                    }
+                }
+                saveStatus = if (failure == null) label("저장됨: ", "Saved: ") + output.path else label("저장 실패: ", "Save failed: ") + failure
+            }
+        }
         val current = result
         val anomalies = remember(current, thresholds) { current?.let { detectHdrAnomalies(it.records, it.container, thresholds) } ?: emptyList() }
 
@@ -113,13 +147,19 @@ fun HdrMetadataWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -
                 scanning -> {
                     Text(label("메타데이터 스캔 중…", "Scanning metadata…"), color = AppColors.TextPrimary)
                     LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                    OutlinedButton(onClick = { cancelRequested.set(true) }) { Text(label("취소", "Cancel")) }
                 }
+                cancelled -> Text(label("취소됨", "Cancelled"), color = AppColors.TextSecondary)
                 error != null -> Text(label("오류: ", "Error: ") + error, color = AppColors.NeonRed)
                 current != null -> {
                     val records = current.records
                     val plusCount = records.count { it.hdr10Plus != null }
+                    // An empty or partially indexed scan must not read as a clean PASS.
+                    val verdict = hdrVerdict(anomalies).let {
+                        if ((records.isEmpty() || current.warnings.isNotEmpty()) && it == HdrVerdict.PASS) HdrVerdict.WARN else it
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        VerdictBadge(hdrVerdict(anomalies))
+                        VerdictBadge(verdict)
                         Text(
                             String.format(
                                 Locale.US, "%s · %d frames · HDR10+ %d/%d (%.1f%%)",
@@ -128,6 +168,10 @@ fun HdrMetadataWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -
                             ),
                             color = AppColors.TextPrimary, fontSize = 13.sp,
                         )
+                    }
+                    current.warnings.forEach { w -> Text("⚠ $w", color = AppColors.NeonYellow, fontSize = 12.sp) }
+                    if (records.isEmpty()) {
+                        Text(label("분석할 샘플이 없습니다", "No samples to analyse"), color = AppColors.NeonYellow, fontSize = 12.sp)
                     }
                     val inBandMd = records.firstNotNullOfOrNull { it.masteringDisplay }
                     val inBandCll = records.firstNotNullOfOrNull { it.contentLightLevel }
@@ -163,8 +207,14 @@ fun HdrMetadataWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -
 
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(label("급변 임계값", "Abrupt-change thresholds"), color = AppColors.TextSecondary, fontSize = 12.sp)
-                        OutlinedTextField(relativeText, { relativeText = it }, label = { Text("%") }, singleLine = true, modifier = Modifier.width(90.dp))
-                        OutlinedTextField(absoluteText, { absoluteText = it }, label = { Text("nits") }, singleLine = true, modifier = Modifier.width(110.dp))
+                        OutlinedTextField(
+                            relativeText, { relativeText = it }, label = { Text("%") }, singleLine = true,
+                            isError = relativeValue == null, modifier = Modifier.width(90.dp),
+                        )
+                        OutlinedTextField(
+                            absoluteText, { absoluteText = it }, label = { Text("nits") }, singleLine = true,
+                            isError = absoluteValue == null, modifier = Modifier.width(110.dp),
+                        )
                         OutlinedButton(onClick = { saveCsv(label("프레임 CSV 저장", "Save frames CSV"), "${tab.file.nameWithoutExtension}-hdr-frames.csv", buildHdrFramesCsv(records)) }) {
                             Text(label("프레임 CSV", "Frames CSV"))
                         }
@@ -172,6 +222,7 @@ fun HdrMetadataWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -
                             Text(label("이상 목록 CSV", "Anomalies CSV"))
                         }
                     }
+                    saveStatus?.let { Text(it, color = AppColors.TextSecondary, fontSize = 12.sp, maxLines = 1) }
 
                     Row(modifier = Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         LazyColumn(modifier = Modifier.weight(0.4f).fillMaxSize()) {
@@ -189,8 +240,18 @@ fun HdrMetadataWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -
                                 )
                             }
                         }
-                        LazyColumn(state = tableState, modifier = Modifier.weight(0.6f).fillMaxSize()) {
-                            itemsIndexed(records) { index, r -> FrameRow(r, selected = index == selectedFrame) { selectedFrame = index } }
+                        Column(modifier = Modifier.weight(0.6f).fillMaxSize()) {
+                            Text(
+                                FRAME_TABLE_HEADER,
+                                color = AppColors.TextSecondary,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp, horizontal = 4.dp),
+                            )
+                            LazyColumn(state = tableState, modifier = Modifier.fillMaxWidth().weight(1f)) {
+                                itemsIndexed(records) { index, r -> FrameRow(r, selected = index == selectedFrame) { selectedFrame = index } }
+                            }
                         }
                     }
                 }
@@ -232,6 +293,11 @@ private fun Legend(color: Color, text: String) {
     Text("━ $text", color = color, fontSize = 11.sp)
 }
 
+// Column widths match FrameRow's format: "#%-5d" = 6, "%9.3fs" = 10, then K, MaxSCL, avgRGB, target.
+private val FRAME_TABLE_HEADER = String.format(
+    Locale.US, "%-6s %10s %s  %-8s %-8s %-6s  %s", "frame", "pts", "K", "MaxSCL", "avgRGB", "target", "metadata",
+)
+
 @Composable
 private fun FrameRow(r: FrameHdrRecord, selected: Boolean, onClick: () -> Unit) {
     val w = r.hdr10Plus?.windows?.firstOrNull()
@@ -253,13 +319,4 @@ private fun FrameRow(r: FrameHdrRecord, selected: Boolean, onClick: () -> Unit) 
             .clickable(onClick = onClick)
             .padding(vertical = 2.dp, horizontal = 4.dp),
     )
-}
-
-private fun saveCsv(title: String, defaultName: String, content: String) {
-    val dialog = FileDialog(null as Frame?, title, FileDialog.SAVE)
-    dialog.file = defaultName
-    dialog.isVisible = true
-    val output = dialog.file?.let { File(dialog.directory, it) }
-    dialog.dispose()
-    output?.writeText(content)
 }

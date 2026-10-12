@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -47,8 +48,14 @@ fun HdrTrendGraph(
         averageColor to { r -> r.hdr10Plus?.windows?.firstOrNull()?.averageMaxrgbNits },
         targetColor to { r -> r.hdr10Plus?.targetedSystemDisplayMaximumLuminance?.toDouble() },
     )
-    val values = records.flatMap { r -> series.mapNotNull { (_, value) -> value(r) } } + referenceLines.map { it.second }
-    val maxValue = (values.maxOrNull() ?: 1.0).coerceAtLeast(1.0) * 1.05
+    // Equal-valued references (typically MDCV max 1000 = MaxCLL 1000) share one line and one label.
+    val references = remember(referenceLines) {
+        referenceLines.groupBy { it.second }.map { (v, items) -> items.joinToString(" / ") { it.first } to v }
+    }
+    val maxValue = remember(records, referenceLines) {
+        val values = records.flatMap { r -> series.mapNotNull { (_, value) -> value(r) } } + referenceLines.map { it.second }
+        (values.maxOrNull() ?: 1.0).coerceAtLeast(1.0) * 1.05
+    }
     val lastIndex = (records.size - 1).coerceAtLeast(1)
 
     BoxWithConstraints(modifier = modifier) {
@@ -67,7 +74,7 @@ fun HdrTrendGraph(
             }
             markedFrames.forEach { f -> drawLine(markerColor.copy(alpha = 0.5f), Offset(x(f), 0f), Offset(x(f), size.height), strokeWidth = 2f) }
             selectedFrame?.let { f -> drawLine(selectedColor, Offset(x(f), 0f), Offset(x(f), size.height), strokeWidth = 2f) }
-            referenceLines.forEach { (_, v) ->
+            references.forEach { (_, v) ->
                 drawLine(
                     referenceColor, Offset(0f, y(v)), Offset(size.width, y(v)), strokeWidth = 1.5f,
                     pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f)),
@@ -90,7 +97,7 @@ fun HdrTrendGraph(
                 modifier = Modifier.offset(y = maxHeight * (1f - tick.toFloat() / HDR_GRAPH_Y_TICKS)),
             )
         }
-        referenceLines.forEach { (label, v) ->
+        references.forEach { (label, v) ->
             Text(
                 String.format(Locale.US, "%s %.0f", label, v),
                 color = referenceColor,
