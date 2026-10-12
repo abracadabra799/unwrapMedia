@@ -1,12 +1,14 @@
 package com.multiviewer.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -68,22 +70,41 @@ fun CodecViewPreviewWindow(
         }
     }
 
+    var frameQpInfoText by remember { mutableStateOf<String?>(null) }
+
     LaunchedEffect(tab.selectedFrame, mode) {
         val f = tab.selectedFrame
         if (f == null) {
             tab.codecViewFrameBitmap = null
             tab.isDecodingCodecViewFrame = false
+            frameQpInfoText = null
             return@LaunchedEffect
         }
         tab.isDecodingCodecViewFrame = true
+        frameQpInfoText = null
         kotlinx.coroutines.delay(40)
         val bitmap = suspendCancellableCoroutine { cont ->
-            CodecViewFrameDecoder.decodeFrameAsync(tab.file, f.ptsSeconds, mode) { result ->
+            CodecViewFrameDecoder.decodeFrameAsync(tab.file, f.ptsSeconds, mode, tab.videoCodecName) { result ->
                 if (cont.isActive) cont.resume(result)
             }
         }
         tab.codecViewFrameBitmap = bitmap
         tab.isDecodingCodecViewFrame = false
+
+        // Probe codec-specific QP info for HEVC / AV1
+        val codec = tab.videoCodecName
+        if (codec == "hevc") {
+            kotlinx.coroutines.Dispatchers.IO.let {
+                val slice = com.multiviewer.parser.probeHevcFrameSliceQpWithFfmpeg(tab.file, f.ptsSeconds)
+                if (slice != null) {
+                    frameQpInfoText = "HEVC ${slice.sliceType} · Slice QP ${slice.sliceQp} (Delta: ${if (slice.sliceQpDelta >= 0) "+${slice.sliceQpDelta}" else "${slice.sliceQpDelta}"})"
+                }
+            }
+        } else if (codec == "av1") {
+            frameQpInfoText = "AV1 Frame · Tile/Block Partitioning & Base Q Index"
+        } else if (codec == "h264" && mode == CodecViewMode.QP_HEATMAP) {
+            frameQpInfoText = "H.264 Macroblock QP Heatmap (Green intensity = QP)"
+        }
     }
 
     val modeTitle = when (mode) {
@@ -201,6 +222,24 @@ fun CodecViewPreviewWindow(
                         "  (◀/▶ 방향키 또는 마우스 휠로 프레임 이동, 스크롤/드래그로 줌/팬)",
                     modifier = Modifier.align(Alignment.BottomStart).padding(6.dp),
                 )
+            }
+
+            if (frameQpInfoText != null) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 10.dp)
+                        .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(6.dp))
+                        .border(1.dp, Color(0xFF4CAF50).copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                ) {
+                    Text(
+                        frameQpInfoText!!,
+                        color = Color(0xFF81C784),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
             }
         }
     }
