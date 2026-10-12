@@ -1,11 +1,11 @@
-# Handoff — 2026-10-12 (Claude Code → Codex)
+# Handoff — 2026-10-13 (Claude Code → Codex)
 
 Read `AGENTS.md` (repo root) for build/test commands, workflow and hard rules. This file is the current state.
 
 ## Where things stand
 
-- `main` = v1.20.0 (`0d2c6f1` + docs commits after it), pushed to `origin`. All tests pass (1484) apart from the
-  known flaky `ThumbnailDiskCacheTest`. No feature branch or worktree is open.
+- `main` = v1.20.0 + SEI/HDR (Item 1) + C2PA 2a/2b/2c (Item 2) + Motion photo deep analysis (Item 3) merged.
+- All tests pass (1485+) apart from the known flaky `ThumbnailDiskCacheTest`. No feature branch or worktree is open.
 - The user asked to execute a benchmarking roadmap **in order, one item at a time**, each through
   brainstorm → spec → plan → implementation → review → merge.
 
@@ -15,33 +15,41 @@ Read `AGENTS.md` (repo root) for build/test commands, workflow and hard rules. T
 |---|---|---|
 | 1 | SEI / HDR metadata analysis (H.264/HEVC SEI, AV1 metadata OBU, HDR10+, mdcv/clli, per-frame Detail section, Analyze window with trend graph, 4 anomaly rules, CSV) | **Shipped** in 1.20.0. Spec/plan: `docs/superpowers/{specs,plans}/2026-10-12-sei-hdr-metadata-analysis*`. GUI manual pass still owed to the user. |
 | 2 | C2PA Content Credentials + motion-photo interaction — split into **2a** structure/display, **2b** hard-binding hash recomputation + motion-photo/XMP/SEF range mapping ("does this edit break the binding?"), **2c** COSE_Sign1 + X.509 chain + timestamp verification using **JDK crypto only** (user's decision, no external crypto library) | **Shipped (2a, 2b, 2c merged into main)**. Spec/plan: `docs/superpowers/{specs,plans}/2026-10-12-c2pa-signature-verification*`. GUI manual pass owed to user. |
-| 3 | Motion photo deep analysis: still ↔ video frame match at `MicroVideoPresentationTimestampUs`, Apple Live Photo pair check, cross-platform compatibility matrix | **Next action: ready to brainstorm** |
+| 3 | Motion photo deep analysis: still ↔ video frame match at `MicroVideoPresentationTimestampUs`, Apple Live Photo pair check, cross-platform compatibility matrix | **Shipped (merged into main)**. Spec/plan: `docs/superpowers/{specs,plans}/2026-10-13-motion-photo-deep-analysis*`. |
 
-## Next action: brainstorm Item 3 (Motion photo deep analysis)
+## What was completed in Item 3 (Motion photo deep analysis)
 
-- Roadmap Item 2 (C2PA Content Credentials 2a, 2b, 2c) is completely **Shipped and merged into `main`**.
-  - 2a: Manifest stores, claim, assertions, ingredients, thumbnails, and JUMBF tree nodes.
-  - 2b: Hard-binding hash recomputation (`c2pa.hash.data`, `c2pa.hash.bmff` v2/v3) and structure coverage mapping (motion-photo video append, SEF trailer `/sefd` exclusion impact).
-  - 2c: Cryptographic verification of COSE_Sign1 signatures (ES256, PS256, RS256), X.509 certificate chains, and assertion URI hash integrity using **JDK crypto only**.
-- Next topic: **Item 3 — Motion photo deep analysis**:
-  - Still ↔ video frame match at `MicroVideoPresentationTimestampUs` (or `MotionPhoto_PresentationTimestampUs`).
-  - Apple Live Photo pair check (UUID metadata / `quicktime:CreationDate` matching between JPEG/HEIC and MOV).
-  - Cross-platform compatibility matrix (Samsung vs Google vs Apple Live Photo vs Xiaomi).
+- **Task 1: Still ↔ Video Frame Matcher** (`MotionPhotoFrameMatcher.kt`):
+  - Presentation timestamp extraction from Google/Samsung XMP (`MotionPhotoPresentationTimestampUs`, `MicroVideoPresentationTimestampUs`) and Apple QuickTime metadata (`still-image-time`).
+  - High-precision PTS calculation over ISO-BMFF `VideoSampleTable` (`stts` decodeTime + `ctts` compositionOffset).
+  - Matches closest video sample index, computes delta μs, assesses keyframe (I-Frame / Non-keyframe) alignment, and assigns `FrameAlignmentVerdict` (`EXACT_KEYFRAME`, `ALIGNED_NON_KEYFRAME`, `MISALIGNED`, `OUT_OF_BOUNDS`).
+  - Relative position percent calculation and timeline gauge representation.
+- **Task 2: Apple Live Photo Pair Checker** (`AppleLivePhotoPairChecker.kt`):
+  - Extracts Content Identifier UUID and `DateTimeOriginal` from still images (HEIC meta keys, EXIF MakerNote tag 0x0011, XMP `apple-fi:ContentIdentifier`).
+  - Extracts Content Identifier UUID, `com.apple.quicktime.creationdate`, `com.apple.quicktime.live-photo.still-image-time`, and vitality score from MOV files.
+  - Case-insensitive UUID matching and verification report with `LivePhotoPairStatus` (`MATCHED`, `MISMATCHED_UUID`, etc.).
+  - Automatic candidate pair file discovery within the same directory (`findLivePhotoPairCandidate`).
+  - Date/time synchronization delta calculation between EXIF and QuickTime.
+- **Task 3: Cross-Platform Compatibility Matrix** (`MotionPhotoCompatibilityMatrix.kt`):
+  - Evaluates media support levels (`FULL`, `PARTIAL`, `STILL_ONLY`, `UNSUPPORTED`) across 6 key environments:
+    1. Samsung Gallery (Samsung OneUI)
+    2. Google Photos
+    3. Apple Photos (iOS/macOS)
+    4. Xiaomi Gallery (HyperOS)
+    5. Standard Web Browsers (Chrome, Safari, Edge)
+    6. Social Media Platforms (Instagram, X, Facebook)
+  - Identifies composite profiles (e.g., Samsung SEF + Google XMP v2 hybrid, legacy SEF, Apple Live Photo pair, HEIC mpvd).
+- **Task 4: Content Check Window Integration** (`MotionPhotoReportContent.kt` & `MotionPhotoIntegrityAnalyzer.kt`):
+  - Embedded in the Content Check window's Motion Photo tab.
+  - Material3 Compose UI cards and tables for Frame Match, Live Photo Pair Inspection, and Compatibility Matrix.
 
-## Facts worth knowing for C2PA (verified on real files)
+## Facts worth knowing for C2PA & Motion Photo
 
-- Update from user-supplied S26 samples (2026-10-12): `s26-motion-photo.heic` and `s26-camera.jpg` both contain C2PA. See `docs/validation/c2pa-fixtures/README.md` for raw offsets and provenance. The prior AI-edit-only assumption below is superseded.
-- Earlier observation: The user's unedited capture (`~/Downloads/20261012_223627.jpg`) has none —
-  That absence does not establish an AI-edit-only rule. Real Samsung camera samples are now available for 2b; AI-edited variants remain useful additional coverage.
-- That capture is an Ultra HDR JPEG: ISO 21496-1 APP2 + MPF + gain-map JPEG at 1,693,523, and a 217-byte SEF
-  trailer (`Image_UTC_Data`, `MCC_Data`, `Color_Display_P3`, `Photo_HDR_Info`, `Camera_Capture_Mode_Info`).
-- c2patool 0.27.22 is installed via Homebrew on the dev Mac; it signs with a built-in test certificate.
+- Update from user-supplied S26 samples (2026-10-12): `s26-motion-photo.heic` and `s26-camera.jpg` both contain C2PA.
+- Motion photo formats handled: Samsung SEF trailer, Google XMP Container:Directory v2, Google legacy MicroVideo v1, Apple Live Photo Pair (HEIC/JPG + MOV), Apple/Samsung HEIC `mpvd`.
+- All frame matching is verified at microsecond precision directly against the container's sample tables.
 
 ## Open loose ends
 
-- GUI manual checks owed by the user: HDR/SEI window + Detail section (item 1); several earlier features listed
-  in the user's notes (Content Check, Image Integrity, SEF tables).
+- GUI manual checks owed by the user: HDR/SEI window + Detail section (item 1); C2PA verification window (item 2); Motion photo deep analysis in Content Check (item 3).
 - `internal` remote push of 1.20.0 not confirmed (SSH timed out from this machine).
-- Minor findings recorded during item 1 reviews but intentionally left: frames CSV exports only HDR10+ window 0;
-  `detectVideoCodec`/length-size mismatch possible only for multi-video-track files; cancel during sample-table
-  build isn't honoured.
