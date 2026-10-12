@@ -3,6 +3,7 @@ package com.multiviewer.parser
 private var registered = false
 
 fun registerAllDecoders() {
+    BoxRegistry.register("uuid", com.multiviewer.parser.c2pa.C2paUuidBoxDecoder)
     if (registered) return
     registered = true
 

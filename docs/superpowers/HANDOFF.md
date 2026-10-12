@@ -45,9 +45,9 @@ Read `AGENTS.md` (repo root) for build/test commands, workflow and hard rules. T
 
 ## Facts worth knowing for C2PA (verified on real files)
 
-- No real Galaxy C2PA sample yet. The user's unedited capture (`~/Downloads/20261012_223627.jpg`) has none —
-  Samsung adds C2PA only to Galaxy-AI-edited images (generative edit etc.). Ask the user for an AI-edited JPEG
-  and an AI-edited motion photo before 2b; 2b's motion-photo question needs real Samsung files.
+- Update from user-supplied S26 samples (2026-10-12): `s26-motion-photo.heic` and `s26-camera.jpg` both contain C2PA. See `docs/validation/c2pa-fixtures/README.md` for raw offsets and provenance. The prior AI-edit-only assumption below is superseded.
+- Earlier observation: The user's unedited capture (`~/Downloads/20261012_223627.jpg`) has none —
+  That absence does not establish an AI-edit-only rule. Real Samsung camera samples are now available for 2b; AI-edited variants remain useful additional coverage.
 - That capture is an Ultra HDR JPEG: ISO 21496-1 APP2 + MPF + gain-map JPEG at 1,693,523, and a 217-byte SEF
   trailer (`Image_UTC_Data`, `MCC_Data`, `Color_Display_P3`, `Photo_HDR_Info`, `Camera_Capture_Mode_Info`).
 - c2patool 0.27.22 is installed via Homebrew on the dev Mac; it signs with a built-in test certificate.

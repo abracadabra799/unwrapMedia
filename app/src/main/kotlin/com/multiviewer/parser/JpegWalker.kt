@@ -128,7 +128,7 @@ fun parseJpegSegments(reader: ByteReader, start: Long, end: Long): List<BoxNode>
         result.add(decodeSegment(reader, marker, pos, declaredSize, totalSize))
         pos += totalSize
     }
-    return result
+    return com.multiviewer.parser.c2pa.attachC2paToJpegSegments(reader, result)
 }
 
 private fun decodeSegment(reader: ByteReader, marker: Int, offset: Long, declaredSize: Long, totalSize: Long): BoxNode {

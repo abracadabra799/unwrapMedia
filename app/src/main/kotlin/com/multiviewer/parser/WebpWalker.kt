@@ -30,7 +30,7 @@ fun parseWebpChunks(reader: ByteReader, start: Long, end: Long): List<BoxNode> {
             break
         }
 
-        result.add(decodeWebpChunk(reader, type, pos, chunkSize, totalSize))
+        result.add(com.multiviewer.parser.c2pa.attachC2paToWebpChunk(reader, decodeWebpChunk(reader, type, pos, chunkSize, totalSize)))
         pos += paddedSize
     }
     return result
