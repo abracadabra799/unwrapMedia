@@ -1,7 +1,10 @@
 package com.multiviewer.ui
 
 import com.multiviewer.util.ProcessManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
@@ -252,7 +255,10 @@ object AvSyncAnalyzer {
 
     suspend fun analyze(file: File): AvSyncReport? = withContext(Dispatchers.IO) {
         try {
-            val packets = probePackets(file) ?: return@withContext null
+            // Closing the window cancels this coroutine, but nothing interrupts a blocking stdout
+            // read -- the watch inside each probe kills ffprobe so it can't outlive the window.
+            val packets = probePackets(file) { !isActive } ?: return@withContext null
+            ensureActive()
             val videoPackets = packets.filter { it.mediaType == "video" }.sortedBy { it.ptsSeconds }
             val audioPackets = packets.filter { it.mediaType == "audio" }.sortedBy { it.ptsSeconds }
 
@@ -270,7 +276,7 @@ object AvSyncAnalyzer {
 
             // Prefer edit-list-aware start_time / duration (what a player sees);
             // fall back to packet PTS per field when the stream fields are N/A.
-            val streams = probeStreams(file)
+            val streams = probeStreams(file) { !isActive }
             val timing = resolveSkewAndDurations(
                 videoStream = streams.firstOrNull { it.codecType == "video" },
                 audioStream = streams.firstOrNull { it.codecType == "audio" },
@@ -442,14 +448,17 @@ object AvSyncAnalyzer {
                 overallSeverity = overallSeverity,
                 editListAdjusted = timing.editListAdjusted,
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             e.printStackTrace()
             null
         }
     }
 
-    private fun probePackets(file: File): List<StreamPacket>? {
+    private fun probePackets(file: File, isCancelled: () -> Boolean): List<StreamPacket>? {
         var process: Process? = null
+        var cancellationWatch: AutoCloseable? = null
         return try {
             process = ProcessManager.register(
                 ProcessBuilder(
@@ -459,6 +468,7 @@ object AvSyncAnalyzer {
                 ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD)
                     .also { FfmpegLocator.configureEnvironment(it) }.start()
             )
+            cancellationWatch = ProcessManager.watchCancellation(process, isCancelled)
 
             val packets = ArrayList<StreamPacket>(10000)
             val map = mutableMapOf<String, String>()
@@ -485,11 +495,13 @@ object AvSyncAnalyzer {
                     }
                 }
             }
+            if (isCancelled()) return null
             process.waitFor()
             packets
         } catch (e: Exception) {
             null
         } finally {
+            cancellationWatch?.close()
             process?.let {
                 ProcessManager.terminate(it)
                 ProcessManager.unregister(it)
@@ -497,27 +509,26 @@ object AvSyncAnalyzer {
         }
     }
 
-    private fun probeStreams(file: File): List<StreamInfo> {
+    private fun probeStreams(file: File, isCancelled: () -> Boolean): List<StreamInfo> {
         var process: Process? = null
+        var cancellationWatch: AutoCloseable? = null
         return try {
-            process = ProcessManager.register(
-                ProcessBuilder(
-                    FfmpegLocator.ffprobePath(), "-v", "error",
-                    "-show_entries", "stream=index,codec_type,start_time,duration",
-                    "-of", "default=noprint_wrappers=1", file.absolutePath
-                ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD)
-                    .also { FfmpegLocator.configureEnvironment(it) }.start()
-            )
-            val text = process.inputStream.bufferedReader().use { it.readText() }
-            process.waitFor()
+            process = ProcessBuilder(
+                FfmpegLocator.ffprobePath(), "-v", "error",
+                "-show_entries", "stream=index,codec_type,start_time,duration",
+                "-of", "default=noprint_wrappers=1", file.absolutePath
+            ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD)
+                .also { FfmpegLocator.configureEnvironment(it) }.start()
+            cancellationWatch = ProcessManager.watchCancellation(process, isCancelled)
+            val p = process
+            val text = readProcessOutputWithTimeout(p, 30) { p.inputStream.bufferedReader().use { it.readText() } }
+                ?: return emptyList()
             parseStreamInfoBlocks(text)
         } catch (e: Exception) {
             emptyList()
         } finally {
-            process?.let {
-                ProcessManager.terminate(it)
-                ProcessManager.unregister(it)
-            }
+            cancellationWatch?.close()
+            ProcessManager.terminate(process)
         }
     }
 }

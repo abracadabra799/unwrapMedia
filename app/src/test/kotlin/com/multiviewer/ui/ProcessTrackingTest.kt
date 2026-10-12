@@ -3,6 +3,9 @@ package com.multiviewer.ui
 import com.multiviewer.cache.MediaIndexCache
 import com.multiviewer.util.ProcessManager
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import kotlin.test.Test
@@ -217,4 +220,27 @@ class ProcessTrackingTest {
         assertEquals(0, aliveCount, "All processes and descendant shells must be terminated promptly")
         fifos.forEach { it.delete() }
     }
+    // Closing the A/V sync or bitstream window cancels its LaunchedEffect, but coroutine
+    // cancellation never interrupts a blocking stdout read: without a cancellation watch the
+    // ffprobe kept running (and reading a whole long file) after its window was gone.
+    private fun assertCancellingKillsFfprobe(what: String, analyze: suspend (File) -> Unit) {
+        val fifo = makeFifo(what)
+        val before = descendantPids()
+        runBlocking {
+            val job = launch(Dispatchers.IO) { analyze(fifo) }
+            val ffprobe = awaitNewDescendant(before, "ffprobe")
+            job.cancel()
+            assertDiesPromptly(ffprobe)
+            job.cancelAndJoin()
+        }
+        fifo.delete()
+    }
+
+    @Test
+    fun `AvSyncAnalyzer ffprobe is killed when its coroutine is cancelled`() =
+        assertCancellingKillsFfprobe("avsync") { AvSyncAnalyzer.analyze(it) }
+
+    @Test
+    fun `BitstreamCorruptionScanner ffprobe is killed when its coroutine is cancelled`() =
+        assertCancellingKillsFfprobe("bitstream") { BitstreamCorruptionScanner.scan(it) }
 }

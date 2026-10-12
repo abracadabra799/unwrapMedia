@@ -1,7 +1,10 @@
 package com.multiviewer.ui
 
 import com.multiviewer.util.ProcessManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
@@ -105,7 +108,9 @@ object BitstreamCorruptionScanner {
 
     suspend fun scan(file: File, knownFrames: List<FrameInfo>? = null): BitstreamCorruptionReport? = withContext(Dispatchers.IO) {
         try {
-            val (frames, rawErrors) = probeFramesAndErrors(file, knownFrames)
+            // A killed (cancelled) scan read only part of the file -- never turn that into a report.
+            val (frames, rawErrors) = probeFramesAndErrors(file, knownFrames) { !isActive }
+            ensureActive()
             val corruptEntries = mutableListOf<CorruptFrameEntry>()
 
             // Map each raw error line to the closest frame by PTS or sequential count
@@ -193,6 +198,8 @@ object BitstreamCorruptionScanner {
                 overallStatus = overallStatus,
                 summaryRecommendation = recommendation
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             e.printStackTrace()
             null
@@ -208,11 +215,13 @@ object BitstreamCorruptionScanner {
 
     private fun probeFramesAndErrors(
         file: File,
-        knownFrames: List<FrameInfo>? = null
+        knownFrames: List<FrameInfo>? = null,
+        isCancelled: () -> Boolean = { false },
     ): Pair<List<FrameInfo>, List<RawDecoderError>> {
         val frames = mutableListOf<FrameInfo>()
         val errors = mutableListOf<RawDecoderError>()
         var process: Process? = null
+        var cancellationWatch: AutoCloseable? = null
         try {
             // Run ffprobe with -v warning, showing frames, so stderr errors and stdout frames are interleaved.
             process = ProcessManager.register(
@@ -223,6 +232,7 @@ object BitstreamCorruptionScanner {
                     file.absolutePath
                 ).redirectErrorStream(true).also { FfmpegLocator.configureEnvironment(it) }.start()
             )
+            cancellationWatch = ProcessManager.watchCancellation(process, isCancelled)
 
             val values = mutableMapOf<String, String>()
             var pendingError: String? = null
@@ -290,8 +300,9 @@ object BitstreamCorruptionScanner {
             }
             process.waitFor()
         } catch (e: Exception) {
-            e.printStackTrace()
+            if (!isCancelled()) e.printStackTrace()
         } finally {
+            cancellationWatch?.close()
             process?.let {
                 ProcessManager.terminate(it)
                 ProcessManager.unregister(it)
