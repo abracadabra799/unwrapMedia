@@ -13,6 +13,8 @@ import java.security.MessageDigest
 object MediaIndexCache {
     private const val MAX_L1_ENTRIES = 10
     private const val CACHE_MAGIC = 0x554E5752 // "UNWR"
+    // ~27 bytes per frame: a one-hour 60fps video is ~6MB, so this keeps dozens of long videos.
+    const val DEFAULT_MAX_DISK_BYTES = 256L * 1024 * 1024
 
     // L1: In-Memory LRU Cache
     private val l1Cache = object : LinkedHashMap<String, List<FrameInfo>>(MAX_L1_ENTRIES, 0.75f, true) {
@@ -22,10 +24,12 @@ object MediaIndexCache {
     }
 
     private var cacheDir: File? = null
+    private var maxDiskBytes = DEFAULT_MAX_DISK_BYTES
 
-    fun initialize(directory: File) {
+    fun initialize(directory: File, maxDiskBytes: Long = DEFAULT_MAX_DISK_BYTES) {
         synchronized(this) {
             cacheDir = directory
+            this.maxDiskBytes = maxDiskBytes
             if (!directory.exists()) {
                 directory.mkdirs()
             }
@@ -58,6 +62,19 @@ object MediaIndexCache {
         val key = getCacheKey(file)
         l1Cache[key] = frames
         saveToDisk(key, frames)
+        evictDiskToLimit(protectedName = "$key.fidx")
+    }
+
+    // LRU by mtime (loadFromDisk touches a hit), so the disk tier can't grow without bound.
+    private fun evictDiskToLimit(protectedName: String) {
+        val files = cacheDir?.listFiles { _, name -> name.endsWith(".fidx") } ?: return
+        var total = files.sumOf { it.length() }
+        for (file in files.sortedBy { it.lastModified() }) {
+            if (total <= maxDiskBytes) break
+            if (file.name == protectedName) continue
+            val length = file.length()
+            if (file.delete()) total -= length
+        }
     }
 
     fun clear() = synchronized(this) {
@@ -93,7 +110,7 @@ object MediaIndexCache {
                     frames.add(FrameInfo(index, type, sizeBytes, ptsSeconds, byteOffset))
                 }
                 frames
-            }
+            }.also { cacheFile.setLastModified(System.currentTimeMillis()) }
         } catch (e: Exception) {
             cacheFile.delete()
             null

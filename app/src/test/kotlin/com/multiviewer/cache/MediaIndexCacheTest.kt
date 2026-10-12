@@ -9,6 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class MediaIndexCacheTest {
     private lateinit var tempDir: File
@@ -73,5 +74,25 @@ class MediaIndexCacheTest {
 
         assertEquals(false, initialKey == newKey)
         assertNull(MediaIndexCache.get(sampleVideoFile))
+    }
+
+    // The disk tier gets one .fidx per opened video and used to keep every one of them forever.
+    @Test
+    fun `disk tier evicts least recently used index files beyond its byte budget`() {
+        fun video(name: String) = File(tempDir, name).apply { writeBytes(ByteArray(16) { name.length.toByte() }) }
+        val frames = (0 until 100).map { FrameInfo(it, 'P', 1000, it / 30.0, it * 1000L) }
+        val oldest = video("a.mp4"); val middle = video("bb.mp4"); val newest = video("ccc.mp4")
+        MediaIndexCache.put(oldest, frames)
+        val oneEntryBytes = File(tempDir, MediaIndexCache.getCacheKey(oldest) + ".fidx").length()
+        MediaIndexCache.initialize(tempDir, maxDiskBytes = oneEntryBytes * 2)
+        fun fidx(f: File) = File(tempDir, MediaIndexCache.getCacheKey(f) + ".fidx")
+        fidx(oldest).setLastModified(System.currentTimeMillis() - 60_000)
+        MediaIndexCache.put(middle, frames)
+        fidx(middle).setLastModified(System.currentTimeMillis() - 30_000)
+        MediaIndexCache.put(newest, frames)
+
+        assertTrue(!fidx(oldest).exists(), "least recently used index should have been evicted")
+        assertTrue(fidx(middle).exists())
+        assertTrue(fidx(newest).exists())
     }
 }
