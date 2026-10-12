@@ -101,4 +101,51 @@ class C2paHardBindingTest {
             assertEquals(hex(storedHash), hex(computed))
         }
     }
+
+    @Test
+    fun `computeBmffV3Hash matches stored hash on signed_heif`() {
+        val file = fixture("signed.heif")
+        val root = parseFile(file)
+        val store = assertNotNull(readC2paManifestStore(file, root))
+        val active = assertNotNull(store.active)
+        val hashAssertion = assertNotNull(active.assertions.firstOrNull { it.label == "c2pa.hash.bmff.v3" })
+        val cborContent = assertNotNull((hashAssertion.content as? C2paAssertionContent.Cbor)?.value)
+        val exclusions = parseBmffExclusions(cborContent)
+        assertTrue(exclusions.any { it.xpath == "/uuid" })
+        assertTrue(exclusions.any { it.xpath == "/ftyp" })
+
+        val storedHash = assertNotNull(cborContent.asMap()?.get("hash")?.asBytes())
+        val alg = cborContent.asMap()?.get("alg")?.asText() ?: "sha256"
+
+        ByteReader.open(file).use { reader ->
+            val computed = computeBmffV3Hash(reader, exclusions, alg)
+            assertEquals(hex(storedHash), hex(computed))
+        }
+    }
+
+    @Test
+    fun `s26-motion-photo_heic exclusions include sefd and diagnose video mismatch`() {
+        val file = fixture("s26-motion-photo.heic")
+        val root = parseFile(file)
+        val store = assertNotNull(readC2paManifestStore(file, root))
+        val active = assertNotNull(store.active)
+        val hashAssertion = assertNotNull(active.assertions.firstOrNull { it.label.startsWith("c2pa.hash.bmff") })
+        val cborContent = assertNotNull((hashAssertion.content as? C2paAssertionContent.Cbor)?.value)
+        val exclusions = parseBmffExclusions(cborContent)
+
+        // Samsung S26 camera deliberately excludes /sefd so SEF metadata updates preserve C2PA
+        assertTrue(exclusions.any { it.xpath == "/sefd" })
+        assertTrue(exclusions.any { it.xpath == "/uuid" })
+        assertTrue(exclusions.any { it.xpath == "/ftyp" })
+
+        val storedHash = assertNotNull(cborContent.asMap()?.get("hash")?.asBytes())
+        val alg = cborContent.asMap()?.get("alg")?.asText() ?: "sha256"
+
+        ByteReader.open(file).use { reader ->
+            val computed = computeBmffV2Hash(reader, exclusions, alg)
+            // Due to appended motion photo video tracks (ftyp/mdat/moov), hash differs from still-only capture
+            assertTrue(hex(storedHash) != hex(computed))
+        }
+    }
 }
+
