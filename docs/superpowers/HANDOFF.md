@@ -14,34 +14,17 @@ Read `AGENTS.md` (repo root) for build/test commands, workflow and hard rules. T
 | # | Item | Status |
 |---|---|---|
 | 1 | SEI / HDR metadata analysis (H.264/HEVC SEI, AV1 metadata OBU, HDR10+, mdcv/clli, per-frame Detail section, Analyze window with trend graph, 4 anomaly rules, CSV) | **Shipped** in 1.20.0. Spec/plan: `docs/superpowers/{specs,plans}/2026-10-12-sei-hdr-metadata-analysis*`. GUI manual pass still owed to the user. |
-| 2 | C2PA Content Credentials + motion-photo interaction — split into **2a** structure/display, **2b** hard-binding hash recomputation + motion-photo/XMP/SEF range mapping ("does this edit break the binding?"), **2c** COSE_Sign1 + X.509 chain + timestamp verification using **JDK crypto only** (user's decision, no external crypto library) | **2a: spec + plan done, ready to implement** (see below). 2b/2c: not started. |
-| 3 | Motion photo deep analysis: still ↔ video frame match at `MicroVideoPresentationTimestampUs`, Apple Live Photo pair check, cross-platform compatibility matrix | not started |
-| 4 | Firmware build-vs-build regression batch diff (folder A vs folder B field diff) | not started |
-| 5 | MV/QP overlay for HEVC and AV1 (currently H.264 only) | not started |
-| 6 | HRD/VBV buffer simulation | not started |
-| 7 | MV-HEVC spatial video | not started |
-| 8 | Timed metadata tracks (camm / gyro / GPS) on a timeline | not started |
-| 9 | HDR scopes (nits false colour, waveform, vectorscope, gamut, gain-map headroom slider) | not started |
-| 10 | ADB integration (device browse/pull, `media_codecs.xml` / `dumpsys media.codec`) | not started |
-| 11 | MPEG-TS, VVC, loudness (LUFS) | not started |
+| 2 | C2PA Content Credentials + motion-photo interaction — split into **2a** structure/display, **2b** hard-binding hash recomputation + motion-photo/XMP/SEF range mapping ("does this edit break the binding?"), **2c** COSE_Sign1 + X.509 chain + timestamp verification using **JDK crypto only** (user's decision, no external crypto library) | **2a: Shipped (merged into main)**. Spec/plan: `docs/superpowers/{specs,plans}/2026-10-12-c2pa-manifest-parsing*`. GUI manual pass still owed to user. **2b: ready to brainstorm**. 2c: not started. |
 
-## Next action: implement C2PA phase 2a
+## Next action: brainstorm C2PA phase 2b
 
-- Spec: `docs/superpowers/specs/2026-10-12-c2pa-manifest-parsing-design.md`
-- Plan: `docs/superpowers/plans/2026-10-12-c2pa-manifest-parsing.md` — 8 tasks with complete code and tests.
-  **Task 1 (fixtures) is already done** (fixtures committed in `app/src/test/resources/c2pa/`, provenance and
-  Python dump tools in `docs/validation/c2pa-fixtures/`). Start at Task 2.
-- Suggested execution: create a worktree `git worktree add .worktrees/c2pa-2a -b feature/c2pa-manifest-parsing`,
-  run the baseline `./gradlew :app:test`, then do Tasks 2–8 in order. Each task is TDD: write the test, see it
-  fail, implement, see it pass, run the full suite once, commit. Review each task's diff against its plan task
-  before moving on; at the end review the whole branch (cross-task integration, Windows risks, false-PASS risks).
-- The plan's code was written without compiling. If something does not compile, fix it minimally and record the
-  deviation; **never change a test's expected value** to make it pass — the values were read from the real
-  files. If a value differs, re-check with `python3 -I docs/validation/c2pa-fixtures/tools/c2pa_dump.py <file>`.
-- Task 7's GUI and Task 8's manual checks need the user (no GUI automation here).
-- After 2a merges: brainstorm 2b with the user (hash.data exclusion ranges are absolute file offsets, e.g.
-  C.jpg `{start: 20, length: 45884}` = the APP11 segment; hash.bmff uses xpath exclusions such as `/uuid`,
-  `/ftyp`, `/meta/iloc`), then 2c.
+- Phase 2a (C2PA structure parsing & credentials window) is complete and fast-forward merged into `main`.
+  All automated tests pass. Real Galaxy S26 JPEG (`s26-camera.jpg`) and HEIC motion photo (`s26-motion-photo.heic`) fixtures are integrated.
+- Phase 2b topic: Hard-binding hash recomputation + motion-photo/XMP/SEF range mapping ("does this edit break the binding?").
+  - `hash.data` exclusion ranges are absolute file offsets (e.g. C.jpg `{start: 20, length: 45884}` = APP11 segment).
+  - `hash.bmff` uses xpath exclusions such as `/uuid`, `/ftyp`, `/meta/iloc`.
+  - Motion photo interaction: appending a video track or SEF trailer vs C2PA hash integrity.
+- Next step: Brainstorm phase 2b with the user to align on requirements and architecture, followed by design spec and implementation plan.
 
 ## Facts worth knowing for C2PA (verified on real files)
 
