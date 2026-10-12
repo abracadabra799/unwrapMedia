@@ -14,17 +14,17 @@ Read `AGENTS.md` (repo root) for build/test commands, workflow and hard rules. T
 | # | Item | Status |
 |---|---|---|
 | 1 | SEI / HDR metadata analysis (H.264/HEVC SEI, AV1 metadata OBU, HDR10+, mdcv/clli, per-frame Detail section, Analyze window with trend graph, 4 anomaly rules, CSV) | **Shipped** in 1.20.0. Spec/plan: `docs/superpowers/{specs,plans}/2026-10-12-sei-hdr-metadata-analysis*`. GUI manual pass still owed to the user. |
-| 2 | C2PA Content Credentials + motion-photo interaction — split into **2a** structure/display, **2b** hard-binding hash recomputation + motion-photo/XMP/SEF range mapping ("does this edit break the binding?"), **2c** COSE_Sign1 + X.509 chain + timestamp verification using **JDK crypto only** (user's decision, no external crypto library) | **2a: Shipped (merged into main)**. Spec/plan: `docs/superpowers/{specs,plans}/2026-10-12-c2pa-manifest-parsing*`. GUI manual pass still owed to user. **2b: ready to brainstorm**. 2c: not started. |
+| 2 | C2PA Content Credentials + motion-photo interaction — split into **2a** structure/display, **2b** hard-binding hash recomputation + motion-photo/XMP/SEF range mapping ("does this edit break the binding?"), **2c** COSE_Sign1 + X.509 chain + timestamp verification using **JDK crypto only** (user's decision, no external crypto library) | **2a/2b: Shipped (merged into main)**. Spec/plan: `docs/superpowers/{specs,plans}/2026-10-12-c2pa-hard-binding*`. GUI manual pass still owed to user. **2c: ready to brainstorm**. |
 
-## Next action: brainstorm C2PA phase 2b
+## Next action: brainstorm C2PA phase 2c
 
-- Phase 2a (C2PA structure parsing & credentials window) is complete and fast-forward merged into `main`.
-  All automated tests pass. Real Galaxy S26 JPEG (`s26-camera.jpg`) and HEIC motion photo (`s26-motion-photo.heic`) fixtures are integrated.
-- Phase 2b topic: Hard-binding hash recomputation + motion-photo/XMP/SEF range mapping ("does this edit break the binding?").
-  - `hash.data` exclusion ranges are absolute file offsets (e.g. C.jpg `{start: 20, length: 45884}` = APP11 segment).
-  - `hash.bmff` uses xpath exclusions such as `/uuid`, `/ftyp`, `/meta/iloc`.
-  - Motion photo interaction: appending a video track or SEF trailer vs C2PA hash integrity.
-- Next step: Brainstorm phase 2b with the user to align on requirements and architecture, followed by design spec and implementation plan.
+- Phase 2b (hard-binding hash recomputation + motion-photo/XMP/SEF range mapping & edit-impact diagnostics) is complete and fast-forward merged into `main`.
+  - `c2pa.hash.data` verifies JPEG/WebP (C.jpg, CA.jpg, s26-camera.jpg, signed_small.webp).
+  - `c2pa.hash.bmff.v3` verifies root offset prefixing (signed.heif).
+  - `c2pa.hash.bmff.v2` evaluates S26 motion photos, confirming Samsung camera's `/sefd` exclusion and diagnosing motion-photo video append mismatches.
+  - New "하드 바인딩" (Hard Binding) tab added to `C2paWindow` with status badge, edit impact cards, and structure coverage table.
+- Phase 2c topic: COSE_Sign1 signature, X.509 certificate chain, timestamp token, and trust verification using **JDK crypto APIs only** (no external crypto dependencies; c2patool for fixture verification).
+- Next step: Brainstorm phase 2c with the user to align on crypto verification scope and trust-root architecture, followed by design spec and implementation plan.
 
 ## Facts worth knowing for C2PA (verified on real files)
 
