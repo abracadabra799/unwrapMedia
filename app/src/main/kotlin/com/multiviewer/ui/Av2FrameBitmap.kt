@@ -1,14 +1,8 @@
 package com.multiviewer.ui
 
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.toComposeImageBitmap
-import org.jetbrains.skia.Bitmap
 import org.jetbrains.skia.ColorAlphaType
-import org.jetbrains.skia.ColorInfo
-import org.jetbrains.skia.ColorSpace
 import org.jetbrains.skia.ColorType
-import org.jetbrains.skia.Image
-import org.jetbrains.skia.ImageInfo
 import kotlin.math.floor
 
 /** Downscales 8-bit planar 4:2:0 data before RGBA expansion to bound display-frame memory. */
@@ -62,9 +56,5 @@ fun Av2DecodedFrame.toDisplayFrame(maxEdge: Int = 1280): Av2DecodedFrame {
 fun Av2DecodedFrame.toImageBitmap(): ImageBitmap {
     val displayFrame = toDisplayFrame()
     val rgba = yuv420ToRgba(displayFrame)
-    val bitmap = Bitmap().apply {
-        allocPixels(ImageInfo(ColorInfo(ColorType.RGBA_8888, ColorAlphaType.UNPREMUL, ColorSpace.sRGB), displayFrame.format.width, displayFrame.format.height))
-        installPixels(imageInfo, rgba, displayFrame.format.width * 4)
-    }
-    return Image.makeFromBitmap(bitmap).toComposeImageBitmap()
+    return pixelBufferToImageBitmap(displayFrame.format.width, displayFrame.format.height, rgba, ColorType.RGBA_8888, ColorAlphaType.UNPREMUL)
 }

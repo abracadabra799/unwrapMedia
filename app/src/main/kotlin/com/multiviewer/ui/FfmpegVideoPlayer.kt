@@ -41,7 +41,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -55,13 +54,9 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import org.jetbrains.skia.Bitmap
 import org.jetbrains.skia.ColorAlphaType
-import org.jetbrains.skia.ColorInfo
-import org.jetbrains.skia.ColorSpace
 import org.jetbrains.skia.ColorType
 import org.jetbrains.skia.Image
-import org.jetbrains.skia.ImageInfo
 import java.awt.EventQueue
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -501,11 +496,7 @@ fun FfmpegVideoPlayer(
                         durations.getOrElse(frameIndex) { fallbackDurationSeconds }.also { frameIndex++ }
 
                     fun deliver(durationSeconds: Double?) {
-                        val bitmap = Bitmap().apply {
-                            allocPixels(ImageInfo(ColorInfo(ColorType.BGRA_8888, ColorAlphaType.PREMUL, ColorSpace.sRGB), actualWidth, actualHeight))
-                            installPixels(imageInfo, buffer, actualWidth * 4)
-                        }
-                        val snapshot = Image.makeFromBitmap(bitmap).toComposeImageBitmap()
+                        val snapshot = pixelBufferToImageBitmap(actualWidth, actualHeight, buffer, ColorType.BGRA_8888, ColorAlphaType.PREMUL)
                         EventQueue.invokeLater {
                             videoBitmap = snapshot
                             if (durationSeconds != null) {

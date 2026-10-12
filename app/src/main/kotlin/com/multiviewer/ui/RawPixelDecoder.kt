@@ -1,14 +1,8 @@
 package com.multiviewer.ui
 
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.toComposeImageBitmap
-import org.jetbrains.skia.Bitmap
 import org.jetbrains.skia.ColorAlphaType
-import org.jetbrains.skia.ColorInfo
-import org.jetbrains.skia.ColorSpace
 import org.jetbrains.skia.ColorType
-import org.jetbrains.skia.Image
-import org.jetbrains.skia.ImageInfo
 import java.io.File
 import java.io.RandomAccessFile
 import java.util.concurrent.TimeUnit
@@ -225,11 +219,7 @@ fun decodeRawPixelFile(
 }
 
 private fun expandedToRgba8888Bitmap(width: Int, height: Int, rgba: ByteArray): ImageBitmap {
-    val bitmap = Bitmap().apply {
-        allocPixels(ImageInfo(ColorInfo(ColorType.RGBA_8888, ColorAlphaType.UNPREMUL, ColorSpace.sRGB), width, height))
-        installPixels(imageInfo, rgba, width * 4)
-    }
-    return Image.makeFromBitmap(bitmap).toComposeImageBitmap()
+    return pixelBufferToImageBitmap(width, height, rgba, ColorType.RGBA_8888, ColorAlphaType.UNPREMUL)
 }
 
 private fun decodeRgba8888(bytes: ByteArray, width: Int, height: Int): ImageBitmap? {
@@ -377,11 +367,7 @@ private fun decodeYuvFamily(bytes: ByteArray, width: Int, height: Int, ffmpegPix
         val outBytes = tempOut.readBytes()
         val expectedOut = width * height * 4
         if (outBytes.size < expectedOut) return null
-        val bitmap = Bitmap().apply {
-            allocPixels(ImageInfo(ColorInfo(ColorType.BGRA_8888, ColorAlphaType.PREMUL, ColorSpace.sRGB), width, height))
-            installPixels(imageInfo, outBytes, width * 4)
-        }
-        Image.makeFromBitmap(bitmap).toComposeImageBitmap()
+        pixelBufferToImageBitmap(width, height, outBytes, ColorType.BGRA_8888, ColorAlphaType.PREMUL)
     } catch (e: Exception) {
         null
     } finally {
