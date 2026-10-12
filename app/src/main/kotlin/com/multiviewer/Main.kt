@@ -439,6 +439,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var hdrMetadataTab by remember { mutableStateOf<TabState?>(null) }
         var hrdBufferTab by remember { mutableStateOf<TabState?>(null) }
         var spatialVideoTab by remember { mutableStateOf<TabState?>(null) }
+        var timedMetadataTab by remember { mutableStateOf<TabState?>(null) }
         var sefIntegrityWindowOpen by remember { mutableStateOf(false) }
         var aboutWindowOpen by remember { mutableStateOf(false) }
         var updateWindowOpen by remember { mutableStateOf(false) }
@@ -566,6 +567,11 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     I18n.menuSpatialVideoAnalysis(language),
                     enabled = hasVideoTrack,
                     onClick = { spatialVideoTab = currentTab },
+                )
+                item(
+                    I18n.menuTimedMetadataTimeline(language),
+                    enabled = hasVideoTrack,
+                    onClick = { timedMetadataTab = currentTab },
                 )
                 item(I18n.menuC2pa(language), enabled = currentTab != null && !currentTab.isLoading && selectedTabHasC2pa, onClick = { c2paTab = currentTab })
             }
@@ -880,6 +886,13 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     spatialVideoTab = null
                 } else {
                     SpatialVideoAnalysisWindow(tab = t, language = language, onCloseRequest = { spatialVideoTab = null })
+                }
+            }
+            timedMetadataTab?.let { t ->
+                if (appState.tabs.none { it === t }) {
+                    timedMetadataTab = null
+                } else {
+                    TimedMetadataTimelineWindow(tab = t, language = language, onCloseRequest = { timedMetadataTab = null })
                 }
             }
             if (sefIntegrityWindowOpen) {
