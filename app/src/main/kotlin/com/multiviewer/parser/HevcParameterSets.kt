@@ -54,6 +54,7 @@ data class HevcPps(
     val deblockingFilterControlPresentFlag: Boolean,
     // Null when deblockingFilterControlPresentFlag is false (field not signaled in the bitstream).
     val ppsDeblockingFilterDisabledFlag: Boolean?,
+    val initQpMinus26: Int = 0,
 )
 
 // Shared by parseHevcVps and parseHevcSps -- identical profile_tier_level() layout in both,
@@ -219,7 +220,7 @@ fun parseHevcPps(nalBytes: ByteArray): HevcPps? {
         val cabacInitPresentFlag = reader.readFlag()
         reader.readUe() // num_ref_idx_l0_default_active_minus1
         reader.readUe() // num_ref_idx_l1_default_active_minus1
-        reader.readSe() // init_qp_minus26
+        val initQpMinus26 = reader.readSe() // init_qp_minus26
         val constrainedIntraPredFlag = reader.readFlag()
         val transformSkipEnabledFlag = reader.readFlag()
         val cuQpDeltaEnabledFlag = reader.readFlag()
@@ -259,6 +260,7 @@ fun parseHevcPps(nalBytes: ByteArray): HevcPps? {
             constrainedIntraPredFlag, transformSkipEnabledFlag, cuQpDeltaEnabledFlag,
             weightedPredFlag, weightedBipredFlag, tilesEnabledFlag, entropyCodingSyncEnabledFlag,
             deblockingFilterControlPresentFlag, ppsDeblockingFilterDisabledFlag,
+            initQpMinus26 = initQpMinus26,
         )
     } catch (e: Exception) {
         null
