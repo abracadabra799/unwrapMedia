@@ -99,7 +99,14 @@ fun C2paWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -> Unit)
                         }
                         val m = s.manifests.getOrNull(selected) ?: s.manifests.last()
                         Column(modifier = Modifier.fillMaxSize()) {
-                            val tabs = listOf(label("개요", "Overview"), label("작업 이력", "Actions"), label("재료", "Ingredients"), label("어설션", "Assertions"), label("썸네일", "Thumbnail"))
+                            val tabs = listOf(
+                                label("개요", "Overview"),
+                                label("작업 이력", "Actions"),
+                                label("재료", "Ingredients"),
+                                label("어설션", "Assertions"),
+                                label("하드 바인딩", "Hard Binding"),
+                                label("썸네일", "Thumbnail"),
+                            )
                             TabRow(selectedTabIndex = tabIndex) {
                                 tabs.forEachIndexed { i, t -> Tab(selected = tabIndex == i, onClick = { tabIndex = i }, text = { Text(t) }) }
                             }
@@ -109,6 +116,7 @@ fun C2paWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -> Unit)
                                     1 -> ActionsTab(m, ::label)
                                     2 -> IngredientsTab(m, s, ::label) { selected = it; tabIndex = 0 }
                                     3 -> AssertionsTab(m, ::label)
+                                    4 -> HardBindingTab(tab, s, ::label)
                                     else -> ThumbnailTab(m, ::label)
                                 }
                             }
@@ -269,3 +277,113 @@ private fun ThumbnailImage(bytes: ByteArray, label: (String, String) -> String) 
         else -> Image(bitmap = bitmap!!, contentDescription = null, modifier = Modifier.heightIn(max = 360.dp))
     }
 }
+
+@Composable
+private fun HardBindingTab(tab: TabState, store: C2paManifestStore, label: (String, String) -> String) {
+    var report by remember(tab.file) { mutableStateOf<com.multiviewer.parser.c2pa.C2paHardBindingReport?>(null) }
+    var loading by remember(tab.file) { mutableStateOf(true) }
+
+    LaunchedEffect(tab.file) {
+        val root = tab.root
+        report = if (root == null) null else withContext(Dispatchers.IO) {
+            com.multiviewer.parser.c2pa.verifyC2paHardBinding(tab.file, root, store)
+        }
+        loading = false
+    }
+
+    LazyColumn(modifier = Modifier.fillMaxSize().padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        when {
+            loading -> item { Text(label("하드 바인딩 검증 및 해시 계산 중…", "Verifying hard binding and calculating hashes…"), color = AppColors.TextSecondary, fontSize = 12.sp) }
+            report == null -> item { Text(label("바인딩 정보를 읽을 수 없습니다", "Unable to read binding information"), color = AppColors.NeonRed, fontSize = 12.sp) }
+            else -> {
+                val r = report!!
+                val comp = r.comparison
+                item {
+                    Column(modifier = Modifier.fillMaxWidth().background(AppColors.Surface).padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(label("바인딩 검증 결과", "Binding Verification"), color = AppColors.TextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            val badgeColor = when (comp.status) {
+                                com.multiviewer.parser.c2pa.BindingStatus.MATCH -> AppColors.NeonBlue
+                                com.multiviewer.parser.c2pa.BindingStatus.MISMATCH -> AppColors.NeonRed
+                                com.multiviewer.parser.c2pa.BindingStatus.UNSUPPORTED -> AppColors.NeonYellow
+                            }
+                            val badgeText = when (comp.status) {
+                                com.multiviewer.parser.c2pa.BindingStatus.MATCH -> label("일치 (PASS)", "MATCH (PASS)")
+                                com.multiviewer.parser.c2pa.BindingStatus.MISMATCH -> label("불일치 (MISMATCH)", "MISMATCH (FAIL)")
+                                com.multiviewer.parser.c2pa.BindingStatus.UNSUPPORTED -> label("지원 안 됨", "UNSUPPORTED")
+                            }
+                            Text(badgeText, color = badgeColor, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                        Row2(label("해시 알고리즘", "Hash algorithm"), comp.algorithm)
+                        Row2(label("해시 대상 바이트", "Hashed bytes"), "${comp.hashedByteCount} B")
+                        Row2(label("제외 바이트", "Excluded bytes"), "${comp.excludedByteCount} B")
+                        Row2(label("저장된 해시", "Stored hash"), comp.storedHashHex)
+                        Row2(label("계산된 해시", "Computed hash"), comp.computedHashHex)
+                        comp.error?.let { Text(label("오류: ", "Error: ") + it, color = AppColors.NeonRed, fontSize = 12.sp) }
+                    }
+                }
+
+                item {
+                    Text(label("편집 영향도 진단 (Edit Impact Diagnostics)", "Edit Impact Diagnostics"), color = AppColors.NeonBlue, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+
+                item {
+                    val impact = r.editImpact
+                    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        ImpactCard(
+                            title = label("모션포토 비디오 추가/편집", "Motion Photo Video Append/Edit"),
+                            safe = impact.motionPhotoVideoSafe,
+                            reason = impact.motionPhotoVideoReason,
+                            label = label
+                        )
+                        ImpactCard(
+                            title = label("삼성 SEF 트레일러 추가/수정", "Samsung SEF Trailer Append/Edit"),
+                            safe = impact.sefTrailerSafe,
+                            reason = impact.sefTrailerReason,
+                            label = label
+                        )
+                        ImpactCard(
+                            title = label("XMP / Exif 메타데이터 편집", "XMP / Exif Metadata Edit"),
+                            safe = impact.xmpMetadataSafe,
+                            reason = impact.xmpMetadataReason,
+                            label = label
+                        )
+                    }
+                }
+
+                item {
+                    Text(label("파일 구조 및 C2PA 바인딩 커버리지", "Structure & C2PA Binding Coverage"), color = AppColors.NeonBlue, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+
+                items(r.coverageItems) { item ->
+                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(item.name, color = AppColors.TextPrimary, fontSize = 12.sp)
+                            Text("@0x${item.offset.toString(16).uppercase()} (${item.size} B) · ${item.impactNote}", color = AppColors.TextMuted, fontSize = 10.sp)
+                        }
+                        val statusText = if (item.status == com.multiviewer.parser.c2pa.CoverageStatus.HASHED) label("보호됨 (Hashed)", "Hashed") else label("제외됨 (Excluded)", "Excluded")
+                        val statusColor = if (item.status == com.multiviewer.parser.c2pa.CoverageStatus.HASHED) AppColors.NeonBlue else AppColors.NeonYellow
+                        Text(statusText, color = statusColor, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ImpactCard(title: String, safe: Boolean, reason: String, label: (String, String) -> String) {
+    Column(modifier = Modifier.fillMaxWidth().background(AppColors.Surface).padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(title, color = AppColors.TextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            Text(
+                if (safe) label("안전 (바인딩 유지)", "Safe (Binding preserved)") else label("위험 (바인딩 손상)", "Breaks binding"),
+                color = if (safe) AppColors.NeonBlue else AppColors.NeonRed,
+                fontWeight = FontWeight.Bold,
+                fontSize = 11.sp
+            )
+        }
+        Text(reason, color = AppColors.TextSecondary, fontSize = 11.sp)
+    }
+}
+
