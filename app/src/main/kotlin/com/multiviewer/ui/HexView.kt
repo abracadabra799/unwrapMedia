@@ -379,38 +379,40 @@ internal fun copyBytesAsBase64(raf: RandomAccessFile, range: LongRange) {
     com.multiviewer.util.ClipboardUtil.copyToClipboard(formatBytesAsBase64(buf))
 }
 
-internal fun exportRangeBytesToFile(
-    raf: RandomAccessFile,
-    range: LongRange,
-    destination: File,
-    onSuccess: (String) -> Unit,
-    onError: (String) -> Unit,
-) {
-    try {
-        val totalBytes = range.last - range.first + 1
-        raf.seek(range.first)
-        FileOutputStream(destination).use { fos ->
-            val buf = ByteArray(65536)
-            var remaining = totalBytes
-            while (remaining > 0) {
-                val toRead = minOf(buf.size.toLong(), remaining).toInt()
-                raf.readFully(buf, 0, toRead)
-                fos.write(buf, 0, toRead)
-                remaining -= toRead
+// Own RandomAccessFile: this runs off the UI thread (a selected box can be gigabytes), and the
+// view's handle has its file pointer shared with row rendering. Returns the toast message.
+internal fun exportRangeBytesToFile(source: File, range: LongRange, destination: File): Result<String> {
+    val totalBytes = range.last - range.first + 1
+    if (destination.canonicalFile == source.canonicalFile) {
+        // FileOutputStream would truncate the source before a single byte is read.
+        return Result.failure(IllegalArgumentException("저장 실패: 원본 파일에는 덮어쓸 수 없습니다"))
+    }
+    return try {
+        RandomAccessFile(source, "r").use { raf ->
+            raf.seek(range.first)
+            FileOutputStream(destination).use { fos ->
+                val buf = ByteArray(65536)
+                var remaining = totalBytes
+                while (remaining > 0) {
+                    val toRead = minOf(buf.size.toLong(), remaining).toInt()
+                    raf.readFully(buf, 0, toRead)
+                    fos.write(buf, 0, toRead)
+                    remaining -= toRead
+                }
             }
         }
-        onSuccess("${destination.name} 저장 완료 ($totalBytes 바이트)")
+        Result.success("${destination.name} 저장 완료 ($totalBytes 바이트)")
     } catch (e: Exception) {
-        onError("저장 실패: ${e.message}")
+        destination.delete()
+        Result.failure(IllegalStateException("저장 실패: ${e.message}", e))
     }
 }
 
 internal fun promptSaveRangeBytesWithDialog(
-    raf: RandomAccessFile,
+    source: File,
     range: LongRange,
     defaultFileName: String,
-    onSuccess: (String) -> Unit,
-    onError: (String) -> Unit,
+    onResult: (String) -> Unit,
 ) {
     val dialog = FileDialog(null as Frame?, "선택 바이트 파일로 추출 (Export Bytes)", FileDialog.SAVE)
     dialog.file = defaultFileName
@@ -419,7 +421,12 @@ internal fun promptSaveRangeBytesWithDialog(
     val directory = dialog.directory
     if (fileName != null && directory != null) {
         val destFile = File(directory, fileName)
-        exportRangeBytesToFile(raf, range, destFile, onSuccess, onError)
+        // Dedicated thread, not the shared 2-slot backgroundExecutor a long copy would hog.
+        Thread({
+            val result = exportRangeBytesToFile(source, range, destFile)
+            val message = result.getOrElse { it.message ?: "저장 실패" }
+            java.awt.EventQueue.invokeLater { onResult(message) }
+        }, "hex-export").apply { isDaemon = true; start() }
     }
 }
 
@@ -1116,9 +1123,8 @@ fun HexView(
                                     showMoreFormatsMenu = false
                                     val defaultName = "${file.nameWithoutExtension}_0x${range.first.toString(16).uppercase()}_0x${range.last.toString(16).uppercase()}.bin"
                                     promptSaveRangeBytesWithDialog(
-                                        raf, range, defaultName,
-                                        onSuccess = { copyToastMessage = it },
-                                        onError = { copyToastMessage = it },
+                                        file, range, defaultName,
+                                        onResult = { copyToastMessage = it },
                                     )
                                 },
                             )
@@ -1131,9 +1137,8 @@ fun HexView(
                         onClick = {
                             val defaultName = "${file.nameWithoutExtension}_0x${range.first.toString(16).uppercase()}_0x${range.last.toString(16).uppercase()}.bin"
                             promptSaveRangeBytesWithDialog(
-                                raf, range, defaultName,
-                                onSuccess = { copyToastMessage = it },
-                                onError = { copyToastMessage = it },
+                                file, range, defaultName,
+                                onResult = { copyToastMessage = it },
                             )
                         },
                         contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp),
@@ -1207,9 +1212,8 @@ fun HexView(
                             ContextMenuItem("💾 선택 바이트 파일로 추출 (Export to File...)") {
                                 val defaultName = "${file.nameWithoutExtension}_0x${range.first.toString(16).uppercase()}_0x${range.last.toString(16).uppercase()}.bin"
                                 promptSaveRangeBytesWithDialog(
-                                    raf, range, defaultName,
-                                    onSuccess = { copyToastMessage = it },
-                                    onError = { copyToastMessage = it },
+                                    file, range, defaultName,
+                                    onResult = { copyToastMessage = it },
                                 )
                             },
                         ) + (if (selectedRange != null) listOf(
