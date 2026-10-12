@@ -435,6 +435,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var dumpStructureWindowOpen by remember { mutableStateOf(false) }
         var aiPromptWindowOpen by remember { mutableStateOf(false) }
         var avSyncWindowOpen by remember { mutableStateOf(false) }
+        var hdrMetadataWindowOpen by remember { mutableStateOf(false) }
         var sefIntegrityWindowOpen by remember { mutableStateOf(false) }
         var aboutWindowOpen by remember { mutableStateOf(false) }
         var updateWindowOpen by remember { mutableStateOf(false) }
@@ -542,6 +543,12 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     I18n.menuViewFrameIntervals(language),
                     enabled = hasVideoTrack,
                     onClick = { frameIntervalWindowOpen = true },
+                )
+                val hasMetadataCodec = isVideo && currentTab?.root?.let { com.multiviewer.parser.detectVideoCodec(it) } != null
+                item(
+                    I18n.menuHdrSeiAnalysis(language),
+                    enabled = hasMetadataCodec,
+                    onClick = { hdrMetadataWindowOpen = true },
                 )
             }
             appMenu(I18n.menuMotionPhoto(language)) {
@@ -829,6 +836,14 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     AvSyncAnalysisWindow(tab = currentTab, themeMode = themeMode, onCloseRequest = { avSyncWindowOpen = false })
                 } else {
                     avSyncWindowOpen = false
+                }
+            }
+            if (hdrMetadataWindowOpen) {
+                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                if (currentTab != null) {
+                    HdrMetadataWindow(tab = currentTab, language = language, onCloseRequest = { hdrMetadataWindowOpen = false })
+                } else {
+                    hdrMetadataWindowOpen = false
                 }
             }
             if (sefIntegrityWindowOpen) {

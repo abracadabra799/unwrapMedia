@@ -88,6 +88,7 @@ object I18n {
     // Menu: Frame Interval
     fun menuFrameInterval(lang: AppLanguage) = if (lang == AppLanguage.KO) "프레임 간격 분석" else "Frame Intervals"
     fun menuViewFrameIntervals(lang: AppLanguage) = if (lang == AppLanguage.KO) "프레임 간격 분석 보기" else "View Frame Interval Analysis"
+    fun menuHdrSeiAnalysis(lang: AppLanguage) = if (lang == AppLanguage.KO) "HDR/SEI 메타데이터 분석" else "HDR/SEI Metadata Analysis"
 
     // Menu: Tools / Compare
     fun menuTools(lang: AppLanguage) = if (lang == AppLanguage.KO) "도구" else "Tools"
