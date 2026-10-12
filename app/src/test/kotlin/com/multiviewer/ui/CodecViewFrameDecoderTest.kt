@@ -47,12 +47,22 @@ class CodecViewFrameDecoderTest {
     }
 
     @Test
-    fun `codecViewSupportedFor is true only for h264, independently per mode`() {
+    fun `codecViewSupportedFor supports hevc for motion vectors, and hevc and av1 for QP heatmap`() {
         assertTrue(codecViewSupportedFor(CodecViewMode.MOTION_VECTORS, "h264"))
         assertTrue(codecViewSupportedFor(CodecViewMode.QP_HEATMAP, "h264"))
-        assertFalse(codecViewSupportedFor(CodecViewMode.MOTION_VECTORS, "hevc"))
-        assertFalse(codecViewSupportedFor(CodecViewMode.QP_HEATMAP, "hevc"))
+        assertTrue(codecViewSupportedFor(CodecViewMode.MOTION_VECTORS, "hevc"))
+        assertTrue(codecViewSupportedFor(CodecViewMode.QP_HEATMAP, "hevc"))
+        assertFalse(codecViewSupportedFor(CodecViewMode.MOTION_VECTORS, "av1"))
+        assertTrue(codecViewSupportedFor(CodecViewMode.QP_HEATMAP, "av1"))
         assertFalse(codecViewSupportedFor(CodecViewMode.MOTION_VECTORS, null))
         assertFalse(codecViewSupportedFor(CodecViewMode.QP_HEATMAP, null))
+    }
+
+    @Test
+    fun `buildCodecViewFfmpegArgs uses block filter for hevc QP mode`() {
+        val args = buildCodecViewFfmpegArgs("/usr/bin/ffmpeg", "/tmp/video.mp4", 1.5, CodecViewMode.QP_HEATMAP, codecName = "hevc")
+        val vfIdx = args.indexOf("-vf")
+        assertTrue(vfIdx >= 0)
+        assertEquals("codecview=block=1", args[vfIdx + 1])
     }
 }
