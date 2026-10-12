@@ -1,7 +1,7 @@
 {
-  "version": "1.19.5",
-  "releaseDate": "2026-10-09",
-  "releaseNotes": "• 앱 표시 버전과 설치 패키지 버전을 1.19.5로 갱신",
+  "version": "1.20.0",
+  "releaseDate": "2026-10-12",
+  "releaseNotes": "• HDR/SEI 메타데이터 분석 추가: H.264/HEVC SEI, AV1 metadata OBU, HDR10+(ST 2094-40), mdcv/clli 해석\n• 프레임별 SEI/메타데이터를 Detail Properties에 표시하고 hex 뷰어로 이동\n• 분석 메뉴의 HDR/SEI 분석 창: 추이 그래프, HDR10+ 누락·급변·정적/동적 불일치 검출, CSV 내보내기\n• 컨텐츠 검사 통합(이미지·비디오·오디오·모션포토 무결성) 및 AI 진단 연계\n• 다른 폴더의 미디어 비교, GIF 재생/정지, 파일 탭 이름 표시 개선 등 안정성 수정",
   "windowsUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest",
   "macUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest"
 }
