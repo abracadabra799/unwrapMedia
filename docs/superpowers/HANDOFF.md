@@ -16,9 +16,9 @@ Read `AGENTS.md` (repo root) for build/test commands, workflow and hard rules. T
 | 1 | SEI / HDR metadata analysis (H.264/HEVC SEI, AV1 metadata OBU, HDR10+, mdcv/clli, per-frame Detail section, Analyze window with trend graph, 4 anomaly rules, CSV) | **Shipped** in 1.20.0. Spec/plan: `docs/superpowers/{specs,plans}/2026-10-12-sei-hdr-metadata-analysis*`. GUI manual pass still owed to the user. |
 | 2 | C2PA Content Credentials + motion-photo interaction — split into **2a** structure/display, **2b** hard-binding hash recomputation + motion-photo/XMP/SEF range mapping ("does this edit break the binding?"), **2c** COSE_Sign1 + X.509 chain + timestamp verification using **JDK crypto only** (user's decision, no external crypto library) | **Shipped (2a, 2b, 2c merged into main)**. Spec/plan: `docs/superpowers/{specs,plans}/2026-10-12-c2pa-signature-verification*`. GUI manual pass owed to user. |
 | 3 | Motion photo deep analysis: still ↔ video frame match at `MicroVideoPresentationTimestampUs`, Apple Live Photo pair check, cross-platform compatibility matrix | **Shipped (merged into main)**. Spec/plan: `docs/superpowers/{specs,plans}/2026-10-13-motion-photo-deep-analysis*`. |
-| 4 | Firmware build-vs-build regression batch diff (folder A vs folder B field diff) | **Next action: ready to brainstorm** |
-| 5 | MV/QP overlay for HEVC and AV1 (currently H.264 only) | not started |
-| 6 | HRD/VBV buffer simulation | not started |
+| 4 | Firmware build-vs-build regression batch diff (folder A vs folder B field diff) | deferred by user request |
+| 5 | MV/QP overlay for HEVC and AV1 (currently H.264 only) | **Shipped (merged into main)**. Spec/plan: `docs/superpowers/{specs,plans}/2026-10-13-hevc-av1-mv-qp-overlay*`. |
+| 6 | HRD/VBV buffer simulation | **Next action: ready to implement** |
 | 7 | MV-HEVC spatial video | not started |
 | 8 | Timed metadata tracks (camm / gyro / GPS) on a timeline | not started |
 | 9 | HDR scopes (nits false colour, waveform, vectorscope, gamut, gain-map headroom slider) | not started |
