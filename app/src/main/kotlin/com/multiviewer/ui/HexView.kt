@@ -554,12 +554,17 @@ fun HexView(
         activeSearchPatternLength = pattern.size
         searchJob = coroutineScope.launch {
             val results = withContext(Dispatchers.IO) {
-                searchHex(
-                    raf = raf,
-                    pattern = pattern,
-                    ignoreCase = ignoreSearchCase && !isHexSearchMode,
-                    isCancelled = { !isActive }
-                )
+                // Own handle: `raf`'s file pointer is shared with the UI thread's row rendering
+                // (seek + readFully), so searching through it while the user scrolls interleaves the
+                // two seeks -- rows showing bytes from the wrong offset, matches missed or invented.
+                RandomAccessFile(file, "r").use { searchRaf ->
+                    searchHex(
+                        raf = searchRaf,
+                        pattern = pattern,
+                        ignoreCase = ignoreSearchCase && !isHexSearchMode,
+                        isCancelled = { !isActive }
+                    )
+                }
             }
             if (isActive) {
                 searchMatches = results
