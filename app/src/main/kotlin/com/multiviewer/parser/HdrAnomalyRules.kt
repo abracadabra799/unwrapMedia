@@ -80,25 +80,29 @@ private fun staticDynamicMismatches(records: List<FrameHdrRecord>, container: Co
     val mdcv = container.masteringDisplay ?: records.firstNotNullOfOrNull { it.masteringDisplay }
     val cll = container.contentLightLevel ?: records.firstNotNullOfOrNull { it.contentLightLevel }
     val out = mutableListOf<HdrAnomaly>()
-    fun aggregate(frames: List<FrameHdrRecord>, message: String) {
-        if (frames.isNotEmpty()) {
-            out += HdrAnomaly(HdrRule.STATIC_DYNAMIC_MISMATCH, HdrSeverity.WARN, frames.first().frameNumber, frames.last().frameNumber, message)
+    // One anomaly per run of consecutive frame numbers, so far-apart offenders don't read as one long range.
+    fun aggregate(frames: List<FrameHdrRecord>, message: (runSize: Int) -> String) {
+        var start = 0
+        while (start < frames.size) {
+            var end = start
+            while (end + 1 < frames.size && frames[end + 1].frameNumber == frames[end].frameNumber + 1) end++
+            val run = frames.subList(start, end + 1)
+            out += HdrAnomaly(HdrRule.STATIC_DYNAMIC_MISMATCH, HdrSeverity.WARN, run.first().frameNumber, run.last().frameNumber, message(run.size))
+            start = end + 1
         }
     }
     if (mdcv != null) {
         val over = plus.filter { (_, m) -> m.windows.first().maxSclNits > mdcv.maxLuminance + 1e-9 }
-        aggregate(
-            over.map { it.first },
-            f("MaxSCL exceeds mastering display max %.0f nits on %d frame(s)", mdcv.maxLuminance, over.size),
-        )
+        aggregate(over.map { it.first }) { n ->
+            f("MaxSCL exceeds mastering display max %.0f nits on %d frame(s)", mdcv.maxLuminance, n)
+        }
         val aboveTarget = plus.filter { (_, m) -> m.targetedSystemDisplayMaximumLuminance > mdcv.maxLuminance + 1e-9 }
-        aggregate(
-            aboveTarget.map { it.first },
-            f("targeted_system_display_maximum_luminance above mastering display max %.0f nits on %d frame(s)", mdcv.maxLuminance, aboveTarget.size),
-        )
+        aggregate(aboveTarget.map { it.first }) { n ->
+            f("targeted_system_display_maximum_luminance above mastering display max %.0f nits on %d frame(s)", mdcv.maxLuminance, n)
+        }
     }
     val zeroTarget = plus.filter { (_, m) -> m.targetedSystemDisplayMaximumLuminance == 0L }
-    aggregate(zeroTarget.map { it.first }, "targeted_system_display_maximum_luminance is 0 on ${zeroTarget.size} frame(s)")
+    aggregate(zeroTarget.map { it.first }) { n -> "targeted_system_display_maximum_luminance is 0 on $n frame(s)" }
     if (cll != null && cll.maxCll > 0) {
         val (peakRecord, peak) = plus.maxBy { it.second.windows.first().maxSclNits }
         val peakNits = peak.windows.first().maxSclNits

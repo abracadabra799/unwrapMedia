@@ -60,8 +60,41 @@ class HdrAnomalyRulesTest {
             rec(1, false, plus(4000, 1000, target = 0)),
         )
         val messages = detectHdrAnomalies(records, none).filter { it.rule == HdrRule.STATIC_DYNAMIC_MISMATCH }
-        assertEquals(5, messages.size) // MaxSCL>MDCV, target>MDCV, target==0, peak>MaxCLL, avg>MaxFALL
+        // one run each: MaxSCL>MDCV (frame 0), target>MDCV (frame 0), target==0 (frame 1), peak>MaxCLL, avg>MaxFALL
+        assertEquals(5, messages.size)
         assertTrue(messages.all { it.severity == HdrSeverity.WARN })
+    }
+
+    @Test
+    fun `static vs dynamic offenders are reported per contiguous run`() {
+        val records = listOf(
+            rec(0, true, mdUnit(seiMd), plus(10500, 1000)),
+            rec(1, false, plus(10500, 1000)),
+            rec(2, false, plus(4000, 1000)),
+            rec(3, false, plus(10500, 1000)),
+        )
+        val overMdcv = detectHdrAnomalies(records, none)
+            .filter { it.rule == HdrRule.STATIC_DYNAMIC_MISMATCH && it.message.startsWith("MaxSCL exceeds") }
+        assertEquals(listOf(0 to 1, 3 to 3), overMdcv.map { it.firstFrame to it.lastFrame })
+        assertEquals(
+            listOf(
+                "MaxSCL exceeds mastering display max 1000 nits on 2 frame(s)",
+                "MaxSCL exceeds mastering display max 1000 nits on 1 frame(s)",
+            ),
+            overMdcv.map { it.message },
+        )
+    }
+
+    @Test
+    fun `non-adjacent static vs dynamic offenders are separate anomalies`() {
+        val records = listOf(
+            rec(0, true, mdUnit(seiMd), plus(10500, 1000)),
+            rec(1, false, plus(4000, 1000)),
+            rec(2, false, plus(10500, 1000)),
+        )
+        val overMdcv = detectHdrAnomalies(records, none)
+            .filter { it.rule == HdrRule.STATIC_DYNAMIC_MISMATCH && it.message.startsWith("MaxSCL exceeds") }
+        assertEquals(listOf(0 to 0, 2 to 2), overMdcv.map { it.firstFrame to it.lastFrame })
     }
 
     @Test
