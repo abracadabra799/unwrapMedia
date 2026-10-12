@@ -6,7 +6,9 @@ import kotlin.math.roundToInt
 
 private val CODEC_DISPLAY_NAMES = mapOf(
     "avc1" to "AVC",
+    "avc3" to "AVC",
     "hvc1" to "HEVC",
+    "hev1" to "HEVC",
     "av01" to "AV1",
     "av02" to "AV2",
     "apv1" to "APV",

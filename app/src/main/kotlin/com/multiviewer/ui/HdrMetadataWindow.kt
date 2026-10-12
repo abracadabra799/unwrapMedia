@@ -130,7 +130,7 @@ fun HdrMetadataWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -
                 val failure = withContext(Dispatchers.IO) {
                     try {
                         // BOM so Windows Excel reads UTF-8 ("→", Korean) correctly.
-                        output.writeText("﻿" + content)
+                        output.writeText("\uFEFF" + content)
                         null
                     } catch (e: Exception) {
                         e.message ?: e.toString()
