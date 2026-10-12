@@ -18,8 +18,8 @@ Read `AGENTS.md` (repo root) for build/test commands, workflow and hard rules. T
 | 3 | Motion photo deep analysis: still ↔ video frame match at `MicroVideoPresentationTimestampUs`, Apple Live Photo pair check, cross-platform compatibility matrix | **Shipped (merged into main)**. Spec/plan: `docs/superpowers/{specs,plans}/2026-10-13-motion-photo-deep-analysis*`. |
 | 4 | Firmware build-vs-build regression batch diff (folder A vs folder B field diff) | deferred by user request |
 | 5 | MV/QP overlay for HEVC and AV1 (currently H.264 only) | **Shipped (merged into main)**. Spec/plan: `docs/superpowers/{specs,plans}/2026-10-13-hevc-av1-mv-qp-overlay*`. |
-| 6 | HRD/VBV buffer simulation | **Next action: ready to implement** |
-| 7 | MV-HEVC spatial video | not started |
+| 6 | HRD/VBV buffer simulation | **Shipped (merged into main)**. Spec/plan: `docs/superpowers/{specs,plans}/2026-10-13-hrd-vbv-buffer-simulation*`. |
+| 7 | MV-HEVC spatial video | **Next action: ready to brainstorm / implement** |
 | 8 | Timed metadata tracks (camm / gyro / GPS) on a timeline | not started |
 | 9 | HDR scopes (nits false colour, waveform, vectorscope, gamut, gain-map headroom slider) | not started |
 | 10 | ADB integration (device browse/pull, `media_codecs.xml` / `dumpsys media.codec`) | not started |
