@@ -27,7 +27,7 @@ object AiCliDetector {
         return try {
             when {
                 os.contains("mac") ->
-                    ProcessBuilder("open", "-a", "Terminal", path).start().waitFor() == 0
+                    ProcessBuilder("open", "-a", "Terminal", path).start().exitedSuccessfully()
                 os.contains("win") ->
                     ProcessBuilder("cmd.exe", "/c", "start", "powershell", "-NoLogo")
                         .directory(File(path)).start().let { true }
@@ -65,14 +65,14 @@ object AiCliDetector {
                 // Try launching via cmd start chrome
                 try {
                     val p = ProcessBuilder("cmd.exe", "/c", "start", "chrome", url).start()
-                    if (p.waitFor() == 0) return true
+                    if (p.exitedSuccessfully()) return true
                 } catch (_: Throwable) {}
             } else if (osName.contains("mac")) {
                 // macOS: Open via Google Chrome application bundle
                 val chromeApp = File("/Applications/Google Chrome.app")
                 if (chromeApp.exists()) {
                     val p = ProcessBuilder("open", "-a", "Google Chrome", url).start()
-                    if (p.waitFor() == 0) return true
+                    if (p.exitedSuccessfully()) return true
                 }
             } else {
                 // Linux: Try google-chrome or google-chrome-stable
@@ -94,4 +94,10 @@ object AiCliDetector {
             false
         }
     }
+
+    // These launchers are clicked on the UI thread: `open` / `cmd start` normally return at once, but
+    // a first-launch or permission prompt can hold them -- never freeze the app on that. Still
+    // running after the bound counts as launched.
+    private fun Process.exitedSuccessfully(timeoutSeconds: Long = 5): Boolean =
+        if (waitFor(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS)) exitValue() == 0 else true
 }

@@ -184,11 +184,11 @@ internal fun probeVideoDurationUs(file: File, video: com.multiviewer.parser.Embe
             "-show_entries", "format=duration",
             "-of", "csv=p=0",
             temp.absolutePath,
-        )
+        ).redirectError(ProcessBuilder.Redirect.DISCARD) // never read: a full pipe would stall ffprobe
         FfmpegLocator.configureEnvironment(processBuilder)
         val process = processBuilder.start()
+        // readProcessOutputWithTimeout has already reaped (or killed) the process on every path.
         val output = readProcessOutputWithTimeout(process, 30) { process.inputStream.bufferedReader().readText().trim() }
-        process.waitFor()
         output?.toDoubleOrNull()?.let { (it * 1_000_000).toLong() }
     } catch (e: InterruptedException) {
         throw e
