@@ -262,7 +262,7 @@ fun FfmpegAudioPlayer(
                 } catch (e: InterruptedException) {
                     // Expected on dispose -- not an error.
                 } catch (e: Exception) {
-                    System.err.println("FfmpegAudioPlayer reader thread failed: $e")
+                    if (!stopped.get()) System.err.println("FfmpegAudioPlayer reader thread failed: $e") // teardown kill is expected
                 } finally {
                     runCatching { process.inputStream.close() }
                     line?.stop()

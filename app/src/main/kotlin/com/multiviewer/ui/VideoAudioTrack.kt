@@ -157,7 +157,7 @@ internal class VideoAudioTrack(
                 // Expected on destroy() -- not an error.
             } catch (e: Exception) {
                 failed = true
-                System.err.println("VideoAudioTrack thread failed: $e")
+                if (!stopped.get()) System.err.println("VideoAudioTrack thread failed: $e") // teardown kill is expected
             } finally {
                 // On a clean pipe EOF (ended, and not a destroy()), let the line's internal buffer
                 // finish rendering before stopping -- stop()+flush() alone discard the last

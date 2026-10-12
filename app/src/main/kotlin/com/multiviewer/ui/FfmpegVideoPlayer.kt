@@ -592,7 +592,8 @@ fun FfmpegVideoPlayer(
                 } catch (e: InterruptedException) {
                     // Expected on dispose -- not an error.
                 } catch (e: Exception) {
-                    System.err.println("FfmpegVideoPlayer reader thread failed: $e")
+                    // Teardown kills ffmpeg mid-read ("Stream closed") -- expected, not a failure.
+                    if (!stopped.get()) System.err.println("FfmpegVideoPlayer reader thread failed: $e")
                 } finally {
                     runCatching { process.inputStream.close() }
                 }
