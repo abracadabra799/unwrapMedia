@@ -493,25 +493,21 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     onClick = { currentTab?.let { extractGainmapImage(appState, it, language) } },
                 )
             }
+            // Grouped by purpose: whole file / metadata (images and video) / video timing (frame ->
+            // A/V -> buffer) / video bitstream and special tracks.
             appMenu(I18n.menuAnalyze(language), mnemonic = 'A') {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val hasActiveFile = currentTab != null && !currentTab.isLoading && currentTab.root != null
                 val isVideo = currentTab?.type == MediaType.VIDEO
                 val hasVideoTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Video" } == true
+                val hasSefData = currentTab?.root?.let { root -> findFirst(root) { it.type == "sefd" } } != null
+                val hasMetadataCodec = isVideo && selectedTabVideoCodec != null
 
                 item(
                     I18n.menuContentCheck(language),
                     enabled = hasActiveFile,
                     shortcut = AppKeyShortcut(Key.C, meta = true, shift = true),
                     onClick = { appState.contentCheckTab = currentTab },
-                )
-
-                // Every XMP packet in the file -- not gain-map specific, so it lives here rather
-                // than in 게인맵 (worth looking at on files with no gain map at all).
-                item(
-                    I18n.menuViewFileXmp(language),
-                    enabled = currentTab != null && !currentTab.isLoading,
-                    onClick = { currentTab?.isFileXmpPopupOpen = true },
                 )
                 item(
                     I18n.menuDumpStructure(language),
@@ -520,33 +516,41 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     onClick = { dumpStructureWindowOpen = true },
                 )
                 separator()
+                // Every XMP packet in the file -- not gain-map specific (worth a look on files with no
+                // gain map at all), so it sits with the other metadata rather than in 게인맵.
+                item(
+                    I18n.menuViewFileXmp(language),
+                    enabled = currentTab != null && !currentTab.isLoading,
+                    onClick = { currentTab?.isFileXmpPopupOpen = true },
+                )
+                item(I18n.menuC2pa(language), enabled = currentTab != null && !currentTab.isLoading && selectedTabHasC2pa, onClick = { c2paTab = currentTab })
+                item(
+                    I18n.menuSefIntegrityCheck(language),
+                    enabled = hasSefData,
+                    onClick = { sefIntegrityWindowOpen = true },
+                )
+                separator()
+                item(
+                    I18n.menuViewFrameIntervals(language),
+                    enabled = hasVideoTrack,
+                    onClick = { frameIntervalWindowOpen = true },
+                )
                 item(
                     I18n.menuAvSyncAnalysis(language),
                     enabled = isVideo,
                     shortcut = AppKeyShortcut(Key.S, meta = true, shift = true),
                     onClick = { avSyncWindowOpen = true },
                 )
-                val hasSefData = currentTab?.root?.let { root -> findFirst(root) { it.type == "sefd" } } != null
-                item(
-                    I18n.menuSefIntegrityCheck(language),
-                    enabled = hasSefData,
-                    onClick = { sefIntegrityWindowOpen = true },
-                )
-                item(
-                    I18n.menuViewFrameIntervals(language),
-                    enabled = hasVideoTrack,
-                    onClick = { frameIntervalWindowOpen = true },
-                )
-                val hasMetadataCodec = isVideo && selectedTabVideoCodec != null
-                item(
-                    I18n.menuHdrSeiAnalysis(language),
-                    enabled = hasMetadataCodec,
-                    onClick = { hdrMetadataTab = currentTab },
-                )
                 item(
                     I18n.menuHrdBufferSimulation(language),
                     enabled = hasVideoTrack,
                     onClick = { hrdBufferTab = currentTab },
+                )
+                separator()
+                item(
+                    I18n.menuHdrSeiAnalysis(language),
+                    enabled = hasMetadataCodec,
+                    onClick = { hdrMetadataTab = currentTab },
                 )
                 item(
                     I18n.menuSpatialVideoAnalysis(language),
@@ -558,7 +562,6 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     enabled = hasVideoTrack,
                     onClick = { timedMetadataTab = currentTab },
                 )
-                item(I18n.menuC2pa(language), enabled = currentTab != null && !currentTab.isLoading && selectedTabHasC2pa, onClick = { c2paTab = currentTab })
             }
             appMenu(I18n.menuMotionPhoto(language), mnemonic = 'M') {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)

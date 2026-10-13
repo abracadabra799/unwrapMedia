@@ -35,7 +35,7 @@ object I18n {
     fun menuAnalyze(lang: AppLanguage) = if (lang == AppLanguage.KO) "분석" else "Analyze"
     fun menuContentCheck(lang: AppLanguage) = if (lang == AppLanguage.KO) "컨텐츠 검사" else "Content Check"
     fun menuDumpStructure(lang: AppLanguage) = if (lang == AppLanguage.KO) "구조 덤프" else "Dump Structure"
-    fun menuAvSyncAnalysis(lang: AppLanguage) = if (lang == AppLanguage.KO) "A/V 싱크 및 드리프트 정밀 분석" else "A/V Sync & Drift Analysis"
+    fun menuAvSyncAnalysis(lang: AppLanguage) = if (lang == AppLanguage.KO) "A/V 싱크 및 드리프트 분석" else "A/V Sync & Drift Analysis"
     fun menuSefIntegrityCheck(lang: AppLanguage) = if (lang == AppLanguage.KO) "SEF 무결성 검사" else "SEF Integrity Check"
     fun menuHrdBufferSimulation(lang: AppLanguage) = if (lang == AppLanguage.KO) "HRD/VBV 버퍼 시뮬레이션" else "HRD/VBV Buffer Simulation"
     fun menuSpatialVideoAnalysis(lang: AppLanguage) = if (lang == AppLanguage.KO) "공간 비디오 (MV-HEVC) 분석" else "Spatial Video (MV-HEVC) Analysis"
@@ -83,7 +83,7 @@ object I18n {
 
     // Menu: Frame Interval
     fun menuFrameInterval(lang: AppLanguage) = if (lang == AppLanguage.KO) "프레임 간격 분석" else "Frame Intervals"
-    fun menuViewFrameIntervals(lang: AppLanguage) = if (lang == AppLanguage.KO) "프레임 간격 분석 보기" else "View Frame Interval Analysis"
+    fun menuViewFrameIntervals(lang: AppLanguage) = if (lang == AppLanguage.KO) "프레임 간격 분석" else "Frame Interval Analysis"
     fun menuC2pa(lang: AppLanguage) = if (lang == AppLanguage.KO) "C2PA 콘텐츠 자격 증명" else "C2PA Content Credentials"
     fun menuHdrSeiAnalysis(lang: AppLanguage) = if (lang == AppLanguage.KO) "HDR/SEI 메타데이터 분석" else "HDR/SEI Metadata Analysis"
 
