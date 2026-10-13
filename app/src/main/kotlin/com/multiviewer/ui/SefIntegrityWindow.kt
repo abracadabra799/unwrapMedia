@@ -43,9 +43,14 @@ fun SefIntegrityWindow(
     LaunchedEffect(file) {
         isLoading = true
         try {
-            ByteReader.open(file).use { reader ->
-                report = SefIntegrityAnalyzer.analyze(reader, sefdOffset, sefdHeaderSize, sefdSize, file.length())
+            // Off the UI thread: a Windows file lock (or a slow network share) must not hang it.
+            report = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                ByteReader.open(file).use { reader ->
+                    SefIntegrityAnalyzer.analyze(reader, sefdOffset, sefdHeaderSize, sefdSize, file.length())
+                }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             error = e.message ?: e.toString()
         }

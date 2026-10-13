@@ -265,11 +265,12 @@ fun ImageCompareWindow(
 
     // Hoisted once here (instead of computed independently in MetadataDiffView and
     // VisualDiffView) so extractMetadataDiffRows's file I/O -- motion-photo/SEF probing via
-    // ByteReader.open -- runs a single time per file pair, not once per tab.
-    val metadataRows = remember(infoA, infoB) {
+    // ByteReader.open -- runs a single time per file pair, not once per tab. On IO, not inside
+    // remember{} on the UI thread.
+    val metadataRows by produceState(emptyList<MetadataDiffRow>(), infoA, infoB) {
         val a = infoA
         val b = infoB
-        if (a == null || b == null) emptyList() else extractMetadataDiffRows(a, b)
+        value = if (a == null || b == null) emptyList() else withContext(Dispatchers.IO) { extractMetadataDiffRows(a, b) }
     }
     val captureMismatches = remember(metadataRows, infoA, infoB) {
         if (infoA?.isVideo != false || infoB?.isVideo != false) emptyList() else captureConditionMismatches(metadataRows)

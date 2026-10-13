@@ -306,22 +306,30 @@ private fun MotionPhotoVideoPreview(tab: TabState, video: EmbeddedVideo) {
     var extractError by remember(tab.file, video) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(tab.file, video) {
+        var dest: File? = null
         try {
             val temp = withContext(Dispatchers.IO) {
-                val dest = File.createTempFile("motion-photo-preview-", ".${video.extension}")
-                dest.deleteOnExit()
-                extractEmbeddedVideo(tab.file, video, dest)
-                dest
+                File.createTempFile("motion-photo-preview-", ".${video.extension}").also {
+                    dest = it
+                    extractEmbeddedVideo(tab.file, video, it)
+                }
             }
             extractedFile = temp
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Left before the player ever got the file (extraction finished after the cancel).
+            com.multiviewer.util.deleteWhenReleased(dest)
+            throw e
         } catch (e: Exception) {
+            com.multiviewer.util.deleteWhenReleased(dest)
             println("MotionPhotoVideoPreview: extraction failed for ${tab.file.name}: $e")
             extractError = e.message ?: e.toString()
         }
     }
 
     DisposableEffect(tab.file, video) {
-        onDispose { extractedFile?.delete() }
+        // The player's ffmpeg is torn down asynchronously and may still hold the file (Windows
+        // refuses that delete), so retry off the UI thread instead of a one-shot delete().
+        onDispose { com.multiviewer.util.deleteWhenReleased(extractedFile) }
     }
 
     val file = extractedFile

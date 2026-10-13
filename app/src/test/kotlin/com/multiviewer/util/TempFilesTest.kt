@@ -5,6 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class TempFilesTest {
     @Test
@@ -48,5 +49,26 @@ class TempFilesTest {
         }
 
         assertFalse(seen!!.exists(), "temp file survived the failure path")
+    }
+
+    // Windows refuses to delete a file another process still holds open -- e.g. the extracted
+    // motion-photo video while the preview player's ffmpeg is being torn down.
+    @Test
+    fun `deleteWhenReleased retries until the file can be deleted`() {
+        val file = File.createTempFile("temp-files-test-", ".bin")
+        var attempts = 0
+        val done = java.util.concurrent.CountDownLatch(1)
+        deleteWhenReleased(file, retryDelayMs = 5, delete = { f ->
+            attempts++
+            (attempts >= 3 && f.delete()).also { if (it) done.countDown() }
+        })
+        assertTrue(done.await(2, java.util.concurrent.TimeUnit.SECONDS), "never deleted")
+        assertFalse(file.exists())
+        assertEquals(3, attempts)
+    }
+
+    @Test
+    fun `deleteWhenReleased of null is a no-op`() {
+        deleteWhenReleased(null)
     }
 }

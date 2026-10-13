@@ -28,3 +28,30 @@ internal fun <T> withTempFile(prefix: String, suffix: String, block: (File) -> T
         temp.delete()
     }
 }
+
+private val tempFileReaper = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { task ->
+    Thread(task, "temp-file-reaper").apply { isDaemon = true }
+}
+
+/**
+ * Deletes [file] off the calling thread, retrying while something still holds it -- on Windows a
+ * file another process has open (the player's ffmpeg, mid-teardown) can't be deleted yet. Gives up
+ * after [attempts] and falls back to deleteOnExit for that one path.
+ */
+internal fun deleteWhenReleased(
+    file: File?,
+    attempts: Int = 50,
+    retryDelayMs: Long = 100,
+    delete: (File) -> Boolean = { it.delete() || !it.exists() },
+) {
+    if (file == null) return
+    fun attempt(remaining: Int) {
+        if (runCatching { delete(file) }.getOrDefault(false)) return
+        if (remaining <= 1) {
+            file.deleteOnExit()
+            return
+        }
+        tempFileReaper.schedule({ attempt(remaining - 1) }, retryDelayMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+    }
+    tempFileReaper.execute { attempt(attempts) }
+}
