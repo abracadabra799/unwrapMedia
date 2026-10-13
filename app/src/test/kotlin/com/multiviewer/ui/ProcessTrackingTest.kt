@@ -253,4 +253,17 @@ class ProcessTrackingTest {
         assertCancellingKillsFfprobe("interruptible") { fifo ->
             runInterruptible(Dispatchers.IO) { probeFrameTimestamps(fifo) }
         }
+
+    // Stepping frames in the codec view re-keys the decode; a superseded request must not leave its
+    // (accurate-seek, decode-from-start) ffmpeg running to completion.
+    @Test
+    fun `codec view frame decode is killed when its future is cancelled`() {
+        val fifo = makeFifo("codecview")
+        val before = descendantPids()
+        val future = CodecViewFrameDecoder.decodeFrameAsync(fifo, 1.0, CodecViewMode.MOTION_VECTORS, "h264") { }
+        val ffmpeg = awaitNewDescendant(before, "ffmpeg")
+        future.cancel(true)
+        assertDiesPromptly(ffmpeg)
+        fifo.delete()
+    }
 }

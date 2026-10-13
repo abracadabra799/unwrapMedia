@@ -63,8 +63,15 @@ fun buildCodecViewFfmpegArgs(
     return args
 }
 
+// Small pool, like FrameFullSizeDecoder's: holding an arrow key must queue decodes, not spawn one
+// ffmpeg per frame all at once.
+private val codecViewDecoderExecutor = java.util.concurrent.Executors.newFixedThreadPool(2) { runnable ->
+    Thread(runnable, "codec-view-decoder").apply { isDaemon = true }
+}
+
 // Reuses FfmpegImageSnapshotDecoder's "ffmpeg -> temp PNG -> Skia decode" pipeline instead of
-// re-implementing its temp-file/process/timeout/decode boilerplate.
+// re-implementing its temp-file/process/timeout/decode boilerplate. The returned Future's
+// cancel(true) interrupts the worker, which kills its ffmpeg (decodeSingleFrameToBitmap).
 object CodecViewFrameDecoder {
     fun decodeFrameAsync(
         file: File,
@@ -72,12 +79,10 @@ object CodecViewFrameDecoder {
         mode: CodecViewMode,
         codecName: String? = null,
         onResult: (ImageBitmap?) -> Unit,
-    ) {
-        Thread {
-            val result = FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap(
-                buildCodecViewFfmpegArgs(FfmpegLocator.ffmpegPath(), file.absolutePath, ptsSeconds, mode, codecName),
-            )
-            EventQueue.invokeLater { onResult(result) }
-        }.apply { isDaemon = true }.start()
+    ): java.util.concurrent.Future<*> = codecViewDecoderExecutor.submit {
+        val result = FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap(
+            buildCodecViewFfmpegArgs(FfmpegLocator.ffmpegPath(), file.absolutePath, ptsSeconds, mode, codecName),
+        )
+        if (!Thread.currentThread().isInterrupted) EventQueue.invokeLater { onResult(result) }
     }
 }

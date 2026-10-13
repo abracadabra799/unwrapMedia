@@ -84,9 +84,10 @@ fun CodecViewPreviewWindow(
         frameQpInfoText = null
         kotlinx.coroutines.delay(40)
         val bitmap = suspendCancellableCoroutine { cont ->
-            CodecViewFrameDecoder.decodeFrameAsync(tab.file, f.ptsSeconds, mode, tab.videoCodecName) { result ->
+            val future = CodecViewFrameDecoder.decodeFrameAsync(tab.file, f.ptsSeconds, mode, tab.videoCodecName) { result ->
                 if (cont.isActive) cont.resume(result)
             }
+            cont.invokeOnCancellation { future.cancel(true) }
         }
         tab.codecViewFrameBitmap = bitmap
         tab.isDecodingCodecViewFrame = false

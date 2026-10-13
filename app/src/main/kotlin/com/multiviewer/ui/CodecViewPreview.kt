@@ -23,12 +23,8 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 // existing "픽셀 그리드" menu toggle's own always-on-once-checked precedent, rather than resetting
 // per tab. Re-keying on (tab.selectedFrame, mode) cancels the AWAITING coroutine whenever the user
 // steps to a new frame or the menu switches/turns off the mode before the previous request
-// finished -- the cont.isActive guard then stops a late result from ever being assigned, so no
-// manual staleness guard is needed for what the UI shows. This does NOT kill the underlying ffmpeg
-// subprocess itself: decodeFrameAsync's background Thread runs to completion (bounded by
-// decodeSingleFrameToBitmap's own 8s timeout) regardless of cancellation, since that shared helper
-// doesn't expose its Process handle. Acceptable for this single-frame, click-triggered scope --
-// would need revisiting if a future live-playback toggle triggers this continuously instead.
+// finished -- the cont.isActive guard then stops a late result from ever being assigned, and
+// cancelling the decode's Future kills its ffmpeg (stepping no longer piles up processes).
 @Composable
 fun CodecViewPreview(tab: TabState, mode: CodecViewMode?, modifier: Modifier = Modifier) {
     LaunchedEffect(tab.selectedFrame, mode) {
@@ -40,9 +36,10 @@ fun CodecViewPreview(tab: TabState, mode: CodecViewMode?, modifier: Modifier = M
         }
         tab.isDecodingCodecViewFrame = true
         val bitmap = suspendCancellableCoroutine { cont ->
-            CodecViewFrameDecoder.decodeFrameAsync(tab.file, frame.ptsSeconds, mode) { result ->
+            val future = CodecViewFrameDecoder.decodeFrameAsync(tab.file, frame.ptsSeconds, mode) { result ->
                 if (cont.isActive) cont.resume(result)
             }
+            cont.invokeOnCancellation { future.cancel(true) }
         }
         tab.codecViewFrameBitmap = bitmap
         tab.isDecodingCodecViewFrame = false
