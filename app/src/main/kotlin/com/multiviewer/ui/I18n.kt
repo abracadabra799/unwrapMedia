@@ -52,8 +52,8 @@ object I18n {
 
     // Menu: Gain Map
     fun menuGainmap(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵" else "Gain Map"
-    fun menuGainmapAnalyzer(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 분석기…" else "Gain Map Analyzer…"
-    fun menuExtractGainmapImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 저장…" else "Save Gain Map Image…"
+    fun menuGainmapAnalyzer(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 분석기" else "Gain Map Analyzer"
+    fun menuExtractGainmapImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 저장" else "Save Gain Map Image"
 
     // Gain Map UI Titles & Actions
     fun tabGainmapSecondaryXmp(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 XMP (Secondary)" else "Gain Map XMP (Secondary)"
