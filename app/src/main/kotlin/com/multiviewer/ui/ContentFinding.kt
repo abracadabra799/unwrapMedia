@@ -11,6 +11,7 @@ enum class FindingStage {
     VIDEO_PACKETS,
     AUDIO_STRUCTURE,
     AUDIO_DECODE,
+    GAINMAP,
 }
 
 /** UI-only normalized finding. Source reports remain authoritative and unmodified. */

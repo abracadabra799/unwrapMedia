@@ -81,4 +81,13 @@ class ContentCheckPlanTest {
         val root = parseFile(f)
         assertEquals(ImageIntegrityChecker.check(f, root), contentStructureReport(f, root, MediaType.IMAGE))
     }
+
+    @Test
+    fun `images with a gain map get the gain map tab after motion photo`() {
+        assertEquals(
+            listOf(ContentTab.STRUCTURE, ContentTab.IMAGE_DECODE, ContentTab.MOTION_PHOTO, ContentTab.GAINMAP),
+            contentTabs(MediaType.IMAGE, motionDetected = true, gainmapDetected = true),
+        )
+        assertEquals(listOf(ContentTab.STRUCTURE, ContentTab.IMAGE_DECODE), contentTabs(MediaType.IMAGE, motionDetected = false))
+    }
 }

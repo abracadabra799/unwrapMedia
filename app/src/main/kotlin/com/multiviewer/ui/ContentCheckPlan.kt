@@ -7,13 +7,14 @@ import com.multiviewer.parser.integrity.ImageIntegrityChecker
 import com.multiviewer.parser.integrity.ImageStructureReport
 import java.io.File
 
-enum class ContentTab { STRUCTURE, IMAGE_DECODE, MOTION_PHOTO, VIDEO_DECODE, VIDEO_PACKETS, AUDIO }
+enum class ContentTab { STRUCTURE, IMAGE_DECODE, MOTION_PHOTO, GAINMAP, VIDEO_DECODE, VIDEO_PACKETS, AUDIO }
 
 enum class HeavyStep { IMAGE_DECODE, MOTION_PHOTO, VIDEO_INTEGRITY, AUDIO_INTEGRITY }
 
-fun contentTabs(type: MediaType, motionDetected: Boolean): List<ContentTab> = when (type) {
+fun contentTabs(type: MediaType, motionDetected: Boolean, gainmapDetected: Boolean = false): List<ContentTab> = when (type) {
     MediaType.IMAGE -> listOf(ContentTab.STRUCTURE, ContentTab.IMAGE_DECODE) +
-        if (motionDetected) listOf(ContentTab.MOTION_PHOTO) else emptyList()
+        (if (motionDetected) listOf(ContentTab.MOTION_PHOTO) else emptyList()) +
+        (if (gainmapDetected) listOf(ContentTab.GAINMAP) else emptyList())
     MediaType.VIDEO -> listOf(ContentTab.STRUCTURE, ContentTab.VIDEO_DECODE, ContentTab.VIDEO_PACKETS, ContentTab.AUDIO)
     MediaType.AUDIO -> listOf(ContentTab.STRUCTURE, ContentTab.AUDIO)
     MediaType.RAW_PIXEL, MediaType.UNKNOWN -> listOf(ContentTab.STRUCTURE)

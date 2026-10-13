@@ -169,7 +169,7 @@ fun GainmapAnalyzerWindow(
                                 GainmapAnalyzerPage.OVERVIEW -> GainmapParametersCardView(gainmap, language)
                                 GainmapAnalyzerPage.IMAGE -> GainmapImagePage(tab, gainmap, language)
                                 GainmapAnalyzerPage.HDR_PREVIEW -> GainmapHdrPreviewPage(tab, gainmap, language)
-                                GainmapAnalyzerPage.CHECK -> GainmapPlaceholderPage(label("검사 준비 중", "Check coming"))
+                                GainmapAnalyzerPage.CHECK -> GainmapCheckPage(tab, language)
                                 GainmapAnalyzerPage.RAW_METADATA -> GainmapRawMetadataPage(gainmap, language)
                             }
                         }
@@ -177,13 +177,6 @@ fun GainmapAnalyzerWindow(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun GainmapPlaceholderPage(text: String) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text, style = AppTypography.bodyMedium.copy(color = AppColors.TextSecondary))
     }
 }
 

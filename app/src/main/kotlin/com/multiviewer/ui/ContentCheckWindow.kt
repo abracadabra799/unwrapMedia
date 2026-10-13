@@ -1,5 +1,6 @@
 package com.multiviewer.ui
 
+import com.multiviewer.parser.gainmapOverall
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -101,7 +102,10 @@ fun ContentCheckWindow(
 
     val type = tab.type
     val motionDetected = remember(tab.root, type) { type == MediaType.IMAGE && tab.root?.let(::hasMotionPhotoData) == true }
-    val tabs = contentTabs(type, motionDetected)
+    val gainmapDetected = type == MediaType.IMAGE && tab.gainmapInfo?.hasGainmap == true
+    val tabs = contentTabs(type, motionDetected, gainmapDetected)
+    // Cheap (header reads only), so computed up front like the structure check rather than as a heavy step.
+    val gainmapChecks = if (gainmapDetected) rememberGainmapChecks(tab) else null
     val steps = heavySteps(type, motionDetected)
     DisposableEffect(tab.file) { onDispose { job?.cancel() } }
 
@@ -197,6 +201,13 @@ fun ContentCheckWindow(
                                     motionError != null -> AppColors.NeonRed
                                     else -> AppColors.TextMuted
                                 },
+                            )
+                        }
+                        ContentTab.GAINMAP -> {
+                            val gStatus = gainmapChecks?.let(::gainmapOverall)
+                            Text(
+                                label("게인맵: ", "Gain map: ") + (gStatus?.let { checkStatusLabel(it, ko) } ?: "…"),
+                                color = gStatus?.let { checkStatusColor(it) } ?: AppColors.TextMuted,
                             )
                         }
                         ContentTab.VIDEO_DECODE -> {
@@ -433,6 +444,7 @@ fun ContentCheckWindow(
                         ContentTab.STRUCTURE -> label("구조", "Structure")
                         ContentTab.IMAGE_DECODE -> label("디코딩", "Decode")
                         ContentTab.MOTION_PHOTO -> label("모션포토", "Motion photo")
+                        ContentTab.GAINMAP -> label("게인맵", "Gain map")
                         ContentTab.VIDEO_DECODE -> label("영상 디코딩", "Video decode")
                         ContentTab.VIDEO_PACKETS -> label("패킷 매핑", "Packet mapping")
                         ContentTab.AUDIO -> label("오디오", "Audio")
@@ -464,6 +476,16 @@ fun ContentCheckWindow(
                         )
                     } else {
                         ContentFindingTable(motionPhotoFindings(m), tab.file.length(), ko, Modifier.fillMaxSize()) { offset, length ->
+                            tab.parameterSetHighlightRange = offset until (offset + length)
+                        }
+                    }
+                }
+                ContentTab.GAINMAP -> {
+                    val checks = gainmapChecks
+                    if (checks == null) {
+                        Text(label("게인맵 검사 중...", "Checking gain map..."), color = AppColors.TextSecondary)
+                    } else {
+                        ContentFindingTable(gainmapFindings(checks), tab.file.length(), ko, Modifier.fillMaxSize()) { offset, length ->
                             tab.parameterSetHighlightRange = offset until (offset + length)
                         }
                     }

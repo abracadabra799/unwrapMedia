@@ -202,6 +202,9 @@ internal fun ContentFinding.sanitizeFindingPaths(): ContentFinding = copy(
     hypothesis = hypothesis?.let(::safeFindingText), nextChecks = nextChecks.map(::safeFindingText),
 )
 
+fun gainmapFindings(items: List<IntegrityCheckItem>): List<ContentFinding> =
+    items.map { it.toFinding(FindingStage.GAINMAP, prefix = "check") }
+
 private fun IntegrityCheckItem.toFinding(stage: FindingStage, prefix: String = "structure"): ContentFinding = ContentFinding(
     id = "$prefix.$id", stage = stage, status = status, title = title,
     location = null, offset = offset, length = length, summary = detail,
