@@ -533,6 +533,16 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     onClick = { hdrMetadataTab = currentTab },
                 )
                 item(
+                    I18n.menuMotionVectors(language),
+                    enabled = isVideo && codecViewSupportedFor(CodecViewMode.MOTION_VECTORS, currentTab?.videoCodecName),
+                    onClick = { codecViewPopupWindowMode = CodecViewMode.MOTION_VECTORS },
+                )
+                item(
+                    I18n.menuQpHeatmap(language),
+                    enabled = isVideo && codecViewSupportedFor(CodecViewMode.QP_HEATMAP, currentTab?.videoCodecName),
+                    onClick = { codecViewPopupWindowMode = CodecViewMode.QP_HEATMAP },
+                )
+                item(
                     I18n.menuSpatialVideoAnalysis(language),
                     enabled = hasVideoTrack,
                     onClick = { spatialVideoTab = currentTab },
@@ -608,7 +618,18 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
             // The "탐색" menu used to sit here. Removed as confusing: its panel toggle duplicated the
             // 구조 트리 / 폴더 탐색 tabs right below, and "탐색" read as being about the folder explorer
             // while actually holding file-stepping commands.
+            // Display settings only: one screen toggle, then theme, then language. The codec-view
+            // windows (motion vectors / QP heat map) open analyses, so they live in 분석.
             appMenu(I18n.menuView(language), mnemonic = 'V') {
+                checkbox(
+                    I18n.menuPixelGrid(language),
+                    checked = showPixelGrid,
+                    onCheckedChange = {
+                        showPixelGrid = it
+                        saveShowPixelGrid(it)
+                    },
+                )
+                separator()
                 checkbox(
                     I18n.menuDarkTheme(language),
                     checked = themeMode == ThemeMode.DARK,
@@ -624,28 +645,6 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                         themeMode = ThemeMode.LIGHT
                         saveThemeMode(themeMode)
                     },
-                )
-                separator()
-                checkbox(
-                    I18n.menuPixelGrid(language),
-                    checked = showPixelGrid,
-                    onCheckedChange = {
-                        showPixelGrid = it
-                        saveShowPixelGrid(it)
-                    },
-                )
-                val codecViewCurrentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
-                item(
-                    I18n.menuMotionVectors(language),
-                    enabled = codecViewCurrentTab?.type == MediaType.VIDEO &&
-                        codecViewSupportedFor(CodecViewMode.MOTION_VECTORS, codecViewCurrentTab.videoCodecName),
-                    onClick = { codecViewPopupWindowMode = CodecViewMode.MOTION_VECTORS },
-                )
-                item(
-                    I18n.menuQpHeatmap(language),
-                    enabled = codecViewCurrentTab?.type == MediaType.VIDEO &&
-                        codecViewSupportedFor(CodecViewMode.QP_HEATMAP, codecViewCurrentTab.videoCodecName),
-                    onClick = { codecViewPopupWindowMode = CodecViewMode.QP_HEATMAP },
                 )
                 separator()
                 checkbox(

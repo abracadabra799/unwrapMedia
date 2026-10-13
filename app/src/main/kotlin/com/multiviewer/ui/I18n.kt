@@ -108,8 +108,8 @@ object I18n {
     fun menuDarkTheme(lang: AppLanguage) = if (lang == AppLanguage.KO) "다크 테마" else "Dark Theme"
     fun menuLightTheme(lang: AppLanguage) = if (lang == AppLanguage.KO) "라이트 테마" else "Light Theme"
     fun menuPixelGrid(lang: AppLanguage) = if (lang == AppLanguage.KO) "픽셀 그리드" else "Pixel Grid"
-    fun menuMotionVectors(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션 벡터 보기" else "View Motion Vectors"
-    fun menuQpHeatmap(lang: AppLanguage) = if (lang == AppLanguage.KO) "QP 히트맵 보기" else "View QP Heatmap"
+    fun menuMotionVectors(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션 벡터 (코덱 뷰)" else "Motion Vectors (Codec View)"
+    fun menuQpHeatmap(lang: AppLanguage) = if (lang == AppLanguage.KO) "QP 히트맵 (코덱 뷰)" else "QP Heatmap (Codec View)"
     fun menuKorean(lang: AppLanguage) = "한국어 (Korean)"
     fun menuEnglish(lang: AppLanguage) = "English"
 
