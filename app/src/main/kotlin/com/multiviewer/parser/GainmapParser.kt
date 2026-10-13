@@ -53,7 +53,29 @@ data class GainmapInfo(
     val byteLength: Long? = null,
     val itemId: Long? = null,
     val summaryDescription: String = "",
+    /** HEIF `auxC` aux_type of the gain map item, verbatim (e.g. urn:com:samsung:photo:2024:aux:hdrgainmap). */
+    val auxType: String? = null,
+    /** Decoded ISO 21496-1 binary metadata (JPEG gain map APP2 or HEIF `tmap`), when present. */
+    val isoMetadata: IsoGainmapMetadata? = null,
+    /** File offset of the ISO payload (JPEG APP2 body after the URN), for hex navigation. */
+    val isoPayloadOffset: Long? = null,
+    /** What the hdrgm/Apple XMP said, kept separately so it can be compared with the ISO values. */
+    val xmpParameters: GainmapParsedParameters? = null,
+    val metadataSources: Set<GainmapMetadataSource> = emptySet(),
+    val tmapItem: HeifTmapItem? = null,
+    /** JPEG: the primary image advertises ISO support with a 4-byte version-only APP2. */
+    val hasIsoVersionBlockInPrimary: Boolean = false,
 )
+
+/** Evidence a file carries for its gain map, independent of which format label wins. */
+enum class GainmapMetadataSource(val displayName: String) {
+    ISO_21496_1("ISO 21496-1 binary"),
+    HDRGM_XMP("hdrgm XMP (Ultra HDR / Adobe)"),
+    GCONTAINER("GContainer XMP directory"),
+    MPF("MPF (CIPA DC-007)"),
+    HEIF_TMAP("HEIF tmap item"),
+    HEIF_AUXC("HEIF auxC gain map item"),
+}
 
 data class MpfImageEntry(
     val typeFlags: Long,
@@ -66,12 +88,76 @@ object GainmapParser {
 
     fun findGainmapInfo(file: File, root: BoxNode): GainmapInfo? {
         val extension = file.extension.lowercase()
-        return when (extension) {
+        val found = when (extension) {
             "heic", "heif" -> findGainmapInHeic(file, root)
             "avif" -> findGainmapInAvif(file, root) ?: findGainmapInHeic(file, root)
             "jpg", "jpeg" -> findGainmapInJpeg(file, root)
             else -> findGainmapFromXmpNodes(file, root)
+        } ?: return null
+        return withIsoMetadataAndEvidence(file, root, found, isJpeg = extension == "jpg" || extension == "jpeg")
+    }
+
+    // Adds the ISO 21496-1 binary metadata and the evidence set, then classifies from that evidence:
+    // ISO binary present wins (it is what current Android/iOS decoders read first); an MPF JPEG with
+    // hdrgm/GContainer XMP is Ultra HDR, not Apple. The effective parameters are ISO's when present,
+    // the XMP's otherwise -- both stay available for comparison.
+    private fun withIsoMetadataAndEvidence(file: File, root: BoxNode, info: GainmapInfo, isJpeg: Boolean): GainmapInfo {
+        val allXmp = listOfNotNull(info.primaryXmp, info.secondaryXmp, info.rawXmp)
+        val hasHdrgm = allXmp.any { it.contains("hdrgm", ignoreCase = true) }
+        val hasGContainer = info.primaryXmp?.let {
+            it.contains("GContainer", ignoreCase = true) ||
+                Regex("""Semantic\s*=\s*["']GainMap["']""", RegexOption.IGNORE_CASE).containsMatchIn(it)
+        } == true
+
+        var iso: IsoGainmapMetadata? = null
+        var isoOffset: Long? = null
+        var tmap: HeifTmapItem? = null
+        var primaryVersionBlock = false
+        var hasMpf = false
+        if (isJpeg) {
+            primaryVersionBlock = readJpegIsoApp2(file, 0L, file.length())?.let { isIsoGainmapVersionBlock(it.payload) } == true
+            if (info.byteOffset != null && info.byteLength != null) {
+                readJpegIsoApp2(file, info.byteOffset, info.byteLength)?.let { app2 ->
+                    iso = parseIsoGainmapMetadata(app2.payload)
+                    isoOffset = app2.payloadOffset
+                }
+            }
+            hasMpf = try {
+                ByteReader.open(file).use { reader ->
+                    root.children.filter { it.type == "APP2" }.any { parseMpfEntries(reader, it.offset, it.size).size >= 2 }
+                }
+            } catch (_: Exception) {
+                false
+            }
+        } else {
+            tmap = readHeifTmapItem(file, root)
+            iso = tmap?.payload?.let(::parseIsoGainmapMetadata)
         }
+
+        val sources = buildSet {
+            if (iso != null) add(GainmapMetadataSource.ISO_21496_1)
+            if (hasHdrgm) add(GainmapMetadataSource.HDRGM_XMP)
+            if (hasGContainer) add(GainmapMetadataSource.GCONTAINER)
+            if (hasMpf) add(GainmapMetadataSource.MPF)
+            if (tmap != null) add(GainmapMetadataSource.HEIF_TMAP)
+            if (info.auxType != null) add(GainmapMetadataSource.HEIF_AUXC)
+        }
+        val formatType = when {
+            iso != null && isJpeg -> GainmapFormatType.ISO_21496_1_JPEG
+            iso != null && info.formatType != GainmapFormatType.AVIF_GAINMAP -> GainmapFormatType.ISO_21496_1_HEIC
+            info.formatType == GainmapFormatType.APPLE_MPF_JPEG && (hasHdrgm || hasGContainer) -> GainmapFormatType.ULTRA_HDR_JPEG
+            else -> info.formatType
+        }
+        return info.copy(
+            formatType = formatType,
+            isoMetadata = iso,
+            isoPayloadOffset = isoOffset,
+            xmpParameters = info.parameters,
+            parameters = iso?.toParsedParameters() ?: info.parameters,
+            metadataSources = sources,
+            tmapItem = tmap,
+            hasIsoVersionBlockInPrimary = primaryVersionBlock,
+        )
     }
 
     fun parseMpfEntries(reader: ByteReader, app2Offset: Long, app2Size: Long): List<MpfImageEntry> {
@@ -358,7 +444,8 @@ object GainmapParser {
         }
 
         for ((propIndex, auxC) in auxCProps) {
-            val auxType = auxC.fields.find { it.name == "aux_type" }?.value?.lowercase() ?: ""
+            val auxTypeRaw = auxC.fields.find { it.name == "aux_type" }?.value?.trimEnd('\u0000')
+            val auxType = auxTypeRaw?.lowercase() ?: ""
             val isGainmap = auxType.contains("hdrgainmap") ||
                 auxType.contains("hdr-gain-map") ||
                 auxType.contains("21496") ||
@@ -408,7 +495,12 @@ object GainmapParser {
                 val xmpText = findHeicXmp(file, meta, gainmapItemId)
                 val params = xmpText?.let { parseGainmapParametersFromXmp(it) }
 
-                val formatType = if (auxType.contains("21496")) GainmapFormatType.ISO_21496_1_HEIC else GainmapFormatType.APPLE_HEIC
+                // Apple only when the aux type says so: Samsung writes its own urn:com:samsung:... aux type.
+                val formatType = when {
+                    auxType.contains("21496") -> GainmapFormatType.ISO_21496_1_HEIC
+                    auxType.contains("apple") -> GainmapFormatType.APPLE_HEIC
+                    else -> GainmapFormatType.GENERIC_GAINMAP
+                }
 
                 return GainmapInfo(
                     hasGainmap = true,
@@ -430,6 +522,7 @@ object GainmapParser {
                     byteLength = length,
                     itemId = gainmapItemId,
                     summaryDescription = "Auxiliary HDR Gain Map (Item $gainmapItemId, $itemType)",
+                    auxType = auxTypeRaw,
                 )
             }
         }

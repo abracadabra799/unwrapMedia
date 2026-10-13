@@ -253,12 +253,13 @@ private fun GainmapImagePage(tab: TabState, gainmap: GainmapInfo, language: AppL
 @Composable
 private fun GainmapRawMetadataPage(gainmap: GainmapInfo, language: AppLanguage) {
     val sources = buildList {
-        gainmap.secondaryXmp?.let { add(I18n.tabGainmapSecondaryXmp(language) to it) }
-        gainmap.primaryXmp?.let { if (it != gainmap.secondaryXmp) add(I18n.tabGainmapPrimaryXmp(language) to it) }
-        if (isEmpty()) gainmap.rawXmp?.let { add("XMP" to it) }
+        gainmap.secondaryXmp?.let { add(I18n.tabGainmapSecondaryXmp(language) to prettyPrintXmlOrRaw(it)) }
+        gainmap.primaryXmp?.let { if (it != gainmap.secondaryXmp) add(I18n.tabGainmapPrimaryXmp(language) to prettyPrintXmlOrRaw(it)) }
+        if (isEmpty()) gainmap.rawXmp?.let { add("XMP" to prettyPrintXmlOrRaw(it)) }
+        gainmap.isoMetadata?.let { add("ISO 21496-1" to describeIsoGainmapMetadata(it, gainmap.isoPayloadOffset)) }
     }
     var selected by remember(gainmap) { mutableStateOf(0) }
-    val current = remember(gainmap, selected) { sources.getOrNull(selected)?.second?.let(::prettyPrintXmlOrRaw) ?: "" }
+    val current = sources.getOrNull(selected)?.second ?: ""
     var copied by remember { mutableStateOf(false) }
     LaunchedEffect(copied) {
         if (copied) {
@@ -453,6 +454,69 @@ private fun GainmapParametersCardView(gainmap: GainmapInfo, language: AppLanguag
                 }
             }
 
+            // Where the parameters above come from, and whether the two encodings agree.
+            item {
+                Text(
+                    if (language == AppLanguage.KO) "🧾 메타데이터 출처" else "🧾 Metadata sources",
+                    style = AppTypography.labelLarge.copy(color = AppColors.TextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp),
+                )
+                Spacer(Modifier.height(8.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF191D24), RoundedCornerShape(6.dp))
+                        .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ParameterRow(
+                        if (language == AppLanguage.KO) "발견된 메타데이터" else "Found",
+                        gainmap.metadataSources.joinToString(" · ") { it.displayName }.ifEmpty { "—" },
+                    )
+                    ParameterRow(
+                        if (language == AppLanguage.KO) "적용 파라미터 기준" else "Effective parameters from",
+                        if (gainmap.isoMetadata != null) "ISO 21496-1" else if (gainmap.xmpParameters != null) "XMP" else "—",
+                    )
+                    gainmap.auxType?.let { ParameterRow("HEIF auxC aux_type", it) }
+                    gainmap.tmapItem?.let { t ->
+                        ParameterRow("HEIF tmap", "Item #${t.itemId} · version ${t.version ?: "?"} · dimg → ${t.inputItemIds.joinToString()}")
+                    }
+                    if (gainmap.formatType == com.multiviewer.parser.GainmapFormatType.ISO_21496_1_JPEG) {
+                        ParameterRow(
+                            if (language == AppLanguage.KO) "주 이미지 ISO 버전 블록" else "Primary ISO version block",
+                            if (gainmap.hasIsoVersionBlockInPrimary) "✓" else "✗",
+                        )
+                    }
+                }
+            }
+
+            val iso = gainmap.isoMetadata?.toParsedParameters()
+            val xmp = gainmap.xmpParameters
+            if (iso != null && xmp != null) {
+                item {
+                    Text(
+                        if (language == AppLanguage.KO) "⚖️ XMP ↔ ISO 21496-1 비교" else "⚖️ XMP ↔ ISO 21496-1",
+                        style = AppTypography.labelLarge.copy(color = AppColors.TextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF191D24), RoundedCornerShape(6.dp))
+                            .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        gainmapParameterComparison(xmp, iso).forEach { row ->
+                            ParameterRow(
+                                row.name,
+                                "XMP ${row.xmp?.let { "%.4f".format(it) } ?: "—"}  ·  ISO ${row.iso?.let { "%.4f".format(it) } ?: "—"}  ${if (row.matches) "✓" else "≠"}",
+                            )
+                        }
+                    }
+                }
+            }
+
             // 3. Gain Map Image Payload Details
             item {
                 Text(
@@ -513,5 +577,40 @@ private fun ParameterRow(label: String, value: String) {
                 fontWeight = FontWeight.Medium,
             ),
         )
+    }
+}
+
+internal data class GainmapParameterComparisonRow(val name: String, val xmp: Double?, val iso: Double?) {
+    val matches: Boolean get() = xmp != null && iso != null && kotlin.math.abs(xmp - iso) <= 1e-3
+}
+
+/** Field-by-field XMP vs ISO values (both in hdrgm units), as shown in the overview. */
+internal fun gainmapParameterComparison(
+    xmp: com.multiviewer.parser.GainmapParsedParameters,
+    iso: com.multiviewer.parser.GainmapParsedParameters,
+): List<GainmapParameterComparisonRow> = listOf(
+    GainmapParameterComparisonRow("GainMapMin", xmp.gainMapMin, iso.gainMapMin),
+    GainmapParameterComparisonRow("GainMapMax", xmp.gainMapMax, iso.gainMapMax),
+    GainmapParameterComparisonRow("Gamma", xmp.gamma, iso.gamma),
+    GainmapParameterComparisonRow("OffsetSDR", xmp.offsetSdr, iso.offsetSdr),
+    GainmapParameterComparisonRow("OffsetHDR", xmp.offsetHdr, iso.offsetHdr),
+    GainmapParameterComparisonRow("HDRCapacityMin", xmp.hdrCapacityMin, iso.hdrCapacityMin),
+    GainmapParameterComparisonRow("HDRCapacityMax", xmp.hdrCapacityMax, iso.hdrCapacityMax),
+)
+
+/** Plain-text dump of the decoded ISO metadata for the raw page. */
+internal fun describeIsoGainmapMetadata(m: com.multiviewer.parser.IsoGainmapMetadata, payloadOffset: Long?): String = buildString {
+    appendLine("ISO 21496-1 gain map metadata")
+    payloadOffset?.let { appendLine("payload offset      : $it (0x${it.toString(16).uppercase()})") }
+    appendLine("minimum_version     : ${m.minimumVersion}")
+    appendLine("writer_version      : ${m.writerVersion}")
+    appendLine("multichannel        : ${m.isMultichannel}")
+    appendLine("use_base_colour_space: ${m.useBaseColourSpace}")
+    appendLine("backward_direction  : ${m.backwardDirection} (base rendition is ${if (m.backwardDirection) "HDR" else "SDR"})")
+    appendLine("common_denominator  : ${m.commonDenominator}")
+    appendLine("base_hdr_headroom   : ${m.baseHdrHeadroom} (log2)")
+    appendLine("alternate_hdr_headroom: ${m.alternateHdrHeadroom} (log2)")
+    m.channels.forEachIndexed { i, c ->
+        appendLine("channel $i: min=${c.gainMapMin} max=${c.gainMapMax} gamma=${c.gamma} base_offset=${c.baseOffset} alternate_offset=${c.alternateOffset}")
     }
 }
