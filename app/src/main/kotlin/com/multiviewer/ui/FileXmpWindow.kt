@@ -58,7 +58,7 @@ internal fun xmpPacketSubtitle(packet: XmpPacket): String =
 /**
  * Window for "파일 내 XMP 정보" -- every XMP packet physically present in the file, one tab each.
  *
- * Distinct from [GainmapXmpWindow], which interprets the gain map's own XMP: this one makes no
+ * Distinct from [GainmapAnalyzerWindow], which interprets the gain map's own metadata: this one makes no
  * assumption about what the packets are for, so it also surfaces the packets no other view reaches
  * (notably the one inside an embedded gain map image).
  */

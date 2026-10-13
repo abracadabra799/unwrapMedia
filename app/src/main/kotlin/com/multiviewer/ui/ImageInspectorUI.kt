@@ -466,8 +466,7 @@ private fun OverviewTabContent(appState: AppState, tab: TabState) {
                     Spacer(Modifier.height(16.dp))
                     GainmapOverviewSummaryBox(
                         gainmap = gainmap,
-                        onOpenXmp = { tab.isGainmapXmpPopupOpen = true },
-                        onOpenImage = { tab.isGainmapImagePopupOpen = true },
+                        onOpenPage = { tab.gainmapAnalyzerPage = it },
                     )
                 }
             }
@@ -1033,8 +1032,7 @@ private fun OpenInNewIcon(modifier: Modifier = Modifier, color: Color = Color.Wh
 @Composable
 fun GainmapOverviewSummaryBox(
     gainmap: com.multiviewer.parser.GainmapInfo,
-    onOpenXmp: () -> Unit,
-    onOpenImage: () -> Unit,
+    onOpenPage: (GainmapAnalyzerPage) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -1074,23 +1072,20 @@ fun GainmapOverviewSummaryBox(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Button(
-                onClick = onOpenXmp,
-                colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.NeonOrange),
-                modifier = Modifier.height(26.dp),
-                shape = RoundedCornerShape(4.dp),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-            ) {
-                Text("XMP 보기", fontSize = 11.sp, fontWeight = FontWeight.Medium)
-            }
-            Button(
-                onClick = onOpenImage,
-                colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.NeonGreen),
-                modifier = Modifier.height(26.dp),
-                shape = RoundedCornerShape(4.dp),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-            ) {
-                Text("게인맵 이미지 보기", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+            listOf(
+                Triple("게인맵 분석기", GainmapAnalyzerPage.OVERVIEW, AppColors.NeonOrange),
+                Triple("게인맵 이미지", GainmapAnalyzerPage.IMAGE, AppColors.NeonGreen),
+                Triple("HDR 미리보기", GainmapAnalyzerPage.HDR_PREVIEW, AppColors.NeonBlue),
+            ).forEach { (text, page, color) ->
+                Button(
+                    onClick = { onOpenPage(page) },
+                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = color),
+                    modifier = Modifier.height(26.dp),
+                    shape = RoundedCornerShape(4.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                ) {
+                    Text(text, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                }
             }
         }
 

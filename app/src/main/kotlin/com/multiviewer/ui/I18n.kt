@@ -52,15 +52,10 @@ object I18n {
 
     // Menu: Gain Map
     fun menuGainmap(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵" else "Gain Map"
-    fun menuViewGainmapXmp(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 XMP 메타데이터 보기" else "View Gain Map XMP"
-    fun menuViewGainmapImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 보기 (팝업)" else "View Gain Map Image (Popup)"
-    fun menuExtractGainmapImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 추출 및 저장" else "Extract & Save Gain Map Image"
+    fun menuGainmapAnalyzer(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 분석기…" else "Gain Map Analyzer…"
+    fun menuExtractGainmapImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 저장…" else "Save Gain Map Image…"
 
     // Gain Map UI Titles & Actions
-    fun titleGainmapXmpWindow(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 XMP 메타데이터" else "Gain Map XMP Metadata"
-    fun titleGainmapImageWindow(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지" else "Gain Map Image"
-    fun tabGainmapParameters(lang: AppLanguage) = if (lang == AppLanguage.KO) "📊 파싱된 게인맵 파라미터" else "📊 Parsed Gain Map Parameters"
-    fun tabGainmapRawXmp(lang: AppLanguage) = if (lang == AppLanguage.KO) "📄 전체 XMP 메타데이터 원본" else "📄 Raw XMP Metadata"
     fun tabGainmapSecondaryXmp(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 XMP (Secondary)" else "Gain Map XMP (Secondary)"
     fun tabGainmapPrimaryXmp(lang: AppLanguage) = if (lang == AppLanguage.KO) "컨테이너 XMP (Primary)" else "Container XMP (Primary)"
     fun btnCopyXmp(lang: AppLanguage) = if (lang == AppLanguage.KO) "XMP 복사" else "Copy XMP"
@@ -74,9 +69,7 @@ object I18n {
         if (lang == AppLanguage.KO) "XMP 패킷 ${count}개" else "$count XMP packet(s)"
     fun labelFileXmpNone(lang: AppLanguage) =
         if (lang == AppLanguage.KO) "이 파일에서 XMP 메타데이터를 찾을 수 없습니다" else "No XMP metadata found in this file"
-    fun btnViewGainmapImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 열기" else "View Gain Map Image"
     fun btnSaveGainmapImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 저장" else "Save Gain Map Image"
-    fun btnViewXmp(lang: AppLanguage) = if (lang == AppLanguage.KO) "XMP 메타데이터 보기" else "View XMP Metadata"
     fun saveGainmapDialogTitle(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 저장" else "Save Gain Map Image"
     fun msgNoGainmapImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 이미지 데이터가 없습니다" else "No Gain Map Image Data"
     fun descNoGainmapImage(lang: AppLanguage) = if (lang == AppLanguage.KO) "이 파일에는 HDR 게인맵 메타데이터(XMP 파라미터)만 포함되어 있으며, 별도의 게인맵 보조 이미지 데이터(바이너리)는 존재하지 않습니다." else "This file only contains HDR gain map metadata (XMP parameters). No separate gain map image data exists."

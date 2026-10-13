@@ -26,7 +26,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -37,15 +36,10 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.rememberWindowState
 import com.multiviewer.parser.GainmapInfo
-import com.multiviewer.parser.GainmapParsedParameters
 import com.multiviewer.parser.GainmapParser
 import com.multiviewer.util.ClipboardUtil
 import kotlinx.coroutines.delay
-import androidx.compose.foundation.Canvas
 import kotlin.math.pow
-import java.awt.FileDialog
-import java.awt.Frame
-import java.io.File
 import java.util.Locale
 
 private fun formatBytes(bytes: Long): String {
@@ -58,46 +52,31 @@ private fun formatBytes(bytes: Long): String {
     return String.format(Locale.US, "%.2f GB", gb)
 }
 
+/** Pages of the single gain map window (it replaced separate image and XMP popups). */
+enum class GainmapAnalyzerPage { OVERVIEW, IMAGE, HDR_PREVIEW, CHECK, RAW_METADATA }
+
 /**
- * Window dialog for "Gain Map XMP Metadata..."
- * Displays raw pretty-printed XMP metadata XML as well as parsed gain map parameters.
+ * 게인맵 분석기: one window for everything gain-map related. The page lives in
+ * [TabState.gainmapAnalyzerPage] (null = closed) so the overview summary box can open a specific page.
  */
 @Composable
-fun GainmapXmpWindow(
+fun GainmapAnalyzerWindow(
     tab: TabState,
+    page: GainmapAnalyzerPage,
+    onPageChange: (GainmapAnalyzerPage) -> Unit,
+    onSaveImage: () -> Unit,
+    onCloseRequest: () -> Unit,
     themeMode: ThemeMode = ThemeMode.DARK,
     language: AppLanguage = AppLanguage.KO,
-    onOpenImage: () -> Unit = {},
-    onCloseRequest: () -> Unit,
 ) {
     val gainmap = tab.gainmapInfo ?: return
-    val windowState = rememberWindowState(
-        size = DpSize(920.dp, 700.dp),
-        position = WindowPosition(Alignment.Center),
-    )
-
-    var activeTab by remember { mutableStateOf(0) } // 0: Parameters, 1: Raw XMP
-    var selectedXmpSource by remember { mutableStateOf(0) } // 0: Gainmap/Secondary, 1: Primary
-
-    val currentRawXmp = remember(gainmap, selectedXmpSource) {
-        if (selectedXmpSource == 1 && gainmap.primaryXmp != null) {
-            prettyPrintXmlOrRaw(gainmap.primaryXmp)
-        } else {
-            prettyPrintXmlOrRaw(gainmap.secondaryXmp ?: gainmap.rawXmp ?: "")
-        }
-    }
-
-    var copied by remember { mutableStateOf(false) }
-    LaunchedEffect(copied) {
-        if (copied) {
-            delay(2000)
-            copied = false
-        }
-    }
+    val ko = language == AppLanguage.KO
+    fun label(korean: String, english: String) = if (ko) korean else english
+    val windowState = rememberWindowState(size = DpSize(1040.dp, 780.dp), position = WindowPosition(Alignment.Center))
 
     Window(
         onCloseRequest = onCloseRequest,
-        title = "${I18n.titleGainmapXmpWindow(language)} - ${tab.file.name}",
+        title = "${label("게인맵 분석기", "Gain Map Analyzer")} - ${tab.file.name}",
         state = windowState,
         onKeyEvent = { event ->
             if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
@@ -111,21 +90,16 @@ fun GainmapXmpWindow(
         AppTheme(mode = themeMode, showPixelGrid = false) {
             CompositionLocalProvider(LocalScrollbarStyle provides AppScrollbarStyle) {
                 Surface(modifier = Modifier.fillMaxSize(), color = AppColors.Background) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(16.dp),
-                    ) {
-                        // Header
+                    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        I18n.titleGainmapXmpWindow(language),
+                                        label("게인맵 분석기", "Gain Map Analyzer"),
                                         style = AppTypography.headlineSmall.copy(fontSize = 18.sp, fontWeight = FontWeight.Bold),
                                         color = AppColors.NeonOrange,
                                     )
@@ -136,10 +110,7 @@ fun GainmapXmpWindow(
                                             .border(1.dp, AppColors.NeonOrange.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
                                             .padding(horizontal = 6.dp, vertical = 2.dp),
                                     ) {
-                                        Text(
-                                            gainmap.formatType.displayName,
-                                            style = AppTypography.labelSmall.copy(fontSize = 10.sp, color = AppColors.NeonOrange),
-                                        )
+                                        Text(gainmap.formatType.displayName, style = AppTypography.labelSmall.copy(fontSize = 10.sp, color = AppColors.NeonOrange))
                                     }
                                 }
                                 Spacer(Modifier.height(2.dp))
@@ -148,44 +119,45 @@ fun GainmapXmpWindow(
                                     style = AppTypography.bodyMedium.copy(fontSize = 12.sp, color = AppColors.TextSecondary),
                                 )
                             }
-
-                            // Quick Open Image button if available
-                            Button(
-                                onClick = onOpenImage,
-                                colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.NeonGreen),
-                                modifier = Modifier.border(1.dp, AppColors.NeonGreen.copy(alpha = 0.5f), RoundedCornerShape(4.dp)),
-                                shape = RoundedCornerShape(4.dp),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                            ) {
-                                OpenInNewIcon(modifier = Modifier.size(12.dp), color = AppColors.NeonGreen)
-                                Spacer(Modifier.width(4.dp))
-                                Text(I18n.btnViewGainmapImage(language), fontSize = 12.sp)
+                            if (gainmap.hasGainmapImage) {
+                                Button(
+                                    onClick = onSaveImage,
+                                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.NeonGreen),
+                                    modifier = Modifier.border(1.dp, AppColors.NeonGreen.copy(alpha = 0.5f), RoundedCornerShape(4.dp)),
+                                    shape = RoundedCornerShape(4.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                ) {
+                                    Text(I18n.btnSaveGainmapImage(language), fontSize = 12.sp)
+                                }
                             }
                         }
 
                         Spacer(Modifier.height(12.dp))
 
-                        // Navigation TabRow
+                        val pages = GainmapAnalyzerPage.entries
                         TabRow(
-                            selectedTabIndex = activeTab,
+                            selectedTabIndex = pages.indexOf(page),
                             containerColor = AppColors.Panel,
                             contentColor = AppColors.NeonOrange,
                         ) {
-                            Tab(
-                                selected = activeTab == 0,
-                                onClick = { activeTab = 0 },
-                                text = { Text(I18n.tabGainmapParameters(language), style = AppTypography.labelLarge) },
-                            )
-                            Tab(
-                                selected = activeTab == 1,
-                                onClick = { activeTab = 1 },
-                                text = { Text(I18n.tabGainmapRawXmp(language), style = AppTypography.labelLarge) },
-                            )
+                            pages.forEach { p ->
+                                val title = when (p) {
+                                    GainmapAnalyzerPage.OVERVIEW -> label("개요", "Overview")
+                                    GainmapAnalyzerPage.IMAGE -> label("게인맵 이미지", "Gain map image")
+                                    GainmapAnalyzerPage.HDR_PREVIEW -> label("HDR 미리보기", "HDR preview")
+                                    GainmapAnalyzerPage.CHECK -> label("검사", "Check")
+                                    GainmapAnalyzerPage.RAW_METADATA -> label("메타데이터 원본", "Raw metadata")
+                                }
+                                Tab(
+                                    selected = p == page,
+                                    onClick = { onPageChange(p) },
+                                    text = { Text(title, style = AppTypography.labelLarge) },
+                                )
+                            }
                         }
 
                         Spacer(Modifier.height(12.dp))
 
-                        // Main Content Area
                         Box(
                             modifier = Modifier
                                 .weight(1f)
@@ -193,132 +165,161 @@ fun GainmapXmpWindow(
                                 .background(Color(0xFF13161A), RoundedCornerShape(6.dp))
                                 .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp)),
                         ) {
-                            when (activeTab) {
-                                0 -> GainmapParametersCardView(gainmap, language)
-                                1 -> {
-                                    Column(modifier = Modifier.fillMaxSize()) {
-                                        // Sub-tabs for Secondary vs Primary XMP if both exist
-                                        if (gainmap.secondaryXmp != null && gainmap.primaryXmp != null) {
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .background(AppColors.Panel.copy(alpha = 0.7f))
-                                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier
-                                                        .clickable { selectedXmpSource = 0 }
-                                                        .background(if (selectedXmpSource == 0) AppColors.NeonOrange.copy(alpha = 0.2f) else Color.Transparent, RoundedCornerShape(4.dp))
-                                                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                                                ) {
-                                                    Text(
-                                                        I18n.tabGainmapSecondaryXmp(language),
-                                                        style = AppTypography.labelMedium.copy(
-                                                            color = if (selectedXmpSource == 0) AppColors.NeonOrange else AppColors.TextSecondary,
-                                                            fontSize = 11.sp,
-                                                        ),
-                                                    )
-                                                }
-                                                Spacer(Modifier.width(8.dp))
-                                                Row(
-                                                    modifier = Modifier
-                                                        .clickable { selectedXmpSource = 1 }
-                                                        .background(if (selectedXmpSource == 1) AppColors.NeonOrange.copy(alpha = 0.2f) else Color.Transparent, RoundedCornerShape(4.dp))
-                                                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                                                ) {
-                                                    Text(
-                                                        I18n.tabGainmapPrimaryXmp(language),
-                                                        style = AppTypography.labelMedium.copy(
-                                                            color = if (selectedXmpSource == 1) AppColors.NeonOrange else AppColors.TextSecondary,
-                                                            fontSize = 11.sp,
-                                                        ),
-                                                    )
-                                                }
-                                            }
-                                        }
-
-                                        val vScroll = rememberScrollState()
-                                        val hScroll = rememberScrollState()
-
-                                        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                                            SelectionContainer {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .fillMaxSize()
-                                                        .verticalScroll(vScroll)
-                                                        .horizontalScroll(hScroll)
-                                                        .padding(12.dp),
-                                                ) {
-                                                    Text(
-                                                        text = if (currentRawXmp.isNotBlank()) currentRawXmp else "(No XMP metadata XML found)",
-                                                        style = AppTypography.bodyMedium.copy(
-                                                            fontFamily = FontFamily.Monospace,
-                                                            fontSize = 12.sp,
-                                                            lineHeight = 18.sp,
-                                                            color = AppColors.TextPrimary,
-                                                        ),
-                                                    )
-                                                }
-                                            }
-                                            VerticalScrollbar(
-                                                adapter = rememberScrollbarAdapter(vScroll),
-                                                modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
-                                            )
-                                            HorizontalScrollbar(
-                                                adapter = rememberScrollbarAdapter(hScroll),
-                                                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        Spacer(Modifier.height(12.dp))
-
-                        // Bottom Action Bar
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Text(
-                                if (currentRawXmp.isNotBlank()) "XMP size: ${formatBytes(currentRawXmp.length.toLong())} · ${currentRawXmp.lines().size} lines" else "",
-                                style = AppTypography.bodyMedium.copy(fontSize = 11.sp, color = AppColors.TextSecondary),
-                            )
-
-                            Row {
-                                if (currentRawXmp.isNotBlank()) {
-                                    Button(
-                                        onClick = {
-                                            if (ClipboardUtil.copyToClipboard(currentRawXmp)) {
-                                                copied = true
-                                            }
-                                        },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (copied) AppColors.NeonGreen.copy(alpha = 0.8f) else AppColors.Panel,
-                                            contentColor = if (copied) Color.Black else AppColors.TextPrimary,
-                                        ),
-                                        modifier = Modifier.border(1.dp, if (copied) AppColors.NeonGreen else AppColors.Border, RoundedCornerShape(4.dp)),
-                                        shape = RoundedCornerShape(4.dp),
-                                    ) {
-                                        Text(if (copied) "✓ 복사 완료" else I18n.btnCopyXmp(language), fontSize = 12.sp)
-                                    }
-                                    Spacer(Modifier.width(8.dp))
-                                }
-                                Button(
-                                    onClick = onCloseRequest,
-                                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.TextPrimary),
-                                    modifier = Modifier.border(1.dp, AppColors.Border, RoundedCornerShape(4.dp)),
-                                    shape = RoundedCornerShape(4.dp),
-                                ) {
-                                    Text("닫기", fontSize = 12.sp)
-                                }
+                            when (page) {
+                                GainmapAnalyzerPage.OVERVIEW -> GainmapParametersCardView(gainmap, language)
+                                GainmapAnalyzerPage.IMAGE -> GainmapImagePage(tab, gainmap, language)
+                                GainmapAnalyzerPage.HDR_PREVIEW -> GainmapPlaceholderPage(label("HDR 미리보기 준비 중", "HDR preview coming"))
+                                GainmapAnalyzerPage.CHECK -> GainmapPlaceholderPage(label("검사 준비 중", "Check coming"))
+                                GainmapAnalyzerPage.RAW_METADATA -> GainmapRawMetadataPage(gainmap, language)
                             }
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun GainmapPlaceholderPage(text: String) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text(text, style = AppTypography.bodyMedium.copy(color = AppColors.TextSecondary))
+    }
+}
+
+/** Decodes the gain map once per tab (cached in [TabState.gainmapBitmap]); null while decoding/failed. */
+@Composable
+internal fun rememberGainmapBitmap(tab: TabState, gainmap: GainmapInfo): Pair<androidx.compose.ui.graphics.ImageBitmap?, Boolean> {
+    var gainmapBitmap by remember(tab.file, gainmap) { mutableStateOf(tab.gainmapBitmap) }
+    var isDecoding by remember(tab.file, gainmap) { mutableStateOf(gainmapBitmap == null && gainmap.hasGainmapImage) }
+    LaunchedEffect(tab.file, gainmap) {
+        if (gainmapBitmap == null && gainmap.hasGainmapImage) {
+            isDecoding = true
+            GainmapParser.decodeGainmapBitmapAsync(tab.file, tab.root, gainmap) { decoded ->
+                gainmapBitmap = decoded
+                tab.gainmapBitmap = decoded
+                isDecoding = false
+            }
+        }
+    }
+    return gainmapBitmap to isDecoding
+}
+
+@Composable
+private fun GainmapImagePage(tab: TabState, gainmap: GainmapInfo, language: AppLanguage) {
+    val (bitmap, isDecoding) = rememberGainmapBitmap(tab, gainmap)
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (bitmap != null) {
+            PixelInspectorPreview(bitmap = bitmap, modifier = Modifier.fillMaxSize())
+            Row(
+                modifier = Modifier.align(Alignment.BottomStart).padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                PreviewCaption("${bitmap.width}x${bitmap.height} · Format: ${gainmap.imageFormat ?: "JPEG"} · ${gainmap.summaryDescription}")
+            }
+        } else if (isDecoding) {
+            DecodingIndicator("게인맵 이미지 디코딩 중...", modifier = Modifier.align(Alignment.Center))
+        } else {
+            val missing = !gainmap.hasGainmapImage
+            Column(
+                modifier = Modifier.align(Alignment.Center).padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Icon(
+                    if (missing) Icons.Default.Info else Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = if (missing) AppColors.NeonBlue else AppColors.NeonRed,
+                    modifier = Modifier.size(48.dp),
+                )
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    if (missing) I18n.msgNoGainmapImage(language) else I18n.msgCannotDecodeGainmap(language),
+                    style = AppTypography.titleMedium.copy(
+                        color = if (missing) AppColors.TextPrimary else AppColors.NeonRed,
+                        fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                    ),
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    if (missing) I18n.descNoGainmapImage(language) else I18n.descCannotDecodeGainmap(language, gainmap.imageFormat ?: "HEVC/JPEG"),
+                    style = AppTypography.bodySmall.copy(color = AppColors.TextSecondary, fontSize = 12.sp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GainmapRawMetadataPage(gainmap: GainmapInfo, language: AppLanguage) {
+    val sources = buildList {
+        gainmap.secondaryXmp?.let { add(I18n.tabGainmapSecondaryXmp(language) to it) }
+        gainmap.primaryXmp?.let { if (it != gainmap.secondaryXmp) add(I18n.tabGainmapPrimaryXmp(language) to it) }
+        if (isEmpty()) gainmap.rawXmp?.let { add("XMP" to it) }
+    }
+    var selected by remember(gainmap) { mutableStateOf(0) }
+    val current = remember(gainmap, selected) { sources.getOrNull(selected)?.second?.let(::prettyPrintXmlOrRaw) ?: "" }
+    var copied by remember { mutableStateOf(false) }
+    LaunchedEffect(copied) {
+        if (copied) {
+            delay(2000)
+            copied = false
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().background(AppColors.Panel.copy(alpha = 0.7f)).padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            sources.forEachIndexed { i, (title, _) ->
+                Row(
+                    modifier = Modifier
+                        .clickable { selected = i }
+                        .background(if (selected == i) AppColors.NeonOrange.copy(alpha = 0.2f) else Color.Transparent, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    Text(
+                        title,
+                        style = AppTypography.labelMedium.copy(color = if (selected == i) AppColors.NeonOrange else AppColors.TextSecondary, fontSize = 11.sp),
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+            }
+            Spacer(Modifier.weight(1f))
+            if (current.isNotBlank()) {
+                Text(
+                    "${formatBytes(current.length.toLong())} · ${current.lines().size} lines",
+                    style = AppTypography.bodyMedium.copy(fontSize = 11.sp, color = AppColors.TextSecondary),
+                )
+                Spacer(Modifier.width(8.dp))
+                Button(
+                    onClick = { if (ClipboardUtil.copyToClipboard(current)) copied = true },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (copied) AppColors.NeonGreen.copy(alpha = 0.8f) else AppColors.Panel,
+                        contentColor = if (copied) Color.Black else AppColors.TextPrimary,
+                    ),
+                    modifier = Modifier.border(1.dp, if (copied) AppColors.NeonGreen else AppColors.Border, RoundedCornerShape(4.dp)),
+                    shape = RoundedCornerShape(4.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                ) {
+                    Text(if (copied) "✓" else I18n.btnCopyXmp(language), fontSize = 12.sp)
+                }
+            }
+        }
+        val vScroll = rememberScrollState()
+        val hScroll = rememberScrollState()
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            SelectionContainer {
+                Box(modifier = Modifier.fillMaxSize().verticalScroll(vScroll).horizontalScroll(hScroll).padding(12.dp)) {
+                    Text(
+                        text = current.ifBlank { "(No XMP metadata XML found)" },
+                        style = AppTypography.bodyMedium.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp, lineHeight = 18.sp, color = AppColors.TextPrimary),
+                    )
+                }
+            }
+            VerticalScrollbar(adapter = rememberScrollbarAdapter(vScroll), modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight())
+            HorizontalScrollbar(adapter = rememberScrollbarAdapter(hScroll), modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth())
         }
     }
 }
@@ -512,227 +513,5 @@ private fun ParameterRow(label: String, value: String) {
                 fontWeight = FontWeight.Medium,
             ),
         )
-    }
-}
-
-/**
- * Window dialog for "Gain Map Image (Popup)..."
- * Renders the extracted gainmap image with full PixelInspectorPreview (zoom/pan, pixel inspector, save to disk).
- */
-@Composable
-fun GainmapImagePopupWindow(
-    tab: TabState,
-    themeMode: ThemeMode = ThemeMode.DARK,
-    language: AppLanguage = AppLanguage.KO,
-    onOpenXmp: () -> Unit = {},
-    onCloseRequest: () -> Unit,
-) {
-    val gainmap = tab.gainmapInfo ?: return
-    val windowState = rememberWindowState(
-        size = DpSize(1000.dp, 750.dp),
-        position = WindowPosition(Alignment.Center),
-    )
-
-    // Decode gainmap bitmap asynchronously if needed
-    var gainmapBitmap by remember(tab.file, gainmap) { mutableStateOf(tab.gainmapBitmap) }
-    var isDecoding by remember(tab.file, gainmap) { mutableStateOf(gainmapBitmap == null) }
-
-    LaunchedEffect(tab.file, gainmap) {
-        if (gainmapBitmap == null) {
-            isDecoding = true
-            GainmapParser.decodeGainmapBitmapAsync(tab.file, tab.root, gainmap) { decoded ->
-                gainmapBitmap = decoded
-                tab.gainmapBitmap = decoded
-                isDecoding = false
-            }
-        }
-    }
-
-    Window(
-        onCloseRequest = onCloseRequest,
-        title = "${I18n.titleGainmapImageWindow(language)} - ${tab.file.name}",
-        state = windowState,
-        onKeyEvent = { event ->
-            if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
-                onCloseRequest()
-                true
-            } else {
-                false
-            }
-        },
-    ) {
-        Box(modifier = Modifier.fillMaxSize().background(AppColors.Background)) {
-            val bitmap = gainmapBitmap
-            if (bitmap != null) {
-                PixelInspectorPreview(
-                    bitmap = bitmap,
-                    modifier = Modifier.fillMaxSize(),
-                )
-
-                // Top Floating Badge
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(12.dp)
-                        .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(6.dp))
-                        .border(1.dp, AppColors.NeonOrange.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "🔆 GAIN MAP IMAGE (${bitmap.width}x${bitmap.height})",
-                        style = AppTypography.labelLarge.copy(fontSize = 11.sp, color = AppColors.NeonOrange, fontWeight = FontWeight.Bold),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        gainmap.formatType.displayName,
-                        style = AppTypography.bodySmall.copy(fontSize = 11.sp, color = AppColors.TextSecondary),
-                    )
-                }
-
-                // Bottom Floating Control Bar
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    val caption = "${bitmap.width}x${bitmap.height} · Format: ${gainmap.imageFormat ?: "JPEG"} · ${gainmap.summaryDescription}"
-                    PreviewCaption(caption)
-
-                    Row {
-                        Button(
-                            onClick = onOpenXmp,
-                            colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.NeonOrange),
-                            modifier = Modifier.border(1.dp, AppColors.NeonOrange.copy(alpha = 0.5f), RoundedCornerShape(4.dp)),
-                            shape = RoundedCornerShape(4.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        ) {
-                            Text(I18n.btnViewXmp(language), fontSize = 12.sp)
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Button(
-                            onClick = {
-                                saveGainmapImageWithDialog(tab.file, tab.root, gainmap, language)
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.NeonGreen),
-                            modifier = Modifier.border(1.dp, AppColors.NeonGreen.copy(alpha = 0.5f), RoundedCornerShape(4.dp)),
-                            shape = RoundedCornerShape(4.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        ) {
-                            Text(I18n.btnSaveGainmapImage(language), fontSize = 12.sp)
-                        }
-                    }
-                }
-            } else if (isDecoding) {
-                DecodingIndicator("게인맵 이미지 디코딩 중...", modifier = Modifier.align(Alignment.Center))
-            } else if (!gainmap.hasGainmapImage) {
-                // CASE 1: 게인맵 이미지 데이터가 아예 존재하지 않는 경우 (XMP 파라미터만 있는 경우)
-                Column(
-                    modifier = Modifier.align(Alignment.Center).padding(32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Icon(
-                        Icons.Default.Info,
-                        contentDescription = "No Gainmap Image",
-                        tint = AppColors.NeonBlue,
-                        modifier = Modifier.size(48.dp),
-                    )
-                    Spacer(Modifier.height(14.dp))
-                    Text(
-                        I18n.msgNoGainmapImage(language),
-                        style = AppTypography.titleMedium.copy(color = AppColors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        I18n.descNoGainmapImage(language),
-                        style = AppTypography.bodySmall.copy(color = AppColors.TextSecondary, fontSize = 12.sp),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    Button(
-                        onClick = onOpenXmp,
-                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.NeonOrange),
-                        modifier = Modifier.border(1.dp, AppColors.NeonOrange.copy(alpha = 0.5f), RoundedCornerShape(4.dp)),
-                        shape = RoundedCornerShape(4.dp),
-                    ) {
-                        Text(I18n.btnViewXmp(language), fontSize = 12.sp)
-                    }
-                }
-            } else {
-                // CASE 2: 게인맵 이미지 데이터는 존재하지만 디코딩에 실패한 경우
-                Column(
-                    modifier = Modifier.align(Alignment.Center).padding(32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Icon(
-                        Icons.Default.Warning,
-                        contentDescription = "Cannot Decode Gainmap",
-                        tint = AppColors.NeonRed,
-                        modifier = Modifier.size(48.dp),
-                    )
-                    Spacer(Modifier.height(14.dp))
-                    Text(
-                        I18n.msgCannotDecodeGainmap(language),
-                        style = AppTypography.titleMedium.copy(color = AppColors.NeonRed, fontSize = 16.sp, fontWeight = FontWeight.SemiBold),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        I18n.descCannotDecodeGainmap(language, gainmap.imageFormat ?: "HEVC/JPEG"),
-                        style = AppTypography.bodySmall.copy(color = AppColors.TextSecondary, fontSize = 12.sp),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    Button(
-                        onClick = onOpenXmp,
-                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.TextPrimary),
-                        modifier = Modifier.border(1.dp, AppColors.Border, RoundedCornerShape(4.dp)),
-                        shape = RoundedCornerShape(4.dp),
-                    ) {
-                        Text(I18n.btnViewXmp(language), fontSize = 12.sp)
-                    }
-                }
-            }
-        }
-    }
-}
-
-private fun saveGainmapImageWithDialog(
-    file: File,
-    root: com.multiviewer.parser.BoxNode?,
-    info: GainmapInfo,
-    language: AppLanguage,
-) {
-    val dialog = FileDialog(null as Frame?, I18n.saveGainmapDialogTitle(language), FileDialog.SAVE)
-    val ext = if (info.imageFormat?.contains("hvc", ignoreCase = true) == true) "png" else "jpg"
-    dialog.file = "${file.nameWithoutExtension}_gainmap.$ext"
-    dialog.isVisible = true
-    val fileName = dialog.file
-    val directory = dialog.directory
-    if (fileName != null && directory != null) {
-        val destination = File(directory, fileName)
-        GainmapParser.extractGainmapImageToFile(file, root, info, destination)
-    }
-}
-
-@Composable
-private fun OpenInNewIcon(modifier: Modifier = Modifier, color: Color = Color.White) {
-    Canvas(modifier = modifier) {
-        val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5f)
-        val w = size.width
-        val h = size.height
-        val path = androidx.compose.ui.graphics.Path().apply {
-            moveTo(w * 0.45f, h * 0.15f)
-            lineTo(w * 0.15f, h * 0.15f)
-            lineTo(w * 0.15f, h * 0.85f)
-            lineTo(w * 0.85f, h * 0.85f)
-            lineTo(w * 0.85f, h * 0.55f)
-        }
-        drawPath(path, color, style = stroke)
-        drawLine(color, androidx.compose.ui.geometry.Offset(w * 0.45f, h * 0.55f), androidx.compose.ui.geometry.Offset(w * 0.85f, h * 0.15f), strokeWidth = 1.5f)
-        drawLine(color, androidx.compose.ui.geometry.Offset(w * 0.55f, h * 0.15f), androidx.compose.ui.geometry.Offset(w * 0.85f, h * 0.15f), strokeWidth = 1.5f)
-        drawLine(color, androidx.compose.ui.geometry.Offset(w * 0.85f, h * 0.15f), androidx.compose.ui.geometry.Offset(w * 0.85f, h * 0.45f), strokeWidth = 1.5f)
     }
 }

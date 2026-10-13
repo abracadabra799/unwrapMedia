@@ -138,10 +138,10 @@ class TabState(val file: File) {
     var selectedTileIndex: Int? by mutableStateOf(null)
     var isPrimaryImagePopupOpen: Boolean by mutableStateOf(false)
     var gainmapInfo: com.multiviewer.parser.GainmapInfo? by mutableStateOf(null)
-    var isGainmapXmpPopupOpen: Boolean by mutableStateOf(false)
+    // 게인맵 분석기 window: the page it shows, null = closed.
+    var gainmapAnalyzerPage: GainmapAnalyzerPage? by mutableStateOf(null)
     // "파일 내 XMP 정보" -- every XMP packet in the file, not just the gain map's own.
     var isFileXmpPopupOpen: Boolean by mutableStateOf(false)
-    var isGainmapImagePopupOpen: Boolean by mutableStateOf(false)
     var gainmapBitmap: ImageBitmap? by mutableStateOf(null)
     // Decoded GIF animation frames (see GifFrameDecoder.kt) -- null until the background decode
     // in openFile finishes (or forever, for non-GIF files, which never trigger it). A non-null

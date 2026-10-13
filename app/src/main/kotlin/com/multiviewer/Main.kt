@@ -478,30 +478,18 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 val hasGainmap = currentTab != null && !currentTab.isLoading && currentTab.gainmapInfo?.hasGainmap == true
                 val hasGainmapImage = hasGainmap && currentTab?.gainmapInfo?.hasGainmapImage == true
 
+                // One window (overview / image / HDR preview / check / raw metadata) instead of
+                // separate image and XMP popups that each linked to the other.
                 item(
-                    I18n.menuViewGainmapImage(language),
-                    enabled = hasGainmapImage,
+                    I18n.menuGainmapAnalyzer(language),
+                    enabled = hasGainmap,
                     shortcut = AppKeyShortcut(Key.G, meta = true),
-                    onClick = { currentTab?.isGainmapImagePopupOpen = true },
+                    onClick = { currentTab?.gainmapAnalyzerPage = GainmapAnalyzerPage.OVERVIEW },
                 )
                 item(
                     I18n.menuExtractGainmapImage(language),
                     enabled = hasGainmapImage,
                     onClick = { currentTab?.let { extractGainmapImage(appState, it, language) } },
-                )
-                item(
-                    I18n.menuViewGainmapXmp(language),
-                    enabled = hasGainmap,
-                    shortcut = AppKeyShortcut(Key.G, meta = true, shift = true),
-                    onClick = { currentTab?.isGainmapXmpPopupOpen = true },
-                )
-                separator()
-                // Not gated on hasGainmap, unlike everything above it: this lists whatever XMP the
-                // file actually holds, which is worth looking at on files with no gain map at all.
-                item(
-                    I18n.menuViewFileXmp(language),
-                    enabled = currentTab != null && !currentTab.isLoading,
-                    onClick = { currentTab?.isFileXmpPopupOpen = true },
                 )
             }
             appMenu(I18n.menuAnalyze(language)) {
@@ -517,6 +505,13 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     onClick = { appState.contentCheckTab = currentTab },
                 )
 
+                // Every XMP packet in the file -- not gain-map specific, so it lives here rather
+                // than in 게인맵 (worth looking at on files with no gain map at all).
+                item(
+                    I18n.menuViewFileXmp(language),
+                    enabled = currentTab != null && !currentTab.isLoading,
+                    onClick = { currentTab?.isFileXmpPopupOpen = true },
+                )
                 item(
                     I18n.menuDumpStructure(language),
                     enabled = hasActiveFile,
@@ -951,22 +946,15 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                         onCloseRequest = { tab.isFileXmpPopupOpen = false },
                     )
                 }
-                if (tab.isGainmapXmpPopupOpen) {
-                    GainmapXmpWindow(
+                tab.gainmapAnalyzerPage?.let { page ->
+                    GainmapAnalyzerWindow(
                         tab = tab,
+                        page = page,
+                        onPageChange = { tab.gainmapAnalyzerPage = it },
+                        onSaveImage = { extractGainmapImage(appState, tab, language) },
+                        onCloseRequest = { tab.gainmapAnalyzerPage = null },
                         themeMode = themeMode,
                         language = language,
-                        onOpenImage = { tab.isGainmapImagePopupOpen = true },
-                        onCloseRequest = { tab.isGainmapXmpPopupOpen = false },
-                    )
-                }
-                if (tab.isGainmapImagePopupOpen) {
-                    GainmapImagePopupWindow(
-                        tab = tab,
-                        themeMode = themeMode,
-                        language = language,
-                        onOpenXmp = { tab.isGainmapXmpPopupOpen = true },
-                        onCloseRequest = { tab.isGainmapImagePopupOpen = false },
                     )
                 }
             }
