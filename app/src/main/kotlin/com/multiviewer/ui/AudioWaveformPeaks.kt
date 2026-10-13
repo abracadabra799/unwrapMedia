@@ -109,23 +109,17 @@ fun computeWaveformPeaks(
     val minPerChannel = Array(storedChannels) { FloatArray(bucketCount) { Float.MAX_VALUE } }
     val maxPerChannel = Array(storedChannels) { FloatArray(bucketCount) { -Float.MAX_VALUE } }
 
-    val inputFile = if (rawAudioParams != null) rawAudioSourceFile(file, rawAudioParams.offsetBytes) else file
-    val rawInputArgs = if (rawAudioParams != null) {
-        listOf("-f", rawAudioParams.ffmpegFormatCode(), "-ar", rawAudioParams.sampleRate.toString(), "-ac", rawAudioParams.channels.toString())
-    } else {
-        emptyList()
-    }
+    val rawInputArgs = rawAudioParams?.ffmpegInputArgs() ?: emptyList()
     val process = try {
         ProcessBuilder(
             listOf(FfmpegLocator.ffmpegPath()) + rawInputArgs + listOf(
-                "-i", inputFile.absolutePath, "-map", "0:a:0",
+                "-i", file.absolutePath, "-map", "0:a:0",
                 "-f", "s16le", "-ar", info.sampleRate.toString(), "-ac", channels.toString(),
                 "-acodec", "pcm_s16le", "-",
             ),
         ).redirectError(ProcessBuilder.Redirect.DISCARD)
             .also { FfmpegLocator.configureEnvironment(it) }.start()
     } catch (e: Exception) {
-        if (inputFile != file) inputFile.delete()
         return null
     }
 
@@ -181,6 +175,5 @@ fun computeWaveformPeaks(
         null
     } finally {
         process.destroyForcibly()
-        if (inputFile != file) inputFile.delete()
     }
 }

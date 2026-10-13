@@ -193,16 +193,11 @@ fun FfmpegAudioPlayer(
         }
         val sr = info.sampleRate
         val ch = info.channels
-        val inputFile = if (rawAudioParams != null) rawAudioSourceFile(file, rawAudioParams.offsetBytes) else file
-        val rawInputArgs = if (rawAudioParams != null) {
-            listOf("-f", rawAudioParams.ffmpegFormatCode(), "-ar", rawAudioParams.sampleRate.toString(), "-ac", rawAudioParams.channels.toString())
-        } else {
-            emptyList()
-        }
+        val rawInputArgs = rawAudioParams?.ffmpegInputArgs() ?: emptyList()
         val process = try {
             ProcessBuilder(
                 listOf(FfmpegLocator.ffmpegPath()) + seekArgs + rawInputArgs +
-                    listOf("-i", inputFile.absolutePath, "-map", "0:a:0") +
+                    listOf("-i", file.absolutePath, "-map", "0:a:0") +
                     (if (info.channels == 2) channelModeFilterArgs(channelMode) else emptyList()) +
                     listOf(
                         "-f", "s16le", "-ar", sr.toString(), "-ac", ch.toString(), "-acodec", "pcm_s16le", "-",
@@ -283,11 +278,8 @@ fun FfmpegAudioPlayer(
         onDispose {
             stopped.set(true)
             readerThread?.interrupt()
-            // Async (UI thread, every seek); the raw temp input is deleted only once ffmpeg has
-            // released it -- Windows refuses to delete a file another process still holds open.
-            com.multiviewer.util.ProcessManager.terminateAsync(process) {
-                if (inputFile != file) inputFile.delete()
-            }
+            // Async: onDispose runs on the UI thread on every seek.
+            com.multiviewer.util.ProcessManager.terminateAsync(process)
         }
     }
 

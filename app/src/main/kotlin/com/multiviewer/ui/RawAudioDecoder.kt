@@ -48,16 +48,10 @@ fun computeRawAudioDuration(fileSize: Long, offsetBytes: Long, sampleRate: Int, 
     return totalFrames.toDouble() / sampleRate.toDouble()
 }
 
-// Raw PCM has no header, so an offset > 0 means real audio data doesn't start at byte 0 -- ffmpeg
-// needs a file where it does. Mirrors RawPixelDecoder.decodeYuvFamily's temp-file pattern: when
-// there's nothing to skip, hand back the original file untouched (no copy needed).
-fun rawAudioSourceFile(original: File, offsetBytes: Long): File {
-    if (offsetBytes <= 0L) return original
-    val temp = File.createTempFile("raw-audio-offset-", ".pcm")
-    temp.deleteOnExit()
-    original.inputStream().use { input ->
-        input.skip(offsetBytes)
-        temp.outputStream().use { output -> input.copyTo(output) }
-    }
-    return temp
-}
+// Input-side ffmpeg args (before -i) for a headerless PCM file. An offset > 0 means the real audio
+// starts past byte 0: -skip_initial_bytes makes ffmpeg skip it itself. This replaced copying the
+// rest of the file into a temp file on every playback (re)start -- i.e. every seek, on the UI
+// thread -- verified byte-identical output against ffmpeg 8.1, with and without -ss.
+fun RawAudioParams.ffmpegInputArgs(): List<String> =
+    (if (offsetBytes > 0L) listOf("-skip_initial_bytes", offsetBytes.toString()) else emptyList()) +
+        listOf("-f", ffmpegFormatCode(), "-ar", sampleRate.toString(), "-ac", channels.toString())

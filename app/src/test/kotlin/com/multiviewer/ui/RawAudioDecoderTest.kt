@@ -42,24 +42,33 @@ class RawAudioDecoderTest {
     }
 
     @Test
-    fun `zero offset returns the original file unchanged`() {
-        val file = File.createTempFile("raw-audio-decoder-test-", ".pcm")
-        file.deleteOnExit()
-        file.writeBytes(byteArrayOf(1, 2, 3, 4))
-        val result = rawAudioSourceFile(file, 0L)
-        assertEquals(file.absolutePath, result.absolutePath)
-        file.delete()
+    fun `raw input args skip the leading offset inside ffmpeg`() {
+        val params = RawAudioParams(48000, 2, RawAudioFormat.S16, RawAudioByteOrder.LITTLE_ENDIAN, 1000)
+        assertEquals(listOf("-skip_initial_bytes", "1000", "-f", "s16le", "-ar", "48000", "-ac", "2"), params.ffmpegInputArgs())
+        assertEquals(listOf("-f", "s16le", "-ar", "48000", "-ac", "2"), params.copy(offsetBytes = 0).ffmpegInputArgs())
     }
 
+    // Verified against ffmpeg 8.1: -skip_initial_bytes decodes byte-identically to the old
+    // copy-everything-after-the-offset temp file, with and without -ss.
     @Test
-    fun `positive offset produces a new file containing only the bytes after the offset`() {
-        val file = File.createTempFile("raw-audio-decoder-test-", ".pcm")
-        file.deleteOnExit()
-        file.writeBytes(byteArrayOf(0xAA.toByte(), 0xBB.toByte(), 1, 2, 3, 4))
-        val result = rawAudioSourceFile(file, 2L)
-        assertTrue(result.absolutePath != file.absolutePath)
-        assertEquals(listOf<Byte>(1, 2, 3, 4), result.readBytes().toList())
-        file.delete()
-        result.delete()
+    fun `waveform of an offset raw file matches the same PCM without the junk header`() {
+        val dir = java.nio.file.Files.createTempDirectory("raw-offset-test").toFile()
+        try {
+            val pcm = File(dir, "pcm.raw")
+            ProcessBuilder("ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+                "-ac", "2", "-ar", "48000", "-f", "s16le", pcm.absolutePath).start().waitFor()
+            val withHeader = File(dir, "with-header.raw").apply { writeBytes(ByteArray(1000) { 0x7F } + pcm.readBytes()) }
+            val params = RawAudioParams(48000, 2, RawAudioFormat.S16, RawAudioByteOrder.LITTLE_ENDIAN, 0)
+            val info = AudioFileInfo(48000, 2, 1.0)
+            val expected = computeWaveformPeaks(pcm, info, bucketCount = 64, rawAudioParams = params)!!
+            val actual = computeWaveformPeaks(withHeader, info, bucketCount = 64, rawAudioParams = params.copy(offsetBytes = 1000))!!
+            for (c in expected.channels.indices) {
+                assertTrue(expected.channels[c].min.contentEquals(actual.channels[c].min))
+                assertTrue(expected.channels[c].max.contentEquals(actual.channels[c].max))
+            }
+            assertTrue(dir.listFiles()!!.size == 2, "no temp copy may be written next to the inputs")
+        } finally {
+            dir.deleteRecursively()
+        }
     }
 }
