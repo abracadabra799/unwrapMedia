@@ -198,14 +198,14 @@ fun CustomMenuOverlay(
                     .width(IntrinsicSize.Max)
                     .widthIn(min = 220.dp, max = 520.dp)
                     .verticalScroll(rememberScrollState())
-                    .padding(vertical = 4.dp),
+                    .padding(vertical = 6.dp),
             ) {
                 menu.entries.forEachIndexed { i, entry ->
                     when (entry) {
                         MenuEntry.Separator -> Box(
                             Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 0.dp, vertical = 4.dp)
+                                .padding(horizontal = 0.dp, vertical = 6.dp)
                                 .height(1.dp)
                                 .background(AppColors.Border),
                         )
@@ -247,7 +247,7 @@ private fun MenuRow(entry: MenuEntry, highlighted: Boolean, onHover: () -> Unit,
     Row(
         Modifier
             .fillMaxWidth()
-            .height(26.dp)
+            .height(30.dp) // VS Code-like breathing room between items
             .padding(horizontal = 4.dp)
             .clip(RoundedCornerShape(3.dp))
             .background(if (highlighted) SelectionBackground else Color.Transparent)
