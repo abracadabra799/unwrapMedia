@@ -168,7 +168,7 @@ fun GainmapAnalyzerWindow(
                             when (page) {
                                 GainmapAnalyzerPage.OVERVIEW -> GainmapParametersCardView(gainmap, language)
                                 GainmapAnalyzerPage.IMAGE -> GainmapImagePage(tab, gainmap, language)
-                                GainmapAnalyzerPage.HDR_PREVIEW -> GainmapPlaceholderPage(label("HDR 미리보기 준비 중", "HDR preview coming"))
+                                GainmapAnalyzerPage.HDR_PREVIEW -> GainmapHdrPreviewPage(tab, gainmap, language)
                                 GainmapAnalyzerPage.CHECK -> GainmapPlaceholderPage(label("검사 준비 중", "Check coming"))
                                 GainmapAnalyzerPage.RAW_METADATA -> GainmapRawMetadataPage(gainmap, language)
                             }
