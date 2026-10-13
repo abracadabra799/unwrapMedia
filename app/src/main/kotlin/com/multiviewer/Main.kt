@@ -353,6 +353,23 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         title = "unwrapMedia v${I18n.APP_VERSION}",
         state = windowState,
         icon = appIcon,
+        // Windows/Linux custom menu bar (VS Code style): Alt focus, Alt+mnemonic, arrows, Enter, Esc.
+        // Preview pass, so a focused hex view / text field can't swallow the arrows while a menu is
+        // active; keys the bar doesn't own fall through untouched.
+        onPreviewKeyEvent = { keyEvent ->
+            if (isMacOS || (keyEvent.type != KeyEventType.KeyDown && keyEvent.type != KeyEventType.KeyUp)) {
+                false
+            } else {
+                val result = com.multiviewer.ui.menu.handleMenuKey(
+                    menuNavigation, keyEvent.key, keyEvent.type == KeyEventType.KeyDown,
+                    alt = keyEvent.isAltPressed, ctrl = keyEvent.isCtrlPressed || keyEvent.isMetaPressed,
+                    shift = keyEvent.isShiftPressed, menus = menuBar,
+                )
+                if (result.state != menuNavigation) menuNavigation = result.state
+                result.action?.invoke()
+                result.consumed
+            }
+        },
         onKeyEvent = { keyEvent ->
             if (keyEvent.type == KeyEventType.KeyDown) {
                 // Windows/Linux only: the custom menu bar isn't a native OS menu, so it has no
@@ -360,25 +377,6 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 // even while no menu is open. macOS doesn't need this: NativeAppMenuBar's native
                 // menu bar already gets shortcut dispatch for free from Cocoa's own NSMenu.
                 if (!isMacOS) {
-                    if (menuNavigation.openMenuIndex != null &&
-                        !keyEvent.isCtrlPressed && !keyEvent.isMetaPressed && !keyEvent.isAltPressed && !keyEvent.isShiftPressed
-                    ) {
-                        when (keyEvent.key) {
-                            Key.DirectionLeft -> {
-                                menuNavigation = menuNavigation.move(-1, menuBar.size)
-                                return@Window true
-                            }
-                            Key.DirectionRight -> {
-                                menuNavigation = menuNavigation.move(1, menuBar.size)
-                                return@Window true
-                            }
-                            Key.Escape -> {
-                                menuNavigation = menuNavigation.close()
-                                return@Window true
-                            }
-                            else -> Unit
-                        }
-                    }
                     val matched = menuBar.collectShortcuts().find { (shortcut, _) -> shortcut.matches(keyEvent) }
                     if (matched != null) {
                         matched.second()
@@ -441,7 +439,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         val selectedTabHasC2pa = remember(selectedTabRoot) { selectedTabRoot?.let { com.multiviewer.parser.c2pa.hasC2paManifestStore(it) } == true }
         val selectedTabVideoCodec = remember(selectedTabRoot) { selectedTabRoot?.let { com.multiviewer.parser.detectVideoCodec(it) } }
         val builtMenuBar = buildAppMenuBar {
-            appMenu(I18n.menuFile(language)) {
+            appMenu(I18n.menuFile(language), mnemonic = 'F') {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val isVideo = currentTab?.type == MediaType.VIDEO
                 val hasVideoTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Video" } == true
@@ -454,7 +452,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
             // Track extraction, previously tacked onto the end of 파일 alongside open/close.
             // The motion photo extractions stay in 모션포토: they belong with the create/analyze
             // commands for that format rather than with plain track extraction.
-            appMenu(I18n.menuExtract(language)) {
+            appMenu(I18n.menuExtract(language), mnemonic = 'E') {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val isVideo = currentTab?.type == MediaType.VIDEO
                 val hasVideoTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Video" } == true
@@ -473,7 +471,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
             }
             // Every gain map command in one place -- they were split between 파일 (extract) and
             // 분석 (the two viewers), which meant hunting through two menus for one feature.
-            appMenu(I18n.menuGainmap(language)) {
+            appMenu(I18n.menuGainmap(language), mnemonic = 'G') {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val hasGainmap = currentTab != null && !currentTab.isLoading && currentTab.gainmapInfo?.hasGainmap == true
                 val hasGainmapImage = hasGainmap && currentTab?.gainmapInfo?.hasGainmapImage == true
@@ -492,7 +490,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     onClick = { currentTab?.let { extractGainmapImage(appState, it, language) } },
                 )
             }
-            appMenu(I18n.menuAnalyze(language)) {
+            appMenu(I18n.menuAnalyze(language), mnemonic = 'A') {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val hasActiveFile = currentTab != null && !currentTab.isLoading && currentTab.root != null
                 val isVideo = currentTab?.type == MediaType.VIDEO
@@ -559,7 +557,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 )
                 item(I18n.menuC2pa(language), enabled = currentTab != null && !currentTab.isLoading && selectedTabHasC2pa, onClick = { c2paTab = currentTab })
             }
-            appMenu(I18n.menuMotionPhoto(language)) {
+            appMenu(I18n.menuMotionPhoto(language), mnemonic = 'M') {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val isImage = currentTab != null && !currentTab.isLoading && currentTab.type == MediaType.IMAGE
                 val isHeic = currentTab?.file?.extension?.lowercase(java.util.Locale.US) in setOf("heic", "heif")
@@ -591,7 +589,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     onClick = { motionPhotoFrameIntervalWindowOpen = true },
                 )
             }
-            appMenu(I18n.menuTools(language)) {
+            appMenu(I18n.menuTools(language), mnemonic = 'T') {
                 item(
                     I18n.menuCompareFiles(language),
                     shortcut = AppKeyShortcut(Key.D, meta = true),
@@ -605,7 +603,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
             // The "탐색" menu used to sit here. Removed as confusing: its panel toggle duplicated the
             // 구조 트리 / 폴더 탐색 tabs right below, and "탐색" read as being about the folder explorer
             // while actually holding file-stepping commands.
-            appMenu(I18n.menuView(language)) {
+            appMenu(I18n.menuView(language), mnemonic = 'V') {
                 checkbox(
                     I18n.menuDarkTheme(language),
                     checked = themeMode == ThemeMode.DARK,
@@ -662,7 +660,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     },
                 )
             }
-            appMenu(I18n.menuHelp(language)) {
+            appMenu(I18n.menuHelp(language), mnemonic = 'H') {
                 item(
                     I18n.menuOnlineRepo(language),
                     onClick = {

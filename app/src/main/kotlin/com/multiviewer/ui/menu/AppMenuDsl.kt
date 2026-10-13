@@ -30,11 +30,14 @@ sealed class MenuEntry {
     object Separator : MenuEntry()
 }
 
-/** One top-level menu (e.g. "File") and its entries, in display order. */
-data class AppMenu(val label: String, val entries: List<MenuEntry>)
+/**
+ * One top-level menu (e.g. "File") and its entries, in display order. [mnemonic] is the Alt+letter
+ * that opens it in the custom (Windows/Linux) bar; the native macOS bar ignores it.
+ */
+data class AppMenu(val label: String, val entries: List<MenuEntry>, val mnemonic: Char? = null)
 
 /** Builder scope for one menu's entries -- see [AppMenuBarBuilder.appMenu]. */
-class AppMenuBuilder internal constructor(private val label: String) {
+class AppMenuBuilder internal constructor(private val label: String, private val mnemonic: Char?) {
     private val entries = mutableListOf<MenuEntry>()
 
     fun item(label: String, enabled: Boolean = true, shortcut: AppKeyShortcut? = null, onClick: () -> Unit) {
@@ -49,15 +52,15 @@ class AppMenuBuilder internal constructor(private val label: String) {
         entries.add(MenuEntry.Separator)
     }
 
-    internal fun build(): AppMenu = AppMenu(label, entries.toList())
+    internal fun build(): AppMenu = AppMenu(label, entries.toList(), mnemonic)
 }
 
 /** Builder scope for the whole menu bar -- see [buildAppMenuBar]. */
 class AppMenuBarBuilder internal constructor() {
     private val menus = mutableListOf<AppMenu>()
 
-    fun appMenu(label: String, block: AppMenuBuilder.() -> Unit) {
-        menus.add(AppMenuBuilder(label).apply(block).build())
+    fun appMenu(label: String, mnemonic: Char? = null, block: AppMenuBuilder.() -> Unit) {
+        menus.add(AppMenuBuilder(label, mnemonic).apply(block).build())
     }
 
     internal fun build(): List<AppMenu> = menus.toList()
