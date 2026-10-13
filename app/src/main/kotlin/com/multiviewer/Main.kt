@@ -452,26 +452,6 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 item(I18n.menuOpen(language), shortcut = AppKeyShortcut(Key.O, meta = true), onClick = { showOpenFileDialog(appState) })
                 item(I18n.menuClose(language), enabled = appState.tabs.isNotEmpty(), shortcut = AppKeyShortcut(Key.W, meta = true), onClick = { appState.closeTab(appState.selectedTabIndex) })
             }
-            // Track extraction, previously tacked onto the end of 파일 alongside open/close.
-            // The motion photo extractions stay in 모션포토: they belong with the create/analyze
-            // commands for that format rather than with plain track extraction.
-            appMenu(I18n.menuExtract(language), mnemonic = 'E') {
-                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
-                val isVideo = currentTab?.type == MediaType.VIDEO
-                val hasVideoTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Video" } == true
-                val hasAudioTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Audio" } == true
-
-                item(
-                    I18n.menuExtractVideoTrack(language),
-                    enabled = hasVideoTrack,
-                    onClick = { currentTab?.let { extractVideoTrackFromCurrentFile(appState, it) } },
-                )
-                item(
-                    I18n.menuExtractAudioTrack(language),
-                    enabled = hasAudioTrack,
-                    onClick = { currentTab?.let { extractAudioTrackFromCurrentFile(appState, it) } },
-                )
-            }
             // Every gain map command in one place -- they were split between 파일 (extract) and
             // 분석 (the two viewers), which meant hunting through two menus for one feature.
             appMenu(I18n.menuGainmap(language), mnemonic = 'G') {
@@ -595,7 +575,15 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     onClick = { motionPhotoFrameIntervalWindowOpen = true },
                 )
             }
+            // Comparison tools on top, then track extraction (its own 추출 menu held only these two
+            // items). Motion photo extractions stay in 모션포토, gain map saving in 게인맵: they belong
+            // with that format's other commands.
             appMenu(I18n.menuTools(language), mnemonic = 'T') {
+                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
+                val isVideo = currentTab?.type == MediaType.VIDEO
+                val hasVideoTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Video" } == true
+                val hasAudioTrack = isVideo && currentTab?.mediaSummary?.sections?.any { it.title == "Audio" } == true
+
                 item(
                     I18n.menuCompareFiles(language),
                     shortcut = AppKeyShortcut(Key.D, meta = true),
@@ -604,6 +592,17 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 item(
                     I18n.menuQualityBenchmark(language),
                     onClick = { qualityCompareWindowOpen = true },
+                )
+                separator()
+                item(
+                    I18n.menuExtractVideoTrack(language),
+                    enabled = hasVideoTrack,
+                    onClick = { currentTab?.let { extractVideoTrackFromCurrentFile(appState, it) } },
+                )
+                item(
+                    I18n.menuExtractAudioTrack(language),
+                    enabled = hasAudioTrack,
+                    onClick = { currentTab?.let { extractAudioTrackFromCurrentFile(appState, it) } },
                 )
             }
             // The "탐색" menu used to sit here. Removed as confusing: its panel toggle duplicated the
@@ -791,7 +790,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 )
             }
             if (qualityCompareWindowOpen) {
-                QualityCompareWindow(appState = appState, onCloseRequest = { qualityCompareWindowOpen = false })
+                QualityCompareWindow(appState = appState, language = language, onCloseRequest = { qualityCompareWindowOpen = false })
             }
             if (motionPhotoFrameIntervalWindowOpen) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)

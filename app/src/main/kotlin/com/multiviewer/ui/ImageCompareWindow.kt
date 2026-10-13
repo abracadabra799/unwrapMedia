@@ -431,7 +431,7 @@ fun ImageCompareWindow(
 
     Window(
         onCloseRequest = onCloseRequest,
-        title = if (language == AppLanguage.KO) "미디어 비교 분석기 (이미지/동영상)" else "Media Comparison Analyzer (Image/Video)",
+        title = if (language == AppLanguage.KO) "미디어 비교 (A/B) · 이미지/동영상" else "Media Compare (A/B) · Image/Video",
         state = rememberWindowState(size = DpSize(1150.dp, 840.dp)),
     ) {
         var dragHoverSide by remember { mutableStateOf<Boolean?>(null) }

@@ -29,7 +29,6 @@ object I18n {
     fun menuClose(lang: AppLanguage) = if (lang == AppLanguage.KO) "닫기" else "Close"
 
     // Menu: Extract
-    fun menuExtract(lang: AppLanguage) = if (lang == AppLanguage.KO) "추출" else "Extract"
 
     // Menu: Analyze
     fun menuAnalyze(lang: AppLanguage) = if (lang == AppLanguage.KO) "분석" else "Analyze"
@@ -78,8 +77,8 @@ object I18n {
 
     // Menu: Bitstream
     fun menuBitstream(lang: AppLanguage) = if (lang == AppLanguage.KO) "비트스트림 추출" else "Extract Bitstream"
-    fun menuExtractVideoTrack(lang: AppLanguage) = if (lang == AppLanguage.KO) "비디오 추출 (.mp4 or .mov etc)" else "Extract Video (.mp4 or .mov etc)"
-    fun menuExtractAudioTrack(lang: AppLanguage) = if (lang == AppLanguage.KO) "오디오 추출 (.m4a)" else "Extract Audio (.m4a)"
+    fun menuExtractVideoTrack(lang: AppLanguage) = if (lang == AppLanguage.KO) "비디오 트랙 추출 (.mp4/.mov)" else "Extract Video Track (.mp4/.mov)"
+    fun menuExtractAudioTrack(lang: AppLanguage) = if (lang == AppLanguage.KO) "오디오 트랙 추출 (.m4a)" else "Extract Audio Track (.m4a)"
 
     // Menu: Frame Interval
     fun menuFrameInterval(lang: AppLanguage) = if (lang == AppLanguage.KO) "프레임 간격 분석" else "Frame Intervals"
@@ -93,8 +92,8 @@ object I18n {
     // Named to match the window it opens (see ImageCompareWindow's own title) -- the menu used to
     // say "두 파일 상세 비교 …" while the window called itself "미디어 비교 분석기", so the thing you
     // clicked and the thing that appeared had different names.
-    fun menuCompareFiles(lang: AppLanguage) = if (lang == AppLanguage.KO) "미디어 비교 분석기" else "Media Comparison Analyzer"
-    fun menuQualityBenchmark(lang: AppLanguage) = if (lang == AppLanguage.KO) "화질 벤치마크" else "Quality Benchmark"
+    fun menuCompareFiles(lang: AppLanguage) = if (lang == AppLanguage.KO) "미디어 비교 (A/B)" else "Media Compare (A/B)"
+    fun menuQualityBenchmark(lang: AppLanguage) = if (lang == AppLanguage.KO) "화질 측정 (PSNR/SSIM/VMAF)" else "Quality Metrics (PSNR/SSIM/VMAF)"
 
     // Backward compatibility aliases
     fun menuMediaCompare(lang: AppLanguage) = menuCompareAndAnalysis(lang)

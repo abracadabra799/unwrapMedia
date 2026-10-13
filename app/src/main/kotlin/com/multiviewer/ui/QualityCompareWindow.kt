@@ -49,7 +49,7 @@ private fun sanitizeForFilename(label: String): String = label.replace(" ", "_")
 private data class QueueItem(val pair: ComparisonPair, val metricName: String)
 
 @Composable
-fun QualityCompareWindow(appState: AppState? = null, onCloseRequest: () -> Unit) {
+fun QualityCompareWindow(appState: AppState? = null, language: AppLanguage = AppLanguage.KO, onCloseRequest: () -> Unit) {
     val cancelRequested = remember { AtomicBoolean(false) }
 
     Window(
@@ -57,7 +57,7 @@ fun QualityCompareWindow(appState: AppState? = null, onCloseRequest: () -> Unit)
             cancelRequested.set(true)
             onCloseRequest()
         },
-        title = "품질 비교",
+        title = I18n.menuQualityBenchmark(language),
         state = rememberWindowState(size = DpSize(900.dp, 700.dp)),
     ) {
         var rawFile by remember { mutableStateOf<File?>(null) }
