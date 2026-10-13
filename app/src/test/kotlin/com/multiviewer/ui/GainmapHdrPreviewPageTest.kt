@@ -73,3 +73,14 @@ class GainmapHdrPreviewRealFileTest {
         println("S26 HDR preview: base mean=${stats(b).first} max=${stats(b).second}; H=max mean=$meanMax peak=$peakMax")
     }
 }
+
+class GainmapCodedSizeTest {
+    @Test
+    fun `rotated orientations swap back to the coded size`() {
+        assertEquals(4000 to 3000, codedSize(3000, 4000, 6)) // S26 portrait: shown 3000x4000, coded 4000x3000
+        assertEquals(4000 to 3000, codedSize(3000, 4000, 8))
+        assertEquals(4000 to 3000, codedSize(4000, 3000, 1))
+        assertEquals(4000 to 3000, codedSize(4000, 3000, 3)) // 180 degrees keeps the axes
+        assertEquals(4000 to 3000, codedSize(4000, 3000, null))
+    }
+}

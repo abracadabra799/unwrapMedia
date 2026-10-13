@@ -107,13 +107,17 @@ internal fun GainmapHdrPreviewPage(tab: TabState, gainmap: GainmapInfo, language
     var headroomLog2 by remember(gainmap) { mutableStateOf(maxLog2) }
     var mode by remember { mutableStateOf(HdrPreviewMode.HDR_SIMULATION) }
 
-    val inputs by produceState<HdrPreviewInputs?>(null, base, gainBitmap) {
+    val orientationCode = tab.imageForensic?.orientationCode
+    val inputs by produceState<HdrPreviewInputs?>(null, base, gainBitmap, orientationCode) {
         value = withContext(Dispatchers.Default) {
+            // The base is shown EXIF/irot-oriented but the gain map is stored in the coded orientation:
+            // orient it the same way, or a portrait photo gets its map stretched across the wrong axis.
+            val gainOriented = com.multiviewer.parser.ImageAnalyzer.orientImageBitmap(gainBitmap, orientationCode)
             val scale = minOf(1.0, HDR_PREVIEW_MAX_EDGE.toDouble() / maxOf(base.width, base.height))
             val w = (base.width * scale).roundToInt().coerceAtLeast(1)
             val h = (base.height * scale).roundToInt().coerceAtLeast(1)
             val b = base.resampledRgba(w, h)
-            val g = gainBitmap.resampledRgba(w, h)
+            val g = gainOriented.resampledRgba(w, h)
             if (b != null && g != null) HdrPreviewInputs(w, h, b, g) else null
         }
     }

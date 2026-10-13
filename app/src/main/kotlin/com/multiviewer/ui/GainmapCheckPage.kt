@@ -26,11 +26,14 @@ internal fun rememberGainmapChecks(tab: TabState): List<IntegrityCheckItem>? {
     val info = tab.gainmapInfo?.takeIf { it.hasGainmap }
     val root = tab.root
     val base = tab.imageForensic?.bitmap
-    val checks by produceState<List<IntegrityCheckItem>?>(null, tab.file, info, root, base?.width, base?.height) {
+    // The shown bitmap is EXIF/irot-oriented; the gain map is stored in the coded orientation, so
+    // compare against the coded size (a portrait S26 photo otherwise warned 1000x750 vs 3000x4000).
+    val coded = base?.let { codedSize(it.width, it.height, tab.imageForensic?.orientationCode) }
+    val checks by produceState<List<IntegrityCheckItem>?>(null, tab.file, info, root, coded) {
         value = if (info == null || root == null) {
             null
         } else {
-            withContext(Dispatchers.IO) { GainmapValidator.validate(tab.file, root, info, base?.width, base?.height) }
+            withContext(Dispatchers.IO) { GainmapValidator.validate(tab.file, root, info, coded?.first, coded?.second) }
         }
     }
     return checks
@@ -52,3 +55,7 @@ internal fun GainmapCheckPage(tab: TabState, language: AppLanguage) {
         }
     }
 }
+
+/** Undo an EXIF orientation's dimension swap: codes 5-8 rotate by 90 degrees. */
+internal fun codedSize(displayWidth: Int, displayHeight: Int, orientationCode: Int?): Pair<Int, Int> =
+    if (orientationCode in 5..8) displayHeight to displayWidth else displayWidth to displayHeight
