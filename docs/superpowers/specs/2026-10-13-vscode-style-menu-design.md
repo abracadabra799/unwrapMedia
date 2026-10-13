@@ -28,3 +28,12 @@ the main window's `onKeyEvent` never sees ←/→, and switching menus recreates
   `onPreviewKeyEvent` so focused content (hex view, text fields) can't swallow them while a menu is active.
 - Look: VS Code Dark Modern — header pill hover (white 10%), dropdown with 5dp corners, 1dp border, shadow,
   4dp vertical padding, 26dp rows, check gutter, right-aligned dim shortcuts, selection #0078D4/white.
+
+## Verification (macOS, forced custom bar)
+`UNWRAP_CUSTOM_MENU_BAR=1 ./gradlew :app:run` draws the Windows/Linux bar on macOS for development. Checked with
+real mouse/keyboard events (cliclick + System Events): click opens; →/← open neighbours with the first item
+highlighted; smooth pointer movement over another header switches menus without a click; Alt alone focuses
+the bar with underlined mnemonics; →→↓ opens 게인맵; Enter ran "게인맵 분석기"; Alt+G opens 게인맵 directly; Esc
+closes; a click outside closes and does not reach the tab underneath.
+Found while testing: Compose re-sends header Enter events during relayout under a still pointer, which made
+menus hop on their own -- hover switching now requires the pointer to have actually moved.

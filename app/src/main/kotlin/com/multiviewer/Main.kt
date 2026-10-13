@@ -313,7 +313,10 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
     // Computed once: true on macOS (native NSMenu via NativeAppMenuBar), false on Windows/Linux
     // (CustomAppMenuBar -- the native Win32 HMENU menu Compose would otherwise render there has no
     // font/spacing control and looks dated). See docs/superpowers/specs/2026-09-30-platform-aware-menu-bar-design.md.
-    val isMacOS = remember { System.getProperty("os.name").lowercase().contains("mac") }
+    // UNWRAP_CUSTOM_MENU_BAR=1 forces the Windows/Linux custom bar on macOS, to develop it here.
+    val isMacOS = remember {
+        System.getProperty("os.name").lowercase().contains("mac") && System.getenv("UNWRAP_CUSTOM_MENU_BAR") != "1"
+    }
     // Published by the menu-building code inside Window's content below (Step 3) via SideEffect,
     // so the onKeyEvent handler (Step 5), declared as a sibling parameter of the SAME Window(...)
     // call and therefore unable to see that content lambda's own local vals, can still look up
@@ -956,12 +959,17 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     )
                 }
             }
+            // Root Box: the custom menu's dropdown is drawn above the content in this same window
+            // (VS Code style), so the window keeps keyboard focus while menus open and switch.
+            val menuBarLayout = com.multiviewer.ui.menu.rememberMenuBarLayout()
+            Box(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.fillMaxSize()) {
                 if (!isMacOS) {
                     CustomAppMenuBar(
                         builtMenuBar,
                         navigationState = menuNavigation,
                         onNavigationStateChange = { menuNavigation = it },
+                        layout = menuBarLayout,
                         modifier = Modifier.fillMaxWidth(),
                     )
                     HorizontalDivider(color = AppColors.Border)
@@ -1270,6 +1278,15 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 }
             }
           }
+            if (!isMacOS) {
+                com.multiviewer.ui.menu.CustomMenuOverlay(
+                    builtMenuBar,
+                    navigationState = menuNavigation,
+                    onNavigationStateChange = { menuNavigation = it },
+                    layout = menuBarLayout,
+                )
+            }
+            }
         }
       }
     }
