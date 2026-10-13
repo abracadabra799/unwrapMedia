@@ -172,4 +172,15 @@ class TileGridOverlayTest {
         )
         assertEquals(0, index)
     }
+
+    @Test
+    fun `tile label names the tree item and its 1-based row and column in the coded grid`() {
+        val grid = TileGridInfo(
+            layout = GridLayout(rows = 6, columns = 8, outputWidth = 4000, outputHeight = 3000),
+            tileItemIds = (1L..48L).toList(), tileWidth = 512, tileHeight = 512, rotationQuarterTurns = 1,
+        )
+        assertEquals("item 19 · r3, c3", tileLabel(18, grid))
+        assertEquals("item 1 · r1, c1", tileLabel(0, grid))
+        assertEquals("item 48 · r6, c8", tileLabel(47, grid))
+    }
 }

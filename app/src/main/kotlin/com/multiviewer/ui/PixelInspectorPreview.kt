@@ -207,6 +207,7 @@ fun PixelInspectorPreview(
                 tileGrid = tileGrid,
                 nativeSize = Size(bitmap.width.toFloat(), bitmap.height.toFloat()),
                 selectedTileIndex = selectedTileIndex,
+                zoomScale = scale,
                 modifier = Modifier.graphicsLayer(
                     scaleX = scale,
                     scaleY = scale,

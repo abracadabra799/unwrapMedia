@@ -3,11 +3,22 @@ package com.multiviewer.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.multiviewer.parser.TileGridInfo
 
 // A tile's own bounds in native (unscaled) image pixel coordinates -- row-major index into
@@ -99,19 +110,41 @@ fun resolveTileIndexAt(
     return index.takeIf { it in tileGrid.tileItemIds.indices }
 }
 
-// Draws exactly one tile's boundary -- the one currently selected in the Media Structure tree
-// (see ImageInspectorUI.kt) -- in this Canvas's own untransformed coordinate space. A caller that
-// zooms (PixelInspectorPreview) applies the exact same graphicsLayer transform to this composable
-// as it applies to its own Image, the same pattern PixelGridOverlay.kt already establishes, so the
-// overlay tracks the zoomed image with no zoom-aware drawing logic here. nativeSize is the
-// ACTUALLY-DISPLAYED bitmap's size (post-rotation); the tile's own rect is computed in the grid's
-// pre-rotation space (tileNativeRect) and then rotated into that same post-rotation space via
-// rotateRect before the fit-scale/letterbox math runs, so it lands on the real displayed pixels.
+// "item 19 · r3, c3": the tree item the tile is (item_<ID> in iloc) and its 1-based row/column in
+// the stored (pre-rotation) grid -- the coordinates the structure tree and the file use.
+fun tileLabel(index: Int, tileGrid: TileGridInfo): String {
+    val row = index / tileGrid.layout.columns + 1
+    val column = index % tileGrid.layout.columns + 1
+    val itemId = tileGrid.tileItemIds.getOrNull(index)?.toString() ?: "?"
+    return "item $itemId · r$row, c$column"
+}
+
+private val TileHighlight = Color(0xFFFFC400) // amber: readable on grey, sky and skin alike
+private val TileHalo = Color.Black.copy(alpha = 0.8f)
+private val TileDim = Color.Black.copy(alpha = 0.42f)
+
+// Highlights the tile currently selected in the Media Structure tree (see ImageInspectorUI.kt):
+// dims the rest of the image (the tile's own pixels stay untouched for inspection), outlines it in
+// amber over a black halo so it reads on bright and dark content alike, and labels it with
+// [tileLabel]. Drawn in this Canvas's own untransformed space; the caller applies the image's
+// zoom/pan graphicsLayer to it as well (the PixelGridOverlay.kt pattern), and passes that zoom as
+// [zoomScale] so the line widths and the label stay a constant size on screen instead of growing and
+// shrinking with zoom. nativeSize is the DISPLAYED (post-rotation) bitmap size; the tile's rect is
+// computed in the grid's pre-rotation space and rotated into it via rotateRect.
 @Composable
-fun TileGridOverlay(tileGrid: TileGridInfo, nativeSize: Size, selectedTileIndex: Int, modifier: Modifier = Modifier) {
-    val lineColor = AppColors.NeonBlue
+fun TileGridOverlay(
+    tileGrid: TileGridInfo,
+    nativeSize: Size,
+    selectedTileIndex: Int,
+    modifier: Modifier = Modifier,
+    zoomScale: Float = 1f,
+) {
+    val textMeasurer = rememberTextMeasurer()
+    val label = remember(selectedTileIndex, tileGrid) { tileLabel(selectedTileIndex, tileGrid) }
+    val density = LocalDensity.current
     Canvas(modifier = modifier.fillMaxSize()) {
         if (nativeSize.width <= 0f || nativeSize.height <= 0f) return@Canvas
+        val zoom = zoomScale.coerceAtLeast(0.01f)
         val fitScale = minOf(size.width / nativeSize.width, size.height / nativeSize.height)
         val fittedWidth = nativeSize.width * fitScale
         val fittedHeight = nativeSize.height * fitScale
@@ -125,11 +158,37 @@ fun TileGridOverlay(tileGrid: TileGridInfo, nativeSize: Size, selectedTileIndex:
             sourceHeight = tileGrid.layout.outputHeight.toFloat(),
             quarterTurns = tileGrid.rotationQuarterTurns,
         )
-        drawRect(
-            color = lineColor,
-            topLeft = Offset(left + tile.left * fitScale, top + tile.top * fitScale),
-            size = Size((tile.right - tile.left) * fitScale, (tile.bottom - tile.top) * fitScale),
-            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2f),
+        val t = Rect(
+            left + tile.left * fitScale, top + tile.top * fitScale,
+            left + tile.right * fitScale, top + tile.bottom * fitScale,
         )
+        val image = Rect(left, top, left + fittedWidth, top + fittedHeight)
+
+        // Dim everything but the tile (four bands around it, clipped to the image).
+        drawRect(TileDim, Offset(image.left, image.top), Size(image.width, (t.top - image.top).coerceAtLeast(0f)))
+        drawRect(TileDim, Offset(image.left, t.bottom), Size(image.width, (image.bottom - t.bottom).coerceAtLeast(0f)))
+        drawRect(TileDim, Offset(image.left, t.top), Size((t.left - image.left).coerceAtLeast(0f), t.height))
+        drawRect(TileDim, Offset(t.right, t.top), Size((image.right - t.right).coerceAtLeast(0f), t.height))
+
+        // Widths in screen pixels, divided by the zoom the graphicsLayer will apply.
+        val px = with(density) { 1.dp.toPx() } / zoom
+        drawRect(TileHalo, t.topLeft, t.size, style = Stroke(width = 4f * px))
+        drawRect(TileHighlight, t.topLeft, t.size, style = Stroke(width = 2f * px))
+
+        // Label above the tile's top-left corner (inside it when there's no room above), drawn
+        // un-zoomed around its anchor so it stays readable at any zoom.
+        val text = textMeasurer.measure(
+            label,
+            TextStyle(color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.sp),
+        )
+        val padX = with(density) { 5.dp.toPx() }
+        val padY = with(density) { 2.dp.toPx() }
+        val badge = Size(text.size.width + padX * 2, text.size.height + padY * 2)
+        val above = t.top - badge.height * px >= image.top
+        val anchor = if (above) Offset(t.left, t.top - badge.height * px) else Offset(t.left + 3f * px, t.top + 3f * px)
+        withTransform({ scale(1f / zoom, 1f / zoom, pivot = anchor) }) {
+            drawRoundRect(TileHighlight, anchor, badge, CornerRadius(with(density) { 3.dp.toPx() }))
+            drawText(text, topLeft = Offset(anchor.x + padX, anchor.y + padY))
+        }
     }
 }
