@@ -40,6 +40,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -51,6 +52,10 @@ import com.multiviewer.ui.AppColors
 private val SelectionBackground = Color(0xFF0078D4)
 private val SelectionForeground = Color.White
 private val MenuShape = RoundedCornerShape(5.dp)
+
+// The platform UI font (Segoe UI on Windows, the system sans elsewhere), like VS Code's menus, rather
+// than the app's own typography.
+private val MenuFont = FontFamily.Default
 
 /** Where the header row and each header sit in window (root) coordinates, for placing the dropdown. */
 @Stable
@@ -132,6 +137,7 @@ fun CustomAppMenuBar(
                     },
                     fontSize = 13.sp,
                     letterSpacing = 0.sp,
+            fontFamily = MenuFont,
                     color = if (open || focused || hovered) AppColors.TextPrimary else AppColors.TextSecondary,
                     maxLines = 1,
                 )
@@ -257,12 +263,13 @@ private fun MenuRow(entry: MenuEntry, highlighted: Boolean, onHover: () -> Unit,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.width(28.dp), contentAlignment = Alignment.Center) {
-            if (checked) Text("✓", fontSize = 13.sp, letterSpacing = 0.sp, color = foreground)
+            if (checked) Text("✓", fontSize = 13.sp, letterSpacing = 0.sp, fontFamily = MenuFont, color = foreground)
         }
         Text(
             label,
             fontSize = 13.sp,
             letterSpacing = 0.sp,
+            fontFamily = MenuFont,
             color = foreground,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -270,7 +277,10 @@ private fun MenuRow(entry: MenuEntry, highlighted: Boolean, onHover: () -> Unit,
         )
         if (shortcut != null) {
             Spacer(Modifier.width(32.dp))
-            Text(shortcut, fontSize = 12.sp, letterSpacing = 0.sp, color = if (highlighted) SelectionForeground else AppColors.TextSecondary, maxLines = 1)
+            Text(
+                shortcut, fontSize = 12.sp, letterSpacing = 0.sp, fontFamily = MenuFont,
+                color = if (highlighted) SelectionForeground else AppColors.TextSecondary, maxLines = 1,
+            )
         }
         Spacer(Modifier.width(16.dp))
     }
