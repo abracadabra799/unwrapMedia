@@ -576,7 +576,7 @@ private fun WarningsTabContent(
                             "⚠ ${warnings.size}개의 구조적 이상 징후",
                             style = AppTypography.labelLarge.copy(color = AppColors.NeonRed),
                         )
-                        AiRunChip(label = "🔍 컨텐츠 검사") { appState.contentCheckTab = tab }
+                        AiRunChip(label = "🔍 컨텐츠 검사") { appState.openContentCheck(tab) }
                     }
                     Spacer(Modifier.height(8.dp))
                 }

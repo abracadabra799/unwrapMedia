@@ -74,6 +74,7 @@ fun ContentCheckWindow(
     language: AppLanguage,
     onAiDiagnosis: () -> Unit,
     onCloseRequest: () -> Unit,
+    initialTab: ContentTab = ContentTab.STRUCTURE,
 ) {
     val ko = language == AppLanguage.KO
     fun label(korean: String, english: String) = if (ko) korean else english
@@ -94,7 +95,7 @@ fun ContentCheckWindow(
     var saving by remember(tab.file) { mutableStateOf(false) }
     var runId by remember(tab.file) { mutableStateOf(0) }
     var message by remember(tab.file) { mutableStateOf("") }
-    var selectedTab by remember(tab.file) { mutableStateOf(ContentTab.STRUCTURE) }
+    var selectedTab by remember(tab.file, initialTab) { mutableStateOf(initialTab) }
     // Hoisted out of the video panels so they survive switching between the decode and packet tabs.
     var expandedDiagnostic by remember(tab.file) { mutableStateOf<Int?>(null) }
     var selectedPacket by remember(tab.file) { mutableStateOf<IntegrityPacket?>(null) }

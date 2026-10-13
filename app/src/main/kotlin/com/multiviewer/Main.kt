@@ -487,7 +487,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     I18n.menuContentCheck(language),
                     enabled = hasActiveFile,
                     shortcut = AppKeyShortcut(Key.C, meta = true, shift = true),
-                    onClick = { appState.contentCheckTab = currentTab },
+                    onClick = { appState.openContentCheck(currentTab) },
                 )
                 item(
                     I18n.menuDumpStructure(language),
@@ -553,19 +553,23 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     onClick = { timedMetadataTab = currentTab },
                 )
             }
+            // Most-used first: check and analyse, then extract, then create (writes a new file).
             appMenu(I18n.menuMotionPhoto(language), mnemonic = 'M') {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val isImage = currentTab != null && !currentTab.isLoading && currentTab.type == MediaType.IMAGE
                 val isHeic = currentTab?.file?.extension?.lowercase(java.util.Locale.US) in setOf("heic", "heif")
+                val hasMotionPhoto = isImage && currentTab?.root?.let(::hasMotionPhotoData) == true
+                // Integrity, still<->video frame match, Live Photo pair and compatibility all live in
+                // Content Check's motion photo tab; this opens it there directly.
                 item(
-                    I18n.menuCreateMotionPhotoV2(language),
-                    enabled = isImage,
-                    onClick = { currentTab?.let { createMotionPhotoFromCurrentTab(appState, it, language, com.multiviewer.parser.MotionPhotoFormatVersion.V2_MOTION_PHOTO) } },
+                    I18n.menuMotionPhotoCheck(language),
+                    enabled = hasMotionPhoto,
+                    onClick = { appState.openContentCheck(currentTab, ContentTab.MOTION_PHOTO) },
                 )
                 item(
-                    I18n.menuCreateMotionPhotoV1(language),
-                    enabled = isImage && !isHeic,
-                    onClick = { currentTab?.let { createMotionPhotoFromCurrentTab(appState, it, language, com.multiviewer.parser.MotionPhotoFormatVersion.V1_MICRO_VIDEO) } },
+                    I18n.menuMotionFrameDropAnalysis(language),
+                    enabled = currentTab?.embeddedVideo != null,
+                    onClick = { motionPhotoFrameIntervalWindowOpen = true },
                 )
                 separator()
                 item(
@@ -580,9 +584,14 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 )
                 separator()
                 item(
-                    I18n.menuMotionFrameDropAnalysis(language),
-                    enabled = currentTab?.embeddedVideo != null,
-                    onClick = { motionPhotoFrameIntervalWindowOpen = true },
+                    I18n.menuCreateMotionPhotoV2(language),
+                    enabled = isImage,
+                    onClick = { currentTab?.let { createMotionPhotoFromCurrentTab(appState, it, language, com.multiviewer.parser.MotionPhotoFormatVersion.V2_MOTION_PHOTO) } },
+                )
+                item(
+                    I18n.menuCreateMotionPhotoV1(language),
+                    enabled = isImage && !isHeic,
+                    onClick = { currentTab?.let { createMotionPhotoFromCurrentTab(appState, it, language, com.multiviewer.parser.MotionPhotoFormatVersion.V1_MICRO_VIDEO) } },
                 )
             }
             // Comparison tools on top, then track extraction (its own 추출 menu held only these two
@@ -821,7 +830,9 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                             appState.aiPromptWindowOpen = true
                         }
                     },
-                ) { appState.contentCheckTab = null }
+                    initialTab = appState.contentCheckInitialTab,
+                    onCloseRequest = { appState.contentCheckTab = null },
+                )
             }
             if (appState.aiPromptWindowOpen) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)

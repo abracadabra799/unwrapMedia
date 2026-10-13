@@ -42,12 +42,13 @@ object I18n {
 
     // Menu: Motion Photo
     fun menuMotionPhoto(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토" else "Motion Photo"
-    fun menuCreateMotionPhotoV2(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 v2.0 생성 (권장)" else "Create Motion Photo v2.0 (Recommended)"
-    fun menuCreateMotionPhotoV1(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 v1.0 생성 (MicroVideo)" else "Create Motion Photo v1.0 (MicroVideo)"
+    fun menuCreateMotionPhotoV2(lang: AppLanguage) = if (lang == AppLanguage.KO) "v2.0 만들기 — 사진 + 동영상 (권장)" else "Create v2.0 — Photo + Video (Recommended)"
+    fun menuCreateMotionPhotoV1(lang: AppLanguage) = if (lang == AppLanguage.KO) "v1.0 만들기 — MicroVideo" else "Create v1.0 — MicroVideo"
     fun menuCreateMotionPhoto(lang: AppLanguage) = menuCreateMotionPhotoV2(lang)
-    fun menuExtractMotionVideo(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 동영상 추출" else "Extract Motion Photo Video"
-    fun menuExtractPreviewVideo(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 미리보기 재생용 비디오 추출" else "Extract Preview Video"
-    fun menuMotionFrameDropAnalysis(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 동영상 프레임 드랍 분석" else "Motion Video Frame Drop Analysis"
+    fun menuExtractMotionVideo(lang: AppLanguage) = if (lang == AppLanguage.KO) "동영상 추출 (.mp4/.mov)" else "Extract Video (.mp4/.mov)"
+    fun menuExtractPreviewVideo(lang: AppLanguage) = if (lang == AppLanguage.KO) "자동재생 클립 추출 (SEF AutoPlay)" else "Extract Auto-play Clip (SEF AutoPlay)"
+    fun menuMotionPhotoCheck(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 검사" else "Motion Photo Check"
+    fun menuMotionFrameDropAnalysis(lang: AppLanguage) = if (lang == AppLanguage.KO) "동영상 프레임 간격 분석" else "Video Frame Interval Analysis"
 
     // Menu: Gain Map
     fun menuGainmap(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵" else "Gain Map"

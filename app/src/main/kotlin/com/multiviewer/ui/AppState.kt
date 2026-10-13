@@ -350,6 +350,14 @@ class AppState {
     var aiPromptWindowOpen: Boolean by mutableStateOf(false)
     // Tab whose Content Check window is open (null = closed). In AppState so the inspector can open it too.
     var contentCheckTab: TabState? by mutableStateOf(null)
+    // Tab of the Content Check window to show first (모션포토 > 모션포토 검사 opens the motion photo tab).
+    var contentCheckInitialTab: ContentTab by mutableStateOf(ContentTab.STRUCTURE)
+        private set
+
+    fun openContentCheck(tab: TabState?, initialTab: ContentTab = ContentTab.STRUCTURE) {
+        contentCheckInitialTab = initialTab
+        contentCheckTab = tab
+    }
     var aiPromptTargetWarning: com.multiviewer.parser.WarningEntry? by mutableStateOf(null)
 
     var imageCompareWindowOpen: Boolean by mutableStateOf(false)
