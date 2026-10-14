@@ -108,7 +108,8 @@ suspend fun runAiCli(
         }
         out.join(2_000)
         err.join(2_000)
-        val stdout = ANSI.replace(out.text(), "")
+        // A cap can split a multi-byte character; drop the replacement char it leaves at the cut.
+        val stdout = ANSI.replace(out.text(), "").let { if (out.truncated) it.trimEnd('\uFFFD') else it }
         val stderr = ANSI.replace(err.text(), "")
         val exit = started.exitValue()
         when {
@@ -123,7 +124,9 @@ suspend fun runAiCli(
         }
     } finally {
         process?.let { if (it.isAlive) ProcessManager.terminate(it) else ProcessManager.unregister(it) }
-        workDir.deleteRecursively()
+        // Windows may hold a just-killed process's handles briefly.
+        var attempt = 0
+        while (!workDir.deleteRecursively() && attempt < 5) Thread.sleep(100L * ++attempt)
     }
 }
 

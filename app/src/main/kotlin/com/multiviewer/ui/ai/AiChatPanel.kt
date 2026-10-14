@@ -137,10 +137,14 @@ fun AiChatPanel(
     fun label(korean: String, english: String) = if (ko) korean else english
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(Unit) {
-        if (appState.aiCapabilities.isEmpty()) {
+    var rediscover by remember { mutableStateOf(0) }
+    LaunchedEffect(rediscover) {
+        if (appState.aiCapabilities.isEmpty() || rediscover > 0) {
             val found = discoverAiProviders()
-            appState.aiCapabilities = found
+            // Keep what was already verified for a CLI that is still at the same path.
+            appState.aiCapabilities = found.mapValues { (p, fresh) ->
+                appState.aiCapabilities[p]?.takeIf { it.executablePath == fresh.executablePath }?.copy(version = fresh.version) ?: fresh
+            }
             if (appState.aiProvider == null) {
                 appState.aiProvider = AiProviderId.entries.firstOrNull { found[it]?.executablePath != null }
             }
@@ -166,7 +170,7 @@ fun AiChatPanel(
     var expandedContext by remember(tab) { mutableStateOf<Long?>(null) }
     var showActivity by remember(tab) { mutableStateOf(false) }
     var providerMenu by remember { mutableStateOf(false) }
-    val listState = rememberLazyListState()
+    val listState = remember(tab) { androidx.compose.foundation.lazy.LazyListState() }
     LaunchedEffect(conversation.messages.size) {
         if (conversation.messages.isNotEmpty()) listState.animateScrollToItem(conversation.messages.size - 1)
     }
@@ -228,6 +232,14 @@ fun AiChatPanel(
                 ).joinToString(" · "),
                 color = AppColors.TextMuted, fontSize = 11.sp,
             )
+            if (caps.provider != AiProviderId.CLAUDE) {
+                // Codex's read-only sandbox and Gemini's plan mode still allow reading local files.
+                Text(
+                    label("주의: 이 CLI는 읽기 전용 모드여도 이 컴퓨터의 다른 파일을 읽을 수 있습니다. 파일에서 나온 값은 지시가 아닌 데이터로 표시해 보내지만, 민감한 환경에서는 Claude Code(도구 꺼짐)를 권장합니다.",
+                        "Note: even read-only, this CLI can read other files on this computer. File-derived values are fenced as data, but Claude Code (tools off) is safer for sensitive work."),
+                    color = AppColors.NeonYellow, fontSize = 11.sp,
+                )
+            }
             if (caps.executablePath == null) {
                 Text(label("이 CLI가 설치되어 있지 않습니다.", "This CLI is not installed."), color = AppColors.NeonOrange, fontSize = 12.sp)
             } else if (caps.image == CapabilityState.UNKNOWN && adapterFor(caps.provider).argumentsWithImages(listOf(java.io.File("p.png"))) != null) {
@@ -364,11 +376,18 @@ fun AiChatPanel(
                 val field = tab.selectedField; val frame = tab.selectedFrame; val check = tab.contentCheck
                 val parsed = tab.parsedIdentity; val video = tab.embeddedVideo; val visual = tab.aiVisualContext()
                 scope.launch {
-                    preview = withContext(Dispatchers.IO) {
-                        renderAiContext(captureAiContext(file, root, type, selected, field, frame, check, parsed, video, visual))
+                    preview = try {
+                        withContext(Dispatchers.IO) {
+                            renderAiContext(captureAiContext(file, root, type, selected, field, frame, check, parsed, video, visual))
+                        }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        label("컨텍스트를 만들지 못했습니다: ", "Could not build the context: ") + (e.message ?: e.toString())
                     }
                 }
             }) { Text(if (preview == null) label("보낼 내용 보기", "Preview context") else label("미리보기 닫기", "Close preview"), fontSize = 12.sp) }
+            TextButton(enabled = !running, onClick = { rediscover++ }) { Text(label("CLI 다시 찾기", "Re-detect CLIs"), fontSize = 11.sp) }
             OutlinedButton(onClick = onOpenFallback) { Text(label("브라우저/클립보드", "Browser/clipboard"), fontSize = 12.sp) }
             TextButton(onClick = { showActivity = !showActivity }) {
                 Text(label("활동 기록 ${conversation.activity.size}", "Activity ${conversation.activity.size}"), fontSize = 11.sp)

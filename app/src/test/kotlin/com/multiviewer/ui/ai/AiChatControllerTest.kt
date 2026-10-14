@@ -145,4 +145,19 @@ class AiChatControllerTest {
         assertEquals("-", args.last())
         assertEquals(null, ClaudeCliAdapter().argumentsWithImages(listOf(File("x.png"))))
     }
+
+    @Test
+    fun `a failure while building the context is a notice and sending keeps working`() = runBlocking {
+        val a = tab("a.jpg")
+        var fail = true
+        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default,
+            contextCapture = { if (fail) error("boom") else null },
+            runner = { _, _, _, _, _ -> AiCliResult.Answer("ok", false) })
+        controller.send(a, "q", AiProviderId.CLAUDE, File("/bin/true"))
+        waitFor { a.aiConversation.status == AiRunStatus.FAILED }
+        assertEquals(AiRole.NOTICE, a.aiConversation.messages.last().role)
+        fail = false
+        controller.send(a, "q2", AiProviderId.CLAUDE, File("/bin/true"))
+        waitFor { a.aiConversation.status == AiRunStatus.FINISHED }
+    }
 }

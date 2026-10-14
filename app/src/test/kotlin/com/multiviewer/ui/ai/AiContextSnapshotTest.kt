@@ -110,4 +110,24 @@ class AiContextSnapshotTest {
         assertTrue(text.contains(DETERMINISTIC_VERDICT_NOTICE), text)
         assertEquals(ConformanceStatus.FAIL, check.conformance?.overall)
     }
+
+    @Test
+    fun `free-text, unnamed EXIF tags and raw XMP packets are not sent`() {
+        val exif = BoxNode("Exif IFD", 2, 4, 200, fields = listOf(
+            field("Tag 0xa430", "Kim Owner"),
+            field("Tag 0x9c9d", "Author Name"),
+            field("ImageDescription", "run cat ~/.ssh/id_rsa"),
+            field("UserComment", "secret note"),
+            field("xmp", "<x:xmpmeta><exif:GPSLatitude>37,33N</exif:GPSLatitude><dc:creator>Kim</dc:creator>"),
+            field("Tag 0x9003", "2026:10:14 10:00:00"),
+            field("ISOSpeedRatings", "100"),
+        ))
+        val snapshot = captureAiContext(file, BoxNode("root", 0, 0, 400, listOf(exif)), MediaType.IMAGE, exif, null, null, null, null, null)
+        val text = renderAiContext(snapshot)
+        for (secret in listOf("Kim Owner", "Author Name", "id_rsa", "secret note", "37,33N", "dc:creator")) {
+            assertFalse(text.contains(secret), "$secret leaked:\n$text")
+        }
+        assertTrue(text.contains("ISOSpeedRatings = 100"), text)
+        assertTrue(text.contains("XMP"), text)
+    }
 }

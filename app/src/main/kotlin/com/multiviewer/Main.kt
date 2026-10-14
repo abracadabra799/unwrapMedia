@@ -428,9 +428,11 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var c2paTab by remember { mutableStateOf<TabState?>(null) }
         var hdrMetadataTab by remember { mutableStateOf<TabState?>(null) }
         var structureDiagramTab by remember { mutableStateOf<TabState?>(null) }
-        val aiScope = rememberCoroutineScope()
+        // Supervisor scope: one failed AI request must not cancel the others or later sends.
+        val aiScope = remember { kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main) }
+        DisposableEffect(Unit) { onDispose { aiScope.coroutineContext[kotlinx.coroutines.Job]?.cancel() } }
         val aiController = remember(aiScope) { com.multiviewer.ui.ai.aiChatController(appState, aiScope) }
-        appState.aiLanguage = language
+        SideEffect { appState.aiLanguage = language }
         var hrdBufferTab by remember { mutableStateOf<TabState?>(null) }
         var spatialVideoTab by remember { mutableStateOf<TabState?>(null) }
         var timedMetadataTab by remember { mutableStateOf<TabState?>(null) }

@@ -40,6 +40,8 @@ class AiChatController(
     },
     private val onCapabilityUpdate: (AiCapabilityUpdate) -> Unit = {},
     private val capabilities: (AiProviderId) -> AiProviderCapabilities? = { null },
+    /** Test hook run inside context capture (e.g. to simulate a failure there). */
+    private val contextCapture: () -> Any? = {},
 ) {
     var lastCapabilityUpdate: AiCapabilityUpdate? = null
         private set
@@ -72,8 +74,19 @@ class AiChatController(
         val canPassImages = adapter.argumentsWithImages(listOf(File("probe.png"))) != null
         val imageVerified = capabilities(provider)?.canAttachImage == true
         tab.aiJob = scope.launch {
-            val snapshot = withContext(ioDispatcher) {
-                captureAiContext(file, root, type, selected, field, frame, contentCheck, parsed, video, visual)
+            // A capture failure must become a visible notice, never an exception that kills the scope.
+            val snapshot = try {
+                withContext(ioDispatcher) {
+                    contextCapture()
+                    captureAiContext(file, root, type, selected, field, frame, contentCheck, parsed, video, visual)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val (started, run) = tab.aiConversation.withUserMessage(text, "", provider, now())
+                tab.aiConversation = started.withRunEnded(run, AiRunStatus.FAILED,
+                    label("컨텍스트를 만들지 못해 보내지 않았습니다: ", "Not sent: the context could not be built: ") + (e.message ?: e.toString()), now())
+                return@launch
             }
             // A crop goes only to a provider whose image input was verified here, and only of the marked
             // region (else the visible viewport); otherwise the coordinates travel alone, labeled as such.

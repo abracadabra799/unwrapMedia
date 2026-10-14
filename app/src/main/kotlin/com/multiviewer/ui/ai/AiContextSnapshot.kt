@@ -24,8 +24,17 @@ const val REDACTED = "[redacted]"
 const val DETERMINISTIC_VERDICT_NOTICE =
     "PASS/FAIL/WARN/NOT_CHECKED 판정은 unwrapMedia가 바이트를 직접 검사해 정한 결과이며, AI의 답변으로 바뀌지 않습니다. 판정과 다른 의견은 가설로 구분해 주세요."
 
-// Location, device identity and owner fields: never sent, whatever the format calls them.
-private val SENSITIVE_FIELD = Regex("(?i)gps|latitude|longitude|altitude|location|serial|imageuniqueid|owner|artist|copyright|imei|uniqueid")
+// Location, device identity, owner and free-text fields: never sent, whatever the format calls them.
+// Free text (descriptions, comments, authors) can carry names and instructions aimed at the AI.
+private val SENSITIVE_FIELD = Regex(
+    "(?i)gps|latitude|longitude|altitude|location|serial|imageuniqueid|owner|artist|copyright|imei|uniqueid|" +
+        "author|creator|comment|description|hostcomputer|makernote|keyword|subject|title|lens(make|model)?serial|^xp",
+)
+// EXIF tags the decoder leaves unnamed ("Tag 0x....") that hold people/free text: CameraOwnerName,
+// BodySerialNumber, LensSerialNumber, XPTitle..XPSubject, UserComment, ImageDescription, Artist, HostComputer.
+private val SENSITIVE_TAG_ID = Regex("(?i)^tag 0x(a430|a431|a435|9c9[b-f]|9286|010e|013b|013c|8298)$")
+private val UNNAMED_TAG = Regex("(?i)^tag 0x[0-9a-f]{4}$")
+private val NUMERIC_VALUE = Regex("^[0-9 .,:/+\\-x()]*$")
 
 data class AiNodeContext(
     /** Node types from the root down to the selection. */
@@ -80,7 +89,11 @@ private fun pathTo(root: BoxNode, target: BoxNode): List<BoxNode>? {
 }
 
 private fun safeValue(field: BoxField, file: File): String {
-    if (SENSITIVE_FIELD.containsMatchIn(field.name)) return REDACTED
+    if (SENSITIVE_FIELD.containsMatchIn(field.name) || SENSITIVE_TAG_ID.matches(field.name)) return REDACTED
+    // A raw XMP packet can hold GPS, creator and free text anywhere: say it exists, never send it.
+    if (field.name.equals("xmp", ignoreCase = true)) return "[XMP packet, ${field.value.length} chars, not sent]"
+    // Unnamed (often maker-note) tags with text values may be serials or names; numbers/dates are kept.
+    if (UNNAMED_TAG.matches(field.name) && !NUMERIC_VALUE.matches(field.value.trim())) return REDACTED
     val scrubbed = scrubPaths(field.value, file).replace('\n', ' ').replace('\r', ' ')
     return if (scrubbed.length <= MAX_CONTEXT_VALUE_CHARS) scrubbed else scrubbed.take(MAX_CONTEXT_VALUE_CHARS) + "…"
 }
