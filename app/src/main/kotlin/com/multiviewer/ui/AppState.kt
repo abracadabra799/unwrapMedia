@@ -380,6 +380,8 @@ class AppState {
     var aiProvider: com.multiviewer.ui.ai.AiProviderId? by mutableStateOf(null)
     var aiCapabilities: Map<com.multiviewer.ui.ai.AiProviderId, com.multiviewer.ui.ai.AiProviderCapabilities> by mutableStateOf(emptyMap())
     var aiLanguage: AppLanguage by mutableStateOf(AppLanguage.KO)
+    /** Off by default: web search can send parts of a question to a search engine. */
+    var aiWebSearch: Boolean by mutableStateOf(false)
     // Tab whose Content Check window is open (null = closed). In AppState so the inspector can open it too.
     var contentCheckTab: TabState? by mutableStateOf(null)
     // Tab of the Content Check window to show first (모션포토 > 모션포토 검사 opens the motion photo tab).

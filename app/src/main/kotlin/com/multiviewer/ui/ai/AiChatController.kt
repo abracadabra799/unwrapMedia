@@ -19,6 +19,8 @@ data class AiCapabilityUpdate(
     /** Result of an explicit image-input check. */
     val image: CapabilityState? = null,
     val detail: String? = null,
+    /** VERIFIED once a web-search-enabled answer actually cited a URL. */
+    val webSearch: CapabilityState? = null,
 )
 
 typealias AiRunner = suspend (
@@ -55,7 +57,7 @@ class AiChatController(
 
     fun isRunning(tab: TabState) = tab.aiJob?.isActive == true || tab.aiConversation.status == AiRunStatus.RUNNING
 
-    fun send(tab: TabState, question: String, provider: AiProviderId, executable: File?) {
+    fun send(tab: TabState, question: String, provider: AiProviderId, executable: File?, webSearch: Boolean = false) {
         val text = question.trim()
         if (text.isEmpty() || isRunning(tab)) return
         // Send-time selection: read now, before the user can move on.
@@ -69,8 +71,21 @@ class AiChatController(
         val parsed = tab.parsedIdentity
         val video = tab.embeddedVideo
         val visual = tab.aiVisualContext()
+        val frames = tab.gopFrames
+        val reports = buildMap {
+            tab.avSyncReport?.let { r ->
+                put("avsync", "video ${r.videoDurationSec} s, audio ${r.audioDurationSec} s, initial skew ${r.initialSkewMs} ms, " +
+                    "max ${r.maxSkewMs} ms, avg ${r.avgSkewMs} ms, drift ${r.driftRateMsPerMin} ms/min; " +
+                    r.diagnoses.take(10).joinToString("; ") { "[${it.severity}] ${it.category}: ${it.summary}" })
+            }
+            tab.bitstreamCorruptionReport?.let { r ->
+                put("bitstream", com.multiviewer.cli.scrubPaths(
+                    "${r.overallStatus}: ${r.corruptFrameCount}/${r.totalFramesScanned} corrupt frames, ${r.criticalErrorCount} critical, " +
+                        "reference loss ${r.hasReferenceLoss}; ${r.summaryRecommendation}", file))
+            }
+        }
         val imageSource = tab.aiImageSource
-        val adapter = adapterFor(provider)
+        val adapter = adapterFor(provider, webSearch = webSearch)
         val canPassImages = adapter.argumentsWithImages(listOf(File("probe.png"))) != null
         val imageVerified = capabilities(provider)?.canAttachImage == true
         tab.aiJob = scope.launch {
@@ -124,14 +139,50 @@ class AiChatController(
                 ))
                 return@launch
             }
+            val toolContext = AiToolContext(
+                file, root?.takeIf { !snapshot.fileChangedSinceOpen }, parsed ?: snapshot.identity,
+                snapshot.contentCheckSection, frames, reports,
+            )
             try {
-                val prompt = buildAiCliPrompt(history, context, text)
-                when (val result = runner(adapter, executable, prompt, { snapshot.isCurrent(file) }, listOfNotNull(crop))) {
+                var toolResults = ""
+                var round = 0
+                var result: AiCliResult
+                while (true) {
+                    val prompt = buildAiCliPrompt(history, context + toolResults, text)
+                    result = runner(adapter, executable, prompt, { snapshot.isCurrent(file) }, listOfNotNull(crop))
+                    val requests = (result as? AiCliResult.Answer)?.let { parseToolRequests(it.text) }.orEmpty()
+                    if (requests.isEmpty()) break
+                    if (round == MAX_TOOL_ROUNDS) {
+                        end(AiRunStatus.FAILED, label(
+                            "AI가 자료 요청을 ${MAX_TOOL_ROUNDS}회 넘게 반복해 중단했습니다.",
+                            "Stopped: the AI kept requesting data beyond $MAX_TOOL_ROUNDS rounds.",
+                        ))
+                        return@launch
+                    }
+                    round++
+                    val answers = withContext(ioDispatcher) {
+                        requests.take(MAX_TOOL_REQUESTS_PER_ROUND).map { parsedRequest ->
+                            parsedRequest.request?.let { executeToolRequest(it, toolContext).copy(line = parsedRequest.line) }
+                                ?: AiToolResult(parsedRequest.line, false, "Refused: ${parsedRequest.reason}")
+                        }
+                    }
+                    val roundText = buildString {
+                        answers.forEach { r ->
+                            appendLine("${r.line} → ${if (r.ok) "OK" else "REFUSED/FAILED"}")
+                            appendLine(r.text.trimEnd())
+                        }
+                        if (requests.size > MAX_TOOL_REQUESTS_PER_ROUND) appendLine("(only the first $MAX_TOOL_REQUESTS_PER_ROUND requests were answered)")
+                    }
+                    tab.aiConversation = tab.aiConversation.withToolRound(run, roundText.trimEnd(), answers.size, now())
+                    toolResults += "\n### [앱 도구 결과 ${round}회차]\n$roundText"
+                }
+                when (result) {
                     is AiCliResult.Answer -> {
                         tab.aiConversation = tab.aiConversation.withAssistantReply(run, result.text, now()).let { s ->
                             if (result.truncated) s.withActivity(label("응답이 너무 길어 일부만 표시합니다", "The answer was too long and was cut"), now()) else s
                         }
-                        report(AiCapabilityUpdate(provider, answered = true))
+                        report(AiCapabilityUpdate(provider, answered = true,
+                            webSearch = if (webSearch && adapter.supportsWebSearch && Regex("https?://").containsMatchIn(result.text)) CapabilityState.VERIFIED else null))
                     }
                     is AiCliResult.Failed -> {
                         end(AiRunStatus.FAILED, when (result.reason) {

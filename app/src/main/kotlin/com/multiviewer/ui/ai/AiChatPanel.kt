@@ -77,7 +77,7 @@ fun aiChatController(appState: AppState, scope: kotlinx.coroutines.CoroutineScop
         appState.aiCapabilities[update.provider]?.let { current ->
             appState.aiCapabilities = appState.aiCapabilities + (update.provider to when {
                 update.image != null -> current.copy(image = update.image, detail = update.detail)
-                update.answered -> current.afterAnswer()
+                update.answered -> current.afterAnswer().let { c -> update.webSearch?.let { c.copy(webSearch = it) } ?: c }
                 update.failure != null -> current.afterFailure(update.failure)
                 else -> current
             })
@@ -177,7 +177,8 @@ fun AiChatPanel(
 
     fun send(text: String) {
         val p = provider ?: return
-        controller.send(tab, text, p, appState.aiCapabilities[p]?.executablePath?.let { java.io.File(it) })
+        controller.send(tab, text, p, appState.aiCapabilities[p]?.executablePath?.let { java.io.File(it) },
+            webSearch = appState.aiWebSearch && adapterFor(p).supportsWebSearch)
         input = ""
         preview = null
     }
@@ -257,6 +258,20 @@ fun AiChatPanel(
             }
         }
 
+        if (caps != null && caps.executablePath != null) {
+            if (adapterFor(caps.provider).supportsWebSearch) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.Checkbox(checked = appState.aiWebSearch, enabled = !running, onCheckedChange = { appState.aiWebSearch = it })
+                    Text(label("웹 검색 허용 (질문 일부가 검색어로 외부에 나갈 수 있음)", "Allow web search (parts of the question may be sent as search queries)"),
+                        color = AppColors.TextSecondary, fontSize = 11.sp)
+                }
+            } else {
+                Text(label("이 연동에서는 웹 검색을 쓸 수 없습니다. 필요하면 브라우저/클립보드 방식을 쓰세요.",
+                    "Web search is not available through this integration; use the browser/clipboard route if needed."),
+                    color = AppColors.TextMuted, fontSize = 11.sp)
+            }
+        }
+
         // Pointing at the image: opt-in, so the preview's normal pan/tap stays untouched otherwise.
         if (tab.aiImageSource != null) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -299,13 +314,15 @@ fun AiChatPanel(
                     AiRole.USER -> Triple(AppColors.Surface, AppColors.TextPrimary, label("나", "You"))
                     AiRole.ASSISTANT -> Triple(AppColors.Background, AppColors.TextPrimary, m.provider?.displayName ?: "AI")
                     AiRole.NOTICE -> Triple(AppColors.Background, AppColors.NeonOrange, label("앱 알림", "App notice"))
+                    AiRole.TOOL -> Triple(AppColors.Background, AppColors.TextSecondary, label("앱 도구 (읽기 전용)", "App tool (read-only)"))
                 }
                 Column(
                     Modifier.fillMaxWidth().background(bg, RoundedCornerShape(6.dp))
                         .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp)).padding(8.dp),
                 ) {
                     Text("$who · ${SimpleDateFormat("HH:mm:ss").format(Date(m.timestampMillis))}", color = AppColors.TextMuted, fontSize = 10.sp)
-                    SelectionContainer { Text(m.text, color = fg, fontSize = 13.sp) }
+                    SelectionContainer { Text(m.text, color = fg, fontSize = 13.sp, fontFamily = if (m.role == AiRole.TOOL) FontFamily.Monospace else null) }
+                    if (m.role == AiRole.ASSISTANT) EvidenceChips(appState, tab, m.text, ko)
                     if (m.outgoingContext != null) {
                         TextButton(onClick = { expandedContext = if (expandedContext == m.id) null else m.id }) {
                             Text(
@@ -401,6 +418,52 @@ fun AiChatPanel(
                     }
                 }
             }
+        }
+    }
+}
+
+/** Clickable references found in an answer: bytes/frames select in the app (tree-driven), URLs open outside. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun EvidenceChips(appState: AppState, tab: TabState, text: String, ko: Boolean) {
+    val root = tab.root
+    val frames = tab.gopFrames
+    val checkIds = remember(tab.contentCheck) {
+        val check = tab.contentCheck
+        (check?.conformance?.findings?.map { it.rule.id }.orEmpty() +
+            check?.structure?.items?.map { it.id }.orEmpty() +
+            check?.audioStructure?.items?.map { it.id }.orEmpty()).toSet()
+    }
+    val refs = remember(text, root, frames, checkIds) {
+        extractEvidenceRefs(text, root?.size ?: 0L, checkIds, frames?.size)
+    }
+    if (refs.isEmpty()) return
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(if (ko) "근거:" else "Evidence:", color = AppColors.TextMuted, fontSize = 10.sp)
+        for (ref in refs) {
+            val (label, color) = when (ref) {
+                is AiEvidenceRef.ByteOffset -> "0x${ref.offset.toString(16).uppercase()}" to AppColors.NeonBlue
+                is AiEvidenceRef.Frame -> (if (ko) "프레임 #${ref.index}" else "frame #${ref.index}") to AppColors.NeonBlue
+                is AiEvidenceRef.Check -> ref.id to AppColors.NeonGreen
+                is AiEvidenceRef.Url -> ((if (ko) "외부 출처: " else "External: ") + ref.url.removePrefix("https://").take(40)) to AppColors.NeonYellow
+            }
+            Text(
+                label, color = color, fontSize = 11.sp,
+                modifier = Modifier.border(1.dp, color.copy(alpha = 0.5f), RoundedCornerShape(4.dp)).clickable {
+                    when (ref) {
+                        is AiEvidenceRef.ByteOffset -> root?.let { r -> deepestNodeAt(r, ref.offset) }?.let { tab.selectedField = null; tab.selected = it }
+                        // Same as picking the frame in the GOP view: select it and seek there.
+                        is AiEvidenceRef.Frame -> frames?.getOrNull(ref.index)?.let {
+                            tab.selectedFrame = it
+                            tab.selected = null
+                            tab.seekTargetSeconds = it.ptsSeconds
+                            tab.seekRequestTick++
+                        }
+                        is AiEvidenceRef.Check -> appState.openContentCheck(tab, com.multiviewer.ui.ContentTab.CONFORMANCE)
+                        is AiEvidenceRef.Url -> com.multiviewer.util.AiCliDetector.openWebAi(ref.url)
+                    }
+                }.padding(horizontal = 4.dp, vertical = 1.dp),
+            )
         }
     }
 }

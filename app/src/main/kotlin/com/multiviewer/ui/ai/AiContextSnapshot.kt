@@ -78,7 +78,7 @@ data class AiContextSnapshot(
 
 private fun hex(v: Long) = "0x" + v.toString(16).uppercase()
 
-private fun pathTo(root: BoxNode, target: BoxNode): List<BoxNode>? {
+internal fun pathTo(root: BoxNode, target: BoxNode): List<BoxNode>? {
     fun search(node: BoxNode, depth: Int): List<BoxNode>? {
         if (node === target) return listOf(node)
         if (depth >= MAX_PATH_DEPTH) return null
@@ -88,7 +88,7 @@ private fun pathTo(root: BoxNode, target: BoxNode): List<BoxNode>? {
     return search(root, 0)
 }
 
-private fun safeValue(field: BoxField, file: File): String {
+internal fun safeValue(field: BoxField, file: File): String {
     if (SENSITIVE_FIELD.containsMatchIn(field.name) || SENSITIVE_TAG_ID.matches(field.name)) return REDACTED
     // A raw XMP packet can hold GPS, creator and free text anywhere: say it exists, never send it.
     if (field.name.equals("xmp", ignoreCase = true)) return "[XMP packet, ${field.value.length} chars, not sent]"

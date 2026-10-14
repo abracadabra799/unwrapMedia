@@ -7,8 +7,11 @@ enum class AiProviderId(val displayName: String, val command: String) {
     GEMINI("Gemini CLI", "gemini"),
 }
 
-/** NOTICE = app-generated status (failure, timeout, cancel, stale file): never presented as the AI's words. */
-enum class AiRole { USER, ASSISTANT, NOTICE }
+/**
+ * NOTICE = app-generated status (failure, timeout, cancel, stale file); TOOL = what the app's read-only
+ * bridge answered to the model's requests. Neither is ever presented as the AI's words.
+ */
+enum class AiRole { USER, ASSISTANT, NOTICE, TOOL }
 
 enum class AiRunStatus { IDLE, RUNNING, FINISHED, FAILED, TIMED_OUT, CANCELLED }
 
@@ -69,4 +72,13 @@ data class AiConversationState(
     }
 
     fun withActivity(text: String, now: Long) = copy(activity = activity + AiActivity(now, text))
+
+    /** Records one bridge round (requests and bounded results) of the current run. */
+    fun withToolRound(run: Long, text: String, requestCount: Int, now: Long): AiConversationState {
+        if (run != runId || status != AiRunStatus.RUNNING) return this
+        return copy(
+            messages = messages + AiMessage(nextId(), AiRole.TOOL, text, provider, now),
+            activity = activity + AiActivity(now, "app bridge: $requestCount request(s) answered"),
+        )
+    }
 }

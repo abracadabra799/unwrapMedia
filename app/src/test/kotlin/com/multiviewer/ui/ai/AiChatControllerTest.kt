@@ -160,4 +160,29 @@ class AiChatControllerTest {
         controller.send(a, "q2", AiProviderId.CLAUDE, File("/bin/true"))
         waitFor { a.aiConversation.status == AiRunStatus.FINISHED }
     }
+
+    @Test
+    fun `tool requests are answered by the app and the model is asked again, within a round limit`() = runBlocking {
+        val a = tab("a.jpg")
+        val prompts = mutableListOf<String>()
+        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, p, _, _ ->
+            prompts += p
+            if (prompts.size == 1) AiCliResult.Answer("@@unwrapmedia hex 0x0 4", false) else AiCliResult.Answer("final answer", false)
+        })
+        controller.send(a, "q", AiProviderId.CLAUDE, File("/bin/true"))
+        waitFor { a.aiConversation.status == AiRunStatus.FINISHED }
+        assertEquals(2, prompts.size)
+        assertTrue(prompts[1].contains("00 00 00 00"), prompts[1])
+        assertEquals(listOf(AiRole.USER, AiRole.TOOL, AiRole.ASSISTANT), a.aiConversation.messages.map { it.role })
+        assertEquals("final answer", a.aiConversation.messages.last().text)
+
+        val greedy = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, _, _, _ ->
+            AiCliResult.Answer("@@unwrapmedia structure", false)
+        })
+        greedy.send(a, "again", AiProviderId.CLAUDE, File("/bin/true"))
+        waitFor { a.aiConversation.status != AiRunStatus.RUNNING && a.aiConversation.messages.size > 3 }
+        waitFor { a.aiConversation.status == AiRunStatus.FAILED }
+        assertEquals(MAX_TOOL_ROUNDS, a.aiConversation.messages.drop(3).count { it.role == AiRole.TOOL })
+        assertEquals(AiRole.NOTICE, a.aiConversation.messages.last().role)
+    }
 }
