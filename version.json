@@ -1,7 +1,7 @@
 {
-  "version": "1.22.0",
-  "releaseDate": "2026-10-13",
-  "releaseNotes": "• Windows 메뉴를 VS Code 스타일로 새로 구성: 메뉴를 연 뒤 마우스 이동이나 ←/→로 옆 메뉴가 바로 펼쳐짐, ↑/↓·Enter·Esc 키보드 조작, Alt로 메뉴바 포커스, Alt+F 등 단축 글자(파일(F))\n• 메뉴 재정리: 분석 메뉴를 용도별로 묶음, 추출 메뉴를 도구 메뉴로 통합, 모션 벡터·QP 히트맵을 분석 메뉴로 이동, 보기 메뉴는 화면 설정만 남김\n• 모션포토 메뉴: 자주 쓰는 순서(검사→추출→만들기)로 정리, '모션포토 검사'로 컨텐츠 검사의 모션포토 탭을 바로 열기\n• HEIC 타일 선택 표시 개선: 앰버색 테두리와 바깥 어둡게, 타일 번호 라벨(item · 행/열), 확대해도 선 두께 일정\n• 게인맵: 세로 사진(EXIF 회전)에서 화면비 오경고와 HDR 미리보기 게인맵 방향 오류 수정",
+  "version": "1.23.0",
+  "releaseDate": "2026-10-15",
+  "releaseNotes": "• 컨텍스트 기반 AI와 대화 사이드바 추가 (분석 > AI와 대화, 단축키 ⌘⇧I / Ctrl+Shift+I): 로컬 CLI(Claude, Codex, Gemini) 격리 연동 및 파일 분석 대화\n• 안전한 컨텍스트 추출: 메타데이터, 선택 노드, 화면 영역·마킹 좌표를 자동 구성하되 민감 정보·위치·미공개 바이트 마스킹\n• 규격 적합성(Spec Conformance) 분석: 허위 PASS 방지 및 검사 범위(Coverage)·미검사항목(NOT_CHECKED) 분리 표시\n• 파일 구조도(Structure Diagram) 시각화: 컨테이너·박스·페이로드 구조 블록 다이어그램 표시 및 SVG/PNG/Markdown 표 내보내기",
   "windowsUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest",
   "macUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest"
 }

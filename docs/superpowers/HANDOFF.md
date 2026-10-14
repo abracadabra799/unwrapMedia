@@ -1,11 +1,13 @@
 # Handoff — 2026-10-13 (Claude Code → Codex)
 
-## 2026-10-14 update — contextual analysis work
+## 2026-10-15 update — contextual media analysis merged (v1.23.0)
 
-- The current `feat/contextual-analysis` worktree implements the design in `docs/superpowers/specs/2026-10-14-contextual-media-analysis-design.md`: conformance coverage first, shareable file structure diagram second, contextual AI panel third. The feature branch is in progress; use its plan/ledger and Git history for exact task status.
-- Claude continuation details, commit/test evidence, and the ordered next steps: `docs/superpowers/HANDOFF-contextual-media-analysis.md`.
-- **Deferred at the user's request:** Samsung internal Motion Photo, SEF, and Gallery rules. The user will provide the rules later. Do not infer private pass/fail criteria from sample files or label them checked in the meantime. Keep their coverage visibly unverified and resume as a separate rule-profile task when documents and fixtures arrive.
-- The historical roadmap below is retained for context; its `main` version and next-action lines predate this update.
+- `feat/contextual-analysis` merged into `main`:
+  1. Spec conformance coverage analysis (avoids false PASS, tracks NOT_CHECKED coverage).
+  2. File structure diagram (interactive visual container/box/payload layout with SVG/PNG/Markdown export).
+  3. Contextual AI panel (Ask AI sidebar with local CLI adapters for Claude, Codex, Gemini, masked redaction, and bounded tools).
+- Hand-off details and plan history: `docs/superpowers/HANDOFF-contextual-media-analysis.md`.
+- **Deferred at the user's request:** Samsung internal Motion Photo, SEF, and Gallery rules (waiting for user-provided documentation/fixtures).
 
 Read `AGENTS.md` (repo root) for build/test commands, workflow and hard rules. This file is the current state.
 
