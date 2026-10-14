@@ -133,3 +133,7 @@ private fun roleOf(node: BoxNode): RegionRole = when {
     node.children.isNotEmpty() -> RegionRole.CONTAINER
     else -> RegionRole.OTHER
 }
+
+/** The node a region was built from ([DiagramRegion.nodePath]), or null if the path no longer resolves. */
+fun nodeAtPath(root: BoxNode, path: List<Int>): BoxNode? =
+    path.fold(root as BoxNode?) { node, index -> node?.children?.getOrNull(index) }

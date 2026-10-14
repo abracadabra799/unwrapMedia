@@ -1,7 +1,11 @@
 package com.multiviewer.util
 
+import java.awt.Image
 import java.awt.Toolkit
+import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
+import java.awt.datatransfer.Transferable
+import java.awt.datatransfer.UnsupportedFlavorException
 
 object ClipboardUtil {
     /**
@@ -21,6 +25,20 @@ object ClipboardUtil {
         }
     }
 
+    /**
+     * Puts an image on the system clipboard for pasting into slides/documents. Use an opaque image
+     * (e.g. TYPE_INT_RGB): Windows renders a transparent clipboard image's alpha as black. Returns false
+     * when the clipboard is unavailable or busy (another app holding it) instead of throwing.
+     */
+    fun copyImage(image: Image): Boolean {
+        return try {
+            Toolkit.getDefaultToolkit().systemClipboard.setContents(ImageTransferable(image), null)
+            true
+        } catch (e: Throwable) {
+            false
+        }
+    }
+
     fun copyToClipboard(text: String): Boolean {
         return try {
             val selection = StringSelection(sanitizeForClipboard(text))
@@ -30,5 +48,17 @@ object ClipboardUtil {
         } catch (e: Throwable) {
             false
         }
+    }
+}
+
+/** Clipboard payload offering exactly [DataFlavor.imageFlavor]. */
+internal class ImageTransferable(private val image: Image) : Transferable {
+    override fun getTransferDataFlavors(): Array<DataFlavor> = arrayOf(DataFlavor.imageFlavor)
+
+    override fun isDataFlavorSupported(flavor: DataFlavor): Boolean = flavor == DataFlavor.imageFlavor
+
+    override fun getTransferData(flavor: DataFlavor): Any {
+        if (!isDataFlavorSupported(flavor)) throw UnsupportedFlavorException(flavor)
+        return image
     }
 }

@@ -427,6 +427,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var avSyncWindowOpen by remember { mutableStateOf(false) }
         var c2paTab by remember { mutableStateOf<TabState?>(null) }
         var hdrMetadataTab by remember { mutableStateOf<TabState?>(null) }
+        var structureDiagramTab by remember { mutableStateOf<TabState?>(null) }
         var hrdBufferTab by remember { mutableStateOf<TabState?>(null) }
         var spatialVideoTab by remember { mutableStateOf<TabState?>(null) }
         var timedMetadataTab by remember { mutableStateOf<TabState?>(null) }
@@ -494,6 +495,11 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     enabled = hasActiveFile,
                     shortcut = AppKeyShortcut(Key.D, meta = true, shift = true),
                     onClick = { dumpStructureWindowOpen = true },
+                )
+                item(
+                    I18n.menuStructureDiagram(language),
+                    enabled = hasActiveFile,
+                    onClick = { structureDiagramTab = currentTab },
                 )
                 separator()
                 // Every XMP packet in the file -- not gain-map specific (worth a look on files with no
@@ -863,6 +869,13 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
             c2paTab?.let { t ->
                 if (appState.tabs.none { it === t }) c2paTab = null
                 else com.multiviewer.ui.C2paWindow(tab = t, language = language, onCloseRequest = { c2paTab = null })
+            }
+            structureDiagramTab?.let { t ->
+                if (appState.tabs.none { it === t }) {
+                    structureDiagramTab = null
+                } else {
+                    com.multiviewer.ui.StructureDiagramWindow(tab = t, language = language, onCloseRequest = { structureDiagramTab = null })
+                }
             }
             hdrMetadataTab?.let { t ->
                 if (appState.tabs.none { it === t }) {
