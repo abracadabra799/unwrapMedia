@@ -38,6 +38,8 @@ import com.multiviewer.cli.imageIntegrityJson
 import com.multiviewer.cli.motionPhotoJson
 import com.multiviewer.parser.buildMediaSummary
 import com.multiviewer.parser.collectWarnings
+import com.multiviewer.parser.conformance.ConformanceReport
+import com.multiviewer.parser.conformance.ConformanceStatus
 import com.multiviewer.parser.integrity.ImageStructureReport
 import com.multiviewer.parser.integrity.AudioStructureReport
 import com.multiviewer.util.ClipboardUtil
@@ -79,26 +81,29 @@ fun ContentCheckWindow(
     val ko = language == AppLanguage.KO
     fun label(korean: String, english: String) = if (ko) korean else english
     val scope = rememberCoroutineScope()
-    var structure by remember(tab.file) { mutableStateOf<ImageStructureReport?>(null) }
-    var audioStructure by remember(tab.file) { mutableStateOf<AudioStructureReport?>(null) }
-    var structureError by remember(tab.file) { mutableStateOf<String?>(null) }
-    var imageDecode by remember(tab.file) { mutableStateOf<ImageDecodeReport?>(null) }
-    var motion by remember(tab.file) { mutableStateOf<MotionPhotoIntegrityReport?>(null) }
-    var motionError by remember(tab.file) { mutableStateOf<String?>(null) }
-    var video by remember(tab.file) { mutableStateOf<VideoIntegrityReport?>(null) }
-    var audio by remember(tab.file) { mutableStateOf<AudioIntegrityReport?>(null) }
-    var audioError by remember(tab.file) { mutableStateOf<String?>(null) }
-    var imageDecodeError by remember(tab.file) { mutableStateOf<String?>(null) }
-    var videoError by remember(tab.file) { mutableStateOf<String?>(null) }
-    var job by remember(tab.file) { mutableStateOf<Job?>(null) }
-    var running by remember(tab.file) { mutableStateOf(false) }
-    var saving by remember(tab.file) { mutableStateOf(false) }
-    var runId by remember(tab.file) { mutableStateOf(0) }
-    var message by remember(tab.file) { mutableStateOf("") }
-    var selectedTab by remember(tab.file, initialTab) { mutableStateOf(initialTab) }
+    // Scope every result/job to the target tab, even when two tabs refer to the same file.
+    var structure by remember(tab) { mutableStateOf<ImageStructureReport?>(null) }
+    var audioStructure by remember(tab) { mutableStateOf<AudioStructureReport?>(null) }
+    var conformance by remember(tab) { mutableStateOf<ConformanceReport?>(null) }
+    var fileLength by remember(tab) { mutableStateOf(0L) }
+    var structureError by remember(tab) { mutableStateOf<String?>(null) }
+    var imageDecode by remember(tab) { mutableStateOf<ImageDecodeReport?>(null) }
+    var motion by remember(tab) { mutableStateOf<MotionPhotoIntegrityReport?>(null) }
+    var motionError by remember(tab) { mutableStateOf<String?>(null) }
+    var video by remember(tab) { mutableStateOf<VideoIntegrityReport?>(null) }
+    var audio by remember(tab) { mutableStateOf<AudioIntegrityReport?>(null) }
+    var audioError by remember(tab) { mutableStateOf<String?>(null) }
+    var imageDecodeError by remember(tab) { mutableStateOf<String?>(null) }
+    var videoError by remember(tab) { mutableStateOf<String?>(null) }
+    var job by remember(tab) { mutableStateOf<Job?>(null) }
+    var running by remember(tab) { mutableStateOf(false) }
+    var saving by remember(tab) { mutableStateOf(false) }
+    var runId by remember(tab) { mutableStateOf(0) }
+    var message by remember(tab) { mutableStateOf("") }
+    var selectedTab by remember(tab, initialTab) { mutableStateOf(initialTab) }
     // Hoisted out of the video panels so they survive switching between the decode and packet tabs.
-    var expandedDiagnostic by remember(tab.file) { mutableStateOf<Int?>(null) }
-    var selectedPacket by remember(tab.file) { mutableStateOf<IntegrityPacket?>(null) }
+    var expandedDiagnostic by remember(tab) { mutableStateOf<Int?>(null) }
+    var selectedPacket by remember(tab) { mutableStateOf<IntegrityPacket?>(null) }
     fun cancelledMessage() = label("중단 · 검사 완료되지 않음", "Cancelled · inspection incomplete")
 
     val type = tab.type
@@ -108,40 +113,57 @@ fun ContentCheckWindow(
     // Cheap (header reads only), so computed up front like the structure check rather than as a heavy step.
     val gainmapChecks = if (gainmapDetected) rememberGainmapChecks(tab) else null
     val steps = heavySteps(type, motionDetected)
-    DisposableEffect(tab.file) { onDispose { job?.cancel() } }
+    val targetJob = job
+    DisposableEffect(tab, targetJob) { onDispose { targetJob?.cancel() } }
 
     // Publish the current run's results to the tab for the AI prompt. These states are only ever
     // written by the current run (every write is behind the runId/current() guard), so a stale or
     // cancelled run can never reach the tab through here.
-    LaunchedEffect(tab, structure, audioStructure, structureError, imageDecode, imageDecodeError, motion, motionError, video, videoError, audio, audioError, running, motionDetected, type) {
+    LaunchedEffect(tab, structure, audioStructure, conformance, structureError, imageDecode, imageDecodeError, motion, motionError, video, videoError, audio, audioError, running, motionDetected, type) {
         tab.contentCheck = ContentCheckSnapshot(
             structure, imageDecode, motionDetected, motion, motionError, video, type,
             structureError = structureError, imageDecodeError = imageDecodeError, videoError = videoError, running = running,
             audio = audio, audioError = audioError,
             audioStructure = audioStructure,
+            conformance = conformance,
         )
     }
 
     // Keyed on tab.root too: the window can open before the file's structure tree finishes loading.
-    LaunchedEffect(tab.file, tab.root, type) {
+    LaunchedEffect(tab, tab.root, type) {
         val root = tab.root
-        if (root == null) {
-            structureError = label("파일 구조가 아직 로드되지 않았습니다", "The file structure is not loaded yet")
-            return@LaunchedEffect
-        }
         structureError = null
         structure = null
         audioStructure = null
+        conformance = null
+        fileLength = 0L
+        if (root == null) {
+            structureError = label("파일 구조가 아직 로드되지 않았습니다", "The file structure is not loaded yet")
+            conformance = contentConformanceReport(type, inspectionError = structureError)
+            return@LaunchedEffect
+        }
         try {
+            fileLength = runInterruptible(Dispatchers.IO) { tab.file.length() }
             if (type == MediaType.AUDIO) {
-                audioStructure = runInterruptible(Dispatchers.IO) { contentAudioStructureReport(tab.file, root) }
+                val result = runInterruptible(Dispatchers.IO) {
+                    val checked = contentAudioStructureReport(tab.file, root)
+                    checked to contentConformanceReport(type, audioStructure = checked)
+                }
+                audioStructure = result.first
+                conformance = result.second
             } else {
-                structure = withContext(Dispatchers.IO) { contentStructureReport(tab.file, root, type) }
+                val result = runInterruptible(Dispatchers.IO) {
+                    val checked = contentStructureReport(tab.file, root, type)
+                    checked to contentConformanceReport(type, structure = checked)
+                }
+                structure = result.first
+                conformance = result.second
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             structureError = e.message ?: e.toString()
+            conformance = contentConformanceReport(type, inspectionError = structureError)
         }
     }
 
@@ -184,6 +206,11 @@ fun ContentCheckWindow(
                             val status = if (type == MediaType.AUDIO) audioStructure?.overall else s?.overall
                             Text(label("구조: ", "Structure: ") + (status?.let { checkStatusLabel(it, ko) } ?: "…"),
                                 color = status?.let { checkStatusColor(it) } ?: AppColors.TextMuted)
+                        }
+                        ContentTab.CONFORMANCE -> {
+                            val status = conformance?.overall ?: ConformanceStatus.NOT_CHECKED
+                            Text(label("규격: ", "Conformance: ") + conformanceStatusLabel(status, ko),
+                                color = conformanceStatusColor(status))
                         }
                         ContentTab.IMAGE_DECODE -> {
                             val ds = imageDecode?.status ?: ImageDecodeStatus.NOT_RUN
@@ -443,6 +470,7 @@ fun ContentCheckWindow(
                 tabs.forEach { t ->
                     val title = when (t) {
                         ContentTab.STRUCTURE -> label("구조", "Structure")
+                        ContentTab.CONFORMANCE -> label("규격 적합성", "Spec conformance")
                         ContentTab.IMAGE_DECODE -> label("디코딩", "Decode")
                         ContentTab.MOTION_PHOTO -> label("모션포토", "Motion photo")
                         ContentTab.GAINMAP -> label("게인맵", "Gain map")
@@ -454,12 +482,17 @@ fun ContentCheckWindow(
                 }
             }
             when (shownTab) {
+                ContentTab.CONFORMANCE -> ConformancePanel(conformance, language) { offset, length ->
+                    if (offset >= 0 && length > 0 && offset < fileLength && length <= fileLength - offset) {
+                        tab.parameterSetHighlightRange = offset..(offset + (length - 1))
+                    }
+                }
                 ContentTab.AUDIO -> AudioCheckPanel(audio, audioError, ko, Modifier.weight(1f))
                 ContentTab.STRUCTURE -> if (type == MediaType.AUDIO) {
-                    AudioStructurePanel(audioStructure, structureError, ko, tab.file.length()) { offset, length ->
+                    AudioStructurePanel(audioStructure, structureError, ko, fileLength) { offset, length ->
                         tab.parameterSetHighlightRange = offset until (offset + length)
                     }
-                } else ImageStructurePanel(s, structureError, ko, tab.file.length()) { offset, length ->
+                } else ImageStructurePanel(s, structureError, ko, fileLength) { offset, length ->
                     tab.parameterSetHighlightRange = offset until (offset + length)
                 }
                 ContentTab.IMAGE_DECODE -> ImageDecodePanel(imageDecode, ko)
@@ -476,7 +509,7 @@ fun ContentCheckWindow(
                             color = AppColors.TextSecondary,
                         )
                     } else {
-                        ContentFindingTable(motionPhotoFindings(m), tab.file.length(), ko, Modifier.fillMaxSize()) { offset, length ->
+                        ContentFindingTable(motionPhotoFindings(m), fileLength, ko, Modifier.fillMaxSize()) { offset, length ->
                             tab.parameterSetHighlightRange = offset until (offset + length)
                         }
                     }
@@ -486,7 +519,7 @@ fun ContentCheckWindow(
                     if (checks == null) {
                         Text(label("게인맵 검사 중...", "Checking gain map..."), color = AppColors.TextSecondary)
                     } else {
-                        ContentFindingTable(gainmapFindings(checks), tab.file.length(), ko, Modifier.fillMaxSize()) { offset, length ->
+                        ContentFindingTable(gainmapFindings(checks), fileLength, ko, Modifier.fillMaxSize()) { offset, length ->
                             tab.parameterSetHighlightRange = offset until (offset + length)
                         }
                     }

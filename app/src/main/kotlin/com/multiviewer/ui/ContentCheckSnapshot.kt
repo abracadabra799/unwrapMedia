@@ -2,6 +2,8 @@ package com.multiviewer.ui
 
 import com.multiviewer.cli.scrubPaths
 import com.multiviewer.parser.SefCheckResult
+import com.multiviewer.parser.conformance.ConformanceReport
+import com.multiviewer.parser.conformance.ConformanceStatus
 import com.multiviewer.parser.integrity.CheckStatus
 import com.multiviewer.parser.integrity.AudioStructureReport
 import com.multiviewer.parser.integrity.ImageStructureReport
@@ -28,6 +30,7 @@ data class ContentCheckSnapshot(
     val audio: AudioIntegrityReport? = null,
     val audioError: String? = null,
     val audioStructure: AudioStructureReport? = null,
+    val conformance: ConformanceReport? = null,
 )
 
 private const val MAX_ITEMS = 30
@@ -89,6 +92,34 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
     sb.appendLine(
         "아래 검사 결과는 관측 사실과 가능한 해석을 분리해 제공합니다. 가능한 원인과 후속 확인은 확정 진단이 아닌 가설입니다.",
     )
+
+    sb.appendLine("### [규격 적합성 — 구현된 검사와 범위]")
+    sb.appendLine("전체 규격 준수나 디코딩 성공을 의미하지 않습니다. AI는 아래의 결정적 판정을 생성하거나 변경할 수 없습니다.")
+    val conformance = snapshot.conformance
+    if (conformance == null) {
+        if (snapshot.structureError != null) sb.appendLine("- 규격 검사: 검사 실패 · 미검증 — ${promptText(snapshot.structureError)}")
+        else sb.appendLine("- 규격 검사: $pending")
+    } else {
+        sb.appendLine("- 규격 검사 (${promptText(conformance.format)}): ${conformance.overall.name}; 프로필: ${promptText(conformance.profile)}")
+        sb.appendLine("- 범위: " + ConformanceStatus.entries.joinToString(", ") { status ->
+            "${status.name} ${conformance.findings.count { it.status == status }}"
+        })
+        sb.appendCapped(conformance.findings, MAX_ITEMS, "  • ") { finding ->
+            // Use a representable inclusive length, including ranges ending at Long.MAX_VALUE.
+            val locations = finding.ranges.take(MAX_PROMPT_FACTS_PER_FINDING).joinToString(", ") { range ->
+                val extent = range.last - range.first
+                "${hex(range.first)}–${hex(range.last)} (${if (extent < Long.MAX_VALUE) "${extent + 1}B" else "${extent} + 1 B"})"
+            }
+            val details = finding.details.take(MAX_PROMPT_FACTS_PER_FINDING).joinToString("; ") { promptText(it) }
+            "[${finding.status.name}] ${promptText(finding.rule.id)} — ${promptText(finding.rule.title)}; " +
+                "출처: ${promptText(finding.rule.source)}; 참조: ${finding.rule.reference?.let(::promptText) ?: "없음"}; " +
+                "검사 범위: ${promptText(finding.rule.scope)}; 관측: $details" +
+                (if (locations.isEmpty()) "" else "; 바이트: $locations") +
+                (if (finding.details.size > MAX_PROMPT_FACTS_PER_FINDING || finding.ranges.size > MAX_PROMPT_FACTS_PER_FINDING) "; 근거 일부 생략" else "")
+        }
+        sb.appendLine("- 제한 및 파서 근거 (규격 판정과 별도):")
+        sb.appendCapped(conformance.limitations, MAX_ITEMS, "  • ", ::promptText)
+    }
 
     val normalizedFindings = contentCheckFindings(snapshot)
     sb.appendLine("### [검증된 사실]")
