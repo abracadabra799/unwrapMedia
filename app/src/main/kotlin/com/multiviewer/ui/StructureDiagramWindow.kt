@@ -73,8 +73,13 @@ import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardOpenOption
 import javax.imageio.ImageIO
+import com.multiviewer.parser.diagram.spec.SpecDiagramDispatcher
+import com.multiviewer.ui.diagram.spec.SpecDiagramExporter
+import com.multiviewer.ui.diagram.spec.SpecDiagramLayoutEngine
+import com.multiviewer.ui.diagram.spec.SpecLayout
 
 private class RenderedDiagram(val layout: DiagramLayout, val image: BufferedImage, val bitmap: ImageBitmap)
+private class RenderedSpec(val layout: SpecLayout, val image: BufferedImage, val bitmap: ImageBitmap)
 
 /**
  * Analyze → 파일 구조도 / File Structure Diagram: the opened file's actual byte layout as a
@@ -89,6 +94,7 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
     val scope = rememberCoroutineScope()
     var depth by remember(tab) { mutableStateOf(1) }
     var showTable by remember(tab) { mutableStateOf(false) }
+    var showSpec by remember(tab) { mutableStateOf(tab.file.name.endsWith(".bmp", ignoreCase = true)) }
     var message by remember(tab) { mutableStateOf("") }
     var saving by remember(tab) { mutableStateOf(false) }
     // The diagram describes the tree parsed at open time: once the file differs, exports would be stale.
@@ -129,6 +135,24 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
                 val layout = layoutStructureDiagram(d, depth, title)
                 val image = renderStructurePng(layout)
                 RenderedDiagram(layout, image, image.toComposeImageBitmap())
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            failure = e.toString()
+        }
+    }
+    val renderedSpec by produceState<RenderedSpec?>(null, root, tab.file.name, showSpec) {
+        if (!showSpec) return@produceState
+        value = null
+        val r = root ?: return@produceState
+        val fileSize = tab.parsedIdentity?.length ?: r.size
+        try {
+            value = withContext(Dispatchers.Default) {
+                val spec = SpecDiagramDispatcher.build(r, fileSize, tab.file.name)
+                val layout = SpecDiagramLayoutEngine.layout(spec)
+                val image = SpecDiagramExporter.renderPng(layout)
+                RenderedSpec(layout, image, image.toComposeImageBitmap())
             }
         } catch (e: CancellationException) {
             throw e
@@ -184,15 +208,18 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
         ) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 for ((value, name) in listOf(0 to label("개요", "Overview"), 1 to label("상세", "Detail"), 2 to label("세부", "Deep"))) {
-                    if (depth == value && !showTable) Button(onClick = {}) { Text(name) }
-                    else OutlinedButton(onClick = { depth = value; showTable = false }) { Text(name) }
+                    if (depth == value && !showTable && !showSpec) Button(onClick = {}) { Text(name) }
+                    else OutlinedButton(onClick = { depth = value; showTable = false; showSpec = false }) { Text(name) }
                 }
+                if (showSpec) Button(onClick = {}) { Text(label("규격도", "Spec Diagram")) }
+                else OutlinedButton(onClick = { showSpec = true; showTable = false }) { Text(label("규격도", "Spec Diagram")) }
                 if (showTable) Button(onClick = {}) { Text(label("표", "Table")) }
-                else OutlinedButton(onClick = { showTable = true }) { Text(label("표", "Table")) }
-                val r = rendered
+                else OutlinedButton(onClick = { showTable = true; showSpec = false }) { Text(label("표", "Table")) }
+                val hasImage = if (showSpec) renderedSpec != null else rendered != null
                 val d = diagram
-                OutlinedButton(enabled = r != null && !fileChanged, onClick = {
-                    val image = r?.image ?: return@OutlinedButton
+                OutlinedButton(enabled = hasImage && !fileChanged, onClick = {
+                    val image = if (showSpec) renderedSpec?.image else rendered?.image
+                    if (image == null) return@OutlinedButton
                     message = if (ClipboardUtil.copyImage(image)) label("이미지를 클립보드에 복사했습니다", "Image copied to the clipboard")
                     else label("클립보드에 복사하지 못했습니다 (다른 앱이 사용 중일 수 있음)", "Could not copy to the clipboard (another app may be using it)")
                 }) { Text(label("이미지 복사", "Copy image")) }
@@ -201,13 +228,15 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
                     message = if (ClipboardUtil.copyToClipboard(table)) label("Markdown 표를 복사했습니다", "Markdown table copied")
                     else label("클립보드에 복사하지 못했습니다 (다른 앱이 사용 중일 수 있음)", "Could not copy to the clipboard (another app may be using it)")
                 }) { Text(label("표 복사 (Markdown)", "Copy table (Markdown)")) }
-                OutlinedButton(enabled = r != null && !saving && !fileChanged, onClick = {
-                    val svg = r?.let { renderStructureSvg(it.layout) } ?: return@OutlinedButton
+                OutlinedButton(enabled = hasImage && !saving && !fileChanged, onClick = {
+                    val svg = if (showSpec) renderedSpec?.let { SpecDiagramExporter.renderSvg(it.layout) } else rendered?.let { renderStructureSvg(it.layout) }
+                    if (svg == null) return@OutlinedButton
                     // CREATE_NEW: never overwrite an existing file.
                     save("svg") { Files.writeString(it.toPath(), svg, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE) }
                 }) { Text(label("SVG 저장", "Save SVG")) }
-                OutlinedButton(enabled = r != null && !saving && !fileChanged, onClick = {
-                    val image = r?.image ?: return@OutlinedButton
+                OutlinedButton(enabled = hasImage && !saving && !fileChanged, onClick = {
+                    val image = if (showSpec) renderedSpec?.image else rendered?.image
+                    if (image == null) return@OutlinedButton
                     save("png") { file ->
                         Files.newOutputStream(file.toPath(), StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE).use { out ->
                             check(ImageIO.write(image, "png", out)) { "No PNG writer" }
@@ -216,7 +245,10 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
                 }) { Text(label("PNG 저장", "Save PNG")) }
             }
             Text(
-                label(
+                if (showSpec) label(
+                    "BMP/미디어 규격에 맞춘 4바이트 정렬 기술 다이어그램입니다. 헤더 배너, 오프셋 화살표, 2D 행/패딩 구조가 정확한 바이트로 시각화됩니다.",
+                    "Spec-grade 4-byte aligned diagram matching canonical format specifications, with header banners, offset arrows, and 2D row/padding layout.",
+                ) else label(
                     "실제 파싱된 바이트 범위로 그린 비율 무관 구조도입니다. 점선은 어떤 노드도 설명하지 않는 바이트, 주황 테두리는 경고입니다. 행을 누르면 구조 트리에서 선택됩니다.",
                     "Not-to-scale map of the actual parsed byte ranges. Dashed rows are bytes no node accounts for; orange borders are warnings. Click a row to select it in the structure tree.",
                 ),
@@ -240,8 +272,10 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
                         color = AppColors.NeonRed, modifier = Modifier.padding(16.dp))
                     root == null -> Text(label("파일 구조가 아직 로드되지 않았습니다", "The file structure is not loaded yet"),
                         color = AppColors.TextMuted, modifier = Modifier.padding(16.dp))
-                    d == null -> Text(label("구조도 생성 중…", "Building diagram…"), color = AppColors.TextMuted, modifier = Modifier.padding(16.dp))
-                    showTable -> DiagramTable(d, selectedRegionId, ko, ::select)
+                    showSpec -> renderedSpec?.let { SpecDiagramImage(it) }
+                        ?: Text(label("규격도 생성 중…", "Building spec diagram…"), color = AppColors.TextMuted, modifier = Modifier.padding(16.dp))
+                    showTable -> d?.let { DiagramTable(it, selectedRegionId, ko, ::select) }
+                        ?: Text(label("구조도 생성 중…", "Building diagram…"), color = AppColors.TextMuted, modifier = Modifier.padding(16.dp))
                     else -> rendered?.let { DiagramImage(it, selectedRegionId, ko, ::select) }
                         ?: Text(label("구조도 그리는 중…", "Rendering…"), color = AppColors.TextMuted, modifier = Modifier.padding(16.dp))
                 }
@@ -435,3 +469,115 @@ private fun DiagramTable(diagram: StructureDiagram, selectedRegionId: String?, k
         }
     }
 }
+
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+@Composable
+private fun SpecDiagramImage(rendered: RenderedSpec) {
+    val layout = rendered.layout
+    val density = LocalDensity.current
+    val width = with(density) { layout.width.toDp() }
+    val height = with(density) { layout.height.toDp() }
+
+    var scale by remember(rendered) { mutableStateOf(1f) }
+    var offset by remember(rendered) { mutableStateOf(Offset.Zero) }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .clipToBounds()
+            .background(AppColors.Panel)
+            .onPointerEvent(PointerEventType.Scroll, pass = PointerEventPass.Initial) { event ->
+                val change = event.changes.firstOrNull() ?: return@onPointerEvent
+                val cursorPosition = change.position
+                val scrollDeltaY = change.scrollDelta.y
+                val factor = if (scrollDeltaY < 0) 1.15f else 0.85f
+                val newScale = (scale * factor).coerceIn(0.2f, 10f)
+                val newOffset = Offset(
+                    cursorPosition.x - (cursorPosition.x - offset.x) * (newScale / scale),
+                    cursorPosition.y - (cursorPosition.y - offset.y) * (newScale / scale),
+                )
+                scale = newScale
+                offset = newOffset
+                event.changes.forEach { it.consume() }
+            }
+            .pointerInput(rendered, scale) {
+                detectDragGestures { change, dragAmount ->
+                    change.consume()
+                    offset += dragAmount
+                }
+            }
+            .pointerInput(rendered, scale, offset) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        scale = 1f
+                        offset = Offset.Zero
+                    },
+                )
+            },
+    ) {
+        Box(
+            Modifier
+                .requiredSize(width, height)
+                .graphicsLayer(
+                    scaleX = scale,
+                    scaleY = scale,
+                    translationX = offset.x,
+                    translationY = offset.y,
+                    transformOrigin = TransformOrigin(0f, 0f),
+                ),
+        ) {
+            Image(rendered.bitmap, contentDescription = null, modifier = Modifier.fillMaxSize())
+        }
+
+        // Floating zoom HUD (zoom in/out, percent, reset)
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = AppColors.Surface.copy(alpha = 0.92f),
+            border = BorderStroke(1.dp, AppColors.Border),
+            shadowElevation = 2.dp,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(14.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+            ) {
+                IconButton(
+                    onClick = { scale = (scale * 0.85f).coerceIn(0.2f, 10f) },
+                    modifier = Modifier.size(24.dp),
+                ) {
+                    Text("−", fontSize = 14.sp, color = AppColors.TextPrimary)
+                }
+                Text(
+                    "${(scale * 100).toInt()}%",
+                    fontSize = 11.sp,
+                    color = AppColors.TextSecondary,
+                    modifier = Modifier.clickable {
+                        scale = 1f
+                        offset = Offset.Zero
+                    }.padding(horizontal = 4.dp),
+                )
+                IconButton(
+                    onClick = { scale = (scale * 1.15f).coerceIn(0.2f, 10f) },
+                    modifier = Modifier.size(24.dp),
+                ) {
+                    Text("+", fontSize = 14.sp, color = AppColors.TextPrimary)
+                }
+                if (scale != 1f || offset != Offset.Zero) {
+                    Text(
+                        "초기화",
+                        fontSize = 11.sp,
+                        color = AppColors.NeonPurple,
+                        modifier = Modifier.clickable {
+                            scale = 1f
+                            offset = Offset.Zero
+                        }.padding(start = 2.dp, end = 6.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
