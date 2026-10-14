@@ -73,11 +73,12 @@ class AiChatControllerTest {
     fun `failures, missing CLIs and stale files are notices, never answers`() = runBlocking {
         val a = tab("a.jpg")
         val auth = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, _, _, _ ->
-            AiCliResult.Failed(AiFailure.AUTH_REQUIRED, 1, "Please run /login")
+            AiCliResult.Failed(AiFailure.AUTH_REQUIRED, 1, "Warning: True color (24-bit) support not detected.\nError authenticating: IneligibleTierError: tier gone\n    at x (a.js:1:2)")
         })
         auth.send(a, "q", AiProviderId.GEMINI, File("/bin/true"))
         waitFor { a.aiConversation.status == AiRunStatus.FAILED }
         assertEquals(AiCapabilityUpdate(AiProviderId.GEMINI, failure = AiFailure.AUTH_REQUIRED), auth.lastCapabilityUpdate)
+        assertTrue(a.aiConversation.messages.last().text.contains("IneligibleTierError"), a.aiConversation.messages.last().text)
 
         val missing = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, _, _, _ -> error("must not run") })
         missing.send(a, "q", AiProviderId.CLAUDE, null)

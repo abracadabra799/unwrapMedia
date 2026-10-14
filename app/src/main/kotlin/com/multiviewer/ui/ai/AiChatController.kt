@@ -23,6 +23,8 @@ data class AiCapabilityUpdate(
     val webSearch: CapabilityState? = null,
 )
 
+private val AUTH_REASON_HINT = Regex("(?i)error|auth|log ?in|eligib|tier|unauthori|api key|expired")
+
 typealias AiRunner = suspend (
     adapter: AiCliAdapter, executable: File, prompt: String, fileStillCurrent: () -> Boolean, images: List<java.awt.image.BufferedImage>,
 ) -> AiCliResult
@@ -187,9 +189,9 @@ class AiChatController(
                     is AiCliResult.Failed -> {
                         end(AiRunStatus.FAILED, when (result.reason) {
                             AiFailure.AUTH_REQUIRED -> label(
-                                "${provider.displayName} 로그인이 필요합니다. 터미널에서 로그인한 뒤 다시 시도하세요.",
-                                "${provider.displayName} needs a login. Sign in from a terminal, then retry.",
-                            )
+                                "${provider.displayName} 로그인(또는 계정 권한)에 문제가 있습니다. 터미널에서 로그인을 확인한 뒤 다시 시도하세요.",
+                                "${provider.displayName} login (or account eligibility) failed. Check the login from a terminal, then retry.",
+                            ) + authReason(result.detail)
                             AiFailure.EMPTY_OUTPUT -> label("응답이 비어 있습니다.", "The answer was empty.")
                             AiFailure.LAUNCH_FAILED -> label("CLI를 실행하지 못했습니다: ", "Could not start the CLI: ") + result.detail
                             AiFailure.EXIT_ERROR -> label("CLI가 오류로 끝났습니다 (종료 코드 ${result.exitCode}): ", "The CLI failed (exit ${result.exitCode}): ") + result.detail
@@ -210,6 +212,14 @@ class AiChatController(
                 end(AiRunStatus.FAILED, label("요청 실패: ", "Request failed: ") + (e.message ?: e.toString()))
             }
         }
+    }
+
+    // The CLI's own first meaningful error line (e.g. an ineligible account tier), without stack frames.
+    private fun authReason(detail: String): String {
+        val lines = detail.lineSequence().map { it.trim() }
+            .filter { it.length > 12 && !it.startsWith("at ") && !it.contains(".js:") }.toList()
+        val best = lines.firstOrNull { AUTH_REASON_HINT.containsMatchIn(it) } ?: lines.firstOrNull()
+        return best?.let { " — ${it.take(200)}" } ?: ""
     }
 
     fun stop(tab: TabState) {

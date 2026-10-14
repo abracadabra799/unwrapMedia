@@ -26,6 +26,12 @@ private const val MAX_STDERR_BYTES = 16 * 1024
 private val AUTH_HINT = Regex("(?i)/login|not logged in|log ?in required|please log ?in|unauthori[sz]ed|authenticat|api key|credential|sign ?in|\\b401\\b|\\b403\\b")
 private val ANSI = Regex("\u001B\\[[0-9;?]*[ -/]*[@-~]")
 
+// The first lines usually say what went wrong (stack traces follow), the last lines how it ended.
+private fun excerpt(text: String): String {
+    val t = text.trim()
+    return if (t.length <= 1_200) t else t.take(800) + "\n…\n" + t.takeLast(400)
+}
+
 private class BoundedCollector(private val input: InputStream, private val cap: Int) : Thread("ai-cli-reader") {
     val bytes = ByteArrayOutputStream()
     @Volatile var truncated = false
@@ -114,11 +120,11 @@ suspend fun runAiCli(
         val exit = started.exitValue()
         when {
             exit != 0 && (AUTH_HINT.containsMatchIn(stderr) || AUTH_HINT.containsMatchIn(stdout.takeLast(2_000))) ->
-                AiCliResult.Failed(AiFailure.AUTH_REQUIRED, exit, stderr.takeLast(1_000).ifBlank { stdout.takeLast(1_000) }.trim())
-            exit != 0 -> AiCliResult.Failed(AiFailure.EXIT_ERROR, exit, stderr.takeLast(1_000).ifBlank { stdout.takeLast(1_000) }.trim())
+                AiCliResult.Failed(AiFailure.AUTH_REQUIRED, exit, excerpt(stderr.ifBlank { stdout }))
+            exit != 0 -> AiCliResult.Failed(AiFailure.EXIT_ERROR, exit, excerpt(stderr.ifBlank { stdout }))
             else -> {
                 val answer = adapter.parseAnswer(stdout)
-                if (answer.isBlank()) AiCliResult.Failed(AiFailure.EMPTY_OUTPUT, exit, stderr.takeLast(1_000).trim())
+                if (answer.isBlank()) AiCliResult.Failed(AiFailure.EMPTY_OUTPUT, exit, excerpt(stderr))
                 else AiCliResult.Answer(answer, out.truncated)
             }
         }

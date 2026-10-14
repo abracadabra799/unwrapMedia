@@ -46,11 +46,16 @@ class CodexCliAdapter : AiCliAdapter {
         if (images.isEmpty()) arguments() else listOf("exec", "-i") + images.map { it.path } + arguments().drop(1)
 }
 
-/** Gemini CLI headless in plan (read-only) approval mode; the -p text is appended to the stdin prompt. */
+/**
+ * Gemini CLI headless in plan (read-only) approval mode; the -p text is appended to the stdin prompt.
+ * `--skip-trust` matters: in an untrusted folder (our fresh temp dir) Gemini 0.46 silently overrides the
+ * approval mode to "default" — observed live — so plan mode would not hold without it. It trusts only the
+ * empty app-owned temp dir for this one run.
+ */
 class GeminiCliAdapter : AiCliAdapter {
     override val provider = AiProviderId.GEMINI
     override fun arguments() = listOf(
-        "--approval-mode", "plan", "--output-format", "text", "-p", "Answer the request above.",
+        "--skip-trust", "--approval-mode", "plan", "--output-format", "text", "-p", "Answer the request above.",
     )
 }
 
