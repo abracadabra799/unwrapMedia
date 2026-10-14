@@ -4,6 +4,7 @@ package com.multiviewer.ui.ai
 enum class AiProviderId(val displayName: String, val command: String) {
     CLAUDE("Claude Code", "claude"),
     CODEX("Codex", "codex"),
+    AGY("Antigravity", "agy"),
     GEMINI("Gemini CLI", "gemini"),
 }
 

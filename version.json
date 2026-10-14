@@ -1,7 +1,7 @@
 {
   "version": "1.23.0",
   "releaseDate": "2026-10-15",
-  "releaseNotes": "• 컨텍스트 기반 AI와 대화 사이드바 추가 (분석 > AI와 대화, 단축키 ⌘⇧I / Ctrl+Shift+I): 로컬 CLI(Claude, Codex, Gemini) 격리 연동 및 파일 분석 대화\n• 안전한 컨텍스트 추출: 메타데이터, 선택 노드, 화면 영역·마킹 좌표를 자동 구성하되 민감 정보·위치·미공개 바이트 마스킹\n• 규격 적합성(Spec Conformance) 분석: 허위 PASS 방지 및 검사 범위(Coverage)·미검사항목(NOT_CHECKED) 분리 표시\n• 파일 구조도(Structure Diagram) 시각화: 컨테이너·박스·페이로드 구조 블록 다이어그램 표시 및 SVG/PNG/Markdown 표 내보내기",
+  "releaseNotes": "• 컨텍스트 기반 AI와 대화 사이드바 추가 (분석 > AI와 대화, 단축키 ⌘⇧I / Ctrl+Shift+I): 로컬 CLI(Claude, Codex, Antigravity, Gemini) 격리 연동 및 파일 분석 대화\n• 안전한 컨텍스트 추출: 메타데이터, 선택 노드, 화면 영역·마킹 좌표를 자동 구성하되 민감 정보·위치·미공개 바이트 마스킹\n• 규격 적합성(Spec Conformance) 분석: 허위 PASS 방지 및 검사 범위(Coverage)·미검사항목(NOT_CHECKED) 분리 표시\n• 파일 구조도(Structure Diagram) 시각화: 컨테이너·박스·페이로드 구조 블록 다이어그램 표시 및 SVG/PNG/Markdown 표 내보내기",
   "windowsUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest",
   "macUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest"
 }

@@ -59,9 +59,18 @@ class GeminiCliAdapter : AiCliAdapter {
     )
 }
 
+/**
+ * Antigravity CLI in plan (read-only) mode; the prompt is piped on stdin and output printed as text.
+ */
+class AgyCliAdapter : AiCliAdapter {
+    override val provider = AiProviderId.AGY
+    override fun arguments() = listOf("--mode", "plan", "--output-format", "text")
+}
+
 fun adapterFor(provider: AiProviderId, webSearch: Boolean = false): AiCliAdapter = when (provider) {
     AiProviderId.CLAUDE -> ClaudeCliAdapter(webSearch)
     AiProviderId.CODEX -> CodexCliAdapter()
+    AiProviderId.AGY -> AgyCliAdapter()
     AiProviderId.GEMINI -> GeminiCliAdapter()
 }
 

@@ -178,4 +178,13 @@ class AiCliRunnerTest {
             launchCommand(shim, listOf("-i", "C:\\Temp\\%USERNAME%\\v.png"), windows = true, comSpec = "cmd.exe")
         }
     }
+
+    @Test
+    fun `antigravity adapter uses plan mode and text output format`() {
+        val adapter = adapterFor(AiProviderId.AGY)
+        assertEquals(AiProviderId.AGY, adapter.provider)
+        assertEquals(listOf("--mode", "plan", "--output-format", "text"), adapter.arguments())
+        assertFalse(adapter.supportsWebSearch)
+        assertEquals(null, adapter.argumentsWithImages(listOf(File("crop.png"))))
+    }
 }
