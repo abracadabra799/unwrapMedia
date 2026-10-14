@@ -34,6 +34,7 @@ object I18n {
     fun menuAnalyze(lang: AppLanguage) = if (lang == AppLanguage.KO) "분석" else "Analyze"
     fun menuContentCheck(lang: AppLanguage) = if (lang == AppLanguage.KO) "컨텐츠 검사" else "Content Check"
     fun menuDumpStructure(lang: AppLanguage) = if (lang == AppLanguage.KO) "구조 덤프" else "Dump Structure"
+    fun menuAskAi(lang: AppLanguage) = if (lang == AppLanguage.KO) "AI와 대화" else "Ask AI"
     fun menuStructureDiagram(lang: AppLanguage) = if (lang == AppLanguage.KO) "파일 구조도" else "File Structure Diagram"
     fun menuAvSyncAnalysis(lang: AppLanguage) = if (lang == AppLanguage.KO) "A/V 싱크 및 드리프트 분석" else "A/V Sync & Drift Analysis"
     fun menuSefIntegrityCheck(lang: AppLanguage) = if (lang == AppLanguage.KO) "SEF 무결성 검사" else "SEF Integrity Check"

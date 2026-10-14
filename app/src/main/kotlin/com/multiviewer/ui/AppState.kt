@@ -357,6 +357,14 @@ class AppState {
     }
 
     var aiPromptWindowOpen: Boolean by mutableStateOf(false)
+
+    // Contextual AI side panel: open state, width, provider and probed capabilities are app-wide;
+    // conversations live on each TabState.
+    var aiPanelOpen: Boolean by mutableStateOf(false)
+    var aiPanelWidthDp: Float by mutableStateOf(400f)
+    var aiProvider: com.multiviewer.ui.ai.AiProviderId? by mutableStateOf(null)
+    var aiCapabilities: Map<com.multiviewer.ui.ai.AiProviderId, com.multiviewer.ui.ai.AiProviderCapabilities> by mutableStateOf(emptyMap())
+    var aiLanguage: AppLanguage by mutableStateOf(AppLanguage.KO)
     // Tab whose Content Check window is open (null = closed). In AppState so the inspector can open it too.
     var contentCheckTab: TabState? by mutableStateOf(null)
     // Tab of the Content Check window to show first (모션포토 > 모션포토 검사 opens the motion photo tab).

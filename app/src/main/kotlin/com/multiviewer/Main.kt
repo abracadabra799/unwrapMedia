@@ -428,6 +428,9 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var c2paTab by remember { mutableStateOf<TabState?>(null) }
         var hdrMetadataTab by remember { mutableStateOf<TabState?>(null) }
         var structureDiagramTab by remember { mutableStateOf<TabState?>(null) }
+        val aiScope = rememberCoroutineScope()
+        val aiController = remember(aiScope) { com.multiviewer.ui.ai.aiChatController(appState, aiScope) }
+        appState.aiLanguage = language
         var hrdBufferTab by remember { mutableStateOf<TabState?>(null) }
         var spatialVideoTab by remember { mutableStateOf<TabState?>(null) }
         var timedMetadataTab by remember { mutableStateOf<TabState?>(null) }
@@ -484,6 +487,13 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 val hasSefData = currentTab?.root?.let { root -> findFirst(root) { it.type == "sefd" } } != null
                 val hasMetadataCodec = isVideo && selectedTabVideoCodec != null
 
+                item(
+                    I18n.menuAskAi(language) + if (appState.aiPanelOpen) " ✓" else "",
+                    enabled = currentTab != null,
+                    shortcut = AppKeyShortcut(Key.I, meta = true, shift = true),
+                    onClick = { appState.aiPanelOpen = !appState.aiPanelOpen },
+                )
+                separator()
                 item(
                     I18n.menuContentCheck(language),
                     enabled = hasActiveFile,
@@ -1248,6 +1258,8 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                             )
                         }
 
+                        Row(Modifier.fillMaxSize()) {
+                        Box(Modifier.weight(1f).fillMaxHeight()) {
                         if (currentTab.isLoading) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 DecodingIndicator("${currentTab.file.name} 분석 중...")
@@ -1263,6 +1275,24 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                                     Text("Unsupported Format", modifier = Modifier.padding(16.dp))
                                 }
                             }
+                        }
+                        }
+                        if (appState.aiPanelOpen) {
+                            // Right-side AI panel for the focused tab; its left edge drags to resize.
+                            com.multiviewer.ui.ai.AiPanelResizeHandle(appState)
+                            com.multiviewer.ui.ai.AiChatPanel(
+                                appState = appState,
+                                tab = currentTab,
+                                language = language,
+                                controller = aiController,
+                                onOpenFallback = {
+                                    appState.aiPromptTargetWarning = null
+                                    appState.aiPromptWindowOpen = true
+                                },
+                                onClose = { appState.aiPanelOpen = false },
+                                modifier = Modifier.width(appState.aiPanelWidthDp.dp).fillMaxHeight(),
+                            )
+                        }
                         }
                     }
                 }

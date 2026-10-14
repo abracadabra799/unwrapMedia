@@ -58,6 +58,8 @@ data class AiContextSnapshot(
     val structureLines: List<String>,
     val omittedStructureLines: Int,
     val warnings: List<String>,
+    /** The file is missing or differs from the bytes the tree was parsed from: nothing should be sent. */
+    val fileChangedSinceOpen: Boolean = false,
 ) {
     /** Blocking stat: call off the UI thread. */
     fun isCurrent(file: File): Boolean = identity?.matches(file) == true
@@ -148,6 +150,7 @@ fun captureAiContext(
         structureLines = structure,
         omittedStructureLines = omittedStructure,
         warnings = warnings,
+        fileChangedSinceOpen = !treeCurrent,
     )
 }
 
