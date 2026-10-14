@@ -1,5 +1,18 @@
 # Claude handoff — contextual media analysis
 
+## Status update (Claude, 2026-10-14, later the same day)
+
+All three plans are implemented on `feat/contextual-analysis`; not merged, not pushed, no version bump.
+
+- Conformance fix wave: `2950f3b`, `1e033e2` (file identity binding incl. parse-time `TabState.parsedIdentity`, cancellable image reads). Re-reviewed.
+- Structure diagram: `c78dd3c`, `1bf3b55`, `9e57393`, review fixes `6622ec1`. Analyze → 파일 구조도.
+- Contextual AI panel: `f5ebd34`, `eddb3a2`, `ddc6228`, `6275d33`, `be4c7b8`, review/live fixes `d7a478f`, `cb30953`, `ae85b79`. Analyze → AI와 대화 (⌘⇧I).
+- Ledgers: `.superpowers/sdd/2026-10-14-{spec-conformance,file-structure-diagram,contextual-ai-panel}/progress.md` (worktree-local).
+- Live CLI acceptance on the user's Mac (personal accounts, not the corporate proxy): Claude Code 2.1.299 and Codex 0.162.1 answer; Codex image input verified; Gemini 0.46.0 account tier rejected (reported as a login problem). Opt-in test: `UNWRAPMEDIA_LIVE_AI=1 ./gradlew :app:test --tests 'com.multiviewer.ui.ai.AiCliLiveAcceptanceTest'`.
+- Still open: whole-branch review before merge; GUI manual pass of the diagram window and the AI panel; Windows (npm `.cmd` shims via `cmd /s /c`, paths with spaces); corporate-proxy acceptance per CLI; video-frame marking (only frame/PTS sent); residual risk that Codex/Gemini read-only modes can read local files (warned in the panel).
+
+The original handoff below is kept for history.
+
 Updated: 2026-10-14, paused for an explicit handoff to Claude. This document is the resume point for the current feature branch; verify `git status`, `git log`, and the task ledger before continuing.
 
 ## User intent and settled choices
