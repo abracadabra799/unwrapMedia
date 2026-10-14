@@ -15,6 +15,26 @@ private const val BATCH_TIMEOUT_MS = 15000L
 private const val THUMB_FILENAME_PREFIX = "thumb_"
 private const val THUMB_FILENAME_SUFFIX = ".jpg"
 
+/** The viewport owns one batch. A token also rejects callbacks already posted to the EDT. */
+internal class LatestThumbnailRequest {
+    private var generation = 0L
+    private var future: Future<*>? = null
+
+    @Synchronized fun replace(next: Future<*>): Long {
+        future?.cancel(true)
+        future = next
+        return ++generation
+    }
+
+    @Synchronized fun isCurrent(token: Long): Boolean = token == generation && future != null
+
+    @Synchronized fun clear() {
+        future?.cancel(true)
+        future = null
+        generation++
+    }
+}
+
 // Thread pool for thumbnail batch decoding -- limits concurrency to prevent overloading the CPU
 // while reusing worker threads across filmstrip scroll events.
 private val thumbnailDecoderExecutor = Executors.newFixedThreadPool(4) { runnable ->

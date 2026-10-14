@@ -3,8 +3,27 @@ package com.multiviewer.ui
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+import java.util.concurrent.FutureTask
 
 class FrameThumbnailDecoderTest {
+    @Test
+    fun `replacing a thumbnail request cancels old work and rejects its result`() {
+        val requests = LatestThumbnailRequest()
+        val first = FutureTask<Unit>({ })
+        val second = FutureTask<Unit>({ })
+        val firstToken = requests.replace(first)
+        assertTrue(requests.isCurrent(firstToken))
+        val secondToken = requests.replace(second)
+        assertTrue(first.isCancelled)
+        assertFalse(requests.isCurrent(firstToken))
+        assertTrue(requests.isCurrent(secondToken))
+        requests.clear()
+        assertTrue(second.isCancelled)
+        assertFalse(requests.isCurrent(secondToken))
+    }
+
     @Test
     fun `missingThumbnailRange returns null for an empty visible range`() {
         assertNull(missingThumbnailRange(IntRange.EMPTY, prefetchMargin = 5, frameCount = 100, alreadyCachedOrPending = emptySet()))
