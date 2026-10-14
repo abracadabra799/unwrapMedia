@@ -37,7 +37,7 @@ fun buildStructureDiagram(root: BoxNode, fileSize: Long, embeddedVideo: Embedded
         var previous: Int? = null // index in [regions] of the previous node region at this level
         for ((index, child) in shown) {
             val id = (path + index).joinToString(".")
-            var status = if (child.warnings.isEmpty()) RegionStatus.VERIFIED else RegionStatus.WARNING
+            var status = if (child.warnings.isEmpty()) RegionStatus.PARSED else RegionStatus.WARNING
             if (!physical) {
                 // Still bounded by the file itself.
                 if (child.offset < 0 || child.offset + child.size > fileSize) {
@@ -74,7 +74,7 @@ fun buildStructureDiagram(root: BoxNode, fileSize: Long, embeddedVideo: Embedded
             if (warned > 0) warnings += "$warned folded children of ${parent.type} carry parser warnings"
             regions += DiagramRegion(
                 "${parentId ?: "root"}+${rest.size}", "${rest.size} more ($kinds)", start, end - start, depth,
-                RegionRole.SUMMARY, if (overlapping || warned > 0) RegionStatus.WARNING else RegionStatus.VERIFIED,
+                RegionRole.SUMMARY, if (overlapping || warned > 0) RegionStatus.WARNING else RegionStatus.PARSED,
                 parentId, null, summarizedCount = rest.size,
             )
             cursor = maxOf(cursor, end)

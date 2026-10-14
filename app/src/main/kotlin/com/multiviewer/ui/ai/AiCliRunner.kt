@@ -78,7 +78,12 @@ suspend fun runAiCli(
         }
         val args = adapter.argumentsWithImages(imageFiles)
             ?: return@runInterruptible AiCliResult.Failed(AiFailure.LAUNCH_FAILED, null, "${adapter.provider.displayName} cannot take images from this app")
-        val builder = ProcessBuilder(launchCommand(executable, args)).directory(workDir)
+        val command = try {
+            launchCommand(executable, args)
+        } catch (e: IllegalArgumentException) {
+            return@runInterruptible AiCliResult.Failed(AiFailure.LAUNCH_FAILED, null, e.message ?: e.toString())
+        }
+        val builder = ProcessBuilder(command).directory(workDir)
         // npm shims need node next to them; GUI launches often lack the user's shell PATH.
         val env = builder.environment()
         val pathKey = env.keys.firstOrNull { it.equals("PATH", ignoreCase = true) } ?: "PATH"

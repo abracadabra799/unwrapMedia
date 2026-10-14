@@ -769,6 +769,7 @@ class AppState {
                         val idx = tabs.indexOf(tab)
                         if (idx >= 0) tabs.removeAt(idx)
                         tab.isClosed = true
+                        tab.aiJob?.cancel()
                         tab.backgroundTasks.close()
                         if (selectedTabIndex >= tabs.size) selectedTabIndex = (tabs.size - 1).coerceAtLeast(0)
                         openFileError = hardBlockMessage

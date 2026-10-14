@@ -224,8 +224,8 @@ class AiChatController(
                         tab.aiConversation = tab.aiConversation.withAssistantReply(run, result.text, now()).let { s ->
                             if (result.truncated) s.withActivity(label("응답이 너무 길어 일부만 표시합니다", "The answer was too long and was cut"), now()) else s
                         }
-                        report(AiCapabilityUpdate(provider, answered = true,
-                            webSearch = if (webSearch && adapter.supportsWebSearch && Regex("https?://").containsMatchIn(result.text)) CapabilityState.VERIFIED else null))
+                        // Web search is never marked verified from an answer: a cited URL may come from memory.
+                        report(AiCapabilityUpdate(provider, answered = true))
                     }
                     is AiCliResult.Failed -> {
                         end(AiRunStatus.FAILED, when (result.reason) {

@@ -1253,7 +1253,8 @@ fun HexView(
                                         true
                                     }
                                     // Ctrl+I / Cmd+I toggles Data Inspector
-                                    (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) && keyEvent.key == Key.I -> {
+                                    // Not with Shift: Ctrl/Cmd+Shift+I is the app's Ask AI shortcut.
+                                    (keyEvent.isCtrlPressed || keyEvent.isMetaPressed) && !keyEvent.isShiftPressed && keyEvent.key == Key.I -> {
                                         showInspector = !showInspector
                                         true
                                     }

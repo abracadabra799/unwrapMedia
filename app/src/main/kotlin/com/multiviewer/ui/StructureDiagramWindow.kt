@@ -78,6 +78,15 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
     var showTable by remember(tab) { mutableStateOf(false) }
     var message by remember(tab) { mutableStateOf("") }
     var saving by remember(tab) { mutableStateOf(false) }
+    // The diagram describes the tree parsed at open time: once the file differs, exports would be stale.
+    var fileChanged by remember(tab) { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(tab, tab.parsedIdentity) {
+        val parsed = tab.parsedIdentity ?: return@LaunchedEffect
+        while (true) {
+            fileChanged = withContext(Dispatchers.IO) { !tab.file.isFile || ContentFileIdentity.capture(tab.file) != parsed }
+            kotlinx.coroutines.delay(2_000)
+        }
+    }
     val root = tab.root
     // Only image tabs carry a motion-photo video range; other types' embeddedVideo is not a still+video pair.
     val video = if (tab.type == MediaType.IMAGE) tab.embeddedVideo else null
@@ -169,22 +178,22 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
                 else OutlinedButton(onClick = { showTable = true }) { Text(label("표", "Table")) }
                 val r = rendered
                 val d = diagram
-                OutlinedButton(enabled = r != null, onClick = {
+                OutlinedButton(enabled = r != null && !fileChanged, onClick = {
                     val image = r?.image ?: return@OutlinedButton
                     message = if (ClipboardUtil.copyImage(image)) label("이미지를 클립보드에 복사했습니다", "Image copied to the clipboard")
                     else label("클립보드에 복사하지 못했습니다 (다른 앱이 사용 중일 수 있음)", "Could not copy to the clipboard (another app may be using it)")
                 }) { Text(label("이미지 복사", "Copy image")) }
-                OutlinedButton(enabled = d != null, onClick = {
+                OutlinedButton(enabled = d != null && !fileChanged, onClick = {
                     val table = d?.let(::structureDiagramMarkdownTable) ?: return@OutlinedButton
                     message = if (ClipboardUtil.copyToClipboard(table)) label("Markdown 표를 복사했습니다", "Markdown table copied")
                     else label("클립보드에 복사하지 못했습니다 (다른 앱이 사용 중일 수 있음)", "Could not copy to the clipboard (another app may be using it)")
                 }) { Text(label("표 복사 (Markdown)", "Copy table (Markdown)")) }
-                OutlinedButton(enabled = r != null && !saving, onClick = {
+                OutlinedButton(enabled = r != null && !saving && !fileChanged, onClick = {
                     val svg = r?.let { renderStructureSvg(it.layout) } ?: return@OutlinedButton
                     // CREATE_NEW: never overwrite an existing file.
                     save("svg") { Files.writeString(it.toPath(), svg, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE) }
                 }) { Text(label("SVG 저장", "Save SVG")) }
-                OutlinedButton(enabled = r != null && !saving, onClick = {
+                OutlinedButton(enabled = r != null && !saving && !fileChanged, onClick = {
                     val image = r?.image ?: return@OutlinedButton
                     save("png") { file ->
                         Files.newOutputStream(file.toPath(), StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE).use { out ->
@@ -200,6 +209,11 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
                 ),
                 color = AppColors.TextSecondary, fontSize = 12.sp,
             )
+            if (fileChanged) {
+                Text(label("파일이 열린 뒤 변경되었습니다. 이 구조도는 이전 내용이므로 복사·저장을 막았습니다 — 파일을 다시 열어 주세요.",
+                    "The file changed after it was opened. This diagram is out of date, so copy/save are disabled — reopen the file."),
+                    color = AppColors.NeonOrange, fontSize = 12.sp)
+            }
             val d = diagram
             if (d != null && d.warnings.isNotEmpty()) {
                 Text(label("경고 ${d.warnings.size}개 — 아래 표/이미지 하단 참고", "${d.warnings.size} warning(s) — see the table or the image footer"),
@@ -272,7 +286,7 @@ private fun DiagramTable(diagram: StructureDiagram, selectedRegionId: String?, k
         }
         items(rows, key = { it.id }) { r ->
             val color = when (r.status) {
-                RegionStatus.VERIFIED -> AppColors.TextPrimary
+                RegionStatus.PARSED -> AppColors.TextPrimary
                 RegionStatus.WARNING -> AppColors.NeonOrange
                 RegionStatus.UNPARSED -> AppColors.TextMuted
             }

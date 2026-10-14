@@ -23,7 +23,7 @@ private fun roleFill(role: RegionRole): Int = when (role) {
 }
 
 private fun statusStroke(status: RegionStatus): Int = when (status) {
-    RegionStatus.VERIFIED -> 0x5F6368
+    RegionStatus.PARSED -> 0x5F6368
     RegionStatus.WARNING -> 0xD97706
     RegionStatus.UNPARSED -> 0x9AA0A6
 }
@@ -105,7 +105,7 @@ fun renderStructurePng(layout: DiagramLayout): BufferedImage {
             g.stroke = when (b.status) {
                 RegionStatus.UNPARSED -> dashed
                 RegionStatus.WARNING -> BasicStroke(2f)
-                RegionStatus.VERIFIED -> BasicStroke(1f)
+                RegionStatus.PARSED -> BasicStroke(1f)
             }
             g.drawRoundRect(b.x, b.y, b.w, b.h, 6, 6)
             g.font = bold12

@@ -106,8 +106,8 @@ fun cropForAi(source: BufferedImage, region: ImageRegion): BufferedImage {
 
 /** Prompt section for [visual]; says plainly whether a crop is attached and why not. */
 fun renderVisualContext(visual: AiVisualContext, attachedImage: ImageRegion?, imageOmittedReason: String?): String = buildString {
-    appendLine("### [화면에서 보고 있는 위치 (원본 픽셀 좌표)]")
-    appendLine("- 대상: ${visual.source}, 원본 ${visual.imageWidth}x${visual.imageHeight}")
+    appendLine("### [화면에서 보고 있는 위치 (표시 이미지 픽셀 좌표)]")
+    appendLine("- 대상: ${visual.source}, 표시 크기 ${visual.imageWidth}x${visual.imageHeight} (EXIF 방향 회전이 적용된 화면 기준이며, 저장된 픽셀 배열과 x/y가 다를 수 있음)")
     with(visual.visible) { appendLine("- 화면에 보이는 영역: x=$x, y=$y, w=$width, h=$height") }
     visual.pointer?.let { appendLine("- 사용자가 가리킨 점: (${it.x}, ${it.y})") }
     visual.marked?.let { appendLine("- 사용자가 표시한 영역: x=${it.x}, y=${it.y}, w=${it.width}, h=${it.height}") }

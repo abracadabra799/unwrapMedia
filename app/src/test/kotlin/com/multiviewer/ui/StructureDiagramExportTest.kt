@@ -44,7 +44,7 @@ class StructureDiagramExportTest {
 
         val table = structureDiagramMarkdownTable(diagram)
         assertTrue(table.contains("| Component | Offset | Offset (hex) | Length (B) | Role | Status |"), table)
-        assertTrue(table.contains("| APP1<&\"'> | 2 | 0x2 | 98 | METADATA | VERIFIED |"), table)
+        assertTrue(table.contains("| APP1<&\"'> | 2 | 0x2 | 98 | METADATA | PARSED |"), table)
         assertTrue(table.contains("| ↳ not broken down | 960 | 0x3C0 | 40 | UNPARSED | UNPARSED |"), table)
         assertTrue(table.contains("SEF_EMBEDDED_VIDEO"), table)
         assertTrue(table.contains("124"), table)

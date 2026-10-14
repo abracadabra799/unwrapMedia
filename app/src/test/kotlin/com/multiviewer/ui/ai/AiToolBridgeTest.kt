@@ -113,7 +113,7 @@ class AiToolBridgeTest {
     fun `hex dumps mask sensitive field and node bytes`() {
         val gps = BoxNode("GPS IFD", 200, 2, 40, fields = listOf(BoxField("GPSLatitude", "37.5", 210, 8)))
         val text = BoxNode("tEXt", 300, 8, 30, fields = listOf(BoxField("keyword", "Author", 308, 6), BoxField("text", "Kim", 315, 3)))
-        val tree = BoxNode("root", 0, 0, 10_000, listOf(BoxNode("ftyp", 0, 8, 100), gps, text))
+        val tree = BoxNode("root", 0, 0, 10_000, listOf(BoxNode("ftyp", 0, 8, 100), BoxNode("free", 100, 8, 100), gps, text))
         val context = AiToolContext(file, tree, ContentFileIdentity.capture(file), null, null, emptyMap())
         val dump = executeToolRequest(AiToolRequest.Hex(192, 64), context).text
         // bytes 192..199 are visible, 200..239 (GPS IFD node) are masked
@@ -140,5 +140,29 @@ class AiToolBridgeTest {
             supportedOffsets = setOf(0x64L),
         )
         assertEquals(listOf(AiEvidenceRef.ByteOffset(0x64), AiEvidenceRef.Frame(1), AiEvidenceRef.Frame(0)), refs)
+    }
+
+    @Test
+    fun `hex refuses without a tree and withholds bytes no parsed node accounts for`() {
+        val noTree = AiToolContext(file, null, ContentFileIdentity.capture(file), null, null, emptyMap())
+        assertFalse(executeToolRequest(AiToolRequest.Hex(0, 16), noTree).ok)
+
+        // Children cover 0..100 and 100..500; 500..10000 is an unparsed tail.
+        val dump = executeToolRequest(AiToolRequest.Hex(496, 8), ctx()).text
+        val bytes = dump.lines().filter { it.startsWith("0x") }.flatMap { it.substringAfter(": ").split(" ") }
+        assertEquals(listOf("F5", "F6", "F7", "F8", "--", "--", "--", "--"), bytes) // 496 % 251 = 245 = 0xF5
+    }
+
+    @Test
+    fun `sef payloads and free-text media atoms are withheld`() {
+        val sef = BoxNode("sefd", 600, 0, 100, listOf(BoxNode("Image_UTC_Data", 600, 24, 40)))
+        val ilst = BoxNode("ilst", 700, 8, 60, listOf(BoxNode("©ART", 708, 8, 30)))
+        val tree = BoxNode("root", 0, 0, 10_000, listOf(BoxNode("a", 0, 8, 600), sef, ilst, BoxNode("b", 760, 8, 9_240)))
+        val context = AiToolContext(file, tree, ContentFileIdentity.capture(file), null, null, emptyMap())
+        for ((offset, len) in listOf(610L to 8L, 712L to 8L)) {
+            val bytes = executeToolRequest(AiToolRequest.Hex(offset, len), context).text.lines()
+                .filter { it.startsWith("0x") }.flatMap { it.substringAfter(": ").split(" ") }
+            assertTrue(bytes.all { it == "--" }, "$offset: $bytes")
+        }
     }
 }

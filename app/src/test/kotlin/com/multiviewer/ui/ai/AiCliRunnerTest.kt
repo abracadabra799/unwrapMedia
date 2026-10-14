@@ -168,4 +168,14 @@ class AiCliRunnerTest {
         val fenceEnd = prompt.indexOf("\n" + UNTRUSTED_DATA_END + "\n")
         assertTrue(fenceStart in 0 until prompt.indexOf("CTX") && prompt.indexOf("escaped?") < fenceEnd, prompt)
     }
+
+    @Test
+    fun `windows shim arguments with cmd metacharacters are quoted and percent signs refused`() {
+        val shim = File("C:\\npm\\codex.cmd")
+        val line = launchCommand(shim, listOf("exec", "-i", "C:\\Temp\\a&b\\view-1.png", "-"), windows = true, comSpec = "cmd.exe").last()
+        assertTrue(line.contains("\"C:\\Temp\\a&b\\view-1.png\""), line)
+        kotlin.test.assertFailsWith<IllegalArgumentException> {
+            launchCommand(shim, listOf("-i", "C:\\Temp\\%USERNAME%\\v.png"), windows = true, comSpec = "cmd.exe")
+        }
+    }
 }

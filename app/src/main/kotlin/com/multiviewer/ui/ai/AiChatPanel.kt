@@ -228,7 +228,7 @@ fun AiChatPanel(
                 listOf(
                     label("로그인·텍스트 ", "Login/text ") + stateLabel(caps.text, ko),
                     label("이미지 ", "Image ") + stateLabel(caps.image, ko),
-                    label("웹 검색 ", "Web search ") + stateLabel(caps.webSearch, ko),
+                    label("웹 검색 ", "Web search ") + if (appState.aiWebSearch && adapterFor(caps.provider).supportsWebSearch) label("켜짐 (실제 검색 여부는 답의 출처로 판단)", "on (judge actual searching by the cited sources)") else label("꺼짐", "off"),
                     label("세션 이어가기 미사용 (최근 대화를 다시 보냄)", "No session resume (recent turns are resent)"),
                 ).joinToString(" · "),
                 color = AppColors.TextMuted, fontSize = 11.sp,
@@ -345,7 +345,7 @@ fun AiChatPanel(
 
         if (running) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
-            Text(label("응답 기다리는 중… (최대 3분)", "Waiting for the answer… (up to 3 min)"), color = AppColors.TextMuted, fontSize = 11.sp)
+            Text(label("응답 기다리는 중… (요청 1회 최대 3분, 앱 자료 요청이 이어지면 최대 약 12분)", "Waiting for the answer… (3 min per call; up to ~12 min with data requests)"), color = AppColors.TextMuted, fontSize = 11.sp)
         }
 
         preview?.let { text ->
@@ -378,7 +378,7 @@ fun AiChatPanel(
                 Button(onClick = { controller.stop(tab) }) { Text(label("중지", "Stop"), fontSize = 12.sp) }
             } else {
                 Button(
-                    enabled = input.isNotBlank() && provider != null && caps?.executablePath != null && !fileChanged,
+                    enabled = input.isNotBlank() && provider != null && caps?.executablePath != null && !fileChanged && !tab.isLoading && tab.root != null,
                     onClick = { send(input) },
                 ) { Text(label("보내기", "Send"), fontSize = 12.sp) }
                 val lastQuestion = conversation.messages.lastOrNull { it.role == AiRole.USER }?.text

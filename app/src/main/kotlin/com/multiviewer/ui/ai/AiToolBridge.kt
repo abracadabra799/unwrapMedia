@@ -113,6 +113,8 @@ fun executeToolRequest(request: AiToolRequest, ctx: AiToolContext): AiToolResult
     }
     return when (request) {
         is AiToolRequest.Hex -> {
+            // Without a tree nothing says which bytes are safe to show (e.g. while the file is still loading).
+            val root = ctx.root ?: return fail("The structure tree is not loaded yet; raw bytes are not available.")
             val size = identity!!.length
             if (request.offset < 0 || request.offset >= size || request.length <= 0) {
                 return fail("Range ${request.offset}+${request.length} is outside the file (size $size B).")
@@ -120,7 +122,17 @@ fun executeToolRequest(request: AiToolRequest, ctx: AiToolContext): AiToolResult
             val len = minOf(request.length, MAX_TOOL_HEX_BYTES.toLong(), size - request.offset).toInt()
             val bytes = ByteReader.open(ctx.file).use { it.readBytes(request.offset, len) }
             // Raw bytes must not get around field redaction: location/people/free-text bytes print as "--".
-            val masked = ctx.root?.let { sensitiveRanges(it) }.orEmpty()
+            // Bytes no top-level node accounts for (unparsed tails, gaps) are withheld too: nothing vouches for them.
+            val covered = root.children.filter { it.size > 0 }.map { it.offset until it.offset + it.size }
+            val uncovered = buildList {
+                var cursor = request.offset
+                for (r in covered.sortedBy { it.first }) {
+                    if (r.first > cursor) add(cursor until minOf(r.first, request.offset + len))
+                    cursor = maxOf(cursor, r.last + 1)
+                }
+                if (cursor < request.offset + len) add(cursor until request.offset + len)
+            }
+            val masked = (sensitiveRanges(root) + uncovered)
                 .filter { it.last >= request.offset && it.first < request.offset + len }
             var anyMasked = false
             val text = buildString {
@@ -132,7 +144,7 @@ fun executeToolRequest(request: AiToolRequest, ctx: AiToolContext): AiToolResult
                         if (masked.any { at in it }) { anyMasked = true; "--" } else String.format(Locale.US, "%02X", b.toInt() and 0xFF)
                     }.joinToString(" "))
                 }
-                if (anyMasked) appendLine("(-- = withheld: location, people or free-text bytes)")
+                if (anyMasked) appendLine("(-- = withheld: location, people, free-text or unparsed bytes)")
             }
             AiToolResult(line, true, bounded(text))
         }

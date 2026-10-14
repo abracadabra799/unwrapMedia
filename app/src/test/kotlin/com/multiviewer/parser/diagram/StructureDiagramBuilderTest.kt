@@ -62,7 +62,7 @@ class StructureDiagramBuilderTest {
         val d = buildStructureDiagram(root, 100, null)
         val top = d.regions.filter { it.depth == 0 }
         assertEquals(listOf(0L to 10L, 10L to 10L, 20L to 10L, 30L to 70L), top.map { it.offset to it.length })
-        assertEquals(listOf(RegionStatus.VERIFIED, RegionStatus.UNPARSED, RegionStatus.VERIFIED, RegionStatus.UNPARSED), top.map { it.status })
+        assertEquals(listOf(RegionStatus.PARSED, RegionStatus.UNPARSED, RegionStatus.PARSED, RegionStatus.UNPARSED), top.map { it.status })
     }
 
     @Test
@@ -152,7 +152,7 @@ class StructureDiagramBuilderTest {
             listOf(Triple("ftyp", 0L, 32L), Triple("moov", 32L, 2016L), Triple("free", 2048L, 8L), Triple("mdat", 2056L, 738_228L)),
             top.map { Triple(it.label, it.offset, it.length) },
         )
-        assertTrue(top.all { it.status == RegionStatus.VERIFIED }, top.toString())
+        assertTrue(top.all { it.status == RegionStatus.PARSED }, top.toString())
         assertTrue(d.links.isEmpty() && d.overlays.isEmpty())
         assertTrue(d.regions.any { it.depth == 1 && it.parentId == top[1].id && it.label == "mvhd" })
     }

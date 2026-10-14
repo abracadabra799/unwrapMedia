@@ -102,12 +102,17 @@ fun resolveExecutable(command: String, dirs: List<File>, windows: Boolean = isWi
 /**
  * The process command for [executable]. Windows .cmd/.bat shims (npm installs) need cmd.exe; the whole
  * command line is passed as one pre-quoted argument for `cmd /s /c`, which strips only the outer quotes.
- * Safe because every argument is an adapter constant (no user text, no cmd metacharacters).
+ * Arguments are adapter constants plus app-owned temp paths (image crops) — never user text; any argument
+ * with metacharacters is quoted, and one containing % or " is refused.
  */
 fun launchCommand(executable: File, args: List<String>, windows: Boolean = isWindowsOs, comSpec: String = System.getenv("ComSpec") ?: "cmd.exe"): List<String> {
     val shim = windows && executable.name.lowercase().let { it.endsWith(".cmd") || it.endsWith(".bat") }
     if (!shim) return listOf(executable.path) + args
-    fun quote(arg: String) = if (arg.isEmpty() || arg.any { it == ' ' || it == '\t' }) "\"$arg\"" else arg
+    // Inside quotes cmd.exe treats & | < > ( ) ^ literally but still expands %VAR% and ends at ", so those are refused.
+    (args + executable.path).firstOrNull { a -> a.any { it == '%' || it == '"' } }?.let {
+        throw IllegalArgumentException("Cannot pass an argument containing % or \" through cmd.exe: $it")
+    }
+    fun quote(arg: String) = if (arg.isEmpty() || arg.any { it in " \t&|<>()^!" }) "\"$arg\"" else arg
     val line = (listOf("\"${executable.path}\"") + args.map(::quote)).joinToString(" ")
     return listOf(comSpec, "/d", "/s", "/c", "\"$line\"")
 }

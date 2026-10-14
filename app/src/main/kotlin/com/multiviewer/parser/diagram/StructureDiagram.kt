@@ -43,5 +43,5 @@ enum class LinkMeaning { SEF_EMBEDDED_VIDEO, XMP_EMBEDDED_VIDEO, CONTAINER_EMBED
 
 enum class RegionRole { MARKER, METADATA, CODEC_SETUP, MEDIA_DATA, CONTAINER, TRAILER, SUMMARY, UNPARSED, OTHER }
 
-/** VERIFIED = a parsed node with a consistent range; UNPARSED = bytes no node accounts for. */
-enum class RegionStatus { VERIFIED, WARNING, UNPARSED }
+/** PARSED = a parsed node with a consistent range (its content is not validated); UNPARSED = bytes no node accounts for. */
+enum class RegionStatus { PARSED, WARNING, UNPARSED }

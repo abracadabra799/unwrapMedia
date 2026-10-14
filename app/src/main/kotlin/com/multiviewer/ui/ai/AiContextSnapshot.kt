@@ -37,7 +37,7 @@ private val UNNAMED_TAG = Regex("(?i)^tag 0x[0-9a-f]{4}$")
 private val NUMERIC_VALUE = Regex("^[0-9 .,:/+\\-x()]*$")
 // Whole nodes whose content is location, people or free text (PNG text chunks, XMP, IPTC, GPS IFD, maker notes,
 // QuickTime location boxes).
-private val SENSITIVE_NODE = Regex("(?i)gps|xmp|iptc|makernote|maker note|^app13|^[tiz]ext$|^loci$|^©xyz$|location")
+private val SENSITIVE_NODE = Regex("(?i)gps|xmp|iptc|makernote|maker note|^app13|^[tiz]ext$|^loci$|^©|location|^ilst$|^udta$")
 // ISO 6709 coordinates (QuickTime/MP4 location values), e.g. "+37.5665+126.9780+030.000/".
 private val ISO6709 = Regex("^[+-]\\d{1,3}(\\.\\d+)?[+-]\\d{1,3}(\\.\\d+)?")
 // Technical fields whose names merely contain a sensitive word.
@@ -61,6 +61,12 @@ internal fun sensitiveRanges(root: BoxNode, limit: Int = 100_000): List<LongRang
         if (visited++ > limit) return
         if (node !== root && SENSITIVE_NODE.containsMatchIn(node.type) && node.size > 0) {
             out += node.offset until node.offset + node.size
+        }
+        // Samsung SEF entries hold timestamps, settings and app data; only the embedded video payloads
+        // (entries that hold an MP4, i.e. start with ftyp) stay readable.
+        if (node.type == "sefd") {
+            node.children.filter { it.children.firstOrNull()?.type != "ftyp" && it.size > 0 }
+                .forEach { out += it.offset until it.offset + it.size }
         }
         node.fields.forEach { f -> if (f.length > 0 && isSensitiveField(f, node)) out += f.offset until f.offset + f.length }
         node.children.forEach(::walk)
