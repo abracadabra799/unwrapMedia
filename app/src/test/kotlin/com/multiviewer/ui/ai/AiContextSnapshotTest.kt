@@ -27,7 +27,9 @@ class AiContextSnapshotTest {
     @AfterTest
     fun cleanup() { dir.deleteRecursively() }
 
-    private fun field(name: String, value: String) = BoxField(name, value, 10, 4)
+    // Each field gets its own bytes, as real decoded fields do (overlapping a redacted field redacts too).
+    private var nextFieldOffset = 10L
+    private fun field(name: String, value: String) = BoxField(name, value, nextFieldOffset, 4).also { nextFieldOffset += 4 }
 
     private val app1 = BoxNode("APP1", 2, 4, 200, fields = listOf(
         field("Make", "samsung"),

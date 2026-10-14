@@ -52,7 +52,7 @@ class AiCliRunnerTest {
 
         val shim = File("C:\\Users\\김 동\\AppData\\Roaming\\npm\\claude.cmd")
         assertEquals(
-            listOf("cmd.exe", "/d", "/s", "/c", "\"\"C:\\Users\\김 동\\AppData\\Roaming\\npm\\claude.cmd\" -p --tools \"\"\""),
+            listOf("cmd.exe", "/d", "/v:off", "/s", "/c", "\"\"C:\\Users\\김 동\\AppData\\Roaming\\npm\\claude.cmd\" -p --tools \"\"\""),
             launchCommand(shim, listOf("-p", "--tools", ""), windows = true, comSpec = "cmd.exe"),
         )
         val native = File("C:\\Tools\\claude.exe")

@@ -114,7 +114,8 @@ fun launchCommand(executable: File, args: List<String>, windows: Boolean = isWin
     }
     fun quote(arg: String) = if (arg.isEmpty() || arg.any { it in " \t&|<>()^!" }) "\"$arg\"" else arg
     val line = (listOf("\"${executable.path}\"") + args.map(::quote)).joinToString(" ")
-    return listOf(comSpec, "/d", "/s", "/c", "\"$line\"")
+    // /v:off: no delayed !VAR! expansion even if the registry turns it on (/d only skips AutoRun).
+    return listOf(comSpec, "/d", "/v:off", "/s", "/c", "\"$line\"")
 }
 
 const val UNTRUSTED_DATA_BEGIN = "<<<UNWRAPMEDIA_FILE_DATA_BEGIN>>>"

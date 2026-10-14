@@ -28,6 +28,7 @@ class AiChatControllerTest {
         val file = File(dir, name).apply { writeBytes(ByteArray(100)) }
         return TabState(file).apply {
             type = MediaType.IMAGE
+            isLoading = false
             root = BoxNode("root", 0, 0, 100, listOf(BoxNode("first", 0, 8, 50), BoxNode("second", 50, 8, 50)))
             parsedIdentity = ContentFileIdentity.capture(file)
         }
@@ -197,5 +198,14 @@ class AiChatControllerTest {
         val claude = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, _, _, _ -> error("must not run") })
         claude.verifyImageInput(AiProviderId.CLAUDE, File("/bin/true")).join()
         assertEquals(CapabilityState.UNSUPPORTED, claude.lastCapabilityUpdate?.image)
+    }
+
+    @Test
+    fun `nothing is sent while the tab is still loading`() = runBlocking {
+        val a = tab("a.jpg").apply { isLoading = true }
+        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, _, _, _ -> error("must not run") })
+        controller.send(a, "q", AiProviderId.CLAUDE, File("/bin/true"))
+        yield()
+        assertTrue(a.aiConversation.messages.isEmpty())
     }
 }

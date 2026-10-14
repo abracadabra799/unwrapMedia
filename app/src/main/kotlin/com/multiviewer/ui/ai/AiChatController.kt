@@ -19,7 +19,7 @@ data class AiCapabilityUpdate(
     /** Result of an explicit image-input check. */
     val image: CapabilityState? = null,
     val detail: String? = null,
-    /** VERIFIED once a web-search-enabled answer actually cited a URL. */
+    /** Unused for now: a cited URL cannot prove that a search happened, so web search is never marked verified. */
     val webSearch: CapabilityState? = null,
 )
 
@@ -89,7 +89,8 @@ class AiChatController(
 
     fun send(tab: TabState, question: String, provider: AiProviderId, executable: File?, webSearch: Boolean = false) {
         val text = question.trim()
-        if (text.isEmpty() || isRunning(tab)) return
+        // Nothing is sent until the tree is loaded: without it no context or byte request can be checked.
+        if (text.isEmpty() || isRunning(tab) || tab.isLoading || tab.root == null) return
         // Send-time selection: read now, before the user can move on.
         val file = tab.file
         val root = tab.root

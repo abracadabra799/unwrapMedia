@@ -154,7 +154,8 @@ fun executeToolRequest(request: AiToolRequest, ctx: AiToolContext): AiToolResult
             val path = pathTo(root, node)?.joinToString(" > ") { it.type } ?: node.type
             val text = buildString {
                 appendLine("$path @ ${node.offset} (${hex(node.offset)}) +${node.size} B, header ${node.headerSize} B")
-                node.fields.take(MAX_CONTEXT_FIELDS).forEach { appendLine("  ${it.name} = ${safeValue(it, ctx.file, node)}") }
+                val withheld = sensitiveRanges(root)
+                node.fields.take(MAX_CONTEXT_FIELDS).forEach { appendLine("  ${it.name} = ${safeValue(it, ctx.file, node, withheld)}") }
                 if (node.fields.size > MAX_CONTEXT_FIELDS) appendLine("  … ${node.fields.size - MAX_CONTEXT_FIELDS} more fields")
                 node.warnings.take(10).forEach { appendLine("  parser warning: ${com.multiviewer.cli.scrubPaths(it, ctx.file)}") }
             }

@@ -58,7 +58,8 @@ internal fun sensitiveRanges(root: BoxNode, limit: Int = 100_000): List<LongRang
     val out = mutableListOf<LongRange>()
     var visited = 0
     fun walk(node: BoxNode) {
-        if (visited++ > limit) return
+        // Past the walk limit nothing is known about the rest: withhold it rather than allow it.
+        if (visited++ > limit) { out += node.offset until Long.MAX_VALUE; return }
         if (node !== root && SENSITIVE_NODE.containsMatchIn(node.type) && node.size > 0) {
             out += node.offset until node.offset + node.size
         }
@@ -127,9 +128,16 @@ internal fun pathTo(root: BoxNode, target: BoxNode): List<BoxNode>? {
     return search(root, 0)
 }
 
-internal fun safeValue(field: BoxField, file: File, node: BoxNode? = null): String {
+/**
+ * [withheld] = [sensitiveRanges] of the tree: a field whose bytes (or, for a zero-length field, whose node)
+ * lie in a withheld range is redacted too, so text answers cannot reveal what hex dumps mask (SEF entries,
+ * values nested under udta/ilst/© atoms).
+ */
+internal fun safeValue(field: BoxField, file: File, node: BoxNode? = null, withheld: List<LongRange> = emptyList()): String {
     // A raw XMP packet can hold GPS, creator and free text anywhere: say it exists, never send it.
     if (field.name.equals("xmp", ignoreCase = true)) return "[XMP packet, ${field.value.length} chars, not sent]"
+    val at = if (field.length > 0) field.offset until field.offset + field.length else node?.let { it.offset until it.offset + maxOf(it.size, 1) }
+    if (at != null && withheld.any { it.first <= at.last && at.first <= it.last }) return REDACTED
     // Unnamed (often maker-note) tags with text values may be serials or names; numbers/dates are kept.
     if (isSensitiveField(field, node)) return REDACTED
     val scrubbed = scrubPaths(field.value, file).replace('\n', ' ').replace('\r', ' ')
@@ -164,7 +172,9 @@ fun captureAiContext(
         AiNodeContext(
             path = path.map { it.type },
             type = selected.type, offset = selected.offset, size = selected.size, headerSize = selected.headerSize,
-            fields = selected.fields.take(MAX_CONTEXT_FIELDS).map { it.name to safeValue(it, file, selected) },
+            fields = sensitiveRanges(usableRoot).let { withheld ->
+                selected.fields.take(MAX_CONTEXT_FIELDS).map { it.name to safeValue(it, file, selected, withheld) }
+            },
             omittedFields = (selected.fields.size - MAX_CONTEXT_FIELDS).coerceAtLeast(0),
             warnings = selected.warnings.take(10).map { scrubPaths(it, file) },
             selectedField = selectedField?.takeIf { f -> selected.fields.any { it === f } }?.name,

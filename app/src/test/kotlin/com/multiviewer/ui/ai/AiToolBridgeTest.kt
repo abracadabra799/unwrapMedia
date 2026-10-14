@@ -165,4 +165,20 @@ class AiToolBridgeTest {
             assertTrue(bytes.all { it == "--" }, "$offset: $bytes")
         }
     }
+
+    @Test
+    fun `node answers inside withheld SEF and udta ranges do not reveal field text`() {
+        val utc = BoxNode("Image_UTC_Data", 600, 24, 40, fields = listOf(BoxField("value", "1739512345678", 624, 13), BoxField("timestamp_utc", "2026-02-14 05:52", 624, 13)))
+        val sef = BoxNode("sefd", 600, 0, 100, listOf(utc))
+        val name = BoxNode("data", 712, 8, 20, fields = listOf(BoxField("value", "Kim's trip", 720, 10)))
+        val udta = BoxNode("udta", 700, 8, 60, listOf(BoxNode("©nam", 708, 8, 30, listOf(name))))
+        val tree = BoxNode("root", 0, 0, 10_000, listOf(BoxNode("a", 0, 8, 600), sef, udta, BoxNode("b", 760, 8, 9_240)))
+        val context = AiToolContext(file, tree, ContentFileIdentity.capture(file), null, null, emptyMap())
+        val sefText = executeToolRequest(AiToolRequest.Node(630), context).text
+        assertFalse(sefText.contains("1739512345678") || sefText.contains("2026-02-14"), sefText)
+        val udtaText = executeToolRequest(AiToolRequest.Node(722), context).text
+        assertFalse(udtaText.contains("Kim's trip"), udtaText)
+        val snapshot = captureAiContext(file, tree, com.multiviewer.ui.MediaType.VIDEO, name, null, null, null, ContentFileIdentity.capture(file), null)
+        assertFalse(renderAiContext(snapshot).contains("Kim's trip"))
+    }
 }
