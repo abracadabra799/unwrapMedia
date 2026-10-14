@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.IconButton
@@ -229,7 +230,7 @@ fun AiChatPanel(
                     }
                 }
 
-                // 2행: 도구 선택 드롭다운 + 상태 뱃지 + 웹 검색
+                // 2행: 도구 선택 드롭다운 + 상태 뱃지
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box {
                         OutlinedButton(
@@ -286,61 +287,98 @@ fun AiChatPanel(
                             )
                         }
                     }
-
-                    // 웹 검색 옵션 (지원되는 CLI일 때만 노출)
-                    if (caps?.executablePath != null && adapterFor(caps.provider).supportsWebSearch) {
-                        Spacer(Modifier.weight(1f))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(
-                                checked = appState.aiWebSearch,
-                                enabled = !running,
-                                onCheckedChange = { appState.aiWebSearch = it },
-                                modifier = Modifier.size(20.dp),
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text(label("웹 검색", "Web"), color = AppColors.TextSecondary, fontSize = 11.sp)
-                        }
-                    }
                 }
 
-                // 3행: 이미지 화면 마킹 (이미지가 있을 때만 노출)
-                if (tab.aiImageSource != null) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Button(
-                            onClick = { tab.aiMarkMode = !tab.aiMarkMode },
-                            shape = RoundedCornerShape(6.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (tab.aiMarkMode) AppColors.NeonPurple else AppColors.Background,
-                                contentColor = if (tab.aiMarkMode) Color.White else AppColors.TextPrimary,
-                            ),
-                            border = BorderStroke(1.dp, if (tab.aiMarkMode) AppColors.NeonPurple else AppColors.Border),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.height(24.dp),
-                        ) {
-                            Text(if (tab.aiMarkMode) label("✓ 지정 모드 켬", "✓ Marking On") else label("🎯 영역 지정", "🎯 Mark Region"), fontSize = 11.sp)
-                        }
-
-                        val hasMark = tab.aiPointer != null || tab.aiMarked != null
-                        if (hasMark) {
-                            val markText = tab.aiMarked?.let { "${it.width}×${it.height}" } ?: tab.aiPointer?.let { "${it.x},${it.y}" }.orEmpty()
+                // 3행: 부가 옵션 (웹 검색 토글 & 이미지 영역 지정)
+                val supportsWebSearch = caps?.executablePath != null && adapterFor(caps.provider).supportsWebSearch
+                val hasImageSource = tab.aiImageSource != null
+                if (supportsWebSearch || hasImageSource) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        // 웹 검색 옵션 (충분한 독립 공간 확보 및 클릭 가능한 칩 스타일)
+                        if (supportsWebSearch) {
                             Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = AppColors.NeonPurple.copy(alpha = 0.15f),
-                                border = BorderStroke(1.dp, AppColors.NeonPurple.copy(alpha = 0.3f)),
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (appState.aiWebSearch) AppColors.NeonPurple.copy(alpha = 0.12f) else AppColors.Background,
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (appState.aiWebSearch) AppColors.NeonPurple.copy(alpha = 0.5f) else AppColors.Border,
+                                ),
+                                modifier = Modifier.clickable(enabled = !running) {
+                                    appState.aiWebSearch = !appState.aiWebSearch
+                                },
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)) {
-                                    Text(markText, color = AppColors.NeonPurple, fontSize = 10.sp)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                ) {
+                                    Checkbox(
+                                        checked = appState.aiWebSearch,
+                                        enabled = !running,
+                                        onCheckedChange = { appState.aiWebSearch = it },
+                                        modifier = Modifier.size(18.dp),
+                                        colors = CheckboxDefaults.colors(
+                                            checkedColor = AppColors.NeonPurple,
+                                            checkmarkColor = Color.White,
+                                            uncheckedColor = AppColors.TextMuted,
+                                        ),
+                                    )
                                     Spacer(Modifier.width(4.dp))
                                     Text(
-                                        "✕",
-                                        color = AppColors.TextMuted,
-                                        fontSize = 10.sp,
-                                        modifier = Modifier.clickable { tab.aiPointer = null; tab.aiMarked = null },
+                                        label("🌐 웹 검색", "🌐 Web Search"),
+                                        color = if (appState.aiWebSearch) AppColors.NeonPurple else AppColors.TextSecondary,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (appState.aiWebSearch) FontWeight.Medium else FontWeight.Normal,
+                                        softWrap = false,
                                     )
                                 }
                             }
-                        } else if (tab.aiMarkMode) {
-                            Text(label("이미지 위를 드래그하세요", "Drag on image"), color = AppColors.TextMuted, fontSize = 10.sp)
+                        }
+
+                        // 이미지 화면 마킹 (이미지가 있을 때만 노출)
+                        if (hasImageSource) {
+                            Button(
+                                onClick = { tab.aiMarkMode = !tab.aiMarkMode },
+                                shape = RoundedCornerShape(6.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (tab.aiMarkMode) AppColors.NeonPurple else AppColors.Background,
+                                    contentColor = if (tab.aiMarkMode) Color.White else AppColors.TextPrimary,
+                                ),
+                                border = BorderStroke(1.dp, if (tab.aiMarkMode) AppColors.NeonPurple else AppColors.Border),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(26.dp),
+                            ) {
+                                Text(
+                                    if (tab.aiMarkMode) label("✓ 지정 모드 켬", "✓ Marking On") else label("🎯 영역 지정", "🎯 Mark Region"),
+                                    fontSize = 11.sp,
+                                    softWrap = false,
+                                )
+                            }
+
+                            val hasMark = tab.aiPointer != null || tab.aiMarked != null
+                            if (hasMark) {
+                                val markText = tab.aiMarked?.let { "${it.width}×${it.height}" } ?: tab.aiPointer?.let { "${it.x},${it.y}" }.orEmpty()
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = AppColors.NeonPurple.copy(alpha = 0.15f),
+                                    border = BorderStroke(1.dp, AppColors.NeonPurple.copy(alpha = 0.3f)),
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)) {
+                                        Text(markText, color = AppColors.NeonPurple, fontSize = 10.sp, softWrap = false)
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(
+                                            "✕",
+                                            color = AppColors.TextMuted,
+                                            fontSize = 10.sp,
+                                            modifier = Modifier.clickable { tab.aiPointer = null; tab.aiMarked = null },
+                                        )
+                                    }
+                                }
+                            } else if (tab.aiMarkMode) {
+                                Text(label("이미지 위를 드래그하세요", "Drag on image"), color = AppColors.TextMuted, fontSize = 10.sp, softWrap = false)
+                            }
                         }
                     }
                 }

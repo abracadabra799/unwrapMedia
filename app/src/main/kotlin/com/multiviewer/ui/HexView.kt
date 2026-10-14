@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -611,61 +612,93 @@ fun HexView(
         selectionEnd = null
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        // Toolbar with 010 Editor / UltraEdit Action Bar
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = AppColors.Surface,
-            tonalElevation = 2.dp,
-        ) {
-            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val hexWidth = maxWidth
+        // A full 16-byte hex dump line (Offset + 16 hex pairs + decoded text = 76 monospace chars)
+        // requires ~580dp at 12sp (or fontSizeSp * 48.5f).
+        val minWidthForDecodedText = (fontSizeSp * 48.5f).dp
+        val isDecodedTextClipped = hexWidth < minWidthForDecodedText
+
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Toolbar with 010 Editor / UltraEdit Action Bar
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = AppColors.Surface,
+                tonalElevation = 2.dp,
+            ) {
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
                     Row(
-                        modifier = Modifier.weight(1f, fill = false),
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        FilledTonalButton(
-                            onClick = {
-                                showFindBar = !showFindBar
-                                if (showFindBar) showGoToBar = false
-                            },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.height(26.dp),
-                            colors = if (showFindBar) ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.NeonBlue.copy(alpha = 0.3f)) else ButtonDefaults.filledTonalButtonColors(),
+                        Row(
+                            modifier = Modifier.weight(1f, fill = false),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            Text("🔍 Find (Ctrl+F)", fontSize = 10.sp, softWrap = false)
+                            FilledTonalButton(
+                                onClick = {
+                                    showFindBar = !showFindBar
+                                    if (showFindBar) showGoToBar = false
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(26.dp),
+                                colors = if (showFindBar) ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.NeonBlue.copy(alpha = 0.3f)) else ButtonDefaults.filledTonalButtonColors(),
+                            ) {
+                                Text("🔍 Find (Ctrl+F)", fontSize = 10.sp, softWrap = false)
+                            }
+
+                            FilledTonalButton(
+                                onClick = {
+                                    showGoToBar = !showGoToBar
+                                    if (showGoToBar) showFindBar = false
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(26.dp),
+                                colors = if (showGoToBar) ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.NeonBlue.copy(alpha = 0.3f)) else ButtonDefaults.filledTonalButtonColors(),
+                            ) {
+                                Text("📍 Go to (Ctrl+G)", fontSize = 10.sp, softWrap = false)
+                            }
+
+                            FilledTonalButton(
+                                onClick = { showInspector = !showInspector },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(26.dp),
+                                colors = if (showInspector) ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.NeonGreen.copy(alpha = 0.3f)) else ButtonDefaults.filledTonalButtonColors(),
+                            ) {
+                                Text("📊 Data Inspector (Ctrl+I)", fontSize = 10.sp, softWrap = false)
+                            }
                         }
 
-                        FilledTonalButton(
-                            onClick = {
-                                showGoToBar = !showGoToBar
-                                if (showGoToBar) showFindBar = false
-                            },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.height(26.dp),
-                            colors = if (showGoToBar) ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.NeonBlue.copy(alpha = 0.3f)) else ButtonDefaults.filledTonalButtonColors(),
-                        ) {
-                            Text("📍 Go to (Ctrl+G)", fontSize = 10.sp, softWrap = false)
+                        Spacer(modifier = Modifier.weight(1f))
+
+                        if (isDecodedTextClipped) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = AppColors.NeonYellow.copy(alpha = 0.12f),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.NeonYellow.copy(alpha = 0.5f)),
+                                modifier = Modifier.padding(end = 6.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    Text("◀", color = AppColors.NeonYellow, fontSize = 8.sp)
+                                    Text(
+                                        "패널을 넓히면 Decoded Text 표시",
+                                        color = AppColors.NeonYellow,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        softWrap = false,
+                                    )
+                                    Text("▶", color = AppColors.NeonYellow, fontSize = 8.sp)
+                                }
+                            }
                         }
 
-                        FilledTonalButton(
-                            onClick = { showInspector = !showInspector },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.height(26.dp),
-                            colors = if (showInspector) ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.NeonGreen.copy(alpha = 0.3f)) else ButtonDefaults.filledTonalButtonColors(),
-                        ) {
-                            Text("📊 Data Inspector (Ctrl+I)", fontSize = 10.sp, softWrap = false)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    // Font Zoom Controls
+                        // Font Zoom Controls
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Font:", fontSize = 10.sp, color = AppColors.TextSecondary, softWrap = false)
                         IconButton(
@@ -1156,19 +1189,62 @@ fun HexView(
             modifier = Modifier.fillMaxWidth(),
             color = Color(0xFF141414),
         ) {
-            Text(
-                text = "Offset    00 01 02 03 04 05 06 07  08 09 0A 0B 0C 0D 0E 0F  Decoded text",
-                style = AppTypography.bodyLarge.copy(
-                    fontSize = fontSizeSp.sp,
-                    lineHeight = (fontSizeSp * (16f / 12f)).sp,
-                    letterSpacing = 0.2.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    color = AppColors.TextSecondary,
-                ),
-                softWrap = false,
-                modifier = Modifier.padding(start = 6.dp, end = 16.dp, top = 2.dp, bottom = 2.dp),
-            )
+            Box(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "Offset    00 01 02 03 04 05 06 07  08 09 0A 0B 0C 0D 0E 0F  Decoded text",
+                    style = AppTypography.bodyLarge.copy(
+                        fontSize = fontSizeSp.sp,
+                        lineHeight = (fontSizeSp * (16f / 12f)).sp,
+                        letterSpacing = 0.2.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        color = AppColors.TextSecondary,
+                    ),
+                    softWrap = false,
+                    modifier = Modifier.padding(start = 6.dp, end = 16.dp, top = 2.dp, bottom = 2.dp),
+                )
+
+                if (isDecodedTextClipped) {
+                    @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+                    androidx.compose.foundation.TooltipArea(
+                        tooltip = {
+                            Text(
+                                "패널 경계선을 왼쪽으로 드래그하거나 창을 넓히면\n우측의 Decoded Text(ASCII/문자) 영역이 표시됩니다.",
+                                style = AppTypography.labelLarge,
+                                color = AppColors.TextPrimary,
+                                modifier = Modifier
+                                    .background(AppColors.Panel, RoundedCornerShape(4.dp))
+                                    .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                            )
+                        },
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(end = 16.dp),
+                    ) {
+                        Surface(
+                            color = Color(0xFF1F1B12),
+                            shape = RoundedCornerShape(3.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.NeonYellow.copy(alpha = 0.8f)),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                            ) {
+                                Text("▶", color = AppColors.NeonYellow, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    "Decoded text... ↔",
+                                    color = AppColors.NeonYellow,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    softWrap = false,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Hex/ASCII Grid
@@ -1378,6 +1454,20 @@ fun HexView(
                             )
                         }
                     }
+                    if (isDecodedTextClipped) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .padding(end = 12.dp)
+                                .width(24.dp)
+                                .fillMaxHeight()
+                                .background(
+                                    Brush.horizontalGradient(
+                                        colors = listOf(Color.Transparent, Color(0xFF141414).copy(alpha = 0.85f))
+                                    )
+                                )
+                        )
+                    }
                     VerticalScrollbar(
                         adapter = rememberScrollbarAdapter(listState),
                         modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
@@ -1446,6 +1536,7 @@ fun HexView(
             }
         }
     }
+}
 }
 
 @Composable

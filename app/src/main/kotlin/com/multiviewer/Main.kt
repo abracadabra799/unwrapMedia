@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
@@ -440,6 +441,30 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         }
         val aiController = remember(aiScope) { com.multiviewer.ui.ai.aiChatController(appState, aiScope) }
         SideEffect { appState.aiLanguage = language }
+
+        // Automatically maximize the window when AI panel opens to provide ample screen space for
+        // tree, properties, hex viewer, and chat side-by-side; restore to previous floating size on close.
+        var autoMaximizedByAi by remember { mutableStateOf(false) }
+        LaunchedEffect(appState.aiPanelOpen) {
+            if (appState.aiPanelOpen) {
+                if (windowState.placement == WindowPlacement.Floating) {
+                    autoMaximizedByAi = true
+                    windowState.placement = WindowPlacement.Maximized
+                }
+            } else {
+                if (autoMaximizedByAi) {
+                    autoMaximizedByAi = false
+                    if (windowState.placement == WindowPlacement.Maximized) {
+                        windowState.placement = WindowPlacement.Floating
+                    }
+                }
+            }
+        }
+        LaunchedEffect(appState.tabs.isEmpty()) {
+            if (appState.tabs.isEmpty() && appState.aiPanelOpen) {
+                appState.aiPanelOpen = false
+            }
+        }
         var hrdBufferTab by remember { mutableStateOf<TabState?>(null) }
         var spatialVideoTab by remember { mutableStateOf<TabState?>(null) }
         var timedMetadataTab by remember { mutableStateOf<TabState?>(null) }
@@ -1052,72 +1077,142 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 } else {
                     Column {
                         val safeSelectedTabIndex = appState.selectedTabIndex.coerceIn(0, (appState.tabs.size - 1).coerceAtLeast(0))
-                        ScrollableTabRow(
-                            selectedTabIndex = safeSelectedTabIndex,
-                            containerColor = AppColors.Panel,
-                            contentColor = AppColors.NeonBlue,
-                            edgePadding = 0.dp,
-                            indicator = { tabPositions ->
-                                if (safeSelectedTabIndex in tabPositions.indices) {
-                                    TabRowDefaults.SecondaryIndicator(
-                                        modifier = Modifier.tabIndicatorOffset(tabPositions[safeSelectedTabIndex]),
-                                        color = AppColors.NeonBlue
-                                    )
-                                }
-                            }
+                        Row(
+                            modifier = Modifier.fillMaxWidth().background(AppColors.Panel),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            appState.tabs.forEachIndexed { index, tab ->
-                                @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-                                androidx.compose.foundation.TooltipArea(
-                                    tooltip = {
-                                        Text(
-                                            tab.file.absolutePath,
-                                            style = AppTypography.labelLarge,
-                                            color = AppColors.TextPrimary,
-                                            modifier = Modifier
-                                                .background(AppColors.Panel, RoundedCornerShape(4.dp))
-                                                .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
-                                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            ScrollableTabRow(
+                                selectedTabIndex = safeSelectedTabIndex,
+                                containerColor = AppColors.Panel,
+                                contentColor = AppColors.NeonBlue,
+                                edgePadding = 0.dp,
+                                modifier = Modifier.weight(1f),
+                                indicator = { tabPositions ->
+                                    if (safeSelectedTabIndex in tabPositions.indices) {
+                                        TabRowDefaults.SecondaryIndicator(
+                                            modifier = Modifier.tabIndicatorOffset(tabPositions[safeSelectedTabIndex]),
+                                            color = AppColors.NeonBlue
                                         )
-                                    },
-                                ) {
-                                Tab(
-                                    selected = index == safeSelectedTabIndex,
-                                    onClick = { appState.selectedTabIndex = index },
-                                    modifier = Modifier
-                                        .widthIn(min = 100.dp)
-                                        .pointerInput(tab) {
-                                            @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
-                                            awaitPointerEventScope {
-                                                while (true) {
-                                                    val event = awaitPointerEvent()
-                                                    if (event.type == PointerEventType.Press && event.button == PointerButton.Tertiary) {
-                                                        appState.closeTabByFile(tab.file)
+                                    }
+                                }
+                            ) {
+                                appState.tabs.forEachIndexed { index, tab ->
+                                    @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+                                    androidx.compose.foundation.TooltipArea(
+                                        tooltip = {
+                                            Text(
+                                                tab.file.absolutePath,
+                                                style = AppTypography.labelLarge,
+                                                color = AppColors.TextPrimary,
+                                                modifier = Modifier
+                                                    .background(AppColors.Panel, RoundedCornerShape(4.dp))
+                                                    .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
+                                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                            )
+                                        },
+                                    ) {
+                                    Tab(
+                                        selected = index == safeSelectedTabIndex,
+                                        onClick = { appState.selectedTabIndex = index },
+                                        modifier = Modifier
+                                            .widthIn(min = 100.dp)
+                                            .pointerInput(tab) {
+                                                @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+                                                awaitPointerEventScope {
+                                                    while (true) {
+                                                        val event = awaitPointerEvent()
+                                                        if (event.type == PointerEventType.Press && event.button == PointerButton.Tertiary) {
+                                                            appState.closeTabByFile(tab.file)
+                                                        }
                                                     }
+                                                }
+                                            },
+                                        text = {
+                                            // Tabs size to the full file name (no max width): the tab row scrolls
+                                            // horizontally, and the full path is in the tooltip. No weight/fillMaxWidth
+                                            // here -- under the row's unbounded width they collapse the name to 0.
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    text = tab.file.name,
+                                                    style = AppTypography.labelLarge,
+                                                    maxLines = 1,
+                                                    softWrap = false,
+                                                )
+                                                Spacer(Modifier.width(4.dp))
+                                                IconButton(
+                                                    onClick = { appState.closeTabByFile(tab.file) },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Text("✕", color = AppColors.NeonRed, fontSize = 10.sp)
                                                 }
                                             }
                                         },
-                                    text = {
-                                        // Tabs size to the full file name (no max width): the tab row scrolls
-                                        // horizontally, and the full path is in the tooltip. No weight/fillMaxWidth
-                                        // here -- under the row's unbounded width they collapse the name to 0.
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(
-                                                text = tab.file.name,
-                                                style = AppTypography.labelLarge,
-                                                maxLines = 1,
-                                                softWrap = false,
-                                            )
-                                            Spacer(Modifier.width(4.dp))
-                                            IconButton(
-                                                onClick = { appState.closeTabByFile(tab.file) },
-                                                modifier = Modifier.size(24.dp)
-                                            ) {
-                                                Text("✕", color = AppColors.NeonRed, fontSize = 10.sp)
-                                            }
-                                        }
+                                    )
+                                    }
+                                }
+                            }
+
+                            // AI Chat toggle button on the right edge of the tab row
+                            val aiActive = appState.aiPanelOpen
+                            val isDark = themeMode == ThemeMode.DARK
+                            val btnBg = if (aiActive) {
+                                AppColors.NeonPurple
+                            } else {
+                                if (isDark) Color(0xFF2B2038) else Color(0xFFF3E8FF)
+                            }
+                            val btnBorder = AppColors.NeonPurple
+                            val textColor = if (aiActive) {
+                                if (isDark) Color(0xFF160B22) else Color.White
+                            } else {
+                                if (isDark) Color.White else Color(0xFF4A1D7A)
+                            }
+                            val iconColor = if (aiActive) {
+                                if (isDark) Color(0xFF160B22) else Color.White
+                            } else {
+                                AppColors.NeonPurple
+                            }
+
+                            @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+                            androidx.compose.foundation.TooltipArea(
+                                tooltip = {
+                                    Text(
+                                        if (language == AppLanguage.KO) "AI와 대화 토글 (⌘⇧I / Ctrl+Shift+I)" else "Toggle Ask AI (⌘⇧I / Ctrl+Shift+I)",
+                                        style = AppTypography.labelLarge,
+                                        color = AppColors.TextPrimary,
+                                        modifier = Modifier
+                                            .background(AppColors.Panel, RoundedCornerShape(4.dp))
+                                            .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    )
+                                },
+                                modifier = Modifier.padding(end = 12.dp, start = 6.dp),
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = btnBg,
+                                    border = androidx.compose.foundation.BorderStroke(1.2.dp, btnBorder),
+                                    modifier = Modifier.clickable {
+                                        appState.aiPanelOpen = !appState.aiPanelOpen
                                     },
-                                )
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        Text(
+                                            "✦",
+                                            color = iconColor,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                        Text(
+                                            if (language == AppLanguage.KO) "AI와 대화" else "Ask AI",
+                                            color = textColor,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                    }
                                 }
                             }
                         }

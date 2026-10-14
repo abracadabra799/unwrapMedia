@@ -22,16 +22,16 @@ import androidx.compose.ui.unit.dp
 import java.awt.Cursor
 
 private const val LEFT_PANEL_MIN_WIDTH_DP = 180f
-private const val LEFT_PANEL_DEFAULT_WIDTH_DP = 370f
+// 370 -> 290: leaves more room for HexView on initial launch (~600dp) so Decoded Text is visible by default.
+private const val LEFT_PANEL_DEFAULT_WIDTH_DP = 290f
 private const val LEFT_PANEL_MAX_WIDTH_DP = 800f
 // The right panel used to start at exactly its own minimum width, so there was no room left to
 // drag-shrink it -- only grow. Default now sits above the floor instead of on top of it. The user
 // can always drag it wider (or resize the whole window) when they need more room, so the default
 // favors leaving more space to the center preview instead.
 private const val RIGHT_PANEL_MIN_WIDTH_DP = 240f
-// 350 -> 420 -> 530 -> 470 -> 380 -> 450: the right panel carries Overview summary cards, Gain Map info,
-// and detailed properties tables, which read much more comfortably with extra horizontal width.
-private const val RIGHT_PANEL_DEFAULT_WIDTH_DP = 450f
+// 450 -> 380: leaves sufficient width for HexView's 16-byte dump + decoded ASCII text (~580dp required).
+private const val RIGHT_PANEL_DEFAULT_WIDTH_DP = 380f
 private const val RIGHT_PANEL_MAX_WIDTH_DP = 1000f
 
 // Thin draggable strip between two side-by-side panels. onDragDeltaDp receives the horizontal
