@@ -60,6 +60,8 @@ data class AiContextSnapshot(
     val warnings: List<String>,
     /** The file is missing or differs from the bytes the tree was parsed from: nothing should be sent. */
     val fileChangedSinceOpen: Boolean = false,
+    /** Where the user is looking/pointing in the preview; dropped with the rest when the file changed. */
+    val visual: AiVisualContext? = null,
 ) {
     /** Blocking stat: call off the UI thread. */
     fun isCurrent(file: File): Boolean = identity?.matches(file) == true
@@ -97,6 +99,7 @@ fun captureAiContext(
     contentCheck: ContentCheckSnapshot?,
     parsedIdentity: ContentFileIdentity?,
     embeddedVideo: EmbeddedVideo?,
+    visual: AiVisualContext? = null,
 ): AiContextSnapshot {
     val current = if (file.isFile) ContentFileIdentity.capture(file) else null
     val warnings = mutableListOf<String>()
@@ -151,11 +154,12 @@ fun captureAiContext(
         omittedStructureLines = omittedStructure,
         warnings = warnings,
         fileChangedSinceOpen = !treeCurrent,
+        visual = visual?.takeIf { treeCurrent },
     )
 }
 
 /** The exact text sent with a message (also shown in the outgoing preview). Bounded by [MAX_CONTEXT_CHARS]. */
-fun renderAiContext(snapshot: AiContextSnapshot): String {
+fun renderAiContext(snapshot: AiContextSnapshot, attachedImage: ImageRegion? = null, imageOmittedReason: String? = null): String {
     val sb = StringBuilder()
     sb.appendLine("### [unwrapMedia 컨텍스트 — 앱이 직접 확인한 사실]")
     sb.appendLine("- $DETERMINISTIC_VERDICT_NOTICE")
@@ -177,6 +181,7 @@ fun renderAiContext(snapshot: AiContextSnapshot): String {
                 (f.byteOffset?.let { " @ $it (${hex(it)})" } ?: ""),
         )
     }
+    snapshot.visual?.let { sb.append(renderVisualContext(it, attachedImage, imageOmittedReason)) }
     if (snapshot.structureLines.isNotEmpty()) {
         sb.appendLine("### [파일 구조 개요 (실제 파싱 범위)]")
         snapshot.structureLines.forEach { sb.appendLine("- $it") }

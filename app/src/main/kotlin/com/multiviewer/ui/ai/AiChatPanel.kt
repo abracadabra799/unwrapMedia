@@ -76,12 +76,14 @@ fun aiChatController(appState: AppState, scope: kotlinx.coroutines.CoroutineScop
     onCapabilityUpdate = { update ->
         appState.aiCapabilities[update.provider]?.let { current ->
             appState.aiCapabilities = appState.aiCapabilities + (update.provider to when {
+                update.image != null -> current.copy(image = update.image, detail = update.detail)
                 update.answered -> current.afterAnswer()
                 update.failure != null -> current.afterFailure(update.failure)
                 else -> current
             })
         }
     },
+    capabilities = { appState.aiCapabilities[it] },
 )
 
 /** Left edge of the AI panel: drag to resize (300–760 dp). */
@@ -228,7 +230,43 @@ fun AiChatPanel(
             )
             if (caps.executablePath == null) {
                 Text(label("이 CLI가 설치되어 있지 않습니다.", "This CLI is not installed."), color = AppColors.NeonOrange, fontSize = 12.sp)
+            } else if (caps.image == CapabilityState.UNKNOWN && adapterFor(caps.provider).argumentsWithImages(listOf(java.io.File("p.png"))) != null) {
+                var checking by remember { mutableStateOf(false) }
+                TextButton(enabled = !checking && !running, onClick = {
+                    checking = true
+                    controller.verifyImageInput(caps.provider, java.io.File(caps.executablePath)) { checking = false }
+                }) {
+                    Text(
+                        if (checking) label("이미지 입력 확인 중… (빨간 사각형 1장 전송)", "Checking image input… (sends one red square)")
+                        else label("이미지 입력 확인 (빨간 사각형 1장 전송)", "Check image input (sends one red square)"),
+                        fontSize = 11.sp,
+                    )
+                }
             }
+        }
+
+        // Pointing at the image: opt-in, so the preview's normal pan/tap stays untouched otherwise.
+        if (tab.aiImageSource != null) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                if (tab.aiMarkMode) Button(onClick = { tab.aiMarkMode = false }) { Text(label("화면 지정 끝내기", "Stop marking"), fontSize = 11.sp) }
+                else OutlinedButton(onClick = { tab.aiMarkMode = true }) { Text(label("화면에서 지정", "Mark on screen"), fontSize = 11.sp) }
+                if (tab.aiPointer != null || tab.aiMarked != null) {
+                    TextButton(onClick = { tab.aiPointer = null; tab.aiMarked = null }) { Text(label("지정 지우기", "Clear marks"), fontSize = 11.sp) }
+                }
+            }
+            if (tab.aiMarkMode) {
+                Text(label("주 이미지에서 클릭하면 점, 드래그하면 영역을 지정합니다.", "In the primary image, click to point or drag to mark a region."),
+                    color = AppColors.TextMuted, fontSize = 11.sp)
+            }
+            val marks = listOfNotNull(
+                tab.aiPointer?.let { label("점 (${it.x}, ${it.y})", "point (${it.x}, ${it.y})") },
+                tab.aiMarked?.let { label("영역 ${it.x},${it.y} ${it.width}x${it.height}", "region ${it.x},${it.y} ${it.width}x${it.height}") },
+            )
+            if (marks.isNotEmpty()) Text(marks.joinToString(" · "), color = AppColors.NeonPurple, fontSize = 11.sp)
+        } else if (tab.type == com.multiviewer.ui.MediaType.VIDEO) {
+            Text(label("영상 화면 지정은 아직 지원하지 않습니다. 선택한 프레임과 PTS는 함께 보냅니다.",
+                "Marking on video is not supported yet; the selected frame and PTS are sent."),
+                color = AppColors.TextMuted, fontSize = 11.sp)
         }
 
         // Transcript.
@@ -324,10 +362,10 @@ fun AiChatPanel(
                 if (preview != null) { preview = null; return@OutlinedButton }
                 val file = tab.file; val root = tab.root; val type = tab.type; val selected = tab.selected
                 val field = tab.selectedField; val frame = tab.selectedFrame; val check = tab.contentCheck
-                val parsed = tab.parsedIdentity; val video = tab.embeddedVideo
+                val parsed = tab.parsedIdentity; val video = tab.embeddedVideo; val visual = tab.aiVisualContext()
                 scope.launch {
                     preview = withContext(Dispatchers.IO) {
-                        renderAiContext(captureAiContext(file, root, type, selected, field, frame, check, parsed, video))
+                        renderAiContext(captureAiContext(file, root, type, selected, field, frame, check, parsed, video, visual))
                     }
                 }
             }) { Text(if (preview == null) label("보낼 내용 보기", "Preview context") else label("미리보기 닫기", "Close preview"), fontSize = 12.sp) }

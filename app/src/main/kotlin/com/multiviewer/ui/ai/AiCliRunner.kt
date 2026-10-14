@@ -60,12 +60,19 @@ suspend fun runAiCli(
     timeoutMillis: Long = DEFAULT_AI_TIMEOUT_MILLIS,
     maxOutputBytes: Int = DEFAULT_AI_MAX_OUTPUT_BYTES,
     fileStillCurrent: () -> Boolean = { true },
+    images: List<java.awt.image.BufferedImage> = emptyList(),
 ): AiCliResult = runInterruptible(Dispatchers.IO) {
     if (!fileStillCurrent()) return@runInterruptible AiCliResult.StaleFile
     val workDir = Files.createTempDirectory("unwrapmedia-ai-").toFile()
     var process: Process? = null
     try {
-        val builder = ProcessBuilder(launchCommand(executable, adapter.arguments())).directory(workDir)
+        // Images are re-encoded crops written only inside the app-owned temp dir (deleted below).
+        val imageFiles = images.mapIndexed { i, image ->
+            File(workDir, "view-${i + 1}.png").also { javax.imageio.ImageIO.write(image, "png", it) }
+        }
+        val args = adapter.argumentsWithImages(imageFiles)
+            ?: return@runInterruptible AiCliResult.Failed(AiFailure.LAUNCH_FAILED, null, "${adapter.provider.displayName} cannot take images from this app")
+        val builder = ProcessBuilder(launchCommand(executable, args)).directory(workDir)
         // npm shims need node next to them; GUI launches often lack the user's shell PATH.
         val env = builder.environment()
         val pathKey = env.keys.firstOrNull { it.equals("PATH", ignoreCase = true) } ?: "PATH"

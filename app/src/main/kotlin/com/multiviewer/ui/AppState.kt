@@ -317,6 +317,21 @@ class TabState(val file: File) {
     // current request; AppState.closeTab cancels the job.
     var aiConversation: com.multiviewer.ui.ai.AiConversationState by mutableStateOf(com.multiviewer.ui.ai.AiConversationState())
     @Volatile var aiJob: kotlinx.coroutines.Job? = null
+
+    // AI visual context from the primary image preview, in native image pixels. The viewport follows
+    // zoom/pan; pointer and marked region are set only while the user has "mark on screen" turned on.
+    var aiMarkMode: Boolean by mutableStateOf(false)
+    var aiViewport: com.multiviewer.ui.ai.ImageRegion? by mutableStateOf(null)
+    var aiPointer: com.multiviewer.ui.ai.ImagePoint? by mutableStateOf(null)
+    var aiMarked: com.multiviewer.ui.ai.ImageRegion? by mutableStateOf(null)
+    var aiImageSource: androidx.compose.ui.graphics.ImageBitmap? by mutableStateOf(null)
+
+    /** The visual context to send now, or null when no image preview is showing. */
+    fun aiVisualContext(): com.multiviewer.ui.ai.AiVisualContext? {
+        val image = aiImageSource ?: return null
+        val viewport = aiViewport ?: com.multiviewer.ui.ai.ImageRegion(0, 0, image.width, image.height)
+        return com.multiviewer.ui.ai.AiVisualContext("primary image", image.width, image.height, viewport, aiPointer, aiMarked)
+    }
 }
 
 enum class LeftPanelMode {

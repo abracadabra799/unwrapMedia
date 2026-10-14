@@ -8,12 +8,22 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.ui.graphics.toAwtImage
 import java.io.File
 
 /** What one finished run proved about a provider, for the capability display. */
-data class AiCapabilityUpdate(val provider: AiProviderId, val answered: Boolean = false, val failure: AiFailure? = null)
+data class AiCapabilityUpdate(
+    val provider: AiProviderId,
+    val answered: Boolean = false,
+    val failure: AiFailure? = null,
+    /** Result of an explicit image-input check. */
+    val image: CapabilityState? = null,
+    val detail: String? = null,
+)
 
-typealias AiRunner = suspend (adapter: AiCliAdapter, executable: File, prompt: String, fileStillCurrent: () -> Boolean) -> AiCliResult
+typealias AiRunner = suspend (
+    adapter: AiCliAdapter, executable: File, prompt: String, fileStillCurrent: () -> Boolean, images: List<java.awt.image.BufferedImage>,
+) -> AiCliResult
 
 /**
  * Sends questions for a tab. The selection is read when [send] is called (on the UI thread), the context
@@ -25,8 +35,11 @@ class AiChatController(
     private val now: () -> Long = System::currentTimeMillis,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val language: () -> AppLanguage = { AppLanguage.KO },
-    private val runner: AiRunner = { adapter, exe, prompt, current -> runAiCli(adapter, exe, prompt, fileStillCurrent = current) },
+    private val runner: AiRunner = { adapter, exe, prompt, current, images ->
+        runAiCli(adapter, exe, prompt, fileStillCurrent = current, images = images)
+    },
     private val onCapabilityUpdate: (AiCapabilityUpdate) -> Unit = {},
+    private val capabilities: (AiProviderId) -> AiProviderCapabilities? = { null },
 ) {
     var lastCapabilityUpdate: AiCapabilityUpdate? = null
         private set
@@ -53,11 +66,31 @@ class AiChatController(
         val contentCheck = tab.contentCheck
         val parsed = tab.parsedIdentity
         val video = tab.embeddedVideo
+        val visual = tab.aiVisualContext()
+        val imageSource = tab.aiImageSource
+        val adapter = adapterFor(provider)
+        val canPassImages = adapter.argumentsWithImages(listOf(File("probe.png"))) != null
+        val imageVerified = capabilities(provider)?.canAttachImage == true
         tab.aiJob = scope.launch {
             val snapshot = withContext(ioDispatcher) {
-                captureAiContext(file, root, type, selected, field, frame, contentCheck, parsed, video)
+                captureAiContext(file, root, type, selected, field, frame, contentCheck, parsed, video, visual)
             }
-            val context = renderAiContext(snapshot)
+            // A crop goes only to a provider whose image input was verified here, and only of the marked
+            // region (else the visible viewport); otherwise the coordinates travel alone, labeled as such.
+            val shown = snapshot.visual
+            val region = shown?.let { it.marked ?: it.visible }
+            val crop = if (shown != null && region != null && imageSource != null && canPassImages && imageVerified) {
+                withContext(Dispatchers.Default) {
+                    @Suppress("DEPRECATION")
+                    cropForAi(imageSource.toAwtImage(), region)
+                }
+            } else null
+            val omitted = when {
+                shown == null || crop != null -> null
+                !canPassImages -> label("이 앱의 ${provider.displayName} 연동은 이미지를 보낼 수 없음", "this app's ${provider.displayName} integration cannot send images")
+                else -> label("${provider.displayName} 이미지 입력이 아직 확인되지 않음", "${provider.displayName} image input is not verified yet")
+            }
+            val context = renderAiContext(snapshot, attachedImage = region.takeIf { crop != null }, imageOmittedReason = omitted)
             val history = tab.aiConversation.messages
             val (started, run) = tab.aiConversation.withUserMessage(text, context, provider, now())
             tab.aiConversation = started
@@ -79,7 +112,8 @@ class AiChatController(
                 return@launch
             }
             try {
-                when (val result = runner(adapterFor(provider), executable, buildAiCliPrompt(history, context, text)) { snapshot.isCurrent(file) }) {
+                val prompt = buildAiCliPrompt(history, context, text)
+                when (val result = runner(adapter, executable, prompt, { snapshot.isCurrent(file) }, listOfNotNull(crop))) {
                     is AiCliResult.Answer -> {
                         tab.aiConversation = tab.aiConversation.withAssistantReply(run, result.text, now()).let { s ->
                             if (result.truncated) s.withActivity(label("응답이 너무 길어 일부만 표시합니다", "The answer was too long and was cut"), now()) else s
@@ -116,5 +150,36 @@ class AiChatController(
 
     fun stop(tab: TabState) {
         tab.aiJob?.cancel()
+    }
+
+    /**
+     * Explicit, user-started check that [provider] really reads an attached image: one solid red square,
+     * asked for its color. Only a correct answer marks image input VERIFIED.
+     */
+    fun verifyImageInput(provider: AiProviderId, executable: File, onDone: () -> Unit = {}) = scope.launch {
+        val adapter = adapterFor(provider)
+        if (adapter.argumentsWithImages(listOf(File("probe.png"))) == null) {
+            report(AiCapabilityUpdate(provider, image = CapabilityState.UNSUPPORTED, detail = "no image argument"))
+            onDone(); return@launch
+        }
+        val probe = java.awt.image.BufferedImage(96, 96, java.awt.image.BufferedImage.TYPE_INT_RGB).apply {
+            val g = createGraphics(); g.color = java.awt.Color(220, 20, 20); g.fillRect(0, 0, 96, 96); g.dispose()
+        }
+        val prompt = "The attached image is one solid color. Reply with only that color as a single lowercase English word."
+        try {
+            val result = runner(adapter, executable, prompt, { true }, listOf(probe))
+            val ok = result is AiCliResult.Answer && Regex("\\bred\\b", RegexOption.IGNORE_CASE).containsMatchIn(result.text)
+            report(AiCapabilityUpdate(
+                provider,
+                image = if (ok) CapabilityState.VERIFIED else CapabilityState.UNSUPPORTED,
+                detail = when (result) {
+                    is AiCliResult.Answer -> result.text.take(80)
+                    is AiCliResult.Failed -> result.reason.name
+                    else -> result.toString()
+                },
+            ))
+        } finally {
+            onDone()
+        }
     }
 }

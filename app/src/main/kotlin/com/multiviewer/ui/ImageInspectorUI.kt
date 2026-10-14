@@ -207,6 +207,7 @@ fun ImageInspectorUI(
                         forensic.bitmap?.let {
                             PixelInspectorPreview(
                                 it,
+                                aiTarget = tab,
                                 tileGrid = tab.tileGrid,
                                 selectedTileIndex = tab.selectedTileIndex,
                                 onTileClick = { index ->

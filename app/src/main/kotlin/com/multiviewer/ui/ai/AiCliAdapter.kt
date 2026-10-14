@@ -11,6 +11,9 @@ interface AiCliAdapter {
     val provider: AiProviderId
     fun arguments(): List<String>
     fun parseAnswer(stdout: String): String = stdout.trim()
+
+    /** Arguments that attach [images] (app-owned temp PNGs), or null when this adapter cannot pass images. */
+    fun argumentsWithImages(images: List<File>): List<String>? = if (images.isEmpty()) arguments() else null
 }
 
 /** Claude Code print mode with every built-in tool and MCP server off and nothing saved to disk. */
@@ -30,6 +33,10 @@ class CodexCliAdapter : AiCliAdapter {
     override fun arguments() = listOf(
         "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral", "--color", "never", "-",
     )
+
+    // `-i` takes several values, so it goes right after `exec`, ended by the next flag (never next to `-`).
+    override fun argumentsWithImages(images: List<File>): List<String> =
+        if (images.isEmpty()) arguments() else listOf("exec", "-i") + images.map { it.path } + arguments().drop(1)
 }
 
 /** Gemini CLI headless in plan (read-only) approval mode; the -p text is appended to the stdin prompt. */

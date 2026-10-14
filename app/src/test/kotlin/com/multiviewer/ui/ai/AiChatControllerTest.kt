@@ -42,7 +42,7 @@ class AiChatControllerTest {
         a.selected = a.root!!.children[0]
         val gate = CompletableDeferred<Unit>()
         var sentPrompt = ""
-        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, prompt, _ ->
+        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, prompt, _, _ ->
             sentPrompt = prompt
             gate.await()
             AiCliResult.Answer("answer for a", truncated = false)
@@ -61,7 +61,7 @@ class AiChatControllerTest {
     @Test
     fun `stop cancels the request and records a visible notice`() = runBlocking {
         val a = tab("a.jpg")
-        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, _, _ -> awaitCancellation() })
+        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, _, _, _ -> awaitCancellation() })
         controller.send(a, "q", AiProviderId.CODEX, File("/bin/true"))
         waitFor { a.aiJob != null && a.aiConversation.status == AiRunStatus.RUNNING }
         controller.stop(a)
@@ -72,19 +72,19 @@ class AiChatControllerTest {
     @Test
     fun `failures, missing CLIs and stale files are notices, never answers`() = runBlocking {
         val a = tab("a.jpg")
-        val auth = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, _, _ ->
+        val auth = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, _, _, _ ->
             AiCliResult.Failed(AiFailure.AUTH_REQUIRED, 1, "Please run /login")
         })
         auth.send(a, "q", AiProviderId.GEMINI, File("/bin/true"))
         waitFor { a.aiConversation.status == AiRunStatus.FAILED }
         assertEquals(AiCapabilityUpdate(AiProviderId.GEMINI, failure = AiFailure.AUTH_REQUIRED), auth.lastCapabilityUpdate)
 
-        val missing = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, _, _ -> error("must not run") })
+        val missing = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, _, _, _ -> error("must not run") })
         missing.send(a, "q", AiProviderId.CLAUDE, null)
         waitFor { a.aiConversation.messages.size == 4 }
         assertEquals(AiRole.NOTICE, a.aiConversation.messages.last().role)
 
-        val stale = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, _, current ->
+        val stale = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, _, current, _ ->
             if (current()) AiCliResult.Answer("x", false) else AiCliResult.StaleFile
         })
         a.file.appendBytes(byteArrayOf(1))
@@ -98,7 +98,7 @@ class AiChatControllerTest {
     fun `a second send while running is ignored`() = runBlocking {
         val a = tab("a.jpg")
         var runs = 0
-        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, _, _ -> runs++; awaitCancellation() })
+        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, _, _, _ -> runs++; awaitCancellation() })
         controller.send(a, "q1", AiProviderId.CLAUDE, File("/bin/true"))
         waitFor { a.aiConversation.status == AiRunStatus.RUNNING }
         controller.send(a, "q2", AiProviderId.CLAUDE, File("/bin/true"))
@@ -107,5 +107,42 @@ class AiChatControllerTest {
         controller.stop(a)
         waitFor { a.aiConversation.status == AiRunStatus.CANCELLED }
         assertEquals(1, runs)
+    }
+
+    @Test
+    fun `visual marks are taken at send time and a crop goes only to a verified image provider`() = runBlocking {
+        val a = tab("a.jpg")
+        a.aiImageSource = androidx.compose.ui.graphics.ImageBitmap(400, 200)
+        a.aiViewport = ImageRegion(0, 0, 400, 200)
+        a.aiPointer = ImagePoint(10, 20)
+        a.aiMarked = ImageRegion(50, 60, 100, 40)
+        var images = -1
+        var prompt = ""
+        fun controller(image: CapabilityState) = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default,
+            capabilities = { AiProviderCapabilities(it, image = image) },
+            runner = { _, _, p, _, imgs -> prompt = p; images = imgs.size; AiCliResult.Answer("ok", false) })
+
+        controller(CapabilityState.UNKNOWN).send(a, "q", AiProviderId.CODEX, File("/bin/true"))
+        a.aiPointer = ImagePoint(300, 100) // moved after sending
+        waitFor { a.aiConversation.status == AiRunStatus.FINISHED }
+        assertEquals(0, images)
+        assertTrue(prompt.contains("(10, 20)"), prompt)
+        assertTrue(prompt.contains("not verified") || prompt.contains("확인되지 않음"), prompt)
+
+        controller(CapabilityState.VERIFIED).send(a, "q", AiProviderId.CLAUDE, File("/bin/true"))
+        waitFor { a.aiConversation.messages.count { it.role == AiRole.ASSISTANT } == 2 }
+        assertEquals(0, images) // Claude adapter cannot pass images
+        controller(CapabilityState.VERIFIED).send(a, "q", AiProviderId.CODEX, File("/bin/true"))
+        waitFor { a.aiConversation.messages.count { it.role == AiRole.ASSISTANT } == 3 }
+        assertEquals(1, images)
+        assertTrue(prompt.contains("x=50, y=60, w=100, h=40"), prompt)
+    }
+
+    @Test
+    fun `codex image flags end before the stdin marker`() {
+        val args = CodexCliAdapter().argumentsWithImages(listOf(File("/t/view-1.png")))
+        assertEquals(listOf("exec", "-i", "/t/view-1.png", "--sandbox"), args.take(4))
+        assertEquals("-", args.last())
+        assertEquals(null, ClaudeCliAdapter().argumentsWithImages(listOf(File("x.png"))))
     }
 }

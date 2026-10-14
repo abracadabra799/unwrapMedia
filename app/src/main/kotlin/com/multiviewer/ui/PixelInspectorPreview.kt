@@ -7,6 +7,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -125,6 +126,8 @@ fun PixelInspectorPreview(
     tileGrid: com.multiviewer.parser.TileGridInfo? = null,
     selectedTileIndex: Int? = null,
     onTileClick: ((Int) -> Unit)? = null,
+    /** The tab whose AI context this preview feeds (primary image only); null elsewhere. */
+    aiTarget: TabState? = null,
 ) {
     var scale by remember(resetKey) { mutableStateOf(1f) }
     var offset by remember(resetKey) { mutableStateOf(Offset.Zero) }
@@ -133,6 +136,17 @@ fun PixelInspectorPreview(
     // What ContentScale.Fit actually draws inside the box -- pan is bounded against this, not the
     // box-sized layer, so a letterboxed image can't be dragged out of view sideways.
     val contentSize = fittedContentSize(boxSize, nativeSize)
+    // Opt-in only: while the AI panel's "mark on screen" is on, a click sets the pointer and a drag marks a
+    // region instead of panning; otherwise the preview behaves exactly as before.
+    val markMode = aiTarget?.aiMarkMode == true
+    if (aiTarget != null) {
+        LaunchedEffect(aiTarget, bitmap, scale, offset, boxSize) {
+            aiTarget.aiImageSource = bitmap
+            aiTarget.aiViewport = com.multiviewer.ui.ai.visibleImageRegion(boxSize, nativeSize, scale, offset)
+        }
+    }
+    var markStart by remember(resetKey) { mutableStateOf<Offset?>(null) }
+    var markEnd by remember(resetKey) { mutableStateOf<Offset?>(null) }
 
     Box(
         modifier = modifier
@@ -147,14 +161,36 @@ fun PixelInspectorPreview(
                 offset = clampPanOffset(rawOffset, boxSize, newScale, contentSize)
                 event.changes.forEach { it.consume() }
             }
-            .pointerInput(resetKey) {
-                detectDragGestures { change, dragAmount ->
-                    change.consume()
-                    offset = clampPanOffset(offset + dragAmount, boxSize, scale, contentSize)
-                }
-            }
-            .pointerInput(resetKey) {
-                detectTapGestures(
+            .then(
+                if (markMode && aiTarget != null) {
+                    Modifier
+                        .pointerInput(resetKey, "ai-mark") {
+                            detectDragGestures(
+                                onDragStart = { markStart = it; markEnd = it },
+                                onDragEnd = {
+                                    val s = markStart; val e = markEnd
+                                    if (s != null && e != null) {
+                                        aiTarget.aiMarked = com.multiviewer.ui.ai.viewRectToImageRegion(s, e, boxSize, nativeSize, scale, offset)
+                                    }
+                                    markStart = null; markEnd = null
+                                },
+                                onDragCancel = { markStart = null; markEnd = null },
+                            ) { change, _ -> change.consume(); markEnd = change.position }
+                        }
+                        .pointerInput(resetKey, "ai-point") {
+                            detectTapGestures { position ->
+                                aiTarget.aiPointer = com.multiviewer.ui.ai.viewToImagePoint(position, boxSize, nativeSize, scale, offset)
+                            }
+                        }
+                } else Modifier
+                    .pointerInput(resetKey) {
+                        detectDragGestures { change, dragAmount ->
+                            change.consume()
+                            offset = clampPanOffset(offset + dragAmount, boxSize, scale, contentSize)
+                        }
+                    }
+                    .pointerInput(resetKey) {
+                        detectTapGestures(
                     onTap = { tapPosition ->
                         if (tileGrid != null && onTileClick != null) {
                             resolveTileIndexAt(
@@ -173,7 +209,8 @@ fun PixelInspectorPreview(
                         offset = Offset.Zero
                     },
                 )
-            },
+                    },
+            ),
     ) {
         Image(
             bitmap = bitmap,
@@ -216,6 +253,26 @@ fun PixelInspectorPreview(
                     transformOrigin = TransformOrigin(0f, 0f),
                 ),
             )
+        }
+        if (aiTarget != null && (aiTarget.aiPointer != null || aiTarget.aiMarked != null || markStart != null)) {
+            val markColor = AppColors.NeonPurple
+            androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                aiTarget.aiMarked?.let { r ->
+                    val a = com.multiviewer.ui.ai.imageToView(Offset(r.x.toFloat(), r.y.toFloat()), boxSize, nativeSize, scale, offset)
+                    val b = com.multiviewer.ui.ai.imageToView(Offset((r.x + r.width).toFloat(), (r.y + r.height).toFloat()), boxSize, nativeSize, scale, offset)
+                    drawRect(markColor, topLeft = a, size = Size(b.x - a.x, b.y - a.y), style = androidx.compose.ui.graphics.drawscope.Stroke(2f))
+                }
+                aiTarget.aiPointer?.let { p ->
+                    val c = com.multiviewer.ui.ai.imageToView(Offset(p.x + 0.5f, p.y + 0.5f), boxSize, nativeSize, scale, offset)
+                    drawLine(markColor, Offset(c.x - 10f, c.y), Offset(c.x + 10f, c.y), strokeWidth = 2f)
+                    drawLine(markColor, Offset(c.x, c.y - 10f), Offset(c.x, c.y + 10f), strokeWidth = 2f)
+                }
+                val s0 = markStart; val e0 = markEnd
+                if (s0 != null && e0 != null) {
+                    drawRect(markColor.copy(alpha = 0.6f), topLeft = Offset(minOf(s0.x, e0.x), minOf(s0.y, e0.y)),
+                        size = Size(kotlin.math.abs(e0.x - s0.x), kotlin.math.abs(e0.y - s0.y)), style = androidx.compose.ui.graphics.drawscope.Stroke(1.5f))
+                }
+            }
         }
     }
 }
