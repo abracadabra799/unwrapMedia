@@ -429,8 +429,15 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var hdrMetadataTab by remember { mutableStateOf<TabState?>(null) }
         var structureDiagramTab by remember { mutableStateOf<TabState?>(null) }
         // Supervisor scope: one failed AI request must not cancel the others or later sends.
-        val aiScope = remember { kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main) }
-        DisposableEffect(Unit) { onDispose { aiScope.coroutineContext[kotlinx.coroutines.Job]?.cancel() } }
+        // Compose's own UI scope (this app has no Dispatchers.Main module — kotlinx-coroutines-swing is not on
+        // the classpath), with a SupervisorJob under it so one failed request never cancels later sends; it is
+        // cancelled with the composition.
+        val composeScope = rememberCoroutineScope()
+        val aiScope = remember(composeScope) {
+            kotlinx.coroutines.CoroutineScope(
+                composeScope.coroutineContext + kotlinx.coroutines.SupervisorJob(composeScope.coroutineContext[kotlinx.coroutines.Job]),
+            )
+        }
         val aiController = remember(aiScope) { com.multiviewer.ui.ai.aiChatController(appState, aiScope) }
         SideEffect { appState.aiLanguage = language }
         var hrdBufferTab by remember { mutableStateOf<TabState?>(null) }

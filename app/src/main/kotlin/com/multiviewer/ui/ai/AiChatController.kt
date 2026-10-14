@@ -129,6 +129,8 @@ class AiChatController(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                System.err.println("[AI] ${provider.name} context capture failed: $e")
+                e.printStackTrace()
                 val (started, run) = tab.aiConversation.withUserMessage(text, "", provider, now())
                 tab.aiConversation = started.withRunEnded(run, AiRunStatus.FAILED,
                     label("컨텍스트를 만들지 못해 보내지 않았습니다: ", "Not sent: the context could not be built: ") + (e.message ?: e.toString()), now())
@@ -160,6 +162,8 @@ class AiChatController(
             val (started, run) = tab.aiConversation.withUserMessage(text, context, provider, now())
             tab.aiConversation = started
             fun end(status: AiRunStatus, notice: String) {
+                // Local diagnostics only: the run status and the app notice, never the question or context.
+                System.err.println("[AI] ${provider.name} run $run ended $status: $notice")
                 tab.aiConversation = tab.aiConversation.withRunEnded(run, status, notice, now())
             }
             if (snapshot.fileChangedSinceOpen) {
@@ -251,6 +255,7 @@ class AiChatController(
                 end(AiRunStatus.CANCELLED, label("중단됨 — 응답을 받지 않았습니다.", "Stopped — no answer was received."))
                 throw e
             } catch (e: Exception) {
+                e.printStackTrace()
                 end(AiRunStatus.FAILED, label("요청 실패: ", "Request failed: ") + (e.message ?: e.toString()))
             }
         }
