@@ -327,7 +327,7 @@ fun AiPromptPreviewWindow(
     }
     // Built off the UI thread: the builder stats the file (blocking I/O; Windows file locks).
     val builtPrompt by produceState<String?>(null, tab.file, tab.root, tab.avSyncReport, contentCheck, selectedWarning, fileChangeTick) {
-        value = null
+        // Keeps the previous prompt while rebuilding so copy buttons never act on nothing.
         value = withContext(Dispatchers.IO) {
             AiDiagnosticPromptBuilder.buildPrompt(
                 file = tab.file,
@@ -675,7 +675,10 @@ fun AiPromptPreviewWindow(
                                         onClick = {
                                             val targetUrl = customUrlInput.trim().ifBlank { currentService.defaultUrl }
                                             AiWebPreferences.setUrl(currentService, targetUrl)
-                                            copyPrompt()
+                                            if (!copyPrompt()) {
+                                                statusMessage = "프롬프트를 만드는 중입니다. 잠시 후 다시 시도하세요"
+                                                return@Button
+                                            }
                                             com.multiviewer.util.AiCliDetector.openWebAi(targetUrl)
                                             statusMessage = "복사됨 & ${currentService.displayName} (Chrome) 열림"
                                             editingService = null
@@ -727,7 +730,10 @@ fun AiPromptPreviewWindow(
                                 ) {
                                     Button(
                                         onClick = {
-                                            copyPrompt()
+                                            if (!copyPrompt()) {
+                                                statusMessage = "프롬프트를 만드는 중입니다. 잠시 후 다시 시도하세요"
+                                                return@Button
+                                            }
                                             statusMessage = when {
                                                 isWindows && activeCliSession?.isAlive == true ->
                                                     "터미널이 이미 열려 있습니다"

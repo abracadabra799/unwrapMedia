@@ -19,6 +19,8 @@ internal class TabBackgroundTasks(private val executor: ExecutorService = backgr
             if (synchronized(lock) { !closed }) {
                 try { block() }
                 catch (_: InterruptedException) { Thread.currentThread().interrupt() }
+                // ByteReader stops an interrupted (cancelled) read this way; not a failure.
+                catch (_: java.util.concurrent.CancellationException) { }
                 catch (e: Exception) { System.err.println("Background task failed: $e") }
             }
         }) {

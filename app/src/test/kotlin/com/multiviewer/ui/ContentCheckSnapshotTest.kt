@@ -395,6 +395,7 @@ class ContentCheckSnapshotTest {
 
         val unbound = AiDiagnosticPromptBuilder.buildPrompt(file, null, emptyList(), contentCheck = snapshot.copy(fileIdentity = null))
         assertFalse(unbound.contains(header), unbound)
-        assertTrue(unbound.contains(STALE_CONTENT_CHECK_NOTICE), unbound)
+        assertTrue(unbound.contains(UNBOUND_CONTENT_CHECK_NOTICE), unbound)
+        assertFalse(unbound.contains(STALE_CONTENT_CHECK_NOTICE), unbound)
     }
 }

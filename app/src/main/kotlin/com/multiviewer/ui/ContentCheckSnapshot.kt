@@ -49,7 +49,9 @@ data class ContentFileIdentity(val length: Long, val lastModified: Long) {
 class ContentFileChangedException : Exception("File changed during inspection")
 
 const val STALE_CONTENT_CHECK_NOTICE =
-    "컨텐츠 검사 결과 제외: 검사 이후 파일이 변경되었거나 검사한 파일 상태를 확인할 수 없어, 이전 판정과 바이트 근거를 사용하지 않습니다. 파일을 다시 열어 검사해야 합니다."
+    "컨텐츠 검사 결과 제외: 검사 이후 파일이 변경되어 이전 판정과 바이트 근거를 사용하지 않습니다. 파일을 다시 열어 검사해야 합니다."
+const val UNBOUND_CONTENT_CHECK_NOTICE =
+    "컨텐츠 검사 결과 제외: 구조 검사가 아직 끝나지 않았거나 검사한 파일 상태를 확인할 수 없어, 판정과 바이트 근거를 사용하지 않습니다."
 
 private const val MAX_ITEMS = 30
 private const val MAX_LOG_LINES = 20

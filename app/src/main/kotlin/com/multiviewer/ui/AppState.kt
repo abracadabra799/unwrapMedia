@@ -308,6 +308,10 @@ class TabState(val file: File) {
 
     // Latest Content Check results for this tab (published by ContentCheckWindow); fed into the AI prompt.
     var contentCheck: ContentCheckSnapshot? by mutableStateOf(null)
+
+    // File size/mtime captured just before [root] was parsed: what the tree (and every check built on it)
+    // describes. Null for synthetic roots (e.g. raw pixel dumps).
+    var parsedIdentity: ContentFileIdentity? by mutableStateOf(null)
 }
 
 enum class LeftPanelMode {
@@ -671,6 +675,7 @@ class AppState {
         // for the ffmpeg HEIC fallback decode below.
         tab.backgroundTasks.submit {
             try {
+                val parsedIdentity = ContentFileIdentity.capture(file)
                 val (root, mediaSummary, resolution, hardBlockMessage, embeddedVideo, motionPhotoPreview, gainmapInfo, finalImageForensic, type) = ByteReader.open(file).use { reader ->
                     val root = parseFile(file, reader)
 
@@ -744,6 +749,7 @@ class AppState {
                 val warning = resolution?.let { (w, h) -> resolutionWarningMessage(w, h, type == MediaType.VIDEO) }
 
                 tab.postIfOpen {
+                    tab.parsedIdentity = parsedIdentity
                     tab.root = root
                     tab.type = type
                     tab.mediaSummary = mediaSummary

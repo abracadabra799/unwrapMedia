@@ -200,6 +200,9 @@ fun ContentCheckWindow(
             val captured = runInterruptible(Dispatchers.IO) { ContentFileIdentity.capture(tab.file) }
             identity = captured
             fun requireUnchanged() { if (!captured.matches(tab.file)) throw ContentFileChangedException() }
+            // The tree was parsed from the bytes at open time; a later change makes it describe another file.
+            val parsed = tab.parsedIdentity
+            if (parsed != null && parsed != captured) throw ContentFileChangedException()
             fileLength = captured.length
             if (type == MediaType.AUDIO) {
                 val result = runInterruptible(Dispatchers.IO) {
@@ -207,6 +210,7 @@ fun ContentCheckWindow(
                     requireUnchanged()
                     checked to contentConformanceReport(type, audioStructure = checked)
                 }
+                if (fileChanged) return@LaunchedEffect
                 audioStructure = result.first
                 conformance = result.second
             } else {
@@ -215,15 +219,21 @@ fun ContentCheckWindow(
                     requireUnchanged()
                     checked to contentConformanceReport(type, structure = checked)
                 }
+                if (fileChanged) return@LaunchedEffect
                 structure = result.first
                 conformance = result.second
             }
+            // A heavy run may have bound (or a poll invalidated) the window while this check was reading.
+            if (fileChanged) return@LaunchedEffect
+            val prior = checkedIdentity
+            if (prior != null && prior != captured) throw ContentFileChangedException()
             checkedIdentity = captured
         } catch (e: CancellationException) {
             throw e
         } catch (e: ContentFileChangedException) {
             invalidateForFileChange()
         } catch (e: Exception) {
+            if (fileChanged) return@LaunchedEffect
             structureError = e.message ?: e.toString()
             conformance = contentConformanceReport(type, inspectionError = structureError)
             // The failure still describes these bytes; later steps (e.g. video decode) stay bound to them.
@@ -356,13 +366,13 @@ fun ContentCheckWindow(
                         try {
                             val startIdentity = withContext(Dispatchers.IO) { ContentFileIdentity.capture(tab.file) }
                             if (!current()) return@launch
-                            val bound = checkedIdentity
+                            val bound = checkedIdentity ?: tab.parsedIdentity
                             if (bound != null && startIdentity != bound) {
                                 invalidateForFileChange()
                                 return@launch
                             }
                             // No structure result yet (tree still loading): bind this run to the bytes it reads.
-                            if (bound == null) checkedIdentity = startIdentity
+                            if (checkedIdentity == null) checkedIdentity = startIdentity
                             for (step in runSteps) {
                                 when (step) {
                                     HeavyStep.IMAGE_DECODE -> {
