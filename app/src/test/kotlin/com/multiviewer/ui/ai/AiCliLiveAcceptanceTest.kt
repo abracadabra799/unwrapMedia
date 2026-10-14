@@ -27,6 +27,16 @@ class AiCliLiveAcceptanceTest {
         val question = "이 sefd 영역에 무엇이 들어 있고 영상 데이터는 어느 바이트 범위인지 두 문장으로 답하세요. 근거 오프셋을 0x 표기로 인용하세요."
         val dirs = cliSearchDirectories()
         val only = System.getenv("UNWRAPMEDIA_LIVE_AI_PROVIDERS")?.split(',')?.map { it.trim().uppercase() }
+        if (System.getenv("UNWRAPMEDIA_LIVE_AI_WEB") == "1") {
+            val exe = resolveExecutable("claude", dirs) ?: return
+            val web = runBlocking {
+                runAiCli(adapterFor(AiProviderId.CLAUDE, webSearch = true), exe,
+                    "Use web search to find the current W3C Recommendation page for PNG (Third Edition) and reply with its exact URL and publication date, one line.",
+                    timeoutMillis = 240_000)
+            }
+            println("LIVE WEB CLAUDE: $web")
+            return
+        }
         for (provider in AiProviderId.entries.filter { only == null || it.name in only }) {
             val exe = resolveExecutable(provider.command, dirs)
             println("LIVE ===== ${provider.displayName}: ${exe?.path} version=${exe?.let { runBlocking { probeCliVersion(it) } }}")

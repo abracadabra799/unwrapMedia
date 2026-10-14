@@ -119,12 +119,20 @@ fun executeToolRequest(request: AiToolRequest, ctx: AiToolContext): AiToolResult
             }
             val len = minOf(request.length, MAX_TOOL_HEX_BYTES.toLong(), size - request.offset).toInt()
             val bytes = ByteReader.open(ctx.file).use { it.readBytes(request.offset, len) }
+            // Raw bytes must not get around field redaction: location/people/free-text bytes print as "--".
+            val masked = ctx.root?.let { sensitiveRanges(it) }.orEmpty()
+                .filter { it.last >= request.offset && it.first < request.offset + len }
+            var anyMasked = false
             val text = buildString {
                 if (len < request.length) appendLine("(requested ${request.length} B; returned $len B — limit $MAX_TOOL_HEX_BYTES B or end of file)")
                 bytes.toList().chunked(16).forEachIndexed { i, row ->
                     append(hex(request.offset + i * 16L).padEnd(12)).append(": ")
-                    appendLine(row.joinToString(" ") { String.format(Locale.US, "%02X", it.toInt() and 0xFF) })
+                    appendLine(row.mapIndexed { j, b ->
+                        val at = request.offset + i * 16L + j
+                        if (masked.any { at in it }) { anyMasked = true; "--" } else String.format(Locale.US, "%02X", b.toInt() and 0xFF)
+                    }.joinToString(" "))
                 }
+                if (anyMasked) appendLine("(-- = withheld: location, people or free-text bytes)")
             }
             AiToolResult(line, true, bounded(text))
         }
@@ -134,9 +142,9 @@ fun executeToolRequest(request: AiToolRequest, ctx: AiToolContext): AiToolResult
             val path = pathTo(root, node)?.joinToString(" > ") { it.type } ?: node.type
             val text = buildString {
                 appendLine("$path @ ${node.offset} (${hex(node.offset)}) +${node.size} B, header ${node.headerSize} B")
-                node.fields.take(MAX_CONTEXT_FIELDS).forEach { appendLine("  ${it.name} = ${safeValue(it, ctx.file)}") }
+                node.fields.take(MAX_CONTEXT_FIELDS).forEach { appendLine("  ${it.name} = ${safeValue(it, ctx.file, node)}") }
                 if (node.fields.size > MAX_CONTEXT_FIELDS) appendLine("  … ${node.fields.size - MAX_CONTEXT_FIELDS} more fields")
-                node.warnings.take(10).forEach { appendLine("  parser warning: $it") }
+                node.warnings.take(10).forEach { appendLine("  parser warning: ${com.multiviewer.cli.scrubPaths(it, ctx.file)}") }
             }
             AiToolResult(line, true, bounded(text))
         }

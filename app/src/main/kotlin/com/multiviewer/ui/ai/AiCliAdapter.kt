@@ -28,7 +28,7 @@ class ClaudeCliAdapter(private val webSearch: Boolean = false) : AiCliAdapter {
     override val supportsWebSearch = true
     override fun arguments() = listOf(
         "-p", "--output-format", "text", "--tools", if (webSearch) "WebSearch" else "", "--strict-mcp-config", "--no-session-persistence",
-    )
+    ) + if (webSearch) listOf("--allowedTools", "WebSearch") else emptyList()
 }
 
 /**

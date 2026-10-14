@@ -186,4 +186,16 @@ class AiChatControllerTest {
         assertEquals(MAX_TOOL_ROUNDS, a.aiConversation.messages.drop(3).count { it.role == AiRole.TOOL })
         assertEquals(AiRole.NOTICE, a.aiConversation.messages.last().role)
     }
+
+    @Test
+    fun `image input is verified only by an exact one-word color`() = runBlocking {
+        for ((reply, expected) in listOf("I cannot see any image, so I can't say if it is red, green or blue." to CapabilityState.UNSUPPORTED)) {
+            val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, _, _, _ -> AiCliResult.Answer(reply, false) })
+            controller.verifyImageInput(AiProviderId.CODEX, File("/bin/true")).join()
+            assertEquals(expected, controller.lastCapabilityUpdate?.image)
+        }
+        val claude = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, _, _, _ -> error("must not run") })
+        claude.verifyImageInput(AiProviderId.CLAUDE, File("/bin/true")).join()
+        assertEquals(CapabilityState.UNSUPPORTED, claude.lastCapabilityUpdate?.image)
+    }
 }

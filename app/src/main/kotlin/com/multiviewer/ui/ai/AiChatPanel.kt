@@ -262,7 +262,8 @@ fun AiChatPanel(
             if (adapterFor(caps.provider).supportsWebSearch) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     androidx.compose.material3.Checkbox(checked = appState.aiWebSearch, enabled = !running, onCheckedChange = { appState.aiWebSearch = it })
-                    Text(label("웹 검색 허용 (질문 일부가 검색어로 외부에 나갈 수 있음)", "Allow web search (parts of the question may be sent as search queries)"),
+                    Text(label("웹 검색 허용 (질문과 함께 보내는 파일 정보 일부가 검색어로 검색 엔진에 나갈 수 있음)",
+                        "Allow web search (parts of the question and the file details sent with it may reach a search engine as queries)"),
                         color = AppColors.TextSecondary, fontSize = 11.sp)
                 }
             } else {
@@ -282,7 +283,8 @@ fun AiChatPanel(
                 }
             }
             if (tab.aiMarkMode) {
-                Text(label("주 이미지에서 클릭하면 점, 드래그하면 영역을 지정합니다.", "In the primary image, click to point or drag to mark a region."),
+                Text(label("주 이미지에서 클릭하면 점, 드래그하면 영역을 지정합니다 (지정하는 동안 이동·타일 클릭·더블클릭 초기화는 꺼집니다).",
+                    "In the primary image, click to point or drag to mark a region (pan, tile click and double-click reset are off meanwhile)."),
                     color = AppColors.TextMuted, fontSize = 11.sp)
             }
             val marks = listOfNotNull(
@@ -434,8 +436,18 @@ private fun EvidenceChips(appState: AppState, tab: TabState, text: String, ko: B
             check?.structure?.items?.map { it.id }.orEmpty() +
             check?.audioStructure?.items?.map { it.id }.orEmpty()).toSet()
     }
-    val refs = remember(text, root, frames, checkIds) {
-        extractEvidenceRefs(text, root?.size ?: 0L, checkIds, frames?.size)
+    // An offset becomes a chip only if the app sent it (context or tool output) or a node starts there;
+    // otherwise it is likely a codec value such as 0xFFD8, not a location.
+    val conversation = tab.aiConversation
+    val sentOffsets = remember(conversation.messages.size) {
+        val hexes = Regex("\\b0x[0-9A-Fa-f]{1,12}\\b")
+        conversation.messages.flatMap { m -> listOfNotNull(m.outgoingContext, m.text.takeIf { m.role == AiRole.TOOL }) }
+            .flatMap { t -> hexes.findAll(t).mapNotNull { it.value.drop(2).toLongOrNull(16) } }.toSet()
+    }
+    val refs = remember(text, root, frames, checkIds, sentOffsets) {
+        val candidates = Regex("\\b0x[0-9A-Fa-f]{1,12}\\b").findAll(text).mapNotNull { it.value.drop(2).toLongOrNull(16) }
+        val supported = candidates.filter { it in sentOffsets || (root != null && deepestNodeAt(root, it)?.offset == it) }.toSet()
+        extractEvidenceRefs(text, root?.size ?: 0L, checkIds, frames?.size, supportedOffsets = supported)
     }
     if (refs.isEmpty()) return
     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -459,7 +471,12 @@ private fun EvidenceChips(appState: AppState, tab: TabState, text: String, ko: B
                             tab.seekTargetSeconds = it.ptsSeconds
                             tab.seekRequestTick++
                         }
-                        is AiEvidenceRef.Check -> appState.openContentCheck(tab, com.multiviewer.ui.ContentTab.CONFORMANCE)
+                        // Conformance rule IDs open that tab; structure/audio check IDs open the structure tab.
+                        is AiEvidenceRef.Check -> appState.openContentCheck(
+                            tab,
+                            if (tab.contentCheck?.conformance?.findings?.any { it.rule.id == ref.id } == true) com.multiviewer.ui.ContentTab.CONFORMANCE
+                            else com.multiviewer.ui.ContentTab.STRUCTURE,
+                        )
                         is AiEvidenceRef.Url -> com.multiviewer.util.AiCliDetector.openWebAi(ref.url)
                     }
                 }.padding(horizontal = 4.dp, vertical = 1.dp),

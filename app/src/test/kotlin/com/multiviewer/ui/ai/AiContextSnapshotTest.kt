@@ -130,4 +130,18 @@ class AiContextSnapshotTest {
         assertTrue(text.contains("ISOSpeedRatings = 100"), text)
         assertTrue(text.contains("XMP"), text)
     }
+
+    @Test
+    fun `text chunks and ISO 6709 locations are hidden, technical subject and role fields are kept`() {
+        val text = BoxNode("tEXt", 2, 8, 30, fields = listOf(field("keyword", "Author"), field("text", "Kim Photographer")))
+        val loc = BoxNode("data", 40, 8, 30, fields = listOf(field("value", "+37.5665+126.9780+030.000/")))
+        val exif = BoxNode("Exif IFD", 80, 2, 60, fields = listOf(field("SubjectDistance", "1.2 m"), field("SubjectArea", "100 200 50 50")))
+        val aux = BoxNode("auxC", 150, 8, 30, fields = listOf(field("Role Description", "HDR gain map")))
+        val tree = BoxNode("root", 0, 0, 400, listOf(text, loc, exif, aux))
+        fun render(node: BoxNode) = renderAiContext(captureAiContext(file, tree, MediaType.IMAGE, node, null, null, null, null, null))
+        assertFalse(render(text).contains("Kim Photographer"))
+        assertFalse(render(loc).contains("37.5665"))
+        assertTrue(render(exif).contains("SubjectDistance = 1.2 m"))
+        assertTrue(render(aux).contains("HDR gain map"))
+    }
 }

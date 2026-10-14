@@ -131,8 +131,15 @@ suspend fun runAiCli(
     } finally {
         process?.let { if (it.isAlive) ProcessManager.terminate(it) else ProcessManager.unregister(it) }
         // Windows may hold a just-killed process's handles briefly.
-        var attempt = 0
-        while (!workDir.deleteRecursively() && attempt < 5) Thread.sleep(100L * ++attempt)
+        // Cancellation leaves this thread interrupted; clear it while retrying, then restore it.
+        val interrupted = Thread.interrupted()
+        try {
+            var attempt = 0
+            while (!workDir.deleteRecursively() && attempt < 5) Thread.sleep(100L * ++attempt)
+        } catch (_: InterruptedException) {
+        } finally {
+            if (interrupted) Thread.currentThread().interrupt()
+        }
     }
 }
 

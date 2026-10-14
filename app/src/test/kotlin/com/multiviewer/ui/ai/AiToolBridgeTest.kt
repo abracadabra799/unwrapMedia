@@ -108,4 +108,37 @@ class AiToolBridgeTest {
         assertTrue(prompt.contains("a1") && prompt.contains("q1"))
         assertTrue(prompt.contains(TOOL_PREFIX))
     }
+
+    @Test
+    fun `hex dumps mask sensitive field and node bytes`() {
+        val gps = BoxNode("GPS IFD", 200, 2, 40, fields = listOf(BoxField("GPSLatitude", "37.5", 210, 8)))
+        val text = BoxNode("tEXt", 300, 8, 30, fields = listOf(BoxField("keyword", "Author", 308, 6), BoxField("text", "Kim", 315, 3)))
+        val tree = BoxNode("root", 0, 0, 10_000, listOf(BoxNode("ftyp", 0, 8, 100), gps, text))
+        val context = AiToolContext(file, tree, ContentFileIdentity.capture(file), null, null, emptyMap())
+        val dump = executeToolRequest(AiToolRequest.Hex(192, 64), context).text
+        // bytes 192..199 are visible, 200..239 (GPS IFD node) are masked
+        assertTrue(dump.contains("C0 C1 C2 C3"), dump)
+        assertTrue(dump.contains("-- --"), dump)
+        assertFalse(dump.contains("C8 C9"), dump) // 200 % 251 = 0xC8
+        val textDump = executeToolRequest(AiToolRequest.Hex(300, 30), context).text
+        assertTrue(textDump.lines().filter { it.startsWith("0x") }.all { line -> line.substringAfter(": ").split(" ").all { it == "--" } }, textDump)
+    }
+
+    @Test
+    fun `node parser warnings are path-scrubbed`() {
+        val warned = BoxNode("moov", 100, 8, 400, warnings = listOf("cannot read ${file.absolutePath}"))
+        val tree = BoxNode("root", 0, 0, 10_000, listOf(warned))
+        val text = executeToolRequest(AiToolRequest.Node(0x70), AiToolContext(file, tree, ContentFileIdentity.capture(file), null, null, emptyMap())).text
+        assertFalse(text.contains(dir.absolutePath), text)
+    }
+
+    @Test
+    fun `offset chips need support from the context or a node boundary, frames need the word frame`() {
+        val refs = extractEvidenceRefs(
+            "SOI marker 0xFFD8 and flags 0x1; the box at 0x64 and issue #2; see frame 1 and 프레임 0.",
+            fileSize = 70_000, checkIds = emptySet(), frameCount = 3,
+            supportedOffsets = setOf(0x64L),
+        )
+        assertEquals(listOf(AiEvidenceRef.ByteOffset(0x64), AiEvidenceRef.Frame(1), AiEvidenceRef.Frame(0)), refs)
+    }
 }

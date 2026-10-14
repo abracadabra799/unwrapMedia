@@ -35,6 +35,39 @@ private val SENSITIVE_FIELD = Regex(
 private val SENSITIVE_TAG_ID = Regex("(?i)^tag 0x(a430|a431|a435|9c9[b-f]|9286|010e|013b|013c|8298)$")
 private val UNNAMED_TAG = Regex("(?i)^tag 0x[0-9a-f]{4}$")
 private val NUMERIC_VALUE = Regex("^[0-9 .,:/+\\-x()]*$")
+// Whole nodes whose content is location, people or free text (PNG text chunks, XMP, IPTC, GPS IFD, maker notes,
+// QuickTime location boxes).
+private val SENSITIVE_NODE = Regex("(?i)gps|xmp|iptc|makernote|maker note|^app13|^[tiz]ext$|^loci$|^©xyz$|location")
+// ISO 6709 coordinates (QuickTime/MP4 location values), e.g. "+37.5665+126.9780+030.000/".
+private val ISO6709 = Regex("^[+-]\\d{1,3}(\\.\\d+)?[+-]\\d{1,3}(\\.\\d+)?")
+// Technical fields whose names merely contain a sensitive word.
+private val ALLOWED_FIELD = Regex("(?i)^subject(distance|area|distancerange|location)$|^profile_creator$|role ?description|^gpsinfoifdpointer$")
+
+/** True when [field] (of [node]) must not leave the app as text or bytes. */
+internal fun isSensitiveField(field: BoxField, node: BoxNode?): Boolean {
+    if (node != null && SENSITIVE_NODE.containsMatchIn(node.type)) return true
+    if (field.name.equals("xmp", ignoreCase = true)) return true
+    if (ISO6709.containsMatchIn(field.value.trim())) return true
+    if (ALLOWED_FIELD.containsMatchIn(field.name)) return false
+    if (SENSITIVE_FIELD.containsMatchIn(field.name) || SENSITIVE_TAG_ID.matches(field.name)) return true
+    return UNNAMED_TAG.matches(field.name) && !NUMERIC_VALUE.matches(field.value.trim())
+}
+
+/** Byte ranges of sensitive nodes and fields under [root], for masking raw dumps. Bounded walk. */
+internal fun sensitiveRanges(root: BoxNode, limit: Int = 100_000): List<LongRange> {
+    val out = mutableListOf<LongRange>()
+    var visited = 0
+    fun walk(node: BoxNode) {
+        if (visited++ > limit) return
+        if (node !== root && SENSITIVE_NODE.containsMatchIn(node.type) && node.size > 0) {
+            out += node.offset until node.offset + node.size
+        }
+        node.fields.forEach { f -> if (f.length > 0 && isSensitiveField(f, node)) out += f.offset until f.offset + f.length }
+        node.children.forEach(::walk)
+    }
+    walk(root)
+    return out
+}
 
 data class AiNodeContext(
     /** Node types from the root down to the selection. */
@@ -88,12 +121,11 @@ internal fun pathTo(root: BoxNode, target: BoxNode): List<BoxNode>? {
     return search(root, 0)
 }
 
-internal fun safeValue(field: BoxField, file: File): String {
-    if (SENSITIVE_FIELD.containsMatchIn(field.name) || SENSITIVE_TAG_ID.matches(field.name)) return REDACTED
+internal fun safeValue(field: BoxField, file: File, node: BoxNode? = null): String {
     // A raw XMP packet can hold GPS, creator and free text anywhere: say it exists, never send it.
     if (field.name.equals("xmp", ignoreCase = true)) return "[XMP packet, ${field.value.length} chars, not sent]"
     // Unnamed (often maker-note) tags with text values may be serials or names; numbers/dates are kept.
-    if (UNNAMED_TAG.matches(field.name) && !NUMERIC_VALUE.matches(field.value.trim())) return REDACTED
+    if (isSensitiveField(field, node)) return REDACTED
     val scrubbed = scrubPaths(field.value, file).replace('\n', ' ').replace('\r', ' ')
     return if (scrubbed.length <= MAX_CONTEXT_VALUE_CHARS) scrubbed else scrubbed.take(MAX_CONTEXT_VALUE_CHARS) + "…"
 }
@@ -126,7 +158,7 @@ fun captureAiContext(
         AiNodeContext(
             path = path.map { it.type },
             type = selected.type, offset = selected.offset, size = selected.size, headerSize = selected.headerSize,
-            fields = selected.fields.take(MAX_CONTEXT_FIELDS).map { it.name to safeValue(it, file) },
+            fields = selected.fields.take(MAX_CONTEXT_FIELDS).map { it.name to safeValue(it, file, selected) },
             omittedFields = (selected.fields.size - MAX_CONTEXT_FIELDS).coerceAtLeast(0),
             warnings = selected.warnings.take(10).map { scrubPaths(it, file) },
             selectedField = selectedField?.takeIf { f -> selected.fields.any { it === f } }?.name,

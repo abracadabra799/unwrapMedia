@@ -144,6 +144,15 @@ fun PixelInspectorPreview(
             aiTarget.aiImageSource = bitmap
             aiTarget.aiViewport = com.multiviewer.ui.ai.visibleImageRegion(boxSize, nativeSize, scale, offset)
         }
+        // Marks belong to this bitmap: drop them (and the bitmap reference) when it is replaced or leaves.
+        androidx.compose.runtime.DisposableEffect(aiTarget, bitmap) {
+            onDispose {
+                if (aiTarget.aiImageSource === bitmap) aiTarget.aiImageSource = null
+                aiTarget.aiPointer = null
+                aiTarget.aiMarked = null
+                aiTarget.aiViewport = null
+            }
+        }
     }
     var markStart by remember(resetKey) { mutableStateOf<Offset?>(null) }
     var markEnd by remember(resetKey) { mutableStateOf<Offset?>(null) }
