@@ -22,7 +22,8 @@ data class ImageStructureReport(
         get() = when {
             items.any { it.status == CheckStatus.FAIL } -> CheckStatus.FAIL
             items.any { it.status == CheckStatus.WARN } -> CheckStatus.WARN
-            else -> CheckStatus.PASS
+            items.any { it.status == CheckStatus.PASS || it.status == CheckStatus.INFO } -> CheckStatus.PASS
+            else -> CheckStatus.SKIP
         }
 }
 

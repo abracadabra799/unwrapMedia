@@ -26,11 +26,13 @@ data class ConformanceReport(
     val limitations: List<String> = listOf(
         "코덱 비트스트림 구문 전체는 검사하지 않습니다 / Codec bitstream syntax is not fully checked",
     ),
+    val inspectionError: String? = null,
 ) {
     val overall: ConformanceStatus
         get() = when {
             findings.any { it.status == ConformanceStatus.FAIL } -> ConformanceStatus.FAIL
             findings.any { it.status == ConformanceStatus.WARN } -> ConformanceStatus.WARN
+            inspectionError != null -> ConformanceStatus.NOT_CHECKED
             findings.any { it.status == ConformanceStatus.NOT_CHECKED } -> ConformanceStatus.NOT_CHECKED
             findings.any { it.status == ConformanceStatus.PASS } -> ConformanceStatus.PASS
             else -> ConformanceStatus.NOT_CHECKED
