@@ -1,9 +1,12 @@
 package com.multiviewer.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,14 +18,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,12 +37,19 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
@@ -229,7 +242,7 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
                         color = AppColors.TextMuted, modifier = Modifier.padding(16.dp))
                     d == null -> Text(label("구조도 생성 중…", "Building diagram…"), color = AppColors.TextMuted, modifier = Modifier.padding(16.dp))
                     showTable -> DiagramTable(d, selectedRegionId, ko, ::select)
-                    else -> rendered?.let { DiagramImage(it, selectedRegionId, ::select) }
+                    else -> rendered?.let { DiagramImage(it, selectedRegionId, ko, ::select) }
                         ?: Text(label("구조도 그리는 중…", "Rendering…"), color = AppColors.TextMuted, modifier = Modifier.padding(16.dp))
                 }
             }
@@ -237,23 +250,74 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
     }
 }
 
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
-private fun DiagramImage(rendered: RenderedDiagram, selectedRegionId: String?, onSelect: (String) -> Unit) {
+private fun DiagramImage(
+    rendered: RenderedDiagram,
+    selectedRegionId: String?,
+    ko: Boolean,
+    onSelect: (String) -> Unit,
+) {
     val layout = rendered.layout
     val density = LocalDensity.current
-    // One image pixel per screen pixel, so tap offsets map straight onto layout coordinates.
     val width = with(density) { layout.width.toDp() }
     val height = with(density) { layout.height.toDp() }
     val selectionColor = AppColors.NeonBlue
-    Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).horizontalScroll(rememberScrollState())) {
-        Box(
-            Modifier.requiredSize(width, height).pointerInput(layout) {
-                detectTapGestures { offset ->
-                    layout.boxes.firstOrNull { b ->
-                        offset.x >= b.x && offset.x <= b.x + b.w && offset.y >= b.y && offset.y <= b.y + b.h
-                    }?.let { onSelect(it.regionId) }
+
+    var scale by remember(rendered) { mutableStateOf(1f) }
+    var offset by remember(rendered) { mutableStateOf(Offset.Zero) }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .clipToBounds()
+            .background(AppColors.Panel)
+            .onPointerEvent(PointerEventType.Scroll, pass = PointerEventPass.Initial) { event ->
+                val change = event.changes.firstOrNull() ?: return@onPointerEvent
+                val cursorPosition = change.position
+                val scrollDeltaY = change.scrollDelta.y
+                val factor = if (scrollDeltaY < 0) 1.15f else 0.85f
+                val newScale = (scale * factor).coerceIn(0.2f, 10f)
+                val newOffset = Offset(
+                    cursorPosition.x - (cursorPosition.x - offset.x) * (newScale / scale),
+                    cursorPosition.y - (cursorPosition.y - offset.y) * (newScale / scale),
+                )
+                scale = newScale
+                offset = newOffset
+                event.changes.forEach { it.consume() }
+            }
+            .pointerInput(rendered, scale) {
+                detectDragGestures { change, dragAmount ->
+                    change.consume()
+                    offset += dragAmount
                 }
+            }
+            .pointerInput(rendered, scale, offset) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        scale = 1f
+                        offset = Offset.Zero
+                    },
+                    onTap = { clickPos ->
+                        val layoutX = (clickPos.x - offset.x) / scale
+                        val layoutY = (clickPos.y - offset.y) / scale
+                        layout.boxes.firstOrNull { b ->
+                            layoutX >= b.x && layoutX <= b.x + b.w && layoutY >= b.y && layoutY <= b.y + b.h
+                        }?.let { onSelect(it.regionId) }
+                    },
+                )
             },
+    ) {
+        Box(
+            Modifier
+                .requiredSize(width, height)
+                .graphicsLayer(
+                    scaleX = scale,
+                    scaleY = scale,
+                    translationX = offset.x,
+                    translationY = offset.y,
+                    transformOrigin = TransformOrigin(0f, 0f),
+                ),
         ) {
             Image(rendered.bitmap, contentDescription = null, modifier = Modifier.fillMaxSize())
             val selected = layout.boxes.firstOrNull { it.regionId == selectedRegionId }
@@ -263,7 +327,57 @@ private fun DiagramImage(rendered: RenderedDiagram, selectedRegionId: String?, o
                         selectionColor,
                         topLeft = Offset(selected.x - 2f, selected.y - 2f),
                         size = Size(selected.w + 4f, selected.h + 4f),
-                        style = Stroke(width = 3f),
+                        style = Stroke(width = (3f / scale).coerceIn(1f, 6f)),
+                    )
+                }
+            }
+        }
+
+        // Floating zoom HUD (zoom in/out, percent, reset)
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = AppColors.Surface.copy(alpha = 0.92f),
+            border = BorderStroke(1.dp, AppColors.Border),
+            shadowElevation = 2.dp,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(14.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+            ) {
+                IconButton(
+                    onClick = { scale = (scale * 0.85f).coerceIn(0.2f, 10f) },
+                    modifier = Modifier.size(24.dp),
+                ) {
+                    Text("−", fontSize = 14.sp, color = AppColors.TextPrimary)
+                }
+                Text(
+                    "${(scale * 100).toInt()}%",
+                    fontSize = 11.sp,
+                    color = AppColors.TextSecondary,
+                    modifier = Modifier.clickable {
+                        scale = 1f
+                        offset = Offset.Zero
+                    }.padding(horizontal = 4.dp),
+                )
+                IconButton(
+                    onClick = { scale = (scale * 1.15f).coerceIn(0.2f, 10f) },
+                    modifier = Modifier.size(24.dp),
+                ) {
+                    Text("+", fontSize = 14.sp, color = AppColors.TextPrimary)
+                }
+                if (scale != 1f || offset != Offset.Zero) {
+                    Text(
+                        if (ko) "초기화" else "Reset",
+                        fontSize = 11.sp,
+                        color = AppColors.NeonPurple,
+                        modifier = Modifier.clickable {
+                            scale = 1f
+                            offset = Offset.Zero
+                        }.padding(start = 2.dp, end = 6.dp),
                     )
                 }
             }
