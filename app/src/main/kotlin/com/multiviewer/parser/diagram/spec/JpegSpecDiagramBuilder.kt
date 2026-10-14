@@ -1,0 +1,167 @@
+package com.multiviewer.parser.diagram.spec
+
+import com.multiviewer.parser.BoxNode
+import com.multiviewer.parser.diagram.RegionRole
+import com.multiviewer.parser.diagram.RegionStatus
+
+object JpegSpecDiagramBuilder {
+
+    fun build(root: BoxNode, fileSize: Long, title: String): SpecDiagram {
+        val blocks = mutableListOf<SpecBlock>()
+        val arrows = mutableListOf<SpecArrow>()
+        val brackets = mutableListOf<SpecBracket>()
+        val callouts = mutableListOf<SpecCallout>()
+
+        // 1. Whole file bracket
+        brackets += SpecBracket(0L, fileSize, "File Size: $fileSize B", color = 0xFF107C41L)
+
+        val children = if (root.children.isNotEmpty()) root.children else listOf(root)
+
+        // Find primary components
+        val soi = children.find { it.type == "SOI" }
+        val sof = children.find { it.type.startsWith("SOF") }
+        val sos = children.find { it.type == "SOS" }
+        val eoi = children.find { it.type == "EOI" }
+        val sef = children.find { it.type == "sefd" || it.type == "SEFT" }
+
+        for ((idx, child) in children.withIndex()) {
+            when {
+                child.type == "SOI" -> {
+                    val row = SpecRow(listOf(SpecCell("soi_marker", "Start of Image", "0xFFD8", 2L, colSpan = 12, role = RegionRole.MARKER)), child.offset)
+                    blocks += SpecBlock("block_soi_$idx", "Start of Image (SOI)", "Marker: 0xFFD8", child.offset, 2L, RegionRole.MARKER, listOf(row))
+                }
+                child.type == "EOI" -> {
+                    val row = SpecRow(listOf(SpecCell("eoi_marker", "End of Image", "0xFFD9", 2L, colSpan = 12, role = RegionRole.MARKER)), child.offset)
+                    blocks += SpecBlock("block_eoi_$idx", "End of Image (EOI)", "Marker: 0xFFD9", child.offset, 2L, RegionRole.MARKER, listOf(row))
+                }
+                child.type.startsWith("APP1") -> {
+                    val isExif = child.summary?.contains("Exif", ignoreCase = true) == true || child.children.any { it.type.contains("IFD") }
+                    val isXmp = child.summary?.contains("XMP", ignoreCase = true) == true || child.fields.any { it.name.contains("xmp", ignoreCase = true) }
+                    val bannerTitle = if (isExif) "APP1: Exif Metadata" else if (isXmp) "APP1: XMP Metadata" else "APP1 Application Marker"
+
+                    val rows = mutableListOf<SpecRow>()
+                    // Header row: Marker + Length
+                    rows += SpecRow(listOf(
+                        SpecCell("app1_marker_$idx", "Marker", "0xFFE1", 2L, colSpan = 4, role = RegionRole.METADATA),
+                        SpecCell("app1_len_$idx", "Payload Length", "${child.size - 2} B", 2L, colSpan = 4, role = RegionRole.METADATA),
+                        SpecCell("app1_id_$idx", "Identifier", if (isExif) "Exif\\0\\0" else if (isXmp) "http://ns.adobe.com" else "APP1", 4L, colSpan = 4, role = RegionRole.METADATA),
+                    ), child.offset)
+
+                    // IFD tags if present
+                    val ifds = child.children.filter { it.type.contains("IFD") || it.type == "Exif" || it.type == "GPS" }
+                    if (ifds.isNotEmpty()) {
+                        for (ifd in ifds) {
+                            val tagCells = ifd.fields.take(3).mapIndexed { fIdx, f ->
+                                SpecCell("ifd_${ifd.type}_${fIdx}", f.name, f.value, f.length, colSpan = 4, role = RegionRole.METADATA)
+                            }
+                            if (tagCells.isNotEmpty()) {
+                                rows += SpecRow(tagCells, ifd.offset)
+                            }
+                        }
+                    } else if (child.fields.isNotEmpty()) {
+                        val cells = child.fields.take(3).mapIndexed { fIdx, f ->
+                            SpecCell("app1_f_${fIdx}", f.name, f.value, f.length, colSpan = 4, role = RegionRole.METADATA)
+                        }
+                        rows += SpecRow(cells, child.offset + 4)
+                    }
+
+                    blocks += SpecBlock("block_app1_$idx", bannerTitle, "${child.size} Bytes", child.offset, child.size, RegionRole.METADATA, rows)
+                }
+                child.type.startsWith("SOF") -> {
+                    // Frame Header
+                    val width = child.fields.find { it.name == "width" }?.value ?: "4000"
+                    val height = child.fields.find { it.name == "height" }?.value ?: "2252"
+                    val precision = child.fields.find { it.name == "precision" }?.value ?: "8"
+                    val components = child.fields.find { it.name == "components" }?.value ?: "3"
+
+                    val rows = listOf(
+                        SpecRow(listOf(
+                            SpecCell("sof_marker_$idx", "Marker", child.type, 2L, colSpan = 4, role = RegionRole.CODEC_SETUP),
+                            SpecCell("sof_len_$idx", "Length", "${child.size} B", 2L, colSpan = 4, role = RegionRole.CODEC_SETUP),
+                            SpecCell("sof_prec_$idx", "Precision", "$precision bits", 1L, colSpan = 4, role = RegionRole.CODEC_SETUP),
+                        ), child.offset),
+                        SpecRow(listOf(
+                            SpecCell("sof_w_$idx", "Image Width", "$width px", 2L, colSpan = 4, role = RegionRole.CODEC_SETUP),
+                            SpecCell("sof_h_$idx", "Image Height", "$height px", 2L, colSpan = 4, role = RegionRole.CODEC_SETUP),
+                            SpecCell("sof_comp_$idx", "Components", "$components (Y/Cb/Cr)", 1L, colSpan = 4, role = RegionRole.CODEC_SETUP),
+                        ), child.offset + 5),
+                    )
+                    blocks += SpecBlock("block_sof_$idx", "Frame Header (${child.type})", "${width}×${height}, ${precision}-bit", child.offset, child.size, RegionRole.CODEC_SETUP, rows)
+                }
+                child.type == "DQT" -> {
+                    val rows = listOf(
+                        SpecRow(listOf(
+                            SpecCell("dqt_m_$idx", "Marker", "0xFFDB", 2L, colSpan = 4, role = RegionRole.CODEC_SETUP),
+                            SpecCell("dqt_l_$idx", "Length", "${child.size} B", 2L, colSpan = 4, role = RegionRole.CODEC_SETUP),
+                            SpecCell("dqt_q_$idx", "Q-Table", child.summary ?: "64 coefficients", child.size - 4, colSpan = 4, role = RegionRole.CODEC_SETUP),
+                        ), child.offset),
+                    )
+                    blocks += SpecBlock("block_dqt_$idx", "Quantization Table (DQT)", child.summary ?: "Precision: 8-bit", child.offset, child.size, RegionRole.CODEC_SETUP, rows)
+                }
+                child.type == "DHT" -> {
+                    val rows = listOf(
+                        SpecRow(listOf(
+                            SpecCell("dht_m_$idx", "Marker", "0xFFC4", 2L, colSpan = 4, role = RegionRole.CODEC_SETUP),
+                            SpecCell("dht_l_$idx", "Length", "${child.size} B", 2L, colSpan = 4, role = RegionRole.CODEC_SETUP),
+                            SpecCell("dht_t_$idx", "Huffman Table", child.summary ?: "DC/AC Table", child.size - 4, colSpan = 4, role = RegionRole.CODEC_SETUP),
+                        ), child.offset),
+                    )
+                    blocks += SpecBlock("block_dht_$idx", "Huffman Table (DHT)", child.summary ?: "Table definition", child.offset, child.size, RegionRole.CODEC_SETUP, rows)
+                }
+                child.type == "SOS" -> {
+                    val rows = mutableListOf<SpecRow>()
+                    // Scan header
+                    rows += SpecRow(listOf(
+                        SpecCell("sos_m_$idx", "Marker", "0xFFDA", 2L, colSpan = 4, role = RegionRole.MEDIA_DATA),
+                        SpecCell("sos_l_$idx", "Header Size", "12 B", 2L, colSpan = 4, role = RegionRole.MEDIA_DATA),
+                        SpecCell("sos_sel_$idx", "Component Selectors", "Y, Cb, Cr", 8L, colSpan = 4, role = RegionRole.MEDIA_DATA),
+                    ), child.offset)
+
+                    // Entropy-coded scan payload
+                    val payloadSize = (child.size - 12L).coerceAtLeast(0L)
+                    rows += SpecRow(listOf(
+                        SpecCell("sos_payload_$idx", "Entropy-Coded Scan Data", "$payloadSize Bytes compressed DCT bitstream", payloadSize, colSpan = 12, role = RegionRole.MEDIA_DATA),
+                    ), child.offset + 12L)
+
+                    blocks += SpecBlock("block_sos_$idx", "Scan Header & Image Data (SOS)", "Payload: $payloadSize B", child.offset, child.size, RegionRole.MEDIA_DATA, rows)
+                }
+                child.type == "sefd" || child.type == "SEFT" -> {
+                    // Samsung Extension Format (SEF) trailer
+                    val rows = mutableListOf<SpecRow>()
+                    for ((subIdx, sub) in child.children.withIndex()) {
+                        rows += SpecRow(listOf(
+                            SpecCell("sef_field_${subIdx}", sub.type, sub.summary ?: "${sub.size} B", sub.size, colSpan = 12, role = RegionRole.TRAILER),
+                        ), sub.offset)
+
+                        // If embedded video is found in SEF
+                        if (sub.type == "MotionPhoto_Data" || sub.summary?.contains("embedded MP4", ignoreCase = true) == true) {
+                            arrows += SpecArrow("sef_field_${subIdx}", "block_motion_photo", color = 0xFF7C3AEDL, label = "Embedded Video")
+                            brackets += SpecBracket(sub.offset, sub.offset + sub.size, "Embedded MP4 Video: ${sub.size} B", color = 0xFF7C3AEDL)
+                            callouts += SpecCallout("block_sef_$idx", "Samsung Motion Photo Trailer (Contains MP4)")
+                        }
+                    }
+
+                    blocks += SpecBlock("block_sef_$idx", "Samsung Extension Format (SEF)", "Trailer: ${child.size} B", child.offset, child.size, RegionRole.TRAILER, rows)
+                }
+                else -> {
+                    // Other APP markers or metadata
+                    val role = if (child.type.startsWith("APP")) RegionRole.METADATA else RegionRole.OTHER
+                    val row = SpecRow(listOf(
+                        SpecCell("gen_cell_$idx", child.type, child.summary ?: "${child.size} B", child.size, colSpan = 12, role = role),
+                    ), child.offset)
+                    blocks += SpecBlock("block_gen_$idx", "${child.type} Segment", "${child.size} B", child.offset, child.size, role, listOf(row))
+                }
+            }
+        }
+
+        return SpecDiagram(
+            title = title,
+            fileSize = fileSize,
+            blocks = blocks,
+            arrows = arrows,
+            brackets = brackets,
+            callouts = callouts,
+            columnBytes = 12,
+        )
+    }
+}
