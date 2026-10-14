@@ -24,15 +24,26 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -187,155 +198,325 @@ fun AiChatPanel(
         modifier.fillMaxSize().background(AppColors.Panel).padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(label("AI와 대화", "Ask AI"), color = AppColors.NeonPurple, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                Text(tab.file.name, color = AppColors.TextSecondary, fontSize = 11.sp, maxLines = 1)
-            }
-            TextButton(onClick = onClose) { Text("✕", color = AppColors.TextSecondary) }
-        }
-        if (fileChanged) {
-            Text(
-                label("파일이 열린 뒤 변경되었습니다. 이 파일에 대해서는 보내지 않습니다 — 다시 열어 주세요.",
-                    "The file changed after it was opened. Nothing will be sent for it — reopen the file."),
-                color = AppColors.NeonOrange, fontSize = 12.sp,
-            )
-        }
-
-        // Provider and what is actually verified for it.
-        Box {
-            OutlinedButton(onClick = { providerMenu = true }, enabled = !running) {
-                Text(provider?.displayName ?: label("CLI 없음", "No CLI"), fontSize = 12.sp)
-            }
-            DropdownMenu(expanded = providerMenu, onDismissRequest = { providerMenu = false }) {
-                for (p in AiProviderId.entries) {
-                    val c = appState.aiCapabilities[p]
-                    val status = when {
-                        c == null -> label("확인 중…", "checking…")
-                        c.executablePath == null -> label("설치 안 됨", "not installed")
-                        else -> c.version ?: label("버전 알 수 없음", "unknown version")
-                    }
-                    DropdownMenuItem(
-                        text = { Text("${p.displayName} — $status", fontSize = 12.sp) },
-                        enabled = c?.executablePath != null,
-                        onClick = { appState.aiProvider = p; providerMenu = false },
-                    )
-                }
-            }
-        }
-        if (caps != null) {
-            Text(
-                listOf(
-                    label("로그인·텍스트 ", "Login/text ") + stateLabel(caps.text, ko),
-                    label("이미지 ", "Image ") + stateLabel(caps.image, ko),
-                    label("웹 검색 ", "Web search ") + if (appState.aiWebSearch && adapterFor(caps.provider).supportsWebSearch) label("켜짐 (실제 검색 여부는 답의 출처로 판단)", "on (judge actual searching by the cited sources)") else label("꺼짐", "off"),
-                    label("세션 이어가기 미사용 (최근 대화를 다시 보냄)", "No session resume (recent turns are resent)"),
-                ).joinToString(" · "),
-                color = AppColors.TextMuted, fontSize = 11.sp,
-            )
-            if (caps.provider != AiProviderId.CLAUDE) {
-                // Codex's read-only sandbox and Gemini's plan mode still allow reading local files.
-                Text(
-                    label("주의: 이 CLI는 읽기 전용 모드여도 이 컴퓨터의 다른 파일을 읽을 수 있습니다. 파일에서 나온 값은 지시가 아닌 데이터로 표시해 보내지만, 민감한 환경에서는 Claude Code(도구 꺼짐)를 권장합니다.",
-                        "Note: even read-only, this CLI can read other files on this computer. File-derived values are fenced as data, but Claude Code (tools off) is safer for sensitive work."),
-                    color = AppColors.NeonYellow, fontSize = 11.sp,
-                )
-            }
-            if (caps.executablePath == null) {
-                Text(label("이 CLI가 설치되어 있지 않습니다.", "This CLI is not installed."), color = AppColors.NeonOrange, fontSize = 12.sp)
-            } else if (caps.image == CapabilityState.UNKNOWN && adapterFor(caps.provider).argumentsWithImages(listOf(java.io.File("p.png"))) != null) {
-                var checking by remember { mutableStateOf(false) }
-                TextButton(enabled = !checking && !running, onClick = {
-                    checking = true
-                    controller.verifyImageInput(caps.provider, java.io.File(caps.executablePath)) { checking = false }
-                }) {
-                    Text(
-                        if (checking) label("이미지 입력 확인 중… (빨간 사각형 1장 전송)", "Checking image input… (sends one red square)")
-                        else label("이미지 입력 확인 (빨간 사각형 1장 전송)", "Check image input (sends one red square)"),
-                        fontSize = 11.sp,
-                    )
-                }
-            }
-        }
-
-        if (caps != null && caps.executablePath != null) {
-            if (adapterFor(caps.provider).supportsWebSearch) {
+        // 1. 상단 컨트롤 카드 (헤더 + 도구 선택 + 상태 + 부가 옵션)
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = AppColors.Surface,
+            border = BorderStroke(1.dp, AppColors.Border),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // 1행: 헤더 (제목 + 파일명 + 닫기 버튼)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    androidx.compose.material3.Checkbox(checked = appState.aiWebSearch, enabled = !running, onCheckedChange = { appState.aiWebSearch = it })
-                    Text(label("웹 검색 허용 (질문과 함께 보내는 파일 정보 일부가 검색어로 검색 엔진에 나갈 수 있음)",
-                        "Allow web search (parts of the question and the file details sent with it may reach a search engine as queries)"),
-                        color = AppColors.TextSecondary, fontSize = 11.sp)
+                    Text(label("AI와 대화", "Ask AI"), color = AppColors.NeonPurple, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Spacer(Modifier.width(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = AppColors.Background,
+                        border = BorderStroke(1.dp, AppColors.Border.copy(alpha = 0.5f)),
+                    ) {
+                        Text(
+                            tab.file.name,
+                            color = AppColors.TextSecondary,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = onClose, modifier = Modifier.size(24.dp)) {
+                        Text("✕", color = AppColors.TextMuted, fontSize = 12.sp)
+                    }
                 }
-            } else {
-                Text(label("이 연동에서는 웹 검색을 쓸 수 없습니다. 필요하면 브라우저/클립보드 방식을 쓰세요.",
-                    "Web search is not available through this integration; use the browser/clipboard route if needed."),
-                    color = AppColors.TextMuted, fontSize = 11.sp)
+
+                // 2행: 도구 선택 드롭다운 + 상태 뱃지 + 웹 검색
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box {
+                        OutlinedButton(
+                            onClick = { providerMenu = true },
+                            enabled = !running,
+                            shape = RoundedCornerShape(6.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.height(28.dp),
+                        ) {
+                            val pName = provider?.displayName ?: label("도구 선택", "Select Tool")
+                            val vText = caps?.version?.let { " ($it)" }.orEmpty()
+                            Text("$pName$vText  ▾", fontSize = 11.sp, color = AppColors.TextPrimary)
+                        }
+                        DropdownMenu(expanded = providerMenu, onDismissRequest = { providerMenu = false }) {
+                            for (p in AiProviderId.entries) {
+                                val c = appState.aiCapabilities[p]
+                                val status = when {
+                                    c == null -> label("확인 중…", "checking…")
+                                    c.executablePath == null -> label("설치 안 됨", "not installed")
+                                    else -> c.version ?: label("버전 알 수 없음", "unknown version")
+                                }
+                                DropdownMenuItem(
+                                    text = { Text("${p.displayName} — $status", fontSize = 12.sp) },
+                                    enabled = c?.executablePath != null,
+                                    onClick = { appState.aiProvider = p; providerMenu = false },
+                                )
+                            }
+                        }
+                    }
+
+                    // 설치/준비 상태 뱃지
+                    val isInstalled = caps?.executablePath != null
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isInstalled) AppColors.NeonGreen.copy(alpha = 0.12f) else AppColors.NeonOrange.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, if (isInstalled) AppColors.NeonGreen.copy(alpha = 0.35f) else AppColors.NeonOrange.copy(alpha = 0.35f)),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                        ) {
+                            Box(
+                                Modifier.size(6.dp).background(
+                                    if (isInstalled) AppColors.NeonGreen else AppColors.NeonOrange,
+                                    CircleShape,
+                                )
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                if (isInstalled) label("준비됨", "Ready") else label("미설치", "Not Installed"),
+                                color = if (isInstalled) AppColors.NeonGreen else AppColors.NeonOrange,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
+                    }
+
+                    // 웹 검색 옵션 (지원되는 CLI일 때만 노출)
+                    if (caps?.executablePath != null && adapterFor(caps.provider).supportsWebSearch) {
+                        Spacer(Modifier.weight(1f))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = appState.aiWebSearch,
+                                enabled = !running,
+                                onCheckedChange = { appState.aiWebSearch = it },
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(label("웹 검색", "Web"), color = AppColors.TextSecondary, fontSize = 11.sp)
+                        }
+                    }
+                }
+
+                // 3행: 이미지 화면 마킹 (이미지가 있을 때만 노출)
+                if (tab.aiImageSource != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Button(
+                            onClick = { tab.aiMarkMode = !tab.aiMarkMode },
+                            shape = RoundedCornerShape(6.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (tab.aiMarkMode) AppColors.NeonPurple else AppColors.Background,
+                                contentColor = if (tab.aiMarkMode) Color.White else AppColors.TextPrimary,
+                            ),
+                            border = BorderStroke(1.dp, if (tab.aiMarkMode) AppColors.NeonPurple else AppColors.Border),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.height(24.dp),
+                        ) {
+                            Text(if (tab.aiMarkMode) label("✓ 지정 모드 켬", "✓ Marking On") else label("🎯 영역 지정", "🎯 Mark Region"), fontSize = 11.sp)
+                        }
+
+                        val hasMark = tab.aiPointer != null || tab.aiMarked != null
+                        if (hasMark) {
+                            val markText = tab.aiMarked?.let { "${it.width}×${it.height}" } ?: tab.aiPointer?.let { "${it.x},${it.y}" }.orEmpty()
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = AppColors.NeonPurple.copy(alpha = 0.15f),
+                                border = BorderStroke(1.dp, AppColors.NeonPurple.copy(alpha = 0.3f)),
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)) {
+                                    Text(markText, color = AppColors.NeonPurple, fontSize = 10.sp)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        "✕",
+                                        color = AppColors.TextMuted,
+                                        fontSize = 10.sp,
+                                        modifier = Modifier.clickable { tab.aiPointer = null; tab.aiMarked = null },
+                                    )
+                                }
+                            }
+                        } else if (tab.aiMarkMode) {
+                            Text(label("이미지 위를 드래그하세요", "Drag on image"), color = AppColors.TextMuted, fontSize = 10.sp)
+                        }
+                    }
+                }
+
+                if (fileChanged) {
+                    Text(
+                        label("⚠️ 파일이 외부에서 변경되었습니다. 파일을 다시 열어 주세요.",
+                            "⚠️ The file changed after it was opened. Reopen the file."),
+                        color = AppColors.NeonOrange, fontSize = 11.sp,
+                    )
+                }
             }
         }
 
-        // Pointing at the image: opt-in, so the preview's normal pan/tap stays untouched otherwise.
-        if (tab.aiImageSource != null) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                if (tab.aiMarkMode) Button(onClick = { tab.aiMarkMode = false }) { Text(label("화면 지정 끝내기", "Stop marking"), fontSize = 11.sp) }
-                else OutlinedButton(onClick = { tab.aiMarkMode = true }) { Text(label("화면에서 지정", "Mark on screen"), fontSize = 11.sp) }
-                if (tab.aiPointer != null || tab.aiMarked != null) {
-                    TextButton(onClick = { tab.aiPointer = null; tab.aiMarked = null }) { Text(label("지정 지우기", "Clear marks"), fontSize = 11.sp) }
-                }
-            }
-            if (tab.aiMarkMode) {
-                Text(label("주 이미지에서 클릭하면 점, 드래그하면 영역을 지정합니다 (지정하는 동안 이동·타일 클릭·더블클릭 초기화는 꺼집니다).",
-                    "In the primary image, click to point or drag to mark a region (pan, tile click and double-click reset are off meanwhile)."),
-                    color = AppColors.TextMuted, fontSize = 11.sp)
-            }
-            val marks = listOfNotNull(
-                tab.aiPointer?.let { label("점 (${it.x}, ${it.y})", "point (${it.x}, ${it.y})") },
-                tab.aiMarked?.let { label("영역 ${it.x},${it.y} ${it.width}x${it.height}", "region ${it.x},${it.y} ${it.width}x${it.height}") },
-            )
-            if (marks.isNotEmpty()) Text(marks.joinToString(" · "), color = AppColors.NeonPurple, fontSize = 11.sp)
-        } else if (tab.type == com.multiviewer.ui.MediaType.VIDEO) {
-            Text(label("영상 화면 지정은 아직 지원하지 않습니다. 선택한 프레임과 PTS는 함께 보냅니다.",
-                "Marking on video is not supported yet; the selected frame and PTS are sent."),
-                color = AppColors.TextMuted, fontSize = 11.sp)
-        }
-
-        // Transcript.
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        // 2. 메시지 리스트 영역
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (conversation.messages.isEmpty()) {
                 item {
-                    Text(
-                        label(
-                            "이 파일에 대해 질문하세요. 보낼 때 선택한 노드·필드·프레임, 구조 개요, 컨텐츠 검사 결과가 함께 전달되고, 경로·GPS·시리얼은 빠집니다. 앱의 PASS/FAIL 판정은 AI 답변으로 바뀌지 않습니다.",
-                            "Ask about this file. Each message carries the selected node/field/frame, the structure overview and Content Check results at send time; paths, GPS and serials are removed. The app's PASS/FAIL verdicts never change from an answer.",
-                        ),
-                        color = AppColors.TextMuted, fontSize = 12.sp,
-                    )
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(top = 36.dp, bottom = 20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text("💬", fontSize = 28.sp)
+                        Text(
+                            label("파일에 대해 무엇이든 질문하세요", "Ask anything about this file"),
+                            color = AppColors.TextPrimary,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp,
+                        )
+                        Text(
+                            label("현재 탭의 메타데이터와 분석 결과가 안전하게 전달됩니다.", "File metadata and analysis results are safely attached."),
+                            color = AppColors.TextMuted,
+                            fontSize = 11.sp,
+                            textAlign = TextAlign.Center,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        val suggestions = if (ko) listOf(
+                            "🏷️ 파일 메타데이터 요약해줘",
+                            "🔍 규격 적합성이나 이상 항목 분석해줘",
+                            "📐 현재 선택된 노드의 구조 설명해줘",
+                        ) else listOf(
+                            "🏷️ Summarize file metadata",
+                            "🔍 Analyze conformance and anomalies",
+                            "📐 Explain the selected node structure",
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            suggestions.forEach { q ->
+                                Surface(
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = AppColors.Surface,
+                                    border = BorderStroke(1.dp, AppColors.Border),
+                                    modifier = Modifier.clickable { input = q },
+                                ) {
+                                    Text(
+                                        q,
+                                        color = AppColors.TextSecondary,
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
             items(conversation.messages, key = { it.id }) { m ->
-                val (bg, fg, who) = when (m.role) {
-                    AiRole.USER -> Triple(AppColors.Surface, AppColors.TextPrimary, label("나", "You"))
-                    AiRole.ASSISTANT -> Triple(AppColors.Background, AppColors.TextPrimary, m.provider?.displayName ?: "AI")
-                    AiRole.NOTICE -> Triple(AppColors.Background, AppColors.NeonOrange, label("앱 알림", "App notice"))
-                    AiRole.TOOL -> Triple(AppColors.Background, AppColors.TextSecondary, label("앱 도구 (읽기 전용)", "App tool (read-only)"))
-                }
-                Column(
-                    Modifier.fillMaxWidth().background(bg, RoundedCornerShape(6.dp))
-                        .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp)).padding(8.dp),
-                ) {
-                    Text("$who · ${SimpleDateFormat("HH:mm:ss").format(Date(m.timestampMillis))}", color = AppColors.TextMuted, fontSize = 10.sp)
-                    SelectionContainer { Text(m.text, color = fg, fontSize = 13.sp, fontFamily = if (m.role == AiRole.TOOL) FontFamily.Monospace else null) }
-                    if (m.role == AiRole.ASSISTANT) EvidenceChips(appState, tab, m.text, ko)
-                    if (m.outgoingContext != null) {
-                        TextButton(onClick = { expandedContext = if (expandedContext == m.id) null else m.id }) {
-                            Text(
-                                if (expandedContext == m.id) label("보낸 컨텍스트 접기", "Hide sent context")
-                                else label("보낸 컨텍스트 보기 (${m.outgoingContext.length}자)", "Show sent context (${m.outgoingContext.length} chars)"),
-                                fontSize = 11.sp,
-                            )
+                when (m.role) {
+                    AiRole.USER -> {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(start = 24.dp),
+                            horizontalAlignment = Alignment.End,
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(topStart = 12.dp, topEnd = 4.dp, bottomEnd = 12.dp, bottomStart = 12.dp),
+                                color = AppColors.Surface,
+                                border = BorderStroke(1.dp, AppColors.NeonPurple.copy(alpha = 0.4f)),
+                            ) {
+                                Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                                    Text(
+                                        label("나", "You") + " · " + SimpleDateFormat("HH:mm").format(Date(m.timestampMillis)),
+                                        color = AppColors.NeonPurple,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Medium,
+                                    )
+                                    Spacer(Modifier.height(2.dp))
+                                    SelectionContainer {
+                                        Text(m.text, color = AppColors.TextPrimary, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                            if (m.outgoingContext != null) {
+                                Text(
+                                    if (expandedContext == m.id) label("▲ 컨텍스트 접기", "▲ Hide context")
+                                    else label("▼ 보낸 컨텍스트 (${m.outgoingContext.length}자)", "▼ Sent context (${m.outgoingContext.length} chars)"),
+                                    color = AppColors.TextMuted,
+                                    fontSize = 10.sp,
+                                    modifier = Modifier.clickable { expandedContext = if (expandedContext == m.id) null else m.id }.padding(top = 2.dp, end = 4.dp),
+                                )
+                                if (expandedContext == m.id) {
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = AppColors.Background,
+                                        border = BorderStroke(1.dp, AppColors.Border),
+                                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                    ) {
+                                        SelectionContainer {
+                                            Text(m.outgoingContext, color = AppColors.TextSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(6.dp))
+                                        }
+                                    }
+                                }
+                            }
                         }
-                        if (expandedContext == m.id) {
-                            SelectionContainer {
-                                Text(m.outgoingContext, color = AppColors.TextSecondary, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                    }
+                    AiRole.ASSISTANT -> {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(end = 16.dp),
+                            horizontalAlignment = Alignment.Start,
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(topStart = 4.dp, topEnd = 12.dp, bottomEnd = 12.dp, bottomStart = 12.dp),
+                                color = AppColors.Surface,
+                                border = BorderStroke(1.dp, AppColors.Border),
+                            ) {
+                                Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            "🤖 " + (m.provider?.displayName ?: "AI"),
+                                            color = AppColors.NeonBlue,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            SimpleDateFormat("HH:mm").format(Date(m.timestampMillis)),
+                                            color = AppColors.TextMuted,
+                                            fontSize = 10.sp,
+                                        )
+                                    }
+                                    Spacer(Modifier.height(4.dp))
+                                    SelectionContainer {
+                                        Text(m.text, color = AppColors.TextPrimary, fontSize = 12.sp)
+                                    }
+                                    EvidenceChips(appState, tab, m.text, ko)
+                                }
+                            }
+                        }
+                    }
+                    AiRole.NOTICE -> {
+                        Box(Modifier.fillMaxWidth().padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = AppColors.NeonOrange.copy(alpha = 0.1f),
+                                border = BorderStroke(1.dp, AppColors.NeonOrange.copy(alpha = 0.3f)),
+                            ) {
+                                Text(
+                                    "⚠️ " + m.text,
+                                    color = AppColors.NeonOrange,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                )
+                            }
+                        }
+                    }
+                    AiRole.TOOL -> {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = AppColors.Background,
+                            border = BorderStroke(1.dp, AppColors.Border),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(Modifier.padding(6.dp)) {
+                                Text(label("🔧 도구 실행 결과", "🔧 Tool Result"), color = AppColors.TextMuted, fontSize = 10.sp)
+                                SelectionContainer {
+                                    Text(m.text, color = AppColors.TextSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                                }
                             }
                         }
                     }
@@ -344,79 +525,164 @@ fun AiChatPanel(
         }
 
         if (running) {
-            LinearProgressIndicator(Modifier.fillMaxWidth())
-            Text(label("응답 기다리는 중… (요청 1회 최대 3분, 앱 자료 요청이 이어지면 최대 약 12분)", "Waiting for the answer… (3 min per call; up to ~12 min with data requests)"), color = AppColors.TextMuted, fontSize = 11.sp)
-        }
-
-        preview?.let { text ->
-            Column(
-                Modifier.fillMaxWidth().heightIn(max = 220.dp).background(AppColors.Background)
-                    .border(1.dp, AppColors.Border).padding(6.dp),
-            ) {
-                Text(label("보낼 컨텍스트 미리보기 (지금 기준)", "Outgoing context preview (as of now)"), color = AppColors.TextSecondary, fontSize = 11.sp)
-                LazyColumn { item { SelectionContainer { Text(text, color = AppColors.TextSecondary, fontSize = 11.sp, fontFamily = FontFamily.Monospace) } } }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+                Text(label("AI 응답 생성 중…", "Generating answer…"), color = AppColors.NeonPurple, fontSize = 11.sp)
             }
         }
 
-        OutlinedTextField(
-            value = input,
-            onValueChange = { input = it },
-            enabled = !running,
-            placeholder = { Text(label("질문 입력 (⌘/Ctrl+Enter로 보내기)", "Ask a question (⌘/Ctrl+Enter to send)"), fontSize = 12.sp) },
-            modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp, max = 180.dp).onPreviewKeyEvent { e ->
-                if (e.type == KeyEventType.KeyDown && e.key == Key.Enter && (e.isMetaPressed || e.isCtrlPressed)) {
-                    send(input); true
-                } else false
-            },
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = AppColors.TextPrimary, unfocusedTextColor = AppColors.TextPrimary,
-                focusedBorderColor = AppColors.NeonPurple, unfocusedBorderColor = AppColors.Border,
-            ),
-        )
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (running) {
-                Button(onClick = { controller.stop(tab) }) { Text(label("중지", "Stop"), fontSize = 12.sp) }
-            } else {
-                Button(
-                    enabled = input.isNotBlank() && provider != null && caps?.executablePath != null && !fileChanged && !tab.isLoading && tab.root != null,
-                    onClick = { send(input) },
-                ) { Text(label("보내기", "Send"), fontSize = 12.sp) }
-                val lastQuestion = conversation.messages.lastOrNull { it.role == AiRole.USER }?.text
-                val lastFailed = conversation.status in setOf(AiRunStatus.FAILED, AiRunStatus.TIMED_OUT, AiRunStatus.CANCELLED)
-                if (lastQuestion != null && lastFailed) {
-                    OutlinedButton(enabled = provider != null && !fileChanged, onClick = { send(lastQuestion) }) {
-                        Text(label("다시 시도", "Retry"), fontSize = 12.sp)
-                    }
-                }
-            }
-            OutlinedButton(onClick = {
-                if (preview != null) { preview = null; return@OutlinedButton }
-                val file = tab.file; val root = tab.root; val type = tab.type; val selected = tab.selected
-                val field = tab.selectedField; val frame = tab.selectedFrame; val check = tab.contentCheck
-                val parsed = tab.parsedIdentity; val video = tab.embeddedVideo; val visual = tab.aiVisualContext()
-                scope.launch {
-                    preview = try {
-                        withContext(Dispatchers.IO) {
-                            renderAiContext(captureAiContext(file, root, type, selected, field, frame, check, parsed, video, visual))
+        // 3. 하단 입력 영역
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = AppColors.Surface,
+            border = BorderStroke(1.dp, AppColors.Border),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                preview?.let { text ->
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = AppColors.Background,
+                        border = BorderStroke(1.dp, AppColors.Border),
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 160.dp),
+                    ) {
+                        Column(Modifier.padding(6.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(label("보낼 컨텍스트 미리보기", "Context preview"), color = AppColors.TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                                Spacer(Modifier.weight(1f))
+                                Text("✕", color = AppColors.TextMuted, fontSize = 10.sp, modifier = Modifier.clickable { preview = null })
+                            }
+                            LazyColumn(Modifier.padding(top = 4.dp)) {
+                                item {
+                                    SelectionContainer {
+                                        Text(text, color = AppColors.TextSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                                    }
+                                }
+                            }
                         }
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        label("컨텍스트를 만들지 못했습니다: ", "Could not build the context: ") + (e.message ?: e.toString())
                     }
                 }
-            }) { Text(if (preview == null) label("보낼 내용 보기", "Preview context") else label("미리보기 닫기", "Close preview"), fontSize = 12.sp) }
-            TextButton(enabled = !running, onClick = { rediscover++ }) { Text(label("CLI 다시 찾기", "Re-detect CLIs"), fontSize = 11.sp) }
-            OutlinedButton(onClick = onOpenFallback) { Text(label("브라우저/클립보드", "Browser/clipboard"), fontSize = 12.sp) }
-            TextButton(onClick = { showActivity = !showActivity }) {
-                Text(label("활동 기록 ${conversation.activity.size}", "Activity ${conversation.activity.size}"), fontSize = 11.sp)
+
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    enabled = !running,
+                    placeholder = { Text(label("질문 입력… (Enter 또는 ⌘/Ctrl+Enter로 전송)", "Ask a question… (Enter or ⌘/Ctrl+Enter to send)"), fontSize = 12.sp) },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp, max = 120.dp).onPreviewKeyEvent { e ->
+                        if (e.type == KeyEventType.KeyDown && e.key == Key.Enter && (e.isMetaPressed || e.isCtrlPressed)) {
+                            send(input); true
+                        } else false
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = AppColors.TextPrimary, unfocusedTextColor = AppColors.TextPrimary,
+                        focusedBorderColor = AppColors.NeonPurple, unfocusedBorderColor = AppColors.Border,
+                        focusedContainerColor = AppColors.Background, unfocusedContainerColor = AppColors.Background,
+                    ),
+                    shape = RoundedCornerShape(6.dp),
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                        TextButton(
+                            onClick = {
+                                if (preview != null) { preview = null; return@TextButton }
+                                val file = tab.file; val root = tab.root; val type = tab.type; val selected = tab.selected
+                                val field = tab.selectedField; val frame = tab.selectedFrame; val check = tab.contentCheck
+                                val parsed = tab.parsedIdentity; val video = tab.embeddedVideo; val visual = tab.aiVisualContext()
+                                scope.launch {
+                                    preview = try {
+                                        withContext(Dispatchers.IO) {
+                                            renderAiContext(captureAiContext(file, root, type, selected, field, frame, check, parsed, video, visual))
+                                        }
+                                    } catch (e: kotlinx.coroutines.CancellationException) {
+                                        throw e
+                                    } catch (e: Exception) {
+                                        label("컨텍스트를 만들지 못했습니다: ", "Could not build context: ") + (e.message ?: e.toString())
+                                    }
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                        ) {
+                            Text(if (preview == null) label("👁️ 컨텍스트", "👁️ Context") else label("✕ 닫기", "✕ Close"), fontSize = 11.sp, color = AppColors.TextSecondary)
+                        }
+                        TextButton(
+                            onClick = onOpenFallback,
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                        ) {
+                            Text(label("🌐 브라우저", "🌐 Browser"), fontSize = 11.sp, color = AppColors.TextSecondary)
+                        }
+                        TextButton(
+                            enabled = !running,
+                            onClick = { rediscover++ },
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                        ) {
+                            Text(label("🔄 재검색", "🔄 Re-scan"), fontSize = 11.sp, color = AppColors.TextSecondary)
+                        }
+                        if (conversation.activity.isNotEmpty()) {
+                            TextButton(
+                                onClick = { showActivity = !showActivity },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                            ) {
+                                Text("📋 ${conversation.activity.size}", fontSize = 11.sp, color = AppColors.TextSecondary)
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.weight(1f))
+
+                    if (running) {
+                        Button(
+                            onClick = { controller.stop(tab) },
+                            colors = ButtonDefaults.buttonColors(containerColor = AppColors.NeonOrange),
+                            shape = RoundedCornerShape(6.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            modifier = Modifier.height(28.dp),
+                        ) {
+                            Text(label("중지", "Stop"), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        val lastQuestion = conversation.messages.lastOrNull { it.role == AiRole.USER }?.text
+                        val lastFailed = conversation.status in setOf(AiRunStatus.FAILED, AiRunStatus.TIMED_OUT, AiRunStatus.CANCELLED)
+                        if (lastQuestion != null && lastFailed) {
+                            OutlinedButton(
+                                enabled = provider != null && !fileChanged,
+                                onClick = { send(lastQuestion) },
+                                shape = RoundedCornerShape(6.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                modifier = Modifier.height(28.dp),
+                            ) {
+                                Text(label("다시 시도", "Retry"), fontSize = 11.sp)
+                            }
+                            Spacer(Modifier.width(6.dp))
+                        }
+                        Button(
+                            enabled = input.isNotBlank() && provider != null && caps?.executablePath != null && !fileChanged && !tab.isLoading && tab.root != null,
+                            onClick = { send(input) },
+                            colors = ButtonDefaults.buttonColors(containerColor = AppColors.NeonPurple),
+                            shape = RoundedCornerShape(6.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                            modifier = Modifier.height(28.dp),
+                        ) {
+                            Text(label("보내기", "Send"), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
             }
         }
+
         if (showActivity) {
-            Column(Modifier.fillMaxWidth().heightIn(max = 140.dp).background(AppColors.Background).padding(6.dp)) {
-                LazyColumn {
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = AppColors.Background,
+                border = BorderStroke(1.dp, AppColors.Border),
+                modifier = Modifier.fillMaxWidth().heightIn(max = 120.dp),
+            ) {
+                LazyColumn(Modifier.padding(6.dp)) {
                     items(conversation.activity) { a ->
-                        Text("${SimpleDateFormat("HH:mm:ss").format(Date(a.timestampMillis))} ${a.text}", color = AppColors.TextMuted, fontSize = 11.sp)
+                        Text("${SimpleDateFormat("HH:mm:ss").format(Date(a.timestampMillis))} ${a.text}", color = AppColors.TextMuted, fontSize = 10.sp)
                     }
                 }
             }
