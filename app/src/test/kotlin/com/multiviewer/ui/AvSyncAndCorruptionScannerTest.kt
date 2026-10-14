@@ -5,8 +5,21 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.runBlocking
 
 class AvSyncAndCorruptionScannerTest {
+    @Test
+    fun `unreadable media cannot receive a clean bitstream verdict`() = runBlocking {
+        val file = File.createTempFile("corruption-unreadable-", ".mp4")
+        try {
+            file.writeBytes(ByteArray(64))
+            val report = assertNotNull(BitstreamCorruptionScanner.scan(file))
+            assertEquals(CorruptionSeverity.WARNING, report.overallStatus)
+        } finally {
+            file.delete()
+        }
+    }
+
 
     @Test
     fun testBitstreamDecoderErrorExplanation() {

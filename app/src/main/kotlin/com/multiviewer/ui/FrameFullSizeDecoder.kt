@@ -18,7 +18,7 @@ private val fullSizeDecoderExecutor = Executors.newFixedThreadPool(4) { runnable
 // sequentially decoding all preceding frames, combined with JPEG (-q:v 2) for rapid Skia rendering.
 object FrameFullSizeDecoder {
     fun decodeFrameAsync(file: File, ptsSeconds: Double, onResult: (ImageBitmap?) -> Unit): Future<*>? {
-        return fullSizeDecoderExecutor.submit {
+        return submitDiscardingCancelled(fullSizeDecoderExecutor) {
             // Attempt 1: Fast Seek before -i (hardware accelerated)
             var result = FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap(
                 listOf(

@@ -75,7 +75,7 @@ object FrameThumbnailDecoder {
         onComplete: () -> Unit = {},
         onProgress: (Map<Int, ImageBitmap>) -> Unit,
     ): Future<*> {
-        return thumbnailDecoderExecutor.submit {
+        return submitDiscardingCancelled(thumbnailDecoderExecutor) {
             try {
                 decodeRangeStreaming(file, startIndex, startPtsSeconds, count) { partialMap ->
                     EventQueue.invokeLater { onProgress(partialMap) }
@@ -162,6 +162,7 @@ object FrameThumbnailDecoder {
                     Thread.sleep(25)
                 } catch (e: InterruptedException) {
                     com.multiviewer.util.ProcessManager.terminate(p)
+                    Thread.currentThread().interrupt()
                     break
                 }
             }
@@ -169,7 +170,7 @@ object FrameThumbnailDecoder {
             p.waitFor(2000, TimeUnit.MILLISECONDS)
 
             // Final sweep to pick up any remaining frames finished just before process exit
-            scanAndEmitNewThumbnails()
+            if (!Thread.currentThread().isInterrupted) scanAndEmitNewThumbnails()
         } catch (e: Exception) {
             // ignore
         } finally {

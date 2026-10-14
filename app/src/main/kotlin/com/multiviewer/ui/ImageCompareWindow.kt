@@ -305,7 +305,7 @@ fun ImageCompareWindow(
 
         // Otherwise load & parse in background
         session.deliver { onLoaded(CompareMediaInfo(file = file, root = null, forensic = null, bitmap = null, summary = null, fileSize = file.length(), isLoading = true)) }
-        session.track(compareExecutor.submit {
+        session.track(submitDiscardingCancelled(compareExecutor) {
             try {
                 ByteReader.open(file).use { reader ->
                     val root = parseFile(file, reader)

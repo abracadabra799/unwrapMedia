@@ -98,9 +98,15 @@ object ProcessManager {
     }
 
     /** Cancellation must not depend on a blocked stdout read producing another line. */
-    fun watchCancellation(process: Process, cancelled: () -> Boolean): AutoCloseable {
+    fun watchCancellation(process: Process, cancelled: () -> Boolean): AutoCloseable =
+        watchCancellation(process, TimeUnit.MINUTES.toMillis(30), cancelled)
+
+    /** Also bounds a silent stdout read; waiting after the read cannot enforce this deadline. */
+    fun watchCancellation(process: Process, timeoutMillis: Long, cancelled: () -> Boolean): AutoCloseable {
+        require(timeoutMillis > 0) { "timeoutMillis must be positive" }
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
         val watch = cleanup.scheduleWithFixedDelay({
-            if (cancelled()) terminate(process)
+            if (System.nanoTime() >= deadline || runCatching(cancelled).getOrDefault(true)) terminate(process)
         }, 0, 50, TimeUnit.MILLISECONDS)
         return AutoCloseable { watch.cancel(false) }
     }

@@ -20,6 +20,9 @@ class ThumbnailDiskCache(
     private val directory: File,
     private val maxBytes: Long = DEFAULT_MAX_BYTES,
 ) {
+    private val accessOrder = mutableMapOf<String, Long>()
+    private var nextAccessOrder = 0L
+
     init {
         require(maxBytes >= 0L) { "maxBytes must not be negative" }
     }
@@ -33,10 +36,13 @@ class ThumbnailDiskCache(
         val cachedFile = cacheFile(source, longestEdge, fingerprint)
         if (!cachedFile.isFile) return null
         return try {
-            cachedFile.setLastModified(System.currentTimeMillis())
-            cachedFile.readBytes()
+            cachedFile.readBytes().also {
+                cachedFile.setLastModified(System.currentTimeMillis())
+                accessOrder[cachedFile.name] = ++nextAccessOrder
+            }
         } catch (_: Exception) {
             cachedFile.delete()
+            accessOrder.remove(cachedFile.name)
             null
         }
     }
@@ -62,6 +68,7 @@ class ThumbnailDiskCache(
             } catch (_: Exception) {
                 Files.move(temp.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
             }
+            accessOrder[destination.name] = ++nextAccessOrder
             evictToLimit(protectedFile = destination)
         } catch (_: Exception) {
             temp.delete()
@@ -74,7 +81,9 @@ class ThumbnailDiskCache(
 
     @Synchronized
     fun remove(source: File, longestEdge: Int, fingerprint: ThumbnailSourceFingerprint) {
-        cacheFile(source, longestEdge, fingerprint).delete()
+        val cachedFile = cacheFile(source, longestEdge, fingerprint)
+        cachedFile.delete()
+        accessOrder.remove(cachedFile.name)
     }
 
     /** Stable, path-private cache key; source metadata and output size invalidate stale entries. */
@@ -96,17 +105,24 @@ class ThumbnailDiskCache(
 
     private fun evictToLimit(protectedFile: File) {
         val entries = directory.listFiles { file -> file.isFile && file.extension == "thumb" }
-            ?.sortedBy { it.lastModified() }
+            ?.sortedWith(compareBy<File> { if (it.name in accessOrder) 1 else 0 }
+                .thenBy { accessOrder[it.name] ?: it.lastModified() }
+                .thenBy { it.name })
             ?: return
+        accessOrder.keys.retainAll(entries.mapTo(mutableSetOf()) { it.name })
         var totalBytes = entries.sumOf { it.length() }
         for (entry in entries) {
             if (totalBytes <= maxBytes) break
             if (entry == protectedFile) continue
             val size = entry.length()
-            if (entry.delete()) totalBytes -= size
+            if (entry.delete()) {
+                totalBytes -= size
+                accessOrder.remove(entry.name)
+            }
         }
         if (totalBytes > maxBytes) {
             protectedFile.delete()
+            accessOrder.remove(protectedFile.name)
         }
     }
 

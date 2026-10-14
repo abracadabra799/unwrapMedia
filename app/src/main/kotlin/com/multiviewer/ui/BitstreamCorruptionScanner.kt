@@ -109,7 +109,7 @@ object BitstreamCorruptionScanner {
     suspend fun scan(file: File, knownFrames: List<FrameInfo>? = null): BitstreamCorruptionReport? = withContext(Dispatchers.IO) {
         try {
             // A killed (cancelled) scan read only part of the file -- never turn that into a report.
-            val (frames, rawErrors) = probeFramesAndErrors(file, knownFrames) { !isActive }
+            val (frames, rawErrors, scanComplete) = probeFramesAndErrors(file, knownFrames) { !isActive }
             ensureActive()
             val corruptEntries = mutableListOf<CorruptFrameEntry>()
 
@@ -173,8 +173,10 @@ object BitstreamCorruptionScanner {
             val criticalCount = corruptEntries.count { it.severity == CorruptionSeverity.CRITICAL }
             val hasRefLoss = corruptEntries.any { it.affectedGopSpan > 1 }
 
+            val hasCoverage = scanComplete && frames.isNotEmpty()
             val overallStatus = when {
                 criticalCount > 0 -> CorruptionSeverity.CRITICAL
+                !hasCoverage -> CorruptionSeverity.WARNING
                 corruptEntries.isNotEmpty() -> CorruptionSeverity.WARNING
                 else -> CorruptionSeverity.PASS
             }
@@ -182,6 +184,8 @@ object BitstreamCorruptionScanner {
             val recommendation = when {
                 criticalCount > 0 ->
                     "손상된 비트스트림 NAL 오프셋이 발견되었습니다. 프레임 바이트를 확인하거나 참조 무결성을 위해 해당 GOP 구간을 재인코딩(Re-encode)하거나 복구 필터를 적용하세요."
+                !hasCoverage ->
+                    "프레임 검사가 완료되지 않았습니다. 입력과 ffprobe 실행을 확인하세요. / Frame scan incomplete. Check the input and ffprobe process."
                 corruptEntries.isNotEmpty() ->
                     "경미한 규격 이상이나 비표준 헤더가 있습니다. 모바일 디코더 호환성을 위해 리먹싱(-c copy)을 권장합니다."
                 else ->
@@ -217,9 +221,10 @@ object BitstreamCorruptionScanner {
         file: File,
         knownFrames: List<FrameInfo>? = null,
         isCancelled: () -> Boolean = { false },
-    ): Pair<List<FrameInfo>, List<RawDecoderError>> {
+    ): Triple<List<FrameInfo>, List<RawDecoderError>, Boolean> {
         val frames = mutableListOf<FrameInfo>()
         val errors = mutableListOf<RawDecoderError>()
+        var scanComplete = false
         var process: Process? = null
         var cancellationWatch: AutoCloseable? = null
         try {
@@ -298,7 +303,7 @@ object BitstreamCorruptionScanner {
                     )
                 )
             }
-            process.waitFor()
+            scanComplete = process.waitFor() == 0
         } catch (e: Exception) {
             if (!isCancelled()) e.printStackTrace()
         } finally {
@@ -311,7 +316,7 @@ object BitstreamCorruptionScanner {
 
         // If knownFrames were already analyzed, keep the caller's frames but keep matched errors
         val finalFrames = if (knownFrames != null && knownFrames.isNotEmpty()) knownFrames else frames
-        return Pair(finalFrames, errors)
+        return Triple(finalFrames, errors, scanComplete)
     }
 
     /**

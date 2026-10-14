@@ -1,7 +1,7 @@
 {
-  "version": "1.24.0",
+  "version": "1.25.0",
   "releaseDate": "2026-10-15",
-  "releaseNotes": "• 스펙 스타일 파일 구조도(Spec-Grade Structure Diagram): BMP, JPEG, HEIC, MP4/MOV, PNG, TIFF, WebP 등 표준 규격서 스타일 다크 배너, 4바이트 정렬 눈금자, 2D 픽셀 배열 및 패딩 시각화\n• 동적 오프셋 및 참조 화살표: 픽셀 오프셋(bfOffBits), 아이템 위치(iloc), 청크 오프셋(stco/co64), IFD 포인터, 모션포토 비디오(SEF/MP4) 연결선 자동 렌더링\n• AI와 대화 UX 개선: 상단 탭 바 원클릭 AI 진입 버튼 추가, 대화창 오픈 시 전체화면 자동 전환 및 복원, 웹 검색 기본 활성화 및 옵션 정렬 최적화\n• Hex Data Viewer 시각성 강화: 기본 패널 폭 최적화로 Decoded Text 가시성 확보 및 폭 협소 시 Decoded Text 확장 안내 뱃지·그라데이션 제공",
+  "releaseNotes": "• GOP 필름스트립: 스크롤 위치가 바뀌면 이전 썸네일 추출을 취소하고 늦게 도착한 결과를 무시하여 ffmpeg 작업 누적을 방지\n• 썸네일 디스크 캐시: 파일 시각이 같거나 어긋나도 최근 사용 항목을 유지하여 불필요한 재추출을 방지\n• 미디어 비교: 재생 미리보기 추출 빈도를 제한하고 느린 디코드에서는 최신 시점만 대기시키며 파일 변경·창 종료 시 작업을 취소\n• 디코드 대기 큐: 취소된 썸네일·프레임·이미지 작업을 새 요청 전에 제거하고 완료된 Skia 이미지 리소스를 즉시 해제\n• 프로세스 수명: 출력 없이 멈춘 분석에 시간 제한을 적용하고 불완전한 프레임·비트스트림 검사의 거짓 정상 판정을 방지",
   "windowsUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest",
   "macUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest"
 }

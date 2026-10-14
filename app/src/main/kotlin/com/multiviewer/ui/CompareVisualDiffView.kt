@@ -50,35 +50,10 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.awt.image.BufferedImage
 import kotlin.math.floor
-import java.util.concurrent.Future
 
 /** Keep the playback clock smooth without starting two ffmpeg processes for every 40 ms tick. */
 internal fun comparisonPreviewTime(seconds: Double, playing: Boolean): Double =
     if (playing) floor(seconds.coerceAtLeast(0.0) * 4.0) / 4.0 else seconds
-
-/** Owns the pair of frame jobs and rejects results posted after a key change or disposal. */
-internal class ComparisonDecodeLifetime {
-    @Volatile private var active = true
-    private val futures = mutableListOf<Future<*>>()
-
-    @Synchronized fun track(future: Future<*>) {
-        if (active) futures += future else future.cancel(true)
-    }
-
-    fun deliver(block: () -> Unit): Boolean {
-        if (!active) return false
-        block()
-        return true
-    }
-
-    fun close() {
-        val pending = synchronized(this) {
-            active = false
-            futures.toList().also { futures.clear() }
-        }
-        pending.forEach { it.cancel(true) }
-    }
-}
 
 // -------------------------------------------------------------------------------------------------
 // 3. Visual Diff View (Split Wiper, Side by Side, Difference Heatmap + Video Timeline Sync)
@@ -141,28 +116,30 @@ internal fun VisualDiffView(
         }
     }
 
-    // Each sampled timestamp owns both decodes. Disposal cancels obsolete ffmpeg work and
-    // rejects callbacks that were already posted to the UI queue.
+    // A slow decoder keeps at most one job per side and catches up to the latest sampled time.
+    // Closing or changing files cancels the jobs and rejects late callbacks.
     val previewPts = comparisonPreviewTime(currentPts, isPlaying)
-    DisposableEffect(previewPts, infoA.file, infoA.bitmap, infoA.isVideo, infoB.file, infoB.bitmap, infoB.isVideo) {
-        val lifetime = ComparisonDecodeLifetime()
-        if (infoA.isVideo) {
-            FrameFullSizeDecoder.decodeFrameAsync(infoA.file, previewPts) { bm ->
-                lifetime.deliver { if (bm != null) frameBitmapA = bm }
-            }?.let(lifetime::track)
-        } else {
-            frameBitmapA = infoA.bitmap
-        }
-
-        if (infoB.isVideo) {
-            FrameFullSizeDecoder.decodeFrameAsync(infoB.file, previewPts) { bm ->
-                lifetime.deliver { if (bm != null) frameBitmapB = bm }
-            }?.let(lifetime::track)
-        } else {
-            frameBitmapB = infoB.bitmap
-        }
-        onDispose { lifetime.close() }
+    val schedulerA = remember(infoA.file, infoA.isVideo) {
+        if (infoA.isVideo) ComparisonFrameScheduler<ImageBitmap>(
+            decode = { pts, done -> FrameFullSizeDecoder.decodeFrameAsync(infoA.file, pts, done) },
+            publish = { bitmap -> if (bitmap != null) frameBitmapA = bitmap },
+        ) else null
     }
+    val schedulerB = remember(infoB.file, infoB.isVideo) {
+        if (infoB.isVideo) ComparisonFrameScheduler<ImageBitmap>(
+            decode = { pts, done -> FrameFullSizeDecoder.decodeFrameAsync(infoB.file, pts, done) },
+            publish = { bitmap -> if (bitmap != null) frameBitmapB = bitmap },
+        ) else null
+    }
+    DisposableEffect(schedulerA, schedulerB) {
+        onDispose { schedulerA?.close(); schedulerB?.close() }
+    }
+    LaunchedEffect(previewPts, schedulerA, schedulerB) {
+        schedulerA?.request(previewPts)
+        schedulerB?.request(previewPts)
+    }
+    LaunchedEffect(infoA.bitmap, infoA.isVideo) { if (!infoA.isVideo) frameBitmapA = infoA.bitmap }
+    LaunchedEffect(infoB.bitmap, infoB.isVideo) { if (!infoB.isVideo) frameBitmapB = infoB.bitmap }
 
     val displayBitmapA = frameBitmapA ?: infoA.bitmap
     val displayBitmapB = frameBitmapB ?: infoB.bitmap

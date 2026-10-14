@@ -5,8 +5,28 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.toList
+import java.nio.file.Files
 
 class FrameTypeAnalyzerTest {
+    @Test
+    fun `timed out frame scan does not cache a partial index`() {
+        if (System.getProperty("os.name").lowercase().contains("win")) return
+        val directory = Files.createTempDirectory("frame-scan-timeout-").toFile()
+        val fifo = directory.resolve("blocked.mp4")
+        try {
+            assertEquals(0, ProcessBuilder("mkfifo", fifo.absolutePath).start().waitFor())
+            val progress = runBlocking { probeFrameTypesStreaming(fifo, timeoutMillis = 150).toList() }
+            assertTrue(progress.last().isComplete)
+            assertTrue(progress.last().frames.isEmpty())
+            assertNull(com.multiviewer.cache.MediaIndexCache.get(fifo))
+        } finally {
+            fifo.delete()
+            directory.delete()
+        }
+    }
+
     @Test
     fun `progress snapshots grow geometrically to avoid quadratic list copying`() {
         assertEquals(2_000, nextFrameSnapshotThreshold(1_000))

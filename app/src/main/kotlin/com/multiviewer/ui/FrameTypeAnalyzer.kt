@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 data class FrameInfo(val index: Int, val type: Char, val sizeBytes: Int, val ptsSeconds: Double, val byteOffset: Long? = null)
 
@@ -31,6 +32,7 @@ fun probeFrameTypesStreaming(
     estimatedDurationSec: Double? = null,
     estimatedFps: Double? = null,
     chunkSize: Int = 1000,
+    timeoutMillis: Long = TimeUnit.MINUTES.toMillis(30),
     isCancelled: () -> Boolean = { false },
 ): Flow<FrameAnalysisProgress> = flow {
     if (isCancelled()) return@flow
@@ -59,7 +61,7 @@ fun probeFrameTypesStreaming(
             ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD)
                 .also { FfmpegLocator.configureEnvironment(it) }.start()
         )
-        cancellationWatch = ProcessManager.watchCancellation(process) { isCancelled() || !context.isActive }
+        cancellationWatch = ProcessManager.watchCancellation(process, timeoutMillis) { isCancelled() || !context.isActive }
 
         val values = mutableMapOf<String, String>()
         val frames = ArrayList<FrameInfo>(estimatedTotal ?: 10000)
@@ -104,7 +106,10 @@ fun probeFrameTypesStreaming(
         // let a later scan read it back from the cache as if it were the complete frame index.
         context.ensureActive()
         if (cancelled || isCancelled()) return@flow
-        process.waitFor()
+        if (process.waitFor() != 0) {
+            emit(FrameAnalysisProgress(emptyList(), 0, estimatedTotal, isComplete = true))
+            return@flow
+        }
 
         if (frames.isNotEmpty()) {
             MediaIndexCache.put(file, frames)

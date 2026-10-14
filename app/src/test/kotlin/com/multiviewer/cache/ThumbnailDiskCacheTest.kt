@@ -8,6 +8,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class ThumbnailDiskCacheTest {
     @Test
@@ -101,6 +102,12 @@ class ThumbnailDiskCacheTest {
             val thirdSource = File(root, "third.jpg").apply { writeBytes(byteArrayOf(3)) }
             cache.put(firstSource, 240, byteArrayOf(1, 1, 1))
             cache.put(secondSource, 240, byteArrayOf(2, 2, 2))
+
+            // Same/future filesystem timestamps must not make a recently read entry look older.
+            val sameTimestamp = System.currentTimeMillis() + 60_000
+            cacheDir.listFiles { file -> file.extension == "thumb" }!!.forEach {
+                assertTrue(it.setLastModified(sameTimestamp))
+            }
 
             assertContentEquals(byteArrayOf(1, 1, 1), cache.get(firstSource, 240))
             cache.put(thirdSource, 240, byteArrayOf(3, 3, 3))

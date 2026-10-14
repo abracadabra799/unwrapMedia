@@ -146,11 +146,14 @@ private fun runMetricPass(
     } catch (e: Exception) {
         return false
     }
+    val cancellationWatch = ProcessManager.watchCancellation(
+        process, TimeUnit.SECONDS.toMillis(METRIC_RUN_TIMEOUT_SECONDS), isCancelled,
+    )
     return try {
         process.inputStream.bufferedReader().useLines { lines ->
             for (line in lines) {
                 if (isCancelled()) {
-                    process.destroyForcibly()
+                    ProcessManager.terminate(process)
                     return false
                 }
                 if (line.startsWith("frame=")) {
@@ -161,14 +164,15 @@ private fun runMetricPass(
         }
         val finished = process.waitFor(METRIC_RUN_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         if (!finished) {
-            process.destroyForcibly()
+            ProcessManager.terminate(process)
             return false
         }
         process.exitValue() == 0 && statsFile.exists()
     } catch (e: Exception) {
-        process.destroyForcibly()
+        ProcessManager.terminate(process)
         false
     } finally {
+        cancellationWatch.close()
         ProcessManager.terminate(process)
     }
 }

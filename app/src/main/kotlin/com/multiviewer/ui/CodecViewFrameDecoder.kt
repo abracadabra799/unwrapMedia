@@ -79,7 +79,7 @@ object CodecViewFrameDecoder {
         mode: CodecViewMode,
         codecName: String? = null,
         onResult: (ImageBitmap?) -> Unit,
-    ): java.util.concurrent.Future<*> = codecViewDecoderExecutor.submit {
+    ): java.util.concurrent.Future<*> = submitDiscardingCancelled(codecViewDecoderExecutor) {
         val result = FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap(
             buildCodecViewFfmpegArgs(FfmpegLocator.ffmpegPath(), file.absolutePath, ptsSeconds, mode, codecName),
         )

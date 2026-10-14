@@ -2,24 +2,36 @@ package com.multiviewer.ui
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import java.util.concurrent.FutureTask
 
 class ComparisonPreviewCadenceTest {
     @Test
-    fun `disposed comparison decode cancels work and ignores late callback`() {
-        val lifetime = ComparisonDecodeLifetime()
-        val work = FutureTask<Unit>({ })
-        lifetime.track(work)
-        var delivered = false
-        assertTrue(lifetime.deliver { delivered = true })
-        lifetime.close()
-        assertTrue(work.isCancelled)
-        assertFalse(lifetime.deliver { delivered = true })
-        delivered = false
-        assertFalse(lifetime.deliver { delivered = true })
-        assertFalse(delivered)
+    fun `slow comparison decoder keeps one job and then runs latest requested time`() {
+        val launched = mutableListOf<Double>()
+        val callbacks = mutableListOf<(String?) -> Unit>()
+        val published = mutableListOf<String>()
+        val jobs = mutableListOf<FutureTask<Unit>>()
+        val scheduler = ComparisonFrameScheduler<String>(
+            decode = { pts, callback ->
+                launched += pts
+                callbacks += callback
+                FutureTask<Unit>({ }).also(jobs::add)
+            },
+            publish = { it?.let(published::add) },
+        )
+        scheduler.request(0.0)
+        scheduler.request(0.25)
+        scheduler.request(0.5)
+        assertEquals(listOf(0.0), launched)
+        callbacks[0]("frame0")
+        assertEquals(listOf(0.0, 0.5), launched)
+        scheduler.close()
+        assertTrue(jobs[1].isCancelled)
+        callbacks[1]("late")
+        scheduler.request(0.75)
+        assertEquals(listOf("frame0"), published)
+        assertEquals(listOf(0.0, 0.5), launched)
     }
 
     @Test

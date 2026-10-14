@@ -496,8 +496,7 @@ object AvSyncAnalyzer {
                 }
             }
             if (isCancelled()) return null
-            process.waitFor()
-            packets
+            if (process.waitFor() == 0) packets else null
         } catch (e: Exception) {
             null
         } finally {

@@ -44,7 +44,7 @@ object FfmpegImageSnapshotDecoder {
 
     fun decodeFirstFrameAsync(
         file: File, root: BoxNode? = null,
-        execute: (() -> Unit) -> Future<*>? = { work -> backgroundExecutor.submit(work) },
+        execute: (() -> Unit) -> Future<*>? = { work -> submitDiscardingCancelled(backgroundExecutor, work) },
         onResult: (ImageBitmap?) -> Unit,
     ): Future<*>? {
         return execute {
@@ -82,7 +82,7 @@ object FfmpegImageSnapshotDecoder {
     // modern HEIC thumbnail items are commonly HEVC-coded instead, which is what this covers.
     fun decodeEmbeddedHevcThumbnailAsync(
         file: File, root: BoxNode,
-        execute: (() -> Unit) -> Future<*>? = { work -> backgroundExecutor.submit(work) },
+        execute: (() -> Unit) -> Future<*>? = { work -> submitDiscardingCancelled(backgroundExecutor, work) },
         onResult: (ImageBitmap?) -> Unit,
     ): Future<*>? {
         return execute {
@@ -153,8 +153,7 @@ object FfmpegImageSnapshotDecoder {
             } else {
                 try {
                     val bytes = tempFile.readBytes()
-                    val skiaImg = Image.makeFromEncoded(bytes)
-                    skiaImg?.toComposeImageBitmap()
+                    Image.makeFromEncoded(bytes)?.use { it.toComposeImageBitmap() }
                 } catch (oom: OutOfMemoryError) {
                     System.gc()
                     null

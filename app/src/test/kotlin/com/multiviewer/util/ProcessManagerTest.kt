@@ -9,6 +9,19 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ProcessManagerTest {
+    @Test
+    fun `watch timeout terminates a silent process before any output arrives`() {
+        val process = ProcessManager.register(ProcessBuilder("sleep", "30").start())
+        val watch = ProcessManager.watchCancellation(process, timeoutMillis = 100) { false }
+        try {
+            assertTrue(process.waitFor(3, TimeUnit.SECONDS))
+            assertFalse(process.isAlive)
+        } finally {
+            watch.close()
+            ProcessManager.terminate(process)
+        }
+    }
+
 
     @Test
     fun `terminate stops a child even when its parent exits immediately`() {
