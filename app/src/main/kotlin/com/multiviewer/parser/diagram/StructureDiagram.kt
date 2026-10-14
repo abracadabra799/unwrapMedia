@@ -14,6 +14,8 @@ data class StructureDiagram(
     val links: List<DiagramLink>,
     /** Overlaps, out-of-range children, unverified references: shown, never hidden. */
     val warnings: List<String>,
+    /** Informational facts about how the map was drawn (e.g. a logical, non-containing level). */
+    val notes: List<String> = emptyList(),
 )
 
 data class DiagramRegion(

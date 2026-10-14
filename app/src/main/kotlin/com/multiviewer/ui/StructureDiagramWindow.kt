@@ -84,19 +84,34 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
     // File name only: shared output never carries the local path.
     val title = tab.file.name
 
+    // A build/render failure (even an Error such as OutOfMemoryError on a hostile file) stays in this window.
+    var failure by remember(tab) { mutableStateOf<String?>(null) }
     val diagram by produceState<StructureDiagram?>(null, tab, root, video) {
         value = null
         val r = root ?: return@produceState
         // The tree's own size (= parsed file size) avoids a stat on the UI thread.
         val fileSize = tab.parsedIdentity?.length ?: r.size
-        value = withContext(Dispatchers.Default) { buildStructureDiagram(r, fileSize, video) }
+        try {
+            value = withContext(Dispatchers.Default) { buildStructureDiagram(r, fileSize, video) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            failure = e.toString()
+        }
     }
     val rendered by produceState<RenderedDiagram?>(null, diagram, depth) {
-        val d = diagram ?: run { value = null; return@produceState }
-        value = withContext(Dispatchers.Default) {
-            val layout = layoutStructureDiagram(d, depth, title)
-            val image = renderStructurePng(layout)
-            RenderedDiagram(layout, image, image.toComposeImageBitmap())
+        value = null
+        val d = diagram ?: return@produceState
+        try {
+            value = withContext(Dispatchers.Default) {
+                val layout = layoutStructureDiagram(d, depth, title)
+                val image = renderStructurePng(layout)
+                RenderedDiagram(layout, image, image.toComposeImageBitmap())
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            failure = e.toString()
         }
     }
     val selectedRegionId = remember(diagram, tab.selected, root) {
@@ -125,9 +140,11 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
                 message = label("저장됨: ", "Saved: ") + output.name
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: java.nio.file.FileAlreadyExistsException) {
+                message = label("저장하지 않음: 같은 이름의 파일이 이미 있습니다 (덮어쓰지 않음). 다른 이름을 고르세요.",
+                    "Not saved: a file with that name already exists (never overwritten). Choose another name.")
             } catch (e: Exception) {
-                message = label("저장 실패 (기존 파일 덮어쓰기 불가): ", "Save failed (existing files are not overwritten): ") +
-                    (e.message ?: e.toString())
+                message = label("저장 실패: ", "Save failed: ") + (e.message ?: e.toString())
             } finally {
                 saving = false
             }
@@ -192,6 +209,8 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
 
             Box(Modifier.weight(1f).fillMaxWidth().background(AppColors.Panel)) {
                 when {
+                    failure != null -> Text(label("구조도를 만들지 못했습니다: ", "Could not build the diagram: ") + failure,
+                        color = AppColors.NeonRed, modifier = Modifier.padding(16.dp))
                     root == null -> Text(label("파일 구조가 아직 로드되지 않았습니다", "The file structure is not loaded yet"),
                         color = AppColors.TextMuted, modifier = Modifier.padding(16.dp))
                     d == null -> Text(label("구조도 생성 중…", "Building diagram…"), color = AppColors.TextMuted, modifier = Modifier.padding(16.dp))

@@ -35,14 +35,22 @@ private const val ACCENT = 0x7C3AED
 private fun css(rgb: Int) = "#" + rgb.toString(16).padStart(6, '0')
 
 private fun xml(text: String): String = buildString {
-    for (c in text) when (c) {
-        '&' -> append("&amp;")
-        '<' -> append("&lt;")
-        '>' -> append("&gt;")
-        '"' -> append("&quot;")
-        '\'' -> append("&apos;")
-        // Characters XML 1.0 cannot carry at all.
-        else -> if (c < ' ' && c != '\t') append(' ') else append(c)
+    var i = 0
+    while (i < text.length) {
+        val c = text[i]
+        when {
+            c == '&' -> append("&amp;")
+            c == '<' -> append("&lt;")
+            c == '>' -> append("&gt;")
+            c == '"' -> append("&quot;")
+            c == '\'' -> append("&apos;")
+            // A valid surrogate pair is one supplementary character: keep it.
+            c.isHighSurrogate() && i + 1 < text.length && text[i + 1].isLowSurrogate() -> { append(c); append(text[i + 1]); i++ }
+            // Characters XML 1.0 cannot carry at all: controls, lone surrogates, U+FFFE/U+FFFF.
+            (c < ' ' && c != '\t') || c.isSurrogate() || c == '\uFFFE' || c == '\uFFFF' -> append('\uFFFD')
+            else -> append(c)
+        }
+        i++
     }
 }
 
@@ -138,7 +146,8 @@ fun renderStructurePng(layout: DiagramLayout): BufferedImage {
     return image
 }
 
-private fun cell(text: String) = text.replace("\r\n", " ").replace('\n', ' ').replace('\r', ' ').replace("|", "\\|")
+private fun cell(text: String) =
+    text.replace("\r\n", " ").replace('\n', ' ').replace('\r', ' ').replace("\\", "\\\\").replace("|", "\\|")
 
 /** Text form of the same diagram for docs/wikis/chat: every region (all depths), overlays, links and warnings. */
 fun structureDiagramMarkdownTable(diagram: StructureDiagram): String = buildString {
@@ -162,6 +171,11 @@ fun structureDiagramMarkdownTable(diagram: StructureDiagram): String = buildStri
         for (l in diagram.links) {
             appendLine("- ${cell(labels[l.fromId] ?: l.fromId)} → ${cell(labels[l.toId] ?: l.toId)} [${l.meaning.name}]: ${cell(l.evidence)}")
         }
+    }
+    if (diagram.notes.isNotEmpty()) {
+        appendLine()
+        appendLine("Notes:")
+        for (n in diagram.notes) appendLine("- ${cell(n)}")
     }
     if (diagram.warnings.isNotEmpty()) {
         appendLine()

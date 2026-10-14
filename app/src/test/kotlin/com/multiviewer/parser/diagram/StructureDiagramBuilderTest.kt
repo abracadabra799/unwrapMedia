@@ -91,13 +91,43 @@ class StructureDiagramBuilderTest {
     @Test
     fun `an XMP motion photo links the declaring APP1 segment to the video bytes`() {
         val xmp = node("APP1", 2, 200, headerSize = 4, fields = listOf(BoxField("xmp", "<x GCamera:MotionPhoto=\"1\"/>", 6, 196)))
-        val root = node("root", 0, 1_000, listOf(node("SOI", 0, 2, headerSize = 2), xmp, node("EOI", 202, 2, headerSize = 2)), headerSize = 0)
+        val root = node("root", 0, 1_000, listOf(
+            node("SOI", 0, 2, headerSize = 2), xmp, node("EOI", 202, 2, headerSize = 2), node("ftyp", 204, 24),
+        ), headerSize = 0)
         val d = buildStructureDiagram(root, 1_000, EmbeddedVideo(204, 1_000, "mp4"))
         val link = d.links.single()
         assertEquals(d.at(2).id, link.fromId)
         assertEquals(LinkMeaning.XMP_EMBEDDED_VIDEO, link.meaning)
         assertTrue(link.evidence.contains("204"), link.evidence)
-        assertEquals(RegionStatus.UNPARSED, d.at(204).status)
+    }
+
+    @Test
+    fun `an XMP-declared range without a parsed ftyp at its start is not drawn as verified`() {
+        val xmp = node("APP1", 2, 200, headerSize = 4, fields = listOf(BoxField("xmp", "<x GCamera:MicroVideo=\"1\"/>", 6, 196)))
+        val root = node("root", 0, 1_000, listOf(node("SOI", 0, 2, headerSize = 2), xmp, node("EOI", 202, 2, headerSize = 2)), headerSize = 0)
+        val d = buildStructureDiagram(root, 1_000, EmbeddedVideo(300, 1_000, "mp4"))
+        assertTrue(d.links.isEmpty() && d.overlays.isEmpty(), d.toString())
+        assertTrue(d.warnings.any { "not verified" in it }, d.warnings.toString())
+    }
+
+    @Test
+    fun `an XMP packet that says it is not a motion photo is no declaration`() {
+        val xmp = node("APP1", 2, 200, headerSize = 4, fields = listOf(BoxField("xmp", "<x GCamera:MotionPhoto=\"0\"/>", 6, 196)))
+        val root = node("root", 0, 1_000, listOf(xmp, node("ftyp", 204, 24)), headerSize = 0)
+        val d = buildStructureDiagram(root, 1_000, EmbeddedVideo(204, 1_000, "mp4"))
+        assertTrue(d.links.isEmpty(), d.links.toString())
+        assertTrue(d.warnings.any { "relationship unknown" in it }, d.warnings.toString())
+    }
+
+    @Test
+    fun `a summary that folds a warned node is not clean, and logical levels say so`() {
+        val samples = (0 until 40).map { node("s", 8L + it * 4, 4, headerSize = 0) }.toMutableList()
+        samples[35] = BoxNode("s", 8L + 35 * 4, 0, 4, warnings = listOf("bad"))
+        val ifd = node("IFD0", 8, 4, listOf(node("Thumb", 50, 10, headerSize = 0)), headerSize = 0)
+        val root = node("root", 0, 400, listOf(node("mdat", 0, 168, samples), node("APP1", 168, 232, listOf(ifd))), headerSize = 0)
+        val d = buildStructureDiagram(root, 400, null)
+        assertEquals(RegionStatus.WARNING, d.regions.single { it.summarizedCount > 0 }.status)
+        assertTrue(d.notes.any { "IFD0" in it && "logical" in it }, d.notes.toString())
     }
 
     @Test

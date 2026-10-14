@@ -10,6 +10,9 @@ import java.util.Locale
 /** Rows beyond this are listed in the table only, so a pasted image stays a sensible size. */
 const val MAX_LAYOUT_ROWS = 400
 
+/** Footer lines beyond this are left to the table, so a crafted file cannot grow the image without bound. */
+const val MAX_LAYOUT_NOTES = 30
+
 private const val MARGIN = 16
 private const val HEADER = 52
 private const val ROW_H = 30
@@ -116,8 +119,11 @@ fun layoutStructureDiagram(diagram: StructureDiagram, depth: Int, title: String)
         }
     }
     if (visible.size > drawn.size) notes += "… ${visible.size - drawn.size} more regions not drawn (see the table)."
+    notes += diagram.notes
     notes += diagram.warnings.map { "Warning: $it" }
-    val clipped = notes.map { if (it.length <= MAX_NOTE_CHARS) it else it.take(MAX_NOTE_CHARS - 1) + "…" }
+    val capped = if (notes.size <= MAX_LAYOUT_NOTES) notes
+        else notes.take(MAX_LAYOUT_NOTES) + "… ${groupedBytes((notes.size - MAX_LAYOUT_NOTES).toLong())} more warnings/notes (see the table)."
+    val clipped = capped.map { if (it.length <= MAX_NOTE_CHARS) it else it.take(MAX_NOTE_CHARS - 1) + "…" }
     val rowsBottom = HEADER + drawn.size * (ROW_H + ROW_GAP)
     val notesTop = rowsBottom + 12
     return DiagramLayout(

@@ -17,12 +17,16 @@ fun buildStructureDiagram(root: BoxNode, fileSize: Long, embeddedVideo: Embedded
     val regions = mutableListOf<DiagramRegion>()
     val nodes = mutableMapOf<String, BoxNode>()
     val warnings = mutableListOf<String>()
+    val notes = mutableListOf<String>()
 
     fun walk(parent: BoxNode, parentId: String?, path: List<Int>, contentStart: Long, contentEnd: Long, depth: Int) {
         val beyond = if (parentId == null) "end of file" else "end of ${parent.type}"
         // A nested node whose children point outside it (e.g. a TIFF IFD referencing its thumbnail) is a
         // logical grouping, not a byte container: list the children without gap/overlap claims.
         val physical = parentId == null || parent.children.all { it.offset >= contentStart && it.offset + it.size <= contentEnd }
+        if (!physical) {
+            notes += "Children of ${parent.type} lie outside it, so that level is listed as a logical grouping (no gap/overlap checks)"
+        }
         val sorted = parent.children.withIndex().sortedBy { it.value.offset }
         if (physical && sorted.map { it.index } != parent.children.indices.toList()) {
             warnings += "Children of ${parent.type} are out of file order; drawn in offset order"
@@ -63,9 +67,15 @@ fun buildStructureDiagram(root: BoxNode, fileSize: Long, embeddedVideo: Embedded
             val end = rest.maxOf { it.offset + it.size }
             val kinds = rest.groupingBy { it.type }.eachCount().entries.sortedByDescending { it.value }
                 .take(3).joinToString(", ") { "${it.key}×${it.value}" }
+            // A folded node with a parser warning, or an overlap among the folded nodes, keeps the summary from looking clean.
+            val overlapping = physical && (rest.zipWithNext().any { (a, b) -> b.offset < a.offset + a.size } || rest.first().offset < cursor)
+            val warned = rest.count { it.warnings.isNotEmpty() }
+            if (overlapping) warnings += "Overlap among the ${rest.size} folded children of ${parent.type}"
+            if (warned > 0) warnings += "$warned folded children of ${parent.type} carry parser warnings"
             regions += DiagramRegion(
                 "${parentId ?: "root"}+${rest.size}", "${rest.size} more ($kinds)", start, end - start, depth,
-                RegionRole.SUMMARY, RegionStatus.VERIFIED, parentId, null, summarizedCount = rest.size,
+                RegionRole.SUMMARY, if (overlapping || warned > 0) RegionStatus.WARNING else RegionStatus.VERIFIED,
+                parentId, null, summarizedCount = rest.size,
             )
             cursor = maxOf(cursor, end)
         }
@@ -89,6 +99,12 @@ fun buildStructureDiagram(root: BoxNode, fileSize: Long, embeddedVideo: Embedded
         if (start < 0 || start >= end || end > fileSize) {
             warnings += "Embedded video range ${range(start, end)} is not inside the file; no link drawn"
         } else {
+            // The range is only parser evidence when the tree holds an ftyp box at its first byte; an XMP-derived
+            // start (end of file minus a declared length) can point anywhere.
+            if (!hasParsedFtypAt(root, start)) {
+                warnings += "Embedded video range ${range(start, end)} is not verified (no parsed ftyp box at its start); no link drawn"
+                return StructureDiagram(fileSize, regions, overlays, links, warnings, notes)
+            }
             val overlay = DiagramOverlay("embedded-video", "Embedded video (${embeddedVideo.extension})", start, end - start)
             overlays += overlay
             val evidence = "parser-verified video bytes ${range(start, end)}"
@@ -99,7 +115,7 @@ fun buildStructureDiagram(root: BoxNode, fileSize: Long, embeddedVideo: Embedded
             val container = containing("mpvd") ?: containing("EmbeddedVideoData")
             val xmp = regions.firstOrNull { r ->
                 nodes[r.id]?.fields?.any { f ->
-                    f.name == "xmp" && ("MotionPhoto" in f.value || "MicroVideo" in f.value)
+                    f.name == "xmp" && MOTION_PHOTO_DECLARATION.containsMatchIn(f.value)
                 } == true
             }
             when {
@@ -110,8 +126,15 @@ fun buildStructureDiagram(root: BoxNode, fileSize: Long, embeddedVideo: Embedded
             }
         }
     }
-    return StructureDiagram(fileSize, regions, overlays, links, warnings)
+    return StructureDiagram(fileSize, regions, overlays, links, warnings, notes)
 }
+
+// GCamera:MotionPhoto / MicroVideo set to 1 (attribute or element form), or a MicroVideoOffset.
+private val MOTION_PHOTO_DECLARATION =
+    Regex("""(MotionPhoto|MicroVideo)\s*=\s*["']1["']|(MotionPhoto|MicroVideo)>\s*1\s*<|MicroVideoOffset""")
+
+private fun hasParsedFtypAt(node: BoxNode, offset: Long): Boolean =
+    (node.type == "ftyp" && node.offset == offset) || node.children.any { hasParsedFtypAt(it, offset) }
 
 private fun gap(parentId: String?, depth: Int, start: Long, end: Long) = DiagramRegion(
     "gap:${parentId ?: "root"}@$start", if (parentId == null) "unparsed" else "not broken down",

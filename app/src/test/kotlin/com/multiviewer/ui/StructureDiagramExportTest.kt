@@ -18,7 +18,7 @@ class StructureDiagramExportTest {
     private val sefRoot = node("root", 0, 1_000, listOf(
         node("SOI", 0, 2, headerSize = 2),
         node("APP1<&\"'>", 2, 98, headerSize = 4),
-        node("sefd", 100, 900, listOf(node("MotionPhoto_Data", 100, 860, headerSize = 24)), headerSize = 0),
+        node("sefd", 100, 900, listOf(node("MotionPhoto_Data", 100, 860, listOf(node("ftyp", 124, 24)), headerSize = 24)), headerSize = 0),
     ), headerSize = 0)
     private val diagram = buildStructureDiagram(sefRoot, 1_000, EmbeddedVideo(124, 960, "mp4"))
 
@@ -85,5 +85,20 @@ class StructureDiagramExportTest {
         assertTrue(layout.boxes.size <= MAX_LAYOUT_ROWS, layout.boxes.size.toString())
         assertTrue(layout.height <= 20_000 && layout.width <= 2_000, "${layout.width}x${layout.height}")
         assertTrue(layout.notes.any { "more" in it }, layout.notes.toString())
+    }
+
+    @Test
+    fun `invalid XML characters, backslashes and huge warning lists stay safe`() {
+        val root = node("root", 0, 10, listOf(node("a\uFFFE\uD800z\\|", 0, 10)), headerSize = 0)
+        val d = buildStructureDiagram(root, 10, null)
+        val svg = renderStructureSvg(layoutStructureDiagram(d, 0, "t"))
+        DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(InputSource(StringReader(svg)))
+        val table = structureDiagramMarkdownTable(d)
+        assertTrue(table.contains("\\\\\\|"), table)
+
+        val many = d.copy(warnings = (0 until 5_000).map { "w$it" })
+        val layout = layoutStructureDiagram(many, 0, "t")
+        assertTrue(layout.notes.size <= MAX_LAYOUT_NOTES + 1, layout.notes.size.toString())
+        assertTrue(layout.notes.any { "4,9" in it || "more warnings" in it }, layout.notes.toString())
     }
 }
