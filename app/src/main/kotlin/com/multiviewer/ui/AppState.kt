@@ -312,6 +312,11 @@ class TabState(val file: File) {
     // File size/mtime captured just before [root] was parsed: what the tree (and every check built on it)
     // describes. Null for synthetic roots (e.g. raw pixel dumps).
     var parsedIdentity: ContentFileIdentity? by mutableStateOf(null)
+
+    // This tab's own AI conversation (never keyed by the selected-tab index), and the job running its
+    // current request; AppState.closeTab cancels the job.
+    var aiConversation: com.multiviewer.ui.ai.AiConversationState by mutableStateOf(com.multiviewer.ui.ai.AiConversationState())
+    @Volatile var aiJob: kotlinx.coroutines.Job? = null
 }
 
 enum class LeftPanelMode {
@@ -867,6 +872,7 @@ class AppState {
         selectedTabIndex = nextIndex
         val tab = tabs.removeAt(index)
         tab.isClosed = true
+        tab.aiJob?.cancel()
         tab.backgroundTasks.close()
         tab.filmstripThumbnails.clear()
         tab.thumbnailCache = emptyMap()

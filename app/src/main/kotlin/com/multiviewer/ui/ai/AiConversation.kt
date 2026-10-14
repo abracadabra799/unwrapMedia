@@ -1,0 +1,72 @@
+package com.multiviewer.ui.ai
+
+/** The CLIs the panel can drive; capabilities are probed per adapter, never assumed from this list. */
+enum class AiProviderId(val displayName: String, val command: String) {
+    CLAUDE("Claude Code", "claude"),
+    CODEX("Codex", "codex"),
+    GEMINI("Gemini CLI", "gemini"),
+}
+
+/** NOTICE = app-generated status (failure, timeout, cancel, stale file): never presented as the AI's words. */
+enum class AiRole { USER, ASSISTANT, NOTICE }
+
+enum class AiRunStatus { IDLE, RUNNING, FINISHED, FAILED, TIMED_OUT, CANCELLED }
+
+data class AiMessage(
+    val id: Long,
+    val role: AiRole,
+    val text: String,
+    val provider: AiProviderId?,
+    val timestampMillis: Long,
+    /** For a user message: exactly the context text that left with it (shown on demand). */
+    val outgoingContext: String? = null,
+)
+
+data class AiActivity(val timestampMillis: Long, val text: String)
+
+/**
+ * One file tab's conversation. Immutable: every change returns a new state, and replies are accepted
+ * only for the current [runId] while [status] is RUNNING, so a late answer from a cancelled or superseded
+ * run can never land in the transcript.
+ */
+data class AiConversationState(
+    val messages: List<AiMessage> = emptyList(),
+    val activity: List<AiActivity> = emptyList(),
+    val status: AiRunStatus = AiRunStatus.IDLE,
+    val runId: Long = 0,
+    val provider: AiProviderId? = null,
+) {
+    private fun nextId() = (messages.maxOfOrNull { it.id } ?: 0) + 1
+
+    /** Starts a run; returns the new state and the run id the reply must carry. */
+    fun withUserMessage(text: String, outgoingContext: String, provider: AiProviderId, now: Long): Pair<AiConversationState, Long> {
+        val run = runId + 1
+        val state = copy(
+            messages = messages + AiMessage(nextId(), AiRole.USER, text, provider, now, outgoingContext),
+            status = AiRunStatus.RUNNING, runId = run, provider = provider,
+            activity = activity + AiActivity(now, "→ ${provider.displayName}: ${outgoingContext.length} chars of context"),
+        )
+        return state to run
+    }
+
+    fun withAssistantReply(run: Long, text: String, now: Long): AiConversationState {
+        if (run != runId || status != AiRunStatus.RUNNING) return this
+        return copy(
+            messages = messages + AiMessage(nextId(), AiRole.ASSISTANT, text, provider, now),
+            status = AiRunStatus.FINISHED,
+            activity = activity + AiActivity(now, "← ${provider?.displayName ?: "AI"}: ${text.length} chars"),
+        )
+    }
+
+    /** Ends the current run without an answer; [notice] becomes a visible app message. */
+    fun withRunEnded(run: Long, status: AiRunStatus, notice: String, now: Long): AiConversationState {
+        if (run != runId || this.status != AiRunStatus.RUNNING) return this
+        return copy(
+            messages = messages + AiMessage(nextId(), AiRole.NOTICE, notice, provider, now),
+            status = status,
+            activity = activity + AiActivity(now, "${status.name}: $notice"),
+        )
+    }
+
+    fun withActivity(text: String, now: Long) = copy(activity = activity + AiActivity(now, text))
+}
