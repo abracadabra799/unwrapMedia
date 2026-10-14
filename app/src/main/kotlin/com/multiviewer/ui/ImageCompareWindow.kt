@@ -276,9 +276,9 @@ fun ImageCompareWindow(
         if (infoA?.isVideo != false || infoB?.isVideo != false) emptyList() else captureConditionMismatches(metadataRows)
     }
 
-    fun loadInfo(file: File?, onLoaded: (CompareMediaInfo?) -> Unit) {
+    fun loadInfo(file: File?, session: CompareLoadSession, onLoaded: (CompareMediaInfo?) -> Unit) {
         if (file == null || !file.exists()) {
-            onLoaded(null)
+            session.deliver { onLoaded(null) }
             return
         }
 
@@ -287,7 +287,7 @@ fun ImageCompareWindow(
         if (matchingTab != null && matchingTab.root != null) {
             val isVid = matchingTab.type == MediaType.VIDEO || isVideoExtension(file)
             val dur = extractVideoDuration(matchingTab.root, matchingTab.mediaSummary)
-            onLoaded(
+            session.deliver { onLoaded(
                 CompareMediaInfo(
                     file = file,
                     root = matchingTab.root,
@@ -299,13 +299,13 @@ fun ImageCompareWindow(
                     durationSeconds = dur,
                     isLoading = false,
                 )
-            )
+            ) }
             return
         }
 
         // Otherwise load & parse in background
-        onLoaded(CompareMediaInfo(file = file, root = null, forensic = null, bitmap = null, summary = null, fileSize = file.length(), isLoading = true))
-        compareExecutor.execute {
+        session.deliver { onLoaded(CompareMediaInfo(file = file, root = null, forensic = null, bitmap = null, summary = null, fileSize = file.length(), isLoading = true)) }
+        session.track(compareExecutor.submit {
             try {
                 ByteReader.open(file).use { reader ->
                     val root = parseFile(file, reader)
@@ -314,8 +314,8 @@ fun ImageCompareWindow(
                     val dur = extractVideoDuration(root, summary)
 
                     if (isVid) {
-                        FrameFullSizeDecoder.decodeFrameAsync(file, 0.0) { firstFrame ->
-                            EventQueue.invokeLater {
+                        session.track(FrameFullSizeDecoder.decodeFrameAsync(file, 0.0) { firstFrame ->
+                            session.post {
                                 onLoaded(
                                     CompareMediaInfo(
                                         file = file,
@@ -330,13 +330,13 @@ fun ImageCompareWindow(
                                     )
                                 )
                             }
-                        }
+                        })
                     } else {
                         val forensic = ImageAnalyzer.analyze(file, root, reader)
                         var previewBitmap = forensic.embeddedThumbnail
                         val decodedBitmap = progressiveCompareImageLoader.load(file, previewBitmap) { preview ->
                             previewBitmap = preview
-                            EventQueue.invokeLater {
+                            session.post {
                                 onLoaded(
                                     CompareMediaInfo(
                                         file = file,
@@ -354,7 +354,7 @@ fun ImageCompareWindow(
                         }
 
                         if (decodedBitmap != null) {
-                            EventQueue.invokeLater {
+                            session.post {
                                 onLoaded(
                                     CompareMediaInfo(
                                         file = file,
@@ -370,8 +370,8 @@ fun ImageCompareWindow(
                                 )
                             }
                         } else {
-                            FfmpegImageSnapshotDecoder.decodeFirstFrameAsync(file) { fallbackBitmap ->
-                                EventQueue.invokeLater {
+                            session.track(FfmpegImageSnapshotDecoder.decodeFirstFrameAsync(file) { fallbackBitmap ->
+                                session.post {
                                     onLoaded(
                                         CompareMediaInfo(
                                             file = file,
@@ -386,12 +386,12 @@ fun ImageCompareWindow(
                                         )
                                     )
                                 }
-                            }
+                            })
                         }
                     }
                 }
             } catch (e: Exception) {
-                EventQueue.invokeLater {
+                session.post {
                     onLoaded(
                         CompareMediaInfo(
                             file = file,
@@ -406,13 +406,29 @@ fun ImageCompareWindow(
                     )
                 }
             }
-        }
+        })
     }
 
-    LaunchedEffect(fileA) { loadInfo(fileA) { infoA = it } }
-    LaunchedEffect(fileB) { loadInfo(fileB) { infoB = it } }
-    LaunchedEffect(fileC) { loadInfo(fileC) { infoC = it } }
-    LaunchedEffect(fileD) { loadInfo(fileD) { infoD = it } }
+    DisposableEffect(fileA) {
+        val session = CompareLoadSession()
+        loadInfo(fileA, session) { infoA = it }
+        onDispose { session.close() }
+    }
+    DisposableEffect(fileB) {
+        val session = CompareLoadSession()
+        loadInfo(fileB, session) { infoB = it }
+        onDispose { session.close() }
+    }
+    DisposableEffect(fileC) {
+        val session = CompareLoadSession()
+        loadInfo(fileC, session) { infoC = it }
+        onDispose { session.close() }
+    }
+    DisposableEffect(fileD) {
+        val session = CompareLoadSession()
+        loadInfo(fileD, session) { infoD = it }
+        onDispose { session.close() }
+    }
 
     LaunchedEffect(compareFiles) {
         fileA = compareFiles.getOrNull(0)

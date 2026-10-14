@@ -8,6 +8,7 @@ import org.jetbrains.skia.Image
 import java.awt.EventQueue
 import java.io.File
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.Future
 
 /**
  * Headless, one-shot fallback for images Skia's Image.makeFromEncoded can't decode (HEIC/HEVC and
@@ -43,10 +44,10 @@ object FfmpegImageSnapshotDecoder {
 
     fun decodeFirstFrameAsync(
         file: File, root: BoxNode? = null,
-        execute: (() -> Unit) -> Unit = { work -> Thread(work).apply { isDaemon = true }.start() },
+        execute: (() -> Unit) -> Future<*>? = { work -> backgroundExecutor.submit(work) },
         onResult: (ImageBitmap?) -> Unit,
-    ) {
-        execute {
+    ): Future<*>? {
+        return execute {
             // Attempt 1: Direct full-resolution decode (PNG format to avoid JPEG 65k/buffer limits on 200MP stills)
             var result = decodeSingleFrameToBitmap(
                 listOf(FfmpegLocator.ffmpegPath(), "-y", "-i", file.absolutePath, "-frames:v", "1", "-update", "1"),
@@ -72,7 +73,7 @@ object FfmpegImageSnapshotDecoder {
                 )
             }
 
-            EventQueue.invokeLater { onResult(result) }
+            if (!Thread.currentThread().isInterrupted) EventQueue.invokeLater { onResult(result) }
         }
     }
 
@@ -81,23 +82,23 @@ object FfmpegImageSnapshotDecoder {
     // modern HEIC thumbnail items are commonly HEVC-coded instead, which is what this covers.
     fun decodeEmbeddedHevcThumbnailAsync(
         file: File, root: BoxNode,
-        execute: (() -> Unit) -> Unit = { work -> Thread(work).apply { isDaemon = true }.start() },
+        execute: (() -> Unit) -> Future<*>? = { work -> backgroundExecutor.submit(work) },
         onResult: (ImageBitmap?) -> Unit,
-    ) {
-        execute {
+    ): Future<*>? {
+        return execute {
             val annexB = try {
                 extractHevcThumbnailAnnexB(file, root)
             } catch (e: Exception) {
                 null
             }
             if (annexB == null) {
-                EventQueue.invokeLater { onResult(null) }
+                if (!Thread.currentThread().isInterrupted) EventQueue.invokeLater { onResult(null) }
                 return@execute
             }
             val tempH265 = try {
                 File.createTempFile("hevc-thumb-item-", ".h265")
             } catch (e: Exception) {
-                EventQueue.invokeLater { onResult(null) }
+                if (!Thread.currentThread().isInterrupted) EventQueue.invokeLater { onResult(null) }
                 return@execute
             }
             val result = try {
@@ -109,7 +110,7 @@ object FfmpegImageSnapshotDecoder {
             } finally {
                 tempH265.delete()
             }
-            EventQueue.invokeLater { onResult(result) }
+            if (!Thread.currentThread().isInterrupted) EventQueue.invokeLater { onResult(result) }
         }
     }
 
