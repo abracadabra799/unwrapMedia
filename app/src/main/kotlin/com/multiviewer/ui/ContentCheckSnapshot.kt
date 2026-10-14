@@ -31,7 +31,25 @@ data class ContentCheckSnapshot(
     val audioError: String? = null,
     val audioStructure: AudioStructureReport? = null,
     val conformance: ConformanceReport? = null,
+    /** The file state the results describe; evidence is only valid while [ContentFileIdentity.matches] holds. */
+    val fileIdentity: ContentFileIdentity? = null,
 )
+
+/** Size + modification time of the checked file, captured before reading it (same idea as the thumbnail cache). */
+data class ContentFileIdentity(val length: Long, val lastModified: Long) {
+    /** Blocking stat calls: never call on the UI thread. A missing file never matches. */
+    fun matches(file: File): Boolean = file.isFile && file.length() == length && file.lastModified() == lastModified
+
+    companion object {
+        fun capture(file: File) = ContentFileIdentity(file.length(), file.lastModified())
+    }
+}
+
+/** The file's size/mtime changed while it was being checked; the partial results must be discarded. */
+class ContentFileChangedException : Exception("File changed during inspection")
+
+const val STALE_CONTENT_CHECK_NOTICE =
+    "컨텐츠 검사 결과 제외: 검사 이후 파일이 변경되었거나 검사한 파일 상태를 확인할 수 없어, 이전 판정과 바이트 근거를 사용하지 않습니다. 파일을 다시 열어 검사해야 합니다."
 
 private const val MAX_ITEMS = 30
 private const val MAX_LOG_LINES = 20

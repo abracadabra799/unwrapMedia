@@ -2,6 +2,7 @@ package com.multiviewer.parser
 
 import java.io.File
 import java.io.RandomAccessFile
+import java.util.concurrent.CancellationException
 
 // Structural parsing (box/IFD/marker walking) does many small reads that are usually near each
 // other in the file (a box header, then its immediate children, physically adjacent) -- each used
@@ -21,6 +22,10 @@ class ByteReader private constructor(private val raf: RandomAccessFile) : AutoCl
     private var cache = ByteArray(0)
 
     private fun read(offset: Long, len: Int): ByteArray {
+        // RandomAccessFile reads ignore Thread.interrupt(), so a cancelled runInterruptible scan (e.g. a
+        // PNG CRC pass over a huge IDAT) would otherwise run to the end. Checked per read: cheap, and
+        // CancellationException (same as AudioStructureChecker) so coroutine callers treat it as cancellation.
+        if (Thread.currentThread().isInterrupted) throw CancellationException("Read cancelled")
         if (len > CACHE_CHUNK_SIZE) {
             // Larger than the cache window (e.g. an embedded thumbnail or table row) -- caching
             // wouldn't help, just read it directly in one call.

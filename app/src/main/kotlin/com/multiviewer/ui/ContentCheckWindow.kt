@@ -104,6 +104,10 @@ fun ContentCheckWindow(
     // Hoisted out of the video panels so they survive switching between the decode and packet tabs.
     var expandedDiagnostic by remember(tab) { mutableStateOf<Int?>(null) }
     var selectedPacket by remember(tab) { mutableStateOf<IntegrityPacket?>(null) }
+    // The file state the structure check read; null until it ran. Once the file on disk differs,
+    // every result in this window is invalid and [fileChanged] stays true for this tab.
+    var checkedIdentity by remember(tab) { mutableStateOf<ContentFileIdentity?>(null) }
+    var fileChanged by remember(tab) { mutableStateOf(false) }
     fun cancelledMessage() = label("중단 · 검사 완료되지 않음", "Cancelled · inspection incomplete")
 
     val type = tab.type
@@ -119,14 +123,56 @@ fun ContentCheckWindow(
     // Publish the current run's results to the tab for the AI prompt. These states are only ever
     // written by the current run (every write is behind the runId/current() guard), so a stale or
     // cancelled run can never reach the tab through here.
-    LaunchedEffect(tab, structure, audioStructure, conformance, structureError, imageDecode, imageDecodeError, motion, motionError, video, videoError, audio, audioError, running, motionDetected, type) {
+    LaunchedEffect(tab, structure, audioStructure, conformance, structureError, imageDecode, imageDecodeError, motion, motionError, video, videoError, audio, audioError, running, motionDetected, type, checkedIdentity) {
         tab.contentCheck = ContentCheckSnapshot(
             structure, imageDecode, motionDetected, motion, motionError, video, type,
             structureError = structureError, imageDecodeError = imageDecodeError, videoError = videoError, running = running,
             audio = audio, audioError = audioError,
             audioStructure = audioStructure,
             conformance = conformance,
+            fileIdentity = checkedIdentity,
         )
+    }
+
+    fun fileChangedMessage() = label(
+        "검사 후 파일이 변경되었습니다. 이전 결과는 무효이며, 파일을 다시 열어 검사해야 합니다.",
+        "The file changed after it was checked. Previous results are invalid; reopen the file to check it again.",
+    )
+
+    /** Drops every result bound to the old bytes; the conformance verdict falls back to an inspection error. */
+    fun invalidateForFileChange() {
+        job?.cancel()
+        runId++
+        running = false
+        fileChanged = true
+        checkedIdentity = null
+        structure = null
+        audioStructure = null
+        imageDecode = null
+        imageDecodeError = null
+        motion = null
+        motionError = null
+        video = null
+        videoError = null
+        audio = null
+        audioError = null
+        expandedDiagnostic = null
+        selectedPacket = null
+        structureError = fileChangedMessage()
+        conformance = contentConformanceReport(type, inspectionError = structureError)
+        message = fileChangedMessage()
+    }
+
+    // Size/mtime poll off the UI thread (Windows: no blocking stat on the UI thread).
+    LaunchedEffect(tab, checkedIdentity) {
+        val expected = checkedIdentity ?: return@LaunchedEffect
+        while (true) {
+            delay(2_000)
+            if (!withContext(Dispatchers.IO) { expected.matches(tab.file) }) {
+                invalidateForFileChange()
+                break
+            }
+        }
     }
 
     // Keyed on tab.root too: the window can open before the file's structure tree finishes loading.
@@ -137,16 +183,28 @@ fun ContentCheckWindow(
         audioStructure = null
         conformance = null
         fileLength = 0L
+        checkedIdentity = null
+        if (fileChanged) {
+            structureError = fileChangedMessage()
+            conformance = contentConformanceReport(type, inspectionError = structureError)
+            return@LaunchedEffect
+        }
         if (root == null) {
             structureError = label("파일 구조가 아직 로드되지 않았습니다", "The file structure is not loaded yet")
             conformance = contentConformanceReport(type, inspectionError = structureError)
             return@LaunchedEffect
         }
+        // Bind the results to the bytes actually read: capture before, and reject a change during the read.
+        var identity: ContentFileIdentity? = null
         try {
-            fileLength = runInterruptible(Dispatchers.IO) { tab.file.length() }
+            val captured = runInterruptible(Dispatchers.IO) { ContentFileIdentity.capture(tab.file) }
+            identity = captured
+            fun requireUnchanged() { if (!captured.matches(tab.file)) throw ContentFileChangedException() }
+            fileLength = captured.length
             if (type == MediaType.AUDIO) {
                 val result = runInterruptible(Dispatchers.IO) {
                     val checked = contentAudioStructureReport(tab.file, root)
+                    requireUnchanged()
                     checked to contentConformanceReport(type, audioStructure = checked)
                 }
                 audioStructure = result.first
@@ -154,16 +212,22 @@ fun ContentCheckWindow(
             } else {
                 val result = runInterruptible(Dispatchers.IO) {
                     val checked = contentStructureReport(tab.file, root, type)
+                    requireUnchanged()
                     checked to contentConformanceReport(type, structure = checked)
                 }
                 structure = result.first
                 conformance = result.second
             }
+            checkedIdentity = captured
         } catch (e: CancellationException) {
             throw e
+        } catch (e: ContentFileChangedException) {
+            invalidateForFileChange()
         } catch (e: Exception) {
             structureError = e.message ?: e.toString()
             conformance = contentConformanceReport(type, inspectionError = structureError)
+            // The failure still describes these bytes; later steps (e.g. video decode) stay bound to them.
+            checkedIdentity = identity
         }
     }
 
@@ -264,7 +328,7 @@ fun ContentCheckWindow(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 // Image decode needs the structure report as input; the video check does not.
-                val canStart = steps.isNotEmpty() && (s != null || HeavyStep.IMAGE_DECODE !in steps)
+                val canStart = !fileChanged && steps.isNotEmpty() && (s != null || HeavyStep.IMAGE_DECODE !in steps)
                 Button(enabled = !running && !saving && canStart, onClick = {
                     val snapshot = s
                     if (HeavyStep.IMAGE_DECODE in steps && snapshot == null) return@Button
@@ -290,6 +354,15 @@ fun ContentCheckWindow(
                         // A cancelled or superseded run must never write results/state for the current one.
                         fun current() = isActive && myRun == runId
                         try {
+                            val startIdentity = withContext(Dispatchers.IO) { ContentFileIdentity.capture(tab.file) }
+                            if (!current()) return@launch
+                            val bound = checkedIdentity
+                            if (bound != null && startIdentity != bound) {
+                                invalidateForFileChange()
+                                return@launch
+                            }
+                            // No structure result yet (tree still loading): bind this run to the bytes it reads.
+                            if (bound == null) checkedIdentity = startIdentity
                             for (step in runSteps) {
                                 when (step) {
                                     HeavyStep.IMAGE_DECODE -> {
@@ -358,6 +431,10 @@ fun ContentCheckWindow(
                                 }
                             }
                             if (!current()) return@launch
+                            if (!withContext(Dispatchers.IO) { startIdentity.matches(tab.file) }) {
+                                if (current()) invalidateForFileChange()
+                                return@launch
+                            }
                             if (motionError == null && imageDecodeError == null && videoError == null && audioError == null) {
                                 message = if (HeavyStep.VIDEO_INTEGRITY in runSteps || HeavyStep.AUDIO_INTEGRITY in runSteps) {
                                     label("검사 종료 — 아래 단계별 결과를 확인하세요", "Inspection finished — see results below")
@@ -385,7 +462,7 @@ fun ContentCheckWindow(
                     running = false
                     message = cancelledMessage()
                 }) { Text(label("취소", "Cancel")) }
-                val canExport = tab.root != null && !running && !saving && (type != MediaType.IMAGE || s != null)
+                val canExport = !fileChanged && tab.root != null && !running && !saving && (type != MediaType.IMAGE || s != null)
                 OutlinedButton(enabled = canExport, onClick = {
                     val root = tab.root ?: return@OutlinedButton
                     val dialog = FileDialog(null as Frame?, label("분석 케이스 저장", "Save analysis case"), FileDialog.SAVE)

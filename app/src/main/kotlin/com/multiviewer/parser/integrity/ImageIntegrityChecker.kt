@@ -4,6 +4,7 @@ import com.multiviewer.parser.BoxNode
 import com.multiviewer.parser.ByteReader
 import com.multiviewer.parser.collectWarnings
 import java.io.File
+import java.util.concurrent.CancellationException
 
 object ImageIntegrityChecker {
     fun check(file: File, root: BoxNode): ImageStructureReport =
@@ -24,6 +25,9 @@ object ImageIntegrityChecker {
                     listOf(IntegrityCheckItem("format", "Format", CheckStatus.SKIP, "Unrecognized image format; structure checks are not available")),
                 )
             }
+        } catch (e: CancellationException) {
+            // Cancellation is not a structure defect: it must never surface as a FAIL item.
+            throw e
         } catch (e: Exception) {
             FormatCheckResult(
                 listOf(

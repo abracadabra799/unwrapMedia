@@ -43,7 +43,9 @@ import com.multiviewer.ui.terminal.EmbeddedTerminalPanel
 import com.multiviewer.ui.terminal.SessionState
 import com.multiviewer.ui.terminal.WindowsShellSession
 import com.multiviewer.util.ClipboardUtil
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 private fun formatBytes(bytes: Long): String {
@@ -309,16 +311,37 @@ fun AiPromptPreviewWindow(
     val allWarnings = remember(root) { root?.let { collectWarnings(it) } ?: emptyList() }
     var selectedWarning by remember(initialTargetWarning) { mutableStateOf(initialTargetWarning) }
 
-    val promptText = remember(tab.file, tab.root, tab.avSyncReport, tab.contentCheck, selectedWarning) {
-        AiDiagnosticPromptBuilder.buildPrompt(
-            file = tab.file,
-            root = root,
-            warnings = allWarnings,
-            avSyncReport = tab.avSyncReport,
-            targetWarning = selectedWarning,
-            contentCheck = tab.contentCheck,
-        )
+    // Rebuilt when Content Check's evidence stops matching the file on disk, so a copied prompt never
+    // carries a stale PASS. Polls size/mtime off the UI thread.
+    var fileChangeTick by remember { mutableStateOf(0) }
+    val contentCheck = tab.contentCheck
+    LaunchedEffect(tab.file, contentCheck) {
+        val expected = contentCheck?.fileIdentity ?: return@LaunchedEffect
+        while (true) {
+            delay(2_000)
+            if (!withContext(Dispatchers.IO) { expected.matches(tab.file) }) {
+                fileChangeTick++
+                break
+            }
+        }
     }
+    // Built off the UI thread: the builder stats the file (blocking I/O; Windows file locks).
+    val builtPrompt by produceState<String?>(null, tab.file, tab.root, tab.avSyncReport, contentCheck, selectedWarning, fileChangeTick) {
+        value = null
+        value = withContext(Dispatchers.IO) {
+            AiDiagnosticPromptBuilder.buildPrompt(
+                file = tab.file,
+                root = root,
+                warnings = allWarnings,
+                avSyncReport = tab.avSyncReport,
+                targetWarning = selectedWarning,
+                contentCheck = contentCheck,
+            )
+        }
+    }
+    val promptText = builtPrompt ?: ""
+    /** Never copies the placeholder while the prompt is still being built. */
+    fun copyPrompt(): Boolean = builtPrompt?.let { ClipboardUtil.copyToClipboard(it) } ?: false
 
     var copied by remember { mutableStateOf(false) }
     LaunchedEffect(copied) {
@@ -539,7 +562,7 @@ fun AiPromptPreviewWindow(
                                         .padding(12.dp),
                                 ) {
                                     Text(
-                                        text = promptText,
+                                        text = builtPrompt ?: "프롬프트 생성 중…",
                                         style = AppTypography.bodyMedium.copy(
                                             fontFamily = FontFamily.Monospace,
                                             fontSize = 12.sp,
@@ -652,7 +675,7 @@ fun AiPromptPreviewWindow(
                                         onClick = {
                                             val targetUrl = customUrlInput.trim().ifBlank { currentService.defaultUrl }
                                             AiWebPreferences.setUrl(currentService, targetUrl)
-                                            ClipboardUtil.copyToClipboard(promptText)
+                                            copyPrompt()
                                             com.multiviewer.util.AiCliDetector.openWebAi(targetUrl)
                                             statusMessage = "복사됨 & ${currentService.displayName} (Chrome) 열림"
                                             editingService = null
@@ -704,7 +727,7 @@ fun AiPromptPreviewWindow(
                                 ) {
                                     Button(
                                         onClick = {
-                                            ClipboardUtil.copyToClipboard(promptText)
+                                            copyPrompt()
                                             statusMessage = when {
                                                 isWindows && activeCliSession?.isAlive == true ->
                                                     "터미널이 이미 열려 있습니다"
@@ -733,7 +756,7 @@ fun AiPromptPreviewWindow(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     OutlinedButton(
                                         onClick = {
-                                            if (ClipboardUtil.copyToClipboard(promptText)) {
+                                            if (copyPrompt()) {
                                                 copied = true
                                             }
                                         },
@@ -806,7 +829,7 @@ fun AiPromptPreviewWindow(
                                 session = activeCliSession!!,
                                 onEndSession = { endCliSession() },
                                 onRestart = {
-                                    ClipboardUtil.copyToClipboard(promptText)
+                                    copyPrompt()
                                     statusMessage = startShellSession()
                                 },
                                 modifier = Modifier.width(terminalWidth).fillMaxHeight().padding(vertical = 16.dp).padding(end = 16.dp),

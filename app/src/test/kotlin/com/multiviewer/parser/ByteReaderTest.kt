@@ -78,4 +78,17 @@ class ByteReaderTest {
         assertFailsWith<EOFException> { reader.readBytes(1, 10) }
         reader.close()
     }
+
+    @Test
+    fun `an interrupted thread stops reading instead of finishing a long scan`() {
+        val reader = byteReaderOf(ByteArray(16))
+        try {
+            Thread.currentThread().interrupt()
+            assertFailsWith<java.util.concurrent.CancellationException> { reader.readBytes(0, 4) }
+        } finally {
+            Thread.interrupted()
+            reader.close()
+        }
+        assertEquals(0, byteReaderOf(byteArrayOf(0)).use { it.readUInt8(0) })
+    }
 }

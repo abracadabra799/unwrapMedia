@@ -37,6 +37,10 @@ object AiDiagnosticPromptBuilder {
         targetWarning: WarningEntry? = null,
         contentCheck: com.multiviewer.ui.ContentCheckSnapshot? = null,
     ): String {
+        // Results describe the bytes as they were when checked: drop them once the file changed.
+        val staleContentCheck = contentCheck != null && contentCheck.fileIdentity?.matches(file) != true
+        @Suppress("NAME_SHADOWING")
+        val contentCheck = contentCheck?.takeUnless { staleContentCheck }
         val fileSizeStr = formatFileSize(file.length())
         val extension = file.extension.lowercase(Locale.US)
         val ftyp = root?.let { findFirst(it) { node -> node.type == "ftyp" } }
@@ -112,6 +116,10 @@ object AiDiagnosticPromptBuilder {
         sb.appendLine()
 
         // Content Check window's verified results (structure / real decode), when it has run for this tab.
+        if (staleContentCheck) {
+            sb.appendLine("- ${com.multiviewer.ui.STALE_CONTENT_CHECK_NOTICE}")
+            sb.appendLine()
+        }
         if (contentCheck != null) {
             sb.append(com.multiviewer.ui.contentCheckPromptSection(contentCheck, file))
             sb.appendLine()

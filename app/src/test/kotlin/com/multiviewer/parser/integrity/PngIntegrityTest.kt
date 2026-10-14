@@ -56,4 +56,16 @@ class PngIntegrityTest {
             pngChunk("IDAT", idat.copyOfRange(4, idat.size)) + pngChunk("IEND", ByteArray(0))
         assertEquals(CheckStatus.FAIL, checkBytes(bytes, "png").item("png.idat").status)
     }
+
+    @Test
+    fun `cancellation escapes the checker instead of becoming a structure FAIL`() {
+        val f = java.io.File.createTempFile("integrity-cancel-", ".png").apply { deleteOnExit(); writeBytes(pngBytes()) }
+        val root = com.multiviewer.parser.parseFile(f)
+        try {
+            Thread.currentThread().interrupt()
+            kotlin.test.assertFailsWith<java.util.concurrent.CancellationException> { ImageIntegrityChecker.check(f, root) }
+        } finally {
+            Thread.interrupted()
+        }
+    }
 }

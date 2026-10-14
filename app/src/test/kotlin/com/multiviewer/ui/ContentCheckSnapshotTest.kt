@@ -216,7 +216,9 @@ class ContentCheckSnapshotTest {
 
     @Test
     fun buildPromptIncludesSectionOnlyWhenSnapshotGiven() {
-        val snapshot = ContentCheckSnapshot(corruptStructure(), corruptDecode(), false, null, null, null)
+        val snapshot = ContentCheckSnapshot(
+            corruptStructure(), corruptDecode(), false, null, null, null, fileIdentity = ContentFileIdentity.capture(file),
+        )
         val with = AiDiagnosticPromptBuilder.buildPrompt(file, null, emptyList(), contentCheck = snapshot)
         val without = AiDiagnosticPromptBuilder.buildPrompt(file, null, emptyList())
         assertTrue(with.contains(header), with)
@@ -359,5 +361,40 @@ class ContentCheckSnapshotTest {
         )
         assertTrue("검사 실패" in failed, failed)
         assertFalse("이미지 디코딩: 미실행" in failed, failed)
+    }
+
+    @Test
+    fun fileIdentityTracksLengthAndModificationTime() {
+        val identity = ContentFileIdentity.capture(file)
+        assertTrue(identity.matches(file))
+        assertTrue(file.setLastModified(identity.lastModified - 5_000))
+        assertFalse(identity.matches(file))
+        val resized = ContentFileIdentity.capture(file)
+        file.appendBytes(byteArrayOf(0))
+        assertTrue(file.setLastModified(resized.lastModified))
+        assertFalse(resized.matches(file))
+        assertFalse(identity.matches(File(file.path + ".missing")))
+    }
+
+    @Test
+    fun promptDropsContentCheckEvidenceAfterTheFileChanges() {
+        val pass = ImageStructureReport("PNG", listOf(IntegrityCheckItem("png.crc", "CRC", CheckStatus.PASS, "CRC ok", 33, 4)))
+        val snapshot = ContentCheckSnapshot(
+            pass, null, false, null, null, null, MediaType.IMAGE,
+            conformance = contentConformanceReport(MediaType.IMAGE, structure = pass),
+            fileIdentity = ContentFileIdentity.capture(file),
+        )
+        assertTrue(AiDiagnosticPromptBuilder.buildPrompt(file, null, emptyList(), contentCheck = snapshot).contains(header))
+
+        file.appendBytes(byteArrayOf(1, 2, 3))
+        val stale = AiDiagnosticPromptBuilder.buildPrompt(file, null, emptyList(), contentCheck = snapshot)
+        assertFalse(stale.contains(header), stale)
+        assertFalse(stale.contains("png.crc"), stale)
+        assertFalse(stale.contains("0x21"), stale)
+        assertTrue(stale.contains(STALE_CONTENT_CHECK_NOTICE), stale)
+
+        val unbound = AiDiagnosticPromptBuilder.buildPrompt(file, null, emptyList(), contentCheck = snapshot.copy(fileIdentity = null))
+        assertFalse(unbound.contains(header), unbound)
+        assertTrue(unbound.contains(STALE_CONTENT_CHECK_NOTICE), unbound)
     }
 }
