@@ -327,6 +327,7 @@ fun ffmpegPipeArgs(ffmpegPath: String, filePath: String, seekArgs: List<String>,
 fun FfmpegVideoPlayer(
     file: File,
     modifier: Modifier = Modifier,
+    // Reports seconds relative to the file start (format start_time), not frame PTS.
     onElapsedChanged: (Double) -> Unit = {},
     seekRequestSeconds: Double = 0.0,
     seekRequestTick: Int = 0,
@@ -367,7 +368,8 @@ fun FfmpegVideoPlayer(
     // from the beginning, or a GOP-frame-click seek target otherwise. Piping raw frames from a
     // fresh ffmpeg process is the only way to "seek" (see restartTrigger above), and -ss before -i
     // resets the piped stream's own pts to ~0, so this offset is added back to playedSeconds
-    // everywhere elapsed position is reported, keeping it in absolute video time.
+    // everywhere elapsed position is reported. Seconds relative to the file's start (format start_time);
+    // public seek values (absolute stream PTS) are converted at the boundary.
     var startFromSeconds by remember(file) { mutableStateOf(initialStart.seconds) }
     var lastHandledSeekTick by remember(file) { mutableStateOf(initialStart.handledSeekTick) }
     var lastHandledPlayPauseTick by remember(file) { mutableStateOf(playPauseRequestTick) }
@@ -455,9 +457,10 @@ fun FfmpegVideoPlayer(
         // playthrough would be silent. probeAudioFormat is one cheap ffprobe, same cost class as the
         // probeVideo call already awaited above.
         audioInfo = if (info != null) runInterruptible(Dispatchers.IO) { probeAudioFormat(file) } else null
-        // initialSeekSeconds is an absolute frame PTS; the player's own positions are relative to the start.
-        if (info != null && initialStart.seconds > 0.0) {
-            startFromSeconds = (initialStart.seconds - info.startTime).coerceAtLeast(0.0)
+        // Until probedInfo is set, startFromSeconds can only hold absolute PTS (the initial seek or a seek
+        // request that arrived during the probe); convert whatever is there now, once.
+        if (info != null && startFromSeconds > 0.0) {
+            startFromSeconds = (startFromSeconds - info.startTime).coerceAtLeast(0.0)
         }
         probedInfo = info
         probing = false
