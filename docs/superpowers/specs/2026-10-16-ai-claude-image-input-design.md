@@ -25,7 +25,7 @@ stream-json 출력: 이벤트 한 줄씩(`system`(hook/init), `assistant`, `rate
 
 ## 범위
 
-- 포함: Claude 연동의 이미지 첨부(채팅 전송), 삭제된 "이미지 입력 확인" 버튼 복원(5절).
+- 포함: Claude 연동의 이미지 첨부(채팅 전송), 첫 이미지 전송 때 이미지 입력 자동 확인(5절).
 - 제외: Gemini(검증 불가), agy(첨부 경로 없음) — 지금처럼 "이 연동은 이미지를 보낼 수 없음"으로 표시.
 - 이미지 없는 실행은 모든 연동에서 지금과 바이트 단위로 같다.
 
@@ -102,21 +102,21 @@ class AiImageAttachment(val file: File, val png: ByteArray)
 - 0이 아니면 지금과 같다(stderr/stdout 발췌, AUTH_HINT).
 - 타임아웃·상한·작업 폴더 삭제·프로세스 정리는 그대로.
 
-### 5. UI·확인 버튼 (복원)
+### 5. 이미지 입력 자동 확인 (첫 이미지 전송 때)
 
-- 계획 작성 중 발견: `22e66a7e`(2026-10-15, 패널 레이아웃 정리)에서 "이미지 입력 확인" 버튼이 함께 삭제되어
+- 계획 작성 중 발견: `22e66a7e`(2026-10-15, 패널 레이아웃 정리)에서 "이미지 입력 확인" 버튼이 삭제되어
   `AiChatController.verifyImageInput()`을 부르는 곳이 없다. 즉 현재 앱에서는 어떤 연동도 이미지 입력이 VERIFIED가 될 수
   없고, Codex도 실제로는 크롭을 첨부하지 못한다.
-- 복원: 패널 3행(웹 검색 · 영역 지정)에 미리보기 이미지가 있고(`tab.aiImageSource != null`), 선택한 연동이 설치되어
-  있고 `canAttachImages`이며, 이미지 상태가 VERIFIED가 아닐 때 작은 버튼을 보인다.
-  - UNKNOWN: "🖼️ 이미지 입력 확인" / "🖼️ Check image input"
-  - UNSUPPORTED: "🖼️ 이미지 입력 실패 · 다시 확인" / "🖼️ Image input failed · retry"
-  - 확인 중: "🖼️ 확인 중…" / "🖼️ Checking…" (비활성)
-  - 실행 중(`running`)에는 비활성. 툴팁/설명 문구 없이 칩 하나 — 정리된 레이아웃을 유지한다.
-- 무작위 색 정답일 때만 VERIFIED → 이후 채팅에 크롭 첨부. 검증 전에는 지금처럼 좌표만 보내고 "이미지 입력이 아직
-  확인되지 않음"을 컨텍스트에 적는다. 확인 상태는 앱 실행 동안 유지된다(기존 `aiCapabilities` 동작, 재탐색 시 같은
-  실행 파일이면 유지).
-- Gemini/agy: `canAttachImages = false` → 버튼 없음, 컨텍스트에 "이 앱의 X 연동은 이미지를 보낼 수 없음".
+- 결정(사용자, 2026-10-16): 버튼을 복원하지 않고 **첫 이미지 전송 때 자동 확인**한다. `verifyImageInput()`은 제거하고
+  컨트롤러 내부 `probeImageInput()`으로 바꾼다.
+- `send`에서 이미지가 첨부될 상황(미리보기 있음, `canAttachImages`, 실행 파일 있음, 파일 변경 없음)이고 이미지 상태가
+  UNKNOWN이면, 질문을 보내기 전에 확인 1회(무작위 단색 96×96 + 한 단어 색 이름 요구):
+  - 정답 → VERIFIED → 이번 질문부터 크롭 첨부.
+  - 답했지만 틀림 → UNSUPPORTED → 좌표만, 컨텍스트에 "확인용 이미지를 읽지 못함 (X)". 같은 실행 동안 재확인 안 함.
+  - 실행 실패·타임아웃 → UNKNOWN 유지 → 좌표만("아직 확인되지 않음"), 다음 전송 때 다시 확인.
+- 확인 중에는 `TabState.aiImageChecking` → 패널 3행에 "🖼️ 이미지 입력 확인 중…" / "🖼️ Checking image input…".
+  버튼은 없다. 확인 상태는 앱 실행 동안 유지된다(기존 `aiCapabilities` 동작).
+- Gemini/agy: `canAttachImages = false` → 확인 없음, 컨텍스트에 "이 앱의 X 연동은 이미지를 보낼 수 없음".
 
 ## 오류 처리
 

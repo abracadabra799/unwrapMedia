@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Claude Code 연동이 AI 대화에 화면 크롭(PNG)을 실제로 첨부하게 하고, 삭제된 "이미지 입력 확인" 버튼을 복원해 Claude·Codex 모두 이미지 입력을 검증·사용할 수 있게 한다.
+**Goal:** Claude Code 연동이 AI 대화에 화면 크롭(PNG)을 실제로 첨부하게 하고, 첫 이미지 전송 때 이미지 입력을 자동 확인해 Claude·Codex 모두 이미지를 실제로 쓰게 한다.
 
 **Architecture:** `AiCliAdapter`가 인자 목록만이 아니라 실행 단위(`AiCliInvocation`: 인자 + stdin + 출력 파서)를 돌려준다. Claude는 이미지가 있을 때 `--input-format stream-json --output-format stream-json --verbose`로 실행하고, stdin 한 줄 JSON에 base64 PNG 블록과 질문을 담고, 출력의 마지막 `result` 이벤트를 답으로 읽는다. 이미지 없는 실행은 모든 연동에서 지금과 같다.
 
@@ -31,7 +31,8 @@
 | `app/src/main/kotlin/com/multiviewer/ui/ai/AiCliAdapter.kt` (수정) | `AiCliInvocation`, `AiImageAttachment`, `invocation()`, `canAttachImages`, `claudeImageMessage`; Claude/Codex 구현 |
 | `app/src/main/kotlin/com/multiviewer/ui/ai/AiCliRunner.kt` (수정) | invocation 사용(stdin·파서·PNG 파일 조건부 작성) |
 | `app/src/main/kotlin/com/multiviewer/ui/ai/AiChatController.kt` (수정) | 탐침 대신 `canAttachImages` |
-| `app/src/main/kotlin/com/multiviewer/ui/ai/AiChatPanel.kt` (수정) | "이미지 입력 확인" 버튼 복원 |
+| `app/src/main/kotlin/com/multiviewer/ui/ai/AiChatPanel.kt` (수정) | 자동 확인 중 표시 |
+| `app/src/main/kotlin/com/multiviewer/ui/AppState.kt` (수정) | `TabState.aiImageChecking` |
 | `app/src/test/kotlin/com/multiviewer/cli/JsonValueTest.kt` (수정) | compact 렌더 테스트 |
 | `app/src/test/kotlin/com/multiviewer/ui/ai/StreamJsonTest.kt` (신규) | 파서 테스트 |
 | `app/src/test/kotlin/com/multiviewer/ui/ai/AiCliAdapterTest.kt` (신규) | invocation 테스트 |
@@ -327,8 +328,9 @@ private class JsonReader(private val s: String) {
                         't' -> sb.append('\t')
                         'u' -> {
                             if (pos + 4 > s.length) fail()
-                            val code = s.substring(pos, pos + 4).toIntOrNull(16) ?: fail()
-                            sb.append(Char(code))
+                            val hex = s.substring(pos, pos + 4)
+                            if (!hex.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) fail()
+                            sb.append(Char(hex.toInt(16)))
                             pos += 4
                         }
                         else -> fail()
@@ -795,18 +797,304 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 3: "이미지 입력 확인" 버튼 복원 + 실사용 수용 테스트
+### Task 3: 첫 이미지 전송 때 이미지 입력 자동 확인 + 실사용 수용 테스트
+
+(사용자 결정 2026-10-16: 버튼 대신 첫 이미지 전송 때 자동 확인. `verifyImageInput()`은 호출하는 UI가 없으므로 제거.)
 
 **Files:**
-- Modify: `app/src/main/kotlin/com/multiviewer/ui/ai/AiChatPanel.kt` (3행 옵션, `if (hasImageSource) { … }` 블록 끝)
+- Modify: `app/src/main/kotlin/com/multiviewer/ui/ai/AiChatController.kt` (`IMAGE_PROBE_COLORS`, `send`, `verifyImageInput` → `probeImageInput`)
+- Modify: `app/src/main/kotlin/com/multiviewer/ui/AppState.kt` (TabState: `aiImageChecking`)
+- Modify: `app/src/main/kotlin/com/multiviewer/ui/ai/AiChatPanel.kt` (3행 옵션: 확인 중 표시)
+- Modify: `app/src/test/kotlin/com/multiviewer/ui/ai/AiChatControllerTest.kt`
 - Modify: `app/src/test/kotlin/com/multiviewer/ui/ai/AiCliLiveAcceptanceTest.kt`
 
 **Interfaces:**
-- Consumes: `AiCliAdapter.canAttachImages`(Task 2), 기존 `AiChatController.verifyImageInput(provider: AiProviderId, executable: File, onDone: () -> Unit)`, `AiProviderCapabilities.image: CapabilityState`
+- Consumes: `AiCliAdapter.canAttachImages`(Task 2), `AiProviderCapabilities.image: CapabilityState`, 생성자 파라미터 `capabilities`, `onCapabilityUpdate`, `runner`
+- Produces:
+  - `internal const val IMAGE_PROBE_PROMPT: String`, `internal val IMAGE_PROBE_COLORS: List<Pair<String, java.awt.Color>>`
+  - `TabState.aiImageChecking: Boolean` (Compose state)
+  - 제거: `AiChatController.verifyImageInput(...)`
 
-- [ ] **Step 1: 버튼 추가**
+**동작:**
+- `send` 시점에 이미지가 첨부될 상황(미리보기 있음, `canAttachImages`, 실행 파일 있음, 파일 변경 없음)이고 이미지 상태가 UNKNOWN이면, 질문을 보내기 전에 확인 1회: 무작위 단색 96×96 PNG + `IMAGE_PROBE_PROMPT`.
+  - 정답 한 단어 → VERIFIED → 이번 질문부터 크롭 첨부.
+  - 답했지만 틀림 → UNSUPPORTED → 좌표만, 컨텍스트에 "확인용 이미지를 읽지 못함 (X)". 이후 같은 실행 동안 재확인 안 함.
+  - 실행 실패/타임아웃 → UNKNOWN 유지 → 좌표만("아직 확인되지 않음"), 다음 전송 때 다시 확인.
+- 확인 중에는 `tab.aiImageChecking = true` → 패널 3행에 "🖼️ 이미지 입력 확인 중…". 취소(`stop`)되면 finally에서 false.
 
-`AiChatPanel.kt`에서 다음 블록을 찾는다(영역 지정 블록의 끝):
+- [ ] **Step 1: 실패하는 테스트 — AiChatControllerTest**
+
+(1) `visual marks are taken at send time and a crop goes only to a verified image provider`에서 첫 전송이 확인을 유발하지 않도록 바꾼다. 다음 두 줄을
+
+```kotlin
+        controller(CapabilityState.UNKNOWN).send(a, "q", AiProviderId.CODEX, File("/bin/true"))
+```
+```kotlin
+        assertTrue(prompt.contains("not verified") || prompt.contains("확인되지 않음"), prompt)
+```
+각각 다음으로 교체:
+```kotlin
+        controller(CapabilityState.UNSUPPORTED).send(a, "q", AiProviderId.CODEX, File("/bin/true"))
+```
+```kotlin
+        assertTrue(prompt.contains("확인용 이미지를 읽지 못함"), prompt)
+```
+
+(2) 테스트 `image input is verified only by an exact one-word color` 전체를 삭제한다(`verifyImageInput`이 사라짐; 같은 판정은 아래 새 테스트가 `send` 경로로 검증).
+
+(3) 클래스 안(마지막 테스트 뒤)에 추가:
+
+```kotlin
+    private fun probeAnswer(imgs: List<java.awt.image.BufferedImage>) =
+        IMAGE_PROBE_COLORS.first { it.second.rgb == imgs.single().getRGB(0, 0) }.first
+
+    private fun imageTab(name: String = "a.jpg"): TabState = tab(name).apply {
+        aiImageSource = androidx.compose.ui.graphics.ImageBitmap(400, 200)
+        aiViewport = ImageRegion(0, 0, 400, 200)
+    }
+
+    @Test
+    fun `the first image send checks image input once, then attaches the crop`() = runBlocking {
+        val a = imageTab()
+        var state = CapabilityState.UNKNOWN
+        val prompts = mutableListOf<String>()
+        var mainImages = -1
+        var checkingSeen = false
+        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default,
+            capabilities = { AiProviderCapabilities(it, image = state) },
+            onCapabilityUpdate = { u -> u.image?.let { state = it } },
+            runner = { _, _, p, _, imgs ->
+                prompts += p
+                if (p == IMAGE_PROBE_PROMPT) {
+                    checkingSeen = a.aiImageChecking
+                    AiCliResult.Answer(probeAnswer(imgs), false)
+                } else {
+                    mainImages = imgs.size
+                    AiCliResult.Answer("ok", false)
+                }
+            })
+        controller.send(a, "q", AiProviderId.CLAUDE, File("/bin/true"))
+        waitFor { a.aiConversation.status == AiRunStatus.FINISHED }
+        assertEquals(listOf(IMAGE_PROBE_PROMPT), prompts.take(1))
+        assertEquals(2, prompts.size)
+        assertEquals(1, mainImages)
+        assertEquals(CapabilityState.VERIFIED, state)
+        assertTrue(checkingSeen)
+        assertFalse(a.aiImageChecking)
+
+        controller.send(a, "q2", AiProviderId.CLAUDE, File("/bin/true"))
+        waitFor { a.aiConversation.messages.count { it.role == AiRole.ASSISTANT } == 2 }
+        assertEquals(3, prompts.size) // verified: no second check
+        assertEquals(1, mainImages)
+    }
+
+    @Test
+    fun `a wrong check answer sends coordinates only and is not retried`() = runBlocking {
+        val a = imageTab()
+        var state = CapabilityState.UNKNOWN
+        var probes = 0
+        var prompt = ""
+        var mainImages = -1
+        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default,
+            capabilities = { AiProviderCapabilities(it, image = state) },
+            onCapabilityUpdate = { u -> u.image?.let { state = it } },
+            runner = { _, _, p, _, imgs ->
+                if (p == IMAGE_PROBE_PROMPT) {
+                    probes++
+                    AiCliResult.Answer("I cannot see any image, so I can't say if it is red, green or blue.", false)
+                } else {
+                    prompt = p
+                    mainImages = imgs.size
+                    AiCliResult.Answer("ok", false)
+                }
+            })
+        controller.send(a, "q", AiProviderId.CODEX, File("/bin/true"))
+        waitFor { a.aiConversation.status == AiRunStatus.FINISHED }
+        assertEquals(CapabilityState.UNSUPPORTED, state)
+        assertEquals(0, mainImages)
+        assertTrue(prompt.contains("확인용 이미지를 읽지 못함"), prompt)
+
+        controller.send(a, "q2", AiProviderId.CODEX, File("/bin/true"))
+        waitFor { a.aiConversation.messages.count { it.role == AiRole.ASSISTANT } == 2 }
+        assertEquals(1, probes)
+    }
+
+    @Test
+    fun `a check run that fails leaves image input unknown and the next send checks again`() = runBlocking {
+        val a = imageTab()
+        var state = CapabilityState.UNKNOWN
+        var probes = 0
+        var prompt = ""
+        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default,
+            capabilities = { AiProviderCapabilities(it, image = state) },
+            onCapabilityUpdate = { u -> u.image?.let { state = it } },
+            runner = { _, _, p, _, _ ->
+                if (p == IMAGE_PROBE_PROMPT) {
+                    probes++
+                    AiCliResult.Failed(AiFailure.EXIT_ERROR, 1, "boom")
+                } else {
+                    prompt = p
+                    AiCliResult.Answer("ok", false)
+                }
+            })
+        controller.send(a, "q", AiProviderId.CLAUDE, File("/bin/true"))
+        waitFor { a.aiConversation.status == AiRunStatus.FINISHED }
+        assertEquals(CapabilityState.UNKNOWN, state)
+        assertTrue(prompt.contains("확인되지 않음"), prompt)
+
+        controller.send(a, "q2", AiProviderId.CLAUDE, File("/bin/true"))
+        waitFor { a.aiConversation.messages.count { it.role == AiRole.ASSISTANT } == 2 }
+        assertEquals(2, probes)
+    }
+
+    @Test
+    fun `no check runs without a preview image or for a provider that cannot take images`() = runBlocking {
+        var probes = 0
+        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default,
+            capabilities = { AiProviderCapabilities(it, image = CapabilityState.UNKNOWN) },
+            runner = { _, _, p, _, _ ->
+                if (p == IMAGE_PROBE_PROMPT) probes++
+                AiCliResult.Answer("ok", false)
+            })
+        val plain = tab("b.jpg")
+        controller.send(plain, "q", AiProviderId.CLAUDE, File("/bin/true"))
+        waitFor { plain.aiConversation.status == AiRunStatus.FINISHED }
+        val a = imageTab()
+        controller.send(a, "q", AiProviderId.GEMINI, File("/bin/true"))
+        waitFor { a.aiConversation.status == AiRunStatus.FINISHED }
+        assertEquals(0, probes)
+    }
+```
+
+(`AiFailure`, `AiRole`, `AiRunStatus`, `ImageRegion`은 같은 패키지 `com.multiviewer.ui.ai`; `assertFalse`는 이미 import 되어 있다.)
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `./gradlew :app:test --tests 'com.multiviewer.ui.ai.AiChatControllerTest'`
+Expected: 컴파일 실패 — `Unresolved reference: IMAGE_PROBE_PROMPT`, `aiImageChecking` (그리고 `IMAGE_PROBE_COLORS`가 private)
+
+- [ ] **Step 3: TabState 상태 추가 — AppState.kt**
+
+다음 줄을 찾아
+```kotlin
+    var aiMarkMode: Boolean by mutableStateOf(false)
+```
+바로 아래에 추가:
+```kotlin
+    // True while the first image send of a provider checks that its CLI really reads images (AiChatController).
+    var aiImageChecking: Boolean by mutableStateOf(false)
+```
+
+- [ ] **Step 4: AiChatController.kt 구현**
+
+(a) 다음 블록을
+```kotlin
+private val IMAGE_PROBE_COLORS = listOf(
+```
+다음으로 교체(목록 내용은 그대로, 선언만 바꾸고 프롬프트 상수를 위에 추가):
+```kotlin
+internal const val IMAGE_PROBE_PROMPT =
+    "The attached image is one solid color. Reply with only that color as a single lowercase English word."
+
+internal val IMAGE_PROBE_COLORS = listOf(
+```
+
+(b) `AiCapabilityUpdate`의 KDoc 한 줄
+```kotlin
+    /** Result of an explicit image-input check. */
+```
+를
+```kotlin
+    /** Result of the image-input check run on a provider's first image send. */
+```
+로 바꾼다.
+
+(c) `send` 안의 다음 줄을
+```kotlin
+        val imageVerified = capabilities(provider)?.canAttachImage == true
+```
+다음으로 교체:
+```kotlin
+        val imageState = capabilities(provider)?.image ?: CapabilityState.UNKNOWN
+```
+
+(d) `send` 안의 다음 블록을
+```kotlin
+            val shown = snapshot.visual
+            val region = shown?.let { it.marked ?: it.visible }
+            var cropFailed: String? = null
+            val crop = if (shown != null && region != null && imageSource != null && canPassImages && imageVerified) {
+```
+다음으로 교체:
+```kotlin
+            val shown = snapshot.visual
+            val region = shown?.let { it.marked ?: it.visible }
+            // A provider's first image send checks its image input once, before the question goes out. A run
+            // that fails (timeout, login) stays UNKNOWN, so a later send tries again; a wrong answer does not.
+            val checkedImage = if (shown != null && region != null && imageSource != null && canPassImages &&
+                imageState == CapabilityState.UNKNOWN && executable != null && !snapshot.fileChangedSinceOpen
+            ) {
+                tab.aiImageChecking = true
+                try {
+                    probeImageInput(provider, executable)
+                } finally {
+                    tab.aiImageChecking = false
+                }
+            } else {
+                imageState
+            }
+            var cropFailed: String? = null
+            val crop = if (shown != null && region != null && imageSource != null && canPassImages && checkedImage == CapabilityState.VERIFIED) {
+```
+
+(e) `omitted`의 `when`에서 다음 줄을
+```kotlin
+                else -> label("${provider.displayName} 이미지 입력이 아직 확인되지 않음", "${provider.displayName} image input is not verified yet")
+```
+다음 두 줄로 교체:
+```kotlin
+                checkedImage == CapabilityState.UNSUPPORTED ->
+                    label("확인용 이미지를 읽지 못함 (${provider.displayName})", "${provider.displayName} failed the image input check")
+                else -> label("${provider.displayName} 이미지 입력이 아직 확인되지 않음", "${provider.displayName} image input is not verified yet")
+```
+
+(f) `fun verifyImageInput(...)` 함수 전체(위의 KDoc 포함, `/** Explicit, user-started check …` 부터 함수 끝 `}` 까지)를 다음으로 교체:
+
+```kotlin
+    /**
+     * One round trip proving [provider] reads an attached image: a random solid color, asked for as one exact
+     * word ("I can't see the image, maybe red?" must not pass). VERIFIED / UNSUPPORTED (it answered, wrongly) /
+     * UNKNOWN (the run itself failed or timed out, so a later send tries again).
+     */
+    private suspend fun probeImageInput(provider: AiProviderId, executable: File): CapabilityState {
+        val (word, color) = IMAGE_PROBE_COLORS.random()
+        val probe = java.awt.image.BufferedImage(96, 96, java.awt.image.BufferedImage.TYPE_INT_RGB).apply {
+            val g = createGraphics(); g.color = color; g.fillRect(0, 0, 96, 96); g.dispose()
+        }
+        val result = runner(adapterFor(provider), executable, IMAGE_PROBE_PROMPT, { true }, listOf(probe))
+        val state = when {
+            result is AiCliResult.Answer && result.text.trim().trimEnd('.').lowercase() == word -> CapabilityState.VERIFIED
+            result is AiCliResult.Answer -> CapabilityState.UNSUPPORTED
+            else -> CapabilityState.UNKNOWN
+        }
+        report(AiCapabilityUpdate(
+            provider,
+            image = state,
+            detail = when (result) {
+                is AiCliResult.Answer -> result.text.take(80)
+                is AiCliResult.Failed -> result.reason.name
+                else -> result.toString()
+            },
+        ))
+        return state
+    }
+```
+
+Run: `grep -rn "verifyImageInput\|canAttachImage\b" app/src` → `verifyImageInput`는 없어야 한다. (`canAttachImage`(단수, `AiProviderCapabilities`)가 더 이상 쓰이지 않으면 그대로 둔다 — 이 태스크 범위 밖.)
+
+- [ ] **Step 5: 패널 확인 중 표시 — AiChatPanel.kt**
+
+다음 블록을 찾는다(영역 지정 블록의 끝):
 
 ```kotlin
                             } else if (tab.aiMarkMode) {
@@ -816,45 +1104,19 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 바로 뒤(여전히 `if (hasImageSource) {` 안)에 추가:
 
 ```kotlin
-
-                            // Crops travel only after an explicit round trip proves this CLI reads images (one
-                            // random solid color, exact one-word answer). Restores the check lost in 22e66a7e.
-                            val imageCaps = caps?.takeIf { it.executablePath != null && adapterFor(it.provider).canAttachImages }
-                            val imageExe = imageCaps?.executablePath
-                            if (imageCaps != null && imageExe != null && imageCaps.image != CapabilityState.VERIFIED) {
-                                var checking by remember(imageCaps.provider) { mutableStateOf(false) }
-                                OutlinedButton(
-                                    onClick = {
-                                        checking = true
-                                        controller.verifyImageInput(imageCaps.provider, java.io.File(imageExe)) { checking = false }
-                                    },
-                                    enabled = !checking && !running,
-                                    shape = RoundedCornerShape(6.dp),
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                    modifier = Modifier.height(26.dp),
-                                ) {
-                                    Text(
-                                        when {
-                                            checking -> label("🖼️ 확인 중…", "🖼️ Checking…")
-                                            imageCaps.image == CapabilityState.UNSUPPORTED ->
-                                                label("🖼️ 이미지 입력 실패 · 다시 확인", "🖼️ Image input failed · retry")
-                                            else -> label("🖼️ 이미지 입력 확인", "🖼️ Check image input")
-                                        },
-                                        fontSize = 11.sp,
-                                        softWrap = false,
-                                    )
-                                }
+                            if (tab.aiImageChecking) {
+                                Text(label("🖼️ 이미지 입력 확인 중…", "🖼️ Checking image input…"), color = AppColors.TextMuted, fontSize = 10.sp, softWrap = false)
                             }
 ```
 
-(`Text`는 이 파일이 이미 `androidx.compose.material3.Text`를 쓰는지 `grep -n "import androidx.compose.material" AiChatPanel.kt`로 확인 — material3여야 한다. `OutlinedButton`, `PaddingValues`, `RoundedCornerShape`, `remember`, `mutableStateOf`는 이 파일에서 이미 쓰고 있다.)
+(`Text`가 `androidx.compose.material3.Text`인지 `grep -n "import androidx.compose.material" AiChatPanel.kt`로 확인.)
 
-- [ ] **Step 2: 컴파일**
+- [ ] **Step 6: 통과 확인**
 
-Run: `./gradlew :app:compileKotlin`
-Expected: BUILD SUCCESSFUL
+Run: `./gradlew :app:test --tests 'com.multiviewer.ui.ai.*'` 그리고 `./gradlew :app:compileKotlin`
+Expected: PASS / BUILD SUCCESSFUL
 
-- [ ] **Step 3: 실사용 수용 테스트 확장**
+- [ ] **Step 7: 실사용 수용 테스트 확장**
 
 `AiCliLiveAcceptanceTest.kt`에서
 
@@ -878,18 +1140,20 @@ Expected: BUILD SUCCESSFUL
                 )
 ```
 
-- [ ] **Step 4: 실제 CLI로 수용 테스트 (사람/에이전트가 로그인된 CLI로 실행)**
+- [ ] **Step 8: 실제 CLI로 수용 테스트**
 
 Run: `UNWRAPMEDIA_LIVE_AI=1 UNWRAPMEDIA_LIVE_AI_PROVIDERS=CLAUDE,CODEX ./gradlew :app:test --tests 'com.multiviewer.ui.ai.AiCliLiveAcceptanceTest' -i 2>&1 | grep "LIVE"`
-Expected: `LIVE IMAGE CLAUDE: Answer(text=red, …)`, `LIVE IMAGE CODEX: Answer(text=red, …)`, 테스트 PASS. (CLI 미설치/미로그인이면 해당 줄의 실패 사유를 그대로 보고한다 — 통과로 바꾸지 않는다.)
+Expected: `LIVE IMAGE CLAUDE: Answer(text=red, …)`, `LIVE IMAGE CODEX: Answer(text=red, …)`, 테스트 PASS. (CLI 미설치/미로그인이면 실패 사유를 그대로 보고한다 — 통과로 바꾸지 않는다.)
 
-- [ ] **Step 5: 커밋**
+- [ ] **Step 9: 커밋**
 
 ```bash
 git -C .worktrees/ai-claude-image branch --show-current   # feat/ai-claude-image-input 이어야 함
 cd .worktrees/ai-claude-image
-git add app/src/main/kotlin/com/multiviewer/ui/ai/AiChatPanel.kt app/src/test/kotlin/com/multiviewer/ui/ai/AiCliLiveAcceptanceTest.kt
-git commit -m "fix: restore the AI image input check in the chat panel
+git add app/src/main/kotlin/com/multiviewer/ui/ai/AiChatController.kt app/src/main/kotlin/com/multiviewer/ui/AppState.kt \
+  app/src/main/kotlin/com/multiviewer/ui/ai/AiChatPanel.kt app/src/test/kotlin/com/multiviewer/ui/ai/AiChatControllerTest.kt \
+  app/src/test/kotlin/com/multiviewer/ui/ai/AiCliLiveAcceptanceTest.kt
+git commit -m "feat: check AI image input automatically on the first image send
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -906,11 +1170,11 @@ Expected: BUILD SUCCESSFUL (`ThumbnailDiskCacheTest`만 단독 재실행으로 �
 - [ ] **Step 2: GUI 확인 (macOS)**
 
 `./gradlew :app:run` → JPEG 이미지 열기 → AI 패널 → 도구 Claude Code:
-1. 3행에 "🖼️ 이미지 입력 확인"이 보인다 → 누르면 "확인 중…" → 사라짐(VERIFIED).
-2. "🎯 영역 지정"으로 영역 드래그 → 질문 "표시한 영역에 무엇이 보이나요?" → 답이 실제 영역 내용을 묘사한다.
+1. "🎯 영역 지정"으로 영역 드래그 → 질문 "표시한 영역에 무엇이 보이나요?" 전송 → 3행에 "🖼️ 이미지 입력 확인 중…"이 잠시 보였다가 사라진다.
+2. 답이 실제 영역 내용을 묘사한다. 두 번째 질문에서는 확인 표시가 다시 나오지 않는다.
 3. 보낸 컨텍스트 펼치기에 "첨부 이미지: … 영역을 잘라 축소한 PNG"가 있다.
-4. 도구를 Antigravity로 바꾸면 버튼이 없다.
+4. 도구를 Antigravity로 바꾸고 질문하면 확인 표시 없이 좌표만 간다(컨텍스트에 "이미지를 보낼 수 없음").
 
 - [ ] **Step 3: Windows 확인 항목 기록**
 
-Windows 실기 확인은 사용자 몫으로 남긴다: `claude.cmd` 래퍼를 거친 큰 stdin(≈1 MB) 전달, 버튼 → VERIFIED → 크롭 질문.
+Windows 실기 확인은 사용자 몫으로 남긴다: `claude.cmd` 래퍼를 거친 큰 stdin(≈1 MB) 전달, 첫 이미지 전송 자동 확인 → 크롭 질문.
