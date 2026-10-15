@@ -19,7 +19,7 @@ class AiToolBridgeTest {
     private val child = BoxNode("moov", 100, 8, 400, fields = listOf(BoxField("GPSLatitude", "37.5", 110, 4), BoxField("version", "0", 108, 1)))
     private val root = BoxNode("root", 0, 0, 10_000, listOf(BoxNode("ftyp", 0, 8, 100), child))
     private fun ctx() = AiToolContext(file, root, ContentFileIdentity.capture(file), contentCheckText = "CHECK TEXT",
-        frames = listOf(FrameInfo(0, 'I', 500, 0.0, 9_000), FrameInfo(1, 'P', 120, 0.033, 9_500)), reports = mapOf("avsync" to "skew 12 ms"))
+        frames = listOf(FrameInfo(0, 'I', 500, 0.0, 9_000), FrameInfo(1, 'P', 120, 0.033, 9_500)), reports = mapOf(AiReportKind.AVSYNC to AiReportSource.Ready("skew 12 ms")))
 
     @AfterTest
     fun cleanup() { dir.deleteRecursively() }

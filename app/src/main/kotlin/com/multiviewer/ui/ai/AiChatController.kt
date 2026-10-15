@@ -114,18 +114,25 @@ class AiChatController(
         val video = tab.embeddedVideo
         val visual = tab.aiVisualContext()
         val frames = tab.gopFrames
-        val reports = buildMap {
-            tab.avSyncReport?.let { r ->
-                put("avsync", "video ${r.videoDurationSec} s, audio ${r.audioDurationSec} s, initial skew ${r.initialSkewMs} ms, " +
-                    "max ${r.maxSkewMs} ms, avg ${r.avgSkewMs} ms, drift ${r.driftRateMsPerMin} ms/min; " +
-                    r.diagnoses.take(10).joinToString("; ") { "[${it.severity}] ${it.category}: ${it.summary}" })
-            }
-            tab.bitstreamCorruptionReport?.let { r ->
-                put("bitstream", com.multiviewer.cli.scrubPaths(
-                    "${r.overallStatus}: ${r.corruptFrameCount}/${r.totalFramesScanned} corrupt frames, ${r.criticalErrorCount} critical, " +
-                        "reference loss ${r.hasReferenceLoss}; ${r.summaryRecommendation}", file))
-            }
+        val avSyncText = tab.avSyncReport?.let { r ->
+            "video ${r.videoDurationSec} s, audio ${r.audioDurationSec} s, initial skew ${r.initialSkewMs} ms, " +
+                "max ${r.maxSkewMs} ms, avg ${r.avgSkewMs} ms, drift ${r.driftRateMsPerMin} ms/min; " +
+                r.diagnoses.take(10).joinToString("; ") { "[${it.severity}] ${it.category}: ${it.summary}" }
         }
+        val bitstreamText = tab.bitstreamCorruptionReport?.let { r ->
+            com.multiviewer.cli.scrubPaths(
+                "${r.overallStatus}: ${r.corruptFrameCount}/${r.totalFramesScanned} corrupt frames, ${r.criticalErrorCount} critical, " +
+                    "reference loss ${r.hasReferenceLoss}; ${r.summaryRecommendation}", file)
+        }
+        // Send-time snapshot of every analysis result the AI may ask for; validated (stat) off the UI thread.
+        val reportInputs = AiReportInputs(
+            file = file, root = root, type = type, avSync = avSyncText, bitstream = bitstreamText,
+            hdr = tab.hdrScan, hrd = tab.hrdReport, timed = tab.timedMetadata, frames = frames,
+            gainmap = tab.gainmapInfo,
+            gainmapBase = tab.imageForensic?.let { f ->
+                f.bitmap?.let { com.multiviewer.ui.codedSize(it.width, it.height, f.orientationCode) }
+            },
+        )
         val imageSource = tab.aiImageSource
         // A video tab sends its selected frame (filmstrip/GOP/popup), decoded exactly at native size at send time.
         val isVideo = type == com.multiviewer.ui.MediaType.VIDEO && imageSource == null
@@ -136,10 +143,11 @@ class AiChatController(
         val imageState = capabilities(provider)?.image ?: CapabilityState.UNKNOWN
         tab.aiJob = scope.launch {
             // A capture failure must become a visible notice, never an exception that kills the scope.
-            val snapshot = try {
+            val (snapshot, reportSources) = try {
                 withContext(ioDispatcher) {
                     contextCapture()
-                    captureAiContext(file, root, type, selected, field, frame, contentCheck, parsed, video, visual)
+                    captureAiContext(file, root, type, selected, field, frame, contentCheck, parsed, video, visual) to
+                        aiReportSources(reportInputs, ::label)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -250,7 +258,9 @@ class AiChatController(
                 "HDR frame converted to 8-bit without tone mapping: brightness and colour may differ",
             )
             val contextSnapshot = if (crop != null && frameHdr) withFrame.copy(warnings = withFrame.warnings + hdrNote) else withFrame
-            val context = renderAiContext(contextSnapshot, attachedImage = region.takeIf { crop != null }, imageOmittedReason = omitted)
+            val reportSection = renderReportSection(reportSources, ::label)
+            val context = renderAiContext(contextSnapshot, attachedImage = region.takeIf { crop != null }, imageOmittedReason = omitted) +
+                (if (reportSection.isEmpty()) "" else "\n\n$reportSection")
             val history = tab.aiConversation.messages
             val (started, run) = tab.aiConversation.withUserMessage(text, context, provider, now())
             tab.aiConversation = started
@@ -275,7 +285,7 @@ class AiChatController(
             }
             val toolContext = AiToolContext(
                 file, root?.takeIf { !snapshot.fileChangedSinceOpen }, parsed ?: snapshot.identity,
-                snapshot.contentCheckSection, frames, reports,
+                snapshot.contentCheckSection, frames, reportSources,
             )
             try {
                 var toolResults = ""
@@ -301,10 +311,13 @@ class AiChatController(
                         return@launch
                     }
                     round++
+                    // Interruptible: stopping the run interrupts an on-request report that is still analysing.
                     val answers = withContext(ioDispatcher) {
-                        requests.take(MAX_TOOL_REQUESTS_PER_ROUND).map { parsedRequest ->
-                            parsedRequest.request?.let { executeToolRequest(it, toolContext).copy(line = parsedRequest.line) }
-                                ?: AiToolResult(parsedRequest.line, false, "Refused: ${parsedRequest.reason}")
+                        kotlinx.coroutines.runInterruptible {
+                            requests.take(MAX_TOOL_REQUESTS_PER_ROUND).map { parsedRequest ->
+                                parsedRequest.request?.let { executeToolRequest(it, toolContext).copy(line = parsedRequest.line) }
+                                    ?: AiToolResult(parsedRequest.line, false, "Refused: ${parsedRequest.reason}")
+                            }
                         }
                     }
                     val roundText = buildString {

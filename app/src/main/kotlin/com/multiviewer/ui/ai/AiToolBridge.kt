@@ -15,8 +15,8 @@ const val MAX_TOOL_HEX_BYTES = 1024
 const val MAX_TOOL_RESULT_CHARS = 8_000
 private const val MAX_STRUCTURE_LINES = 60
 
-/** Reports the bridge may hand out, and only when the tab already has them. */
-val TOOL_REPORT_KINDS = setOf("avsync", "bitstream")
+/** Report kinds the model may name; which ones apply (and in what state) is decided per file at send time. */
+val TOOL_REPORT_KINDS: Set<String> = AiReportKind.entries.map { it.key }.toSet()
 
 /**
  * The only things the model can ask the app for. Every request is read-only, bounded, and answered from the
@@ -44,7 +44,8 @@ data class AiToolContext(
     val identity: ContentFileIdentity?,
     val contentCheckText: String?,
     val frames: List<FrameInfo>?,
-    val reports: Map<String, String>,
+    /** Kinds that apply to this file, from [aiReportSources]; a missing kind does not apply. */
+    val reports: Map<AiReportKind, AiReportSource>,
 )
 
 /** Tells the model how to ask; part of every prompt. */
@@ -180,7 +181,19 @@ fun executeToolRequest(request: AiToolRequest, ctx: AiToolContext): AiToolResult
             AiToolResult(line, true, "#${f.index} ${f.type} · PTS ${String.format(Locale.US, "%.3f", f.ptsSeconds)} s · ${f.sizeBytes} B" +
                 (f.byteOffset?.let { " @ $it (${hex(it)})" } ?: ""))
         } ?: fail("Frame ${request.index} is not available (frame analysis has ${ctx.frames?.size ?: 0} frames).")
-        is AiToolRequest.Report -> ctx.reports[request.kind]?.let { AiToolResult(line, true, bounded(it)) }
-            ?: fail("The ${request.kind} report has not been run for this file. Ask the user to open that analysis first.")
+        is AiToolRequest.Report -> when (val source = AiReportKind.of(request.kind)?.let { ctx.reports[it] }) {
+            null -> fail("The ${request.kind} report does not apply to this file.")
+            is AiReportSource.Ready -> AiToolResult(line, true, bounded(source.text))
+            is AiReportSource.Unavailable -> fail("The ${request.kind} report is not available: ${source.reason}")
+            is AiReportSource.OnRequest -> {
+                // On-request analyses read the file at the tree's offsets: never against changed bytes.
+                if (identity == null || !identity.matches(ctx.file)) {
+                    return fail("The file changed (or is missing) since it was opened; the ${request.kind} report is refused.")
+                }
+                // Blocking: the caller is already off the UI thread; interrupting it stops the analysis.
+                val (ok, text) = runReportWithTimeout(source.run, ctx.file)
+                AiToolResult(line, ok, if (ok) bounded(text) else text)
+            }
+        }
     }
 }
