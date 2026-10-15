@@ -34,6 +34,15 @@ fun JsonValue.render(indent: Int = 0): String {
     }
 }
 
+/** One line, no whitespace: for newline-delimited JSON (one message per line). */
+fun JsonValue.renderCompact(): String = when (this) {
+    is JsonValue.JObject -> entries.joinToString(",", "{", "}") { (key, value) -> jsonString(key) + ":" + value.renderCompact() }
+    is JsonValue.JArray -> items.joinToString(",", "[", "]") { it.renderCompact() }
+    is JsonValue.JString -> jsonString(value)
+    is JsonValue.JNumber -> value.toString()
+    is JsonValue.JBoolean -> value.toString()
+}
+
 private fun jsonString(s: String): String {
     val sb = StringBuilder("\"")
     for (c in s) {

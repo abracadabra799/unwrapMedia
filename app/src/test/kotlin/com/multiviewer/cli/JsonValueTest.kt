@@ -61,4 +61,15 @@ class JsonValueTest {
         // assertion, not hand-derived.
         assertEquals("\"a\\\"b\\\\c\\nd\"", rendered)
     }
+
+    @Test
+    fun `compact rendering is one line and escapes control characters`() {
+        val value = JsonValue.JObject(
+            listOf(
+                "t" to JsonValue.JString("a\"b\\c\nd\u0001"),
+                "n" to JsonValue.JArray(listOf(JsonValue.JNumber(1), JsonValue.JBoolean(true), JsonValue.JObject(emptyList()))),
+            ),
+        )
+        assertEquals("""{"t":"a\"b\\c\nd\u0001","n":[1,true,{}]}""", value.renderCompact())
+    }
 }
