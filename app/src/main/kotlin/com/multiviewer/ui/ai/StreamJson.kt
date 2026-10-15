@@ -132,8 +132,9 @@ private class JsonReader(private val s: String) {
                         't' -> sb.append('\t')
                         'u' -> {
                             if (pos + 4 > s.length) fail()
-                            val code = s.substring(pos, pos + 4).toIntOrNull(16) ?: fail()
-                            sb.append(Char(code))
+                            val hex = s.substring(pos, pos + 4)
+                            if (!hex.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) fail()
+                            sb.append(Char(hex.toInt(16)))
                             pos += 4
                         }
                         else -> fail()

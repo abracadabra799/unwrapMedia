@@ -20,8 +20,13 @@ class StreamJsonTest {
 
     @Test
     fun `malformed input is null, not an exception`() {
-        val bad = listOf("", "{", "{\"a\":}", "{\"a\":1,}", "[\"x\"", "tru", "{\"a\":1} trailing", "\"bad \\q escape\"", "\"raw\ncontrol\"")
+        val bad = listOf("", "{", "{\"a\":}", "{\"a\":1,}", "[\"x\"", "tru", "{\"a\":1} trailing", "\"bad \\q escape\"", "\"raw\ncontrol\"", "\"\\u-123\"", "\"\\u+041\"", "\"\\u12\"")
         for (text in bad) assertEquals(null, parseJsonLoose(text), text)
+    }
+
+    @Test
+    fun `unicode escapes decode four hex digits`() {
+        assertEquals("Aé한", parseJsonLoose("\"\\u0041\\u00E9\\ud55c\""))
     }
 
     @Test
