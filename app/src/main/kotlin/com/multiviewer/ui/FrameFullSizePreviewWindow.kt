@@ -89,7 +89,7 @@ fun FrameFullSizePreviewWindow(
         if (!av2 || frame == null) return@LaunchedEffect
         kotlinx.coroutines.delay(40)
         val bitmap = suspendCancellableCoroutine<androidx.compose.ui.graphics.ImageBitmap?> { cont ->
-            val future = FrameFullSizeDecoder.decodeFrameAsync(tab.file, frame.ptsSeconds) { result ->
+            val future = FrameFullSizeDecoder.decodeFrameAtPtsAsync(tab.file, frame.ptsSeconds) { result ->
                 if (cont.isActive) cont.resume(result)
             }
             cont.invokeOnCancellation { future?.cancel(true) }
