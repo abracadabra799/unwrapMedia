@@ -45,6 +45,15 @@ enum class MediaFilterCategory {
     RAW,
 }
 
+/** Opens [dir] in Finder / Explorer off the UI thread; Desktop.open can block on Windows. */
+fun openInSystemExplorer(dir: File) {
+    Thread({
+        try {
+            if (Desktop.isDesktopSupported()) Desktop.getDesktop().open(dir)
+        } catch (_: Exception) {}
+    }, "open-in-system-explorer").apply { isDaemon = true }.start()
+}
+
 fun showOpenFolderDialog(appState: AppState) {
     val isMac = System.getProperty("os.name").lowercase(Locale.US).contains("mac")
     if (isMac) {
@@ -267,6 +276,12 @@ fun FolderExplorerView(
                             modifier = Modifier.size(24.dp),
                         ) {
                             Text("🔄", fontSize = 11.sp)
+                        }
+                        IconButton(
+                            onClick = { openInSystemExplorer(targetFolder) },
+                            modifier = Modifier.size(24.dp),
+                        ) {
+                            Text("📂", fontSize = 11.sp)
                         }
                     }
 
@@ -546,11 +561,7 @@ fun FolderExplorerView(
                                     )
                                     add(
                                         ContextMenuItem(if (language == AppLanguage.KO) "시스템 탐색기에서 보기" else "Reveal in Finder/Explorer") {
-                                            try {
-                                                if (Desktop.isDesktopSupported()) {
-                                                    Desktop.getDesktop().open(file.parentFile)
-                                                }
-                                            } catch (_: Exception) {}
+                                            file.parentFile?.let { openInSystemExplorer(it) }
                                         }
                                     )
                                 }
