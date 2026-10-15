@@ -455,4 +455,71 @@ class AiChatControllerTest {
         waitFor { a.aiConversation.status == AiRunStatus.FINISHED }
         assertTrue(prompt.contains("톤매핑 없이"), prompt)
     }
+
+    @Test
+    fun `stopping during the frame decode clears the flag and adds no message`() = runBlocking {
+        val a = videoTab()
+        val started = CompletableDeferred<Unit>()
+        var runs = 0
+        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default,
+            capabilities = { AiProviderCapabilities(it, image = CapabilityState.VERIFIED) },
+            frameDecoder = { _, _, _ ->
+                started.complete(Unit)
+                java.util.concurrent.CountDownLatch(1).await() // interrupted by runInterruptible on cancel
+                com.multiviewer.ui.ExactFrameResult.Failed("unreachable")
+            },
+            runner = { _, _, _, _, _ -> runs++; AiCliResult.Answer("ok", false) })
+        controller.send(a, "q", AiProviderId.CLAUDE, File("/bin/true"))
+        started.await()
+        assertTrue(a.aiFrameDecoding)
+        assertTrue(controller.isRunning(a))
+        controller.stop(a)
+        a.aiJob?.join()
+        assertFalse(a.aiFrameDecoding)
+        assertEquals(0, runs)
+        assertTrue(a.aiConversation.messages.none { it.role == AiRole.USER })
+    }
+
+    @Test
+    fun `an unsupported image provider skips the decode and says so`() = runBlocking {
+        val a = videoTab()
+        var decodes = 0
+        var prompt = ""
+        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default,
+            capabilities = { AiProviderCapabilities(it, image = CapabilityState.UNSUPPORTED) },
+            frameDecoder = { _, f, _ -> decodes++; com.multiviewer.ui.ExactFrameResult.Frame(frameImage(), f.ptsSeconds, hdr = true) },
+            runner = { _, _, p, _, _ -> prompt = p; AiCliResult.Answer("ok", false) })
+        controller.send(a, "q", AiProviderId.CLAUDE, File("/bin/true"))
+        waitFor { a.aiConversation.status == AiRunStatus.FINISHED }
+        assertEquals(0, decodes)
+        assertTrue(prompt.contains("확인용 이미지를 읽지 못함"), prompt)
+        assertFalse(prompt.contains("톤매핑 없이"), prompt)
+    }
+
+    @Test
+    fun `no executable means no frame decode`() = runBlocking {
+        val a = videoTab()
+        var decodes = 0
+        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default,
+            capabilities = { AiProviderCapabilities(it, image = CapabilityState.VERIFIED) },
+            frameDecoder = { _, f, _ -> decodes++; com.multiviewer.ui.ExactFrameResult.Frame(frameImage(), f.ptsSeconds, hdr = false) },
+            runner = { _, _, _, _, _ -> AiCliResult.Answer("ok", false) })
+        controller.send(a, "q", AiProviderId.CLAUDE, null)
+        waitFor { a.aiConversation.status != AiRunStatus.RUNNING && a.aiConversation.messages.isNotEmpty() }
+        a.aiJob?.join()
+        assertEquals(0, decodes)
+    }
+
+    @Test
+    fun `the HDR note is absent when the frame was not actually sent`() = runBlocking {
+        val a = videoTab()
+        var prompt = ""
+        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default,
+            capabilities = { AiProviderCapabilities(it, image = CapabilityState.UNKNOWN) },
+            frameDecoder = { _, f, _ -> com.multiviewer.ui.ExactFrameResult.Frame(frameImage(), f.ptsSeconds, hdr = true) },
+            runner = { _, _, p, _, _ -> if (p == IMAGE_PROBE_PROMPT) AiCliResult.Answer("nonsense", false) else { prompt = p; AiCliResult.Answer("ok", false) } })
+        controller.send(a, "q", AiProviderId.CLAUDE, File("/bin/true"))
+        waitFor { a.aiConversation.status == AiRunStatus.FINISHED }
+        assertFalse(prompt.contains("톤매핑 없이"), prompt)
+    }
 }

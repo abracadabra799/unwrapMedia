@@ -510,7 +510,8 @@ fun FfmpegVideoPlayer(
         audioMutedAtomic.set(isMuted)
         val seekSeconds = startFromSeconds
         val timestampIndex = frameTimestamps?.let(::FrameTimestampIndex)
-        val firstSourceFrameIndex = frameTimestamps?.indexOfFirst { it >= seekSeconds }?.takeIf { it >= 0 } ?: 0
+        // Same epsilon as the exact-frame select: a frame whose PTS is a rounding hair below the seek still counts.
+        val firstSourceFrameIndex = frameTimestamps?.indexOfFirst { it >= seekSeconds - 0.0005 }?.takeIf { it >= 0 } ?: 0
         val seek = playerSeek(seekSeconds, info.startTime)
         val process = try {
             ProcessBuilder(

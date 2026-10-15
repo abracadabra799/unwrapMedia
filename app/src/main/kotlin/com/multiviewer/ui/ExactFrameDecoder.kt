@@ -60,10 +60,12 @@ fun exactFrameArgs(ffmpeg: String, file: String, ptsSeconds: Double, startTime: 
     "-ss", fmt6(max(0.0, ptsSeconds - startTime - SEEK_PREROLL_SECONDS)),
     "-i", file, "-map", "0:v:0",
     "-vf", "select=gte(t\\,${fmt6(ptsSeconds - SELECT_EPSILON_SECONDS)}),showinfo",
-    "-frames:v", "1", "-y",
+    "-frames:v", "1", "-pix_fmt", "rgb24", "-y",
 )
 
-fun parseShowinfoPts(stderr: String): Double? = SHOWINFO_PTS.find(stderr)?.groupValues?.get(1)?.toDoubleOrNull()
+fun parseShowinfoPts(stderr: String): Double? = stderr.lineSequence()
+    .filter { "Parsed_showinfo" in it }
+    .firstNotNullOfOrNull { SHOWINFO_PTS.find(it)?.groupValues?.get(1)?.toDoubleOrNull() }
 
 sealed interface ExactFrameResult {
     data class Frame(val image: BufferedImage, val ptsSeconds: Double, val hdr: Boolean) : ExactFrameResult
@@ -81,7 +83,7 @@ fun decodeExactFrame(
     val out = try {
         File.createTempFile("exact-frame-", ".png")
     } catch (e: Exception) {
-        return ExactFrameResult.Failed("temp file: ${e.message}")
+        return ExactFrameResult.Failed("temp file could not be created")
     }
     try {
         val process = try {
@@ -90,12 +92,13 @@ fun decodeExactFrame(
                 .also { FfmpegLocator.configureEnvironment(it) }
                 .start()
         } catch (e: Exception) {
-            return ExactFrameResult.Failed("ffmpeg did not start: ${e.message}")
+            return ExactFrameResult.Failed("ffmpeg did not start")
         }
         val stderr = readProcessOutputWithTimeout(process, timeoutSeconds) { process.errorStream.bufferedReader().readText() }
             ?: return ExactFrameResult.Failed("ffmpeg timed out after $timeoutSeconds s")
         if (!process.waitFor(2, TimeUnit.SECONDS) || process.exitValue() != 0) {
-            return ExactFrameResult.Failed("ffmpeg failed")
+            val last = stderr.lineSequence().map { it.trim() }.lastOrNull { it.isNotEmpty() }
+            return ExactFrameResult.Failed(if (last == null) "ffmpeg failed" else "ffmpeg failed: ${com.multiviewer.cli.scrubPaths(last, file)}")
         }
         val decoded = parseShowinfoPts(stderr) ?: return ExactFrameResult.Failed("no frame at or after PTS ${fmt6(ptsSeconds)}")
         val tolerance = max(0.001, frameDurationSeconds / 2)

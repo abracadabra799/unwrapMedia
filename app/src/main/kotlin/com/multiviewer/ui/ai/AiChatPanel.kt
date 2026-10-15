@@ -175,7 +175,7 @@ fun AiChatPanel(
 
     val conversation = tab.aiConversation
     // The first image send checks image input before the question is added, so that phase counts as running too.
-    val running = conversation.status == AiRunStatus.RUNNING || tab.aiImageChecking
+    val running = conversation.status == AiRunStatus.RUNNING || tab.aiImageChecking || tab.aiFrameDecoding
     val provider = appState.aiProvider
     val caps = provider?.let { appState.aiCapabilities[it] }
     var input by remember(tab) { mutableStateOf("") }
@@ -585,7 +585,8 @@ fun AiChatPanel(
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 LinearProgressIndicator(Modifier.fillMaxWidth())
                 Text(
-                    if (tab.aiImageChecking) label("🖼️ 이미지 입력 확인 중…", "🖼️ Checking image input…")
+                    if (tab.aiFrameDecoding) label("🎞️ 프레임 디코딩 중…", "🎞️ Decoding frame…")
+                    else if (tab.aiImageChecking) label("🖼️ 이미지 입력 확인 중…", "🖼️ Checking image input…")
                     else label("AI 응답 생성 중…", "Generating answer…"),
                     color = AppColors.NeonPurple,
                     fontSize = 11.sp,

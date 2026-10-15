@@ -23,7 +23,7 @@ class ExactFrameDecoderTest {
         val out = Files.createTempFile("ref", ".png").toFile()
         try {
             val p = ProcessBuilder("ffmpeg", "-v", "error", "-y", "-i", file.absolutePath, "-vf", "select=eq(n\\,$n)",
-                "-frames:v", "1", out.absolutePath).redirectErrorStream(true).start()
+                "-frames:v", "1", "-pix_fmt", "rgb24", out.absolutePath).redirectErrorStream(true).start()
             p.inputStream.readAllBytes(); assertEquals(0, p.waitFor())
             val img = ImageIO.read(out)
             return img.getRGB(0, 0, img.width, img.height, null, 0, img.width)
@@ -40,14 +40,14 @@ class ExactFrameDecoderTest {
     fun `args seek three seconds early with copyts and select the exact pts, no exponent`() {
         val args = exactFrameArgs("ffmpeg", "/v/a b.ts", 12.9, 11.4)
         assertEquals(listOf("ffmpeg", "-v", "info", "-copyts", "-ss", "0.000000", "-i", "/v/a b.ts", "-map", "0:v:0",
-            "-vf", "select=gte(t\\,12.899500),showinfo", "-frames:v", "1", "-y"), args)
+            "-vf", "select=gte(t\\,12.899500),showinfo", "-frames:v", "1", "-pix_fmt", "rgb24", "-y"), args)
         assertEquals("0.000100", exactFrameArgs("ffmpeg", "f", 3.0001, 0.0)[5])
         assertEquals("select=gte(t\\,-0.000400),showinfo", exactFrameArgs("ffmpeg", "f", 0.0001, 0.0)[11])
     }
 
     @Test
     fun `showinfo pts is the first pts_time`() {
-        val err = "[Parsed_showinfo_1 @ 0x1] n:   0 pts: 1161000 pts_time:12.9 duration: 3003\n[Parsed_showinfo_1 @ 0x1] n:   1 pts_time:12.933333"
+        val err = "[libx265 @ 0x0] pts_time:99.0\n[Parsed_showinfo_1 @ 0x1] n:   0 pts: 1161000 pts_time:12.9 duration: 3003\n[Parsed_showinfo_1 @ 0x1] n:   1 pts_time:12.933333"
         assertEquals(12.9, parseShowinfoPts(err))
         assertEquals(null, parseShowinfoPts("no frames"))
     }
@@ -55,7 +55,7 @@ class ExactFrameDecoderTest {
     @Test
     fun `selected frame decodes to exactly that frame on every fixture`() {
         assumeTrue(ffmpegAvailable(), "ffmpeg not on PATH")
-        for (name in listOf("default.mp4", "offset.ts", "hevc.mp4", "vfr.mkv")) {
+        for (name in listOf("default.mp4", "offset.ts", "hevc.mp4", "vfr.mkv", "hdr10.mp4")) {
             val file = fixture(name)
             val pts = ffprobeFramePts(file)
             val info = probeFrameStreamInfo(file)
@@ -67,6 +67,23 @@ class ExactFrameDecoderTest {
                 val img = result.image
                 assertTrue(referenceFrame(file, n).contentEquals(img.getRGB(0, 0, img.width, img.height, null, 0, img.width)), "$name #$n pixels")
             }
+        }
+    }
+
+    @Test
+    fun `hdr10 fixture is flagged hdr and decoded to 8 bits matching the rgb24 reference`() {
+        assumeTrue(ffmpegAvailable(), "ffmpeg not on PATH")
+        val file = fixture("hdr10.mp4")
+        val info = probeFrameStreamInfo(file)
+        assertEquals("smpte2084", info.colorTransfer)
+        val pts = ffprobeFramePts(file)
+        for (n in listOf(0, 30)) {
+            val result = decodeExactFrame(file, pts[n], info, frameDurationSeconds = 1.0 / 30)
+            assertIs<ExactFrameResult.Frame>(result, "hdr #$n")
+            assertTrue(result.hdr)
+            val img = result.image
+            assertTrue(img.colorModel.componentSize.all { it == 8 }, "8 bits per sample")
+            assertTrue(referenceFrame(file, n).contentEquals(img.getRGB(0, 0, img.width, img.height, null, 0, img.width)), "hdr #$n pixels")
         }
     }
 

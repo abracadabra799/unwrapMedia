@@ -154,6 +154,7 @@ class AiChatController(
             // Video: decode the selected frame (once per send). A frame that cannot be shown exactly is not
             // shown at all -- the reason goes into the context instead.
             var frameImage: java.awt.image.BufferedImage? = null
+            var frameHdr = false
             val frameNotes = mutableListOf<String>()
             if (isVideo) {
                 when {
@@ -166,20 +167,28 @@ class AiChatController(
                         "이 앱의 ${provider.displayName} 연동은 이미지를 보낼 수 없음",
                         "this app's ${provider.displayName} integration cannot send images",
                     )
-                    !snapshot.fileChangedSinceOpen -> when (
-                        val r = withContext(ioDispatcher) { kotlinx.coroutines.runInterruptible { frameDecoder(file, videoFrame, frames) } }
-                    ) {
-                        is com.multiviewer.ui.ExactFrameResult.Frame -> {
-                            frameImage = r.image
-                            if (r.hdr) frameNotes += label(
-                                "HDR 프레임을 톤매핑 없이 8비트로 변환한 이미지 — 밝기·색이 실제와 다를 수 있음",
-                                "HDR frame converted to 8-bit without tone mapping: brightness and colour may differ",
+                    executable == null -> Unit // the send ends with the "CLI not found" notice
+                    imageState == CapabilityState.UNSUPPORTED -> frameNotes += label(
+                        "확인용 이미지를 읽지 못함 (${provider.displayName}) — 프레임 이미지를 보내지 않음",
+                        "${provider.displayName} failed the image input check: the frame image is not sent",
+                    )
+                    !snapshot.fileChangedSinceOpen -> {
+                        tab.aiFrameDecoding = true
+                        val r = try {
+                            withContext(ioDispatcher) { kotlinx.coroutines.runInterruptible { frameDecoder(file, videoFrame, frames) } }
+                        } finally {
+                            tab.aiFrameDecoding = false
+                        }
+                        when (r) {
+                            is com.multiviewer.ui.ExactFrameResult.Frame -> {
+                                frameImage = r.image
+                                frameHdr = r.hdr
+                            }
+                            is com.multiviewer.ui.ExactFrameResult.Failed -> frameNotes += label(
+                                "선택한 프레임 이미지를 정확히 얻지 못해 첨부하지 않음 (${r.reason})",
+                                "Selected frame image not attached: it could not be decoded exactly (${r.reason})",
                             )
                         }
-                        is com.multiviewer.ui.ExactFrameResult.Failed -> frameNotes += label(
-                            "선택한 프레임 이미지를 정확히 얻지 못해 첨부하지 않음 (${r.reason})",
-                            "Selected frame image not attached: it could not be decoded exactly (${r.reason})",
-                        )
                     }
                 }
             }
@@ -236,7 +245,12 @@ class AiChatController(
                     label("확인용 이미지를 읽지 못함 (${provider.displayName})", "${provider.displayName} failed the image input check")
                 else -> label("${provider.displayName} 이미지 입력이 아직 확인되지 않음", "${provider.displayName} image input is not verified yet")
             }
-            val context = renderAiContext(withFrame, attachedImage = region.takeIf { crop != null }, imageOmittedReason = omitted)
+            val hdrNote = label(
+                "HDR 프레임을 톤매핑 없이 8비트로 변환한 이미지 — 밝기·색이 실제와 다를 수 있음",
+                "HDR frame converted to 8-bit without tone mapping: brightness and colour may differ",
+            )
+            val contextSnapshot = if (crop != null && frameHdr) withFrame.copy(warnings = withFrame.warnings + hdrNote) else withFrame
+            val context = renderAiContext(contextSnapshot, attachedImage = region.takeIf { crop != null }, imageOmittedReason = omitted)
             val history = tab.aiConversation.messages
             val (started, run) = tab.aiConversation.withUserMessage(text, context, provider, now())
             tab.aiConversation = started

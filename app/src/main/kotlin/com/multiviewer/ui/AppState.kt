@@ -323,6 +323,8 @@ class TabState(val file: File) {
     var aiMarkMode: Boolean by mutableStateOf(false)
     // True while the first image send of a provider checks that its CLI really reads images (AiChatController).
     var aiImageChecking: Boolean by mutableStateOf(false)
+    // True while AiChatController decodes a video tab's selected frame for a send.
+    var aiFrameDecoding: Boolean by mutableStateOf(false)
     var aiViewport: com.multiviewer.ui.ai.ImageRegion? by mutableStateOf(null)
     var aiPointer: com.multiviewer.ui.ai.ImagePoint? by mutableStateOf(null)
     var aiMarked: com.multiviewer.ui.ai.ImageRegion? by mutableStateOf(null)
