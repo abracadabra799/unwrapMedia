@@ -1,5 +1,6 @@
 package com.multiviewer.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.HorizontalScrollbar
 import androidx.compose.foundation.Image
@@ -14,6 +15,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -179,11 +181,18 @@ fun FrameThumbnailFilmstrip(
                 onClick = { tab.fullSizeFramePreviewOpen = true },
                 label = {
                     Text(
-                        if (language == AppLanguage.KO) "정밀 검사 팝업 ↗" else "Popup Inspector ↗",
-                        fontSize = 10.sp,
+                        if (language == AppLanguage.KO) "🔍 정밀 검사 팝업 ↗" else "🔍 Popup Inspector ↗",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AppColors.NeonBlue,
                     )
                 },
-                modifier = Modifier.height(24.dp),
+                border = BorderStroke(1.dp, AppColors.NeonBlue.copy(alpha = 0.7f)),
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = AppColors.Surface,
+                    labelColor = AppColors.NeonBlue,
+                ),
+                modifier = Modifier.height(28.dp),
             )
         }
 
@@ -282,20 +291,20 @@ fun FrameThumbnailFilmstrip(
                     }
                     Row(
                         modifier = Modifier
-                            .height(14.dp)
-                            .padding(top = 1.dp),
+                            .height(18.dp)
+                            .padding(horizontal = 2.dp),
                         horizontalArrangement = Arrangement.spacedBy(3.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
                             "#${frame.index}",
-                            fontSize = 9.sp,
+                            fontSize = 10.sp,
                             color = if (isSelected) AppColors.NeonBlue else AppColors.TextSecondary,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                         )
                         Text(
                             frame.type.toString(),
-                            fontSize = 9.sp,
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             color = when (frame.type) {
                                 'I' -> AppColors.FrameTypeI

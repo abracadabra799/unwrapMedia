@@ -25,17 +25,18 @@
 - `app/src/main/kotlin/com/multiviewer/ui/VideoInspectorUI.kt`
 - `app/src/main/kotlin/com/multiviewer/ui/FrameThumbnailFilmstrip.kt`
 
-- [ ] Change `gopFilmstripSplit` default to `0.4f` in `VideoInspectorUI.kt`.
-- [ ] In `FrameThumbnailFilmstrip.kt`, adjust bottom label `Row` to `height(18.dp)` and `fontSize = 10.sp`.
-- [ ] Run `./gradlew :app:compileKotlin` to verify compilation.
+- [x] Change `gopFilmstripSplit` default to `0.4f` in `VideoInspectorUI.kt`.
+- [x] In `FrameThumbnailFilmstrip.kt`, adjust bottom label `Row` to `height(18.dp)` and `fontSize = 10.sp`.
+- [x] Improve popup inspector chip styling, size, and visibility.
+- [x] Run `./gradlew :app:compileKotlin` to verify compilation.
 
 ### Task 2: Tests and verification
 
-- [ ] Run `./gradlew :app:test --tests 'com.multiviewer.ui.*'`.
-- [ ] Run full test suite: `./gradlew :app:test`.
+- [x] Run `./gradlew :app:test --tests 'com.multiviewer.ui.*'`.
+- [x] Run full test suite: `./gradlew :app:test`.
 
 ### Task 3: Commit and merge to main
 
-- [ ] Commit changes.
-- [ ] Fast-forward merge to `main`.
-- [ ] Rerun app with `./gradlew :app:run`.
+- [x] Commit changes.
+- [x] Fast-forward merge to `main`.
+- [x] Rerun app with `./gradlew :app:run`.

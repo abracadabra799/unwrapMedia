@@ -114,10 +114,9 @@ fun VideoInspectorUI(
     // column (split via a second, vertical DraggableDivider) moved to DetailedPropertiesPanel's
     // Overview tab, so this row now fills the whole center panel.
     var videoGopSplit by remember { mutableStateOf(0.35f) }
-    // GOP timeline gets more of the column by default (0.7) -- the filmstrip below it is still
-    // useful at a smaller share, and this is user-draggable wider anytime via the divider between
-    // them.
-    var gopFilmstripSplit by remember { mutableStateOf(0.7f) }
+    // Filmstrip gets a generous default share (0.6) so video thumbnails are large and
+    // clearly readable, with the GOP timeline taking 0.4. User-draggable anytime via divider.
+    var gopFilmstripSplit by remember { mutableStateOf(0.4f) }
 
     DashboardLayout(
         leftPanel = leftPanel,
