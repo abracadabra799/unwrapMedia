@@ -68,6 +68,8 @@ fun HrdBufferSimulationWindow(
         var error by remember(tab.file) { mutableStateOf<String?>(null) }
         var frames by remember(tab.file) { mutableStateOf<List<VideoFrameItem>>(emptyList()) }
         var codecName by remember(tab.file) { mutableStateOf("") }
+        // Identity of the bytes the frames were read from, captured once at load (not per parameter edit).
+        var loadIdentity by remember(tab.file) { mutableStateOf<ContentFileIdentity?>(null) }
 
         var bitrateKbpsText by remember { mutableStateOf("5000") }
         var cpbKbText by remember { mutableStateOf("1000") }
@@ -93,10 +95,13 @@ fun HrdBufferSimulationWindow(
 
             withContext(Dispatchers.IO) {
                 try {
+                    loadIdentity = null
+                    val identityAtLoad = ContentFileIdentity.capture(tab.file)
                     ByteReader.open(tab.file).use { reader ->
                         val table = buildVideoSampleTable(reader, root)
                         if (table == null || table.samples.isEmpty()) {
                             error = label("비디오 트랙 샘플 테이블을 찾을 수 없습니다 (H.264/HEVC/AV1)", "No video sample table found (H.264/HEVC/AV1)")
+                            loadIdentity = null
                         } else {
                             val timescale = table.timescale.coerceAtLeast(1L).toDouble()
                             val parsedFrames = table.samples.map { s ->
@@ -120,10 +125,12 @@ fun HrdBufferSimulationWindow(
 
                             bitrateKbpsText = (avgBitrateBps / 1000L).toString()
                             cpbKbText = (defaultCpbBytes / 1024L).toString()
+                            loadIdentity = identityAtLoad
                         }
                     }
                 } catch (e: Exception) {
                     error = e.message ?: e.toString()
+                    loadIdentity = null
                 }
             }
             loading = false
@@ -142,10 +149,9 @@ fun HrdBufferSimulationWindow(
             )
         }
         // Keep the latest report on the tab for the AI (not while frames are unloaded / errored).
-        LaunchedEffect(report) {
-            if (frames.isNotEmpty()) {
-                tab.hrdReport = StoredAnalysis(report, withContext(Dispatchers.IO) { ContentFileIdentity.capture(tab.file) })
-            }
+        LaunchedEffect(report, loadIdentity) {
+            val id = loadIdentity
+            if (frames.isNotEmpty() && id != null) tab.hrdReport = StoredAnalysis(report, id)
         }
 
         fun saveCsv() {
