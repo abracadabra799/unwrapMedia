@@ -20,3 +20,7 @@ Reuse `tab.gopFrames` as the source frame timeline when analysis is complete. Ex
 ## Verification
 
 Unit-test variable-rate PTS, skipped frame counts, delivery delay classification, reset/seek boundaries, and bounded event retention. Run focused ffmpeg/filmstrip tests and the complete app suite. GUI timing and actual display scanout require manual verification.
+
+## 1.27.1 UI refinement
+
+User review removed UI delivery timing, player drop counts, their event list, and the separate native-frame switch because they could be mistaken for defects in the source file. The popup now shows the source PTS interval and links to interval analysis through one compact chip. Wheel zoom and drag pan work directly on the paused player image; starting playback resets the view to fit. A new filmstrip selection request seeks the open popup and pauses there. Popup-originated frame changes do not issue another seek. AV2 retains its still-frame fallback.

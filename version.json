@@ -1,7 +1,7 @@
 {
-  "version": "1.27.0",
+  "version": "1.27.1",
   "releaseDate": "2026-10-15",
-  "releaseNotes": "• 동영상 필름스트립: 선택한 프레임에서 일시정지된 팝업 재생기 열기\n• 팝업 프레임 검사: 방향키 한 프레임 이동, Space 재생·일시정지, 원본 픽셀 확대 보기\n• 끊김 진단: 파일 PTS 간격과 UI 전달 지연·재생기 드롭 기록을 프레임 번호별로 구분",
+  "releaseNotes": "• 동영상 팝업: 필름스트립에서 선택한 프레임으로 즉시 동기화\n• 재생기 화면: 휠 확대와 드래그 이동 지원, 재생 시작 시 화면 맞춤으로 복귀\n• 프레임 검사 화면: 파일 PTS 간격만 표시하고 보조 도구를 간결하게 정리",
   "windowsUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest",
   "macUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest"
 }

@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.geometry.Offset
@@ -35,22 +36,31 @@ import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.toSize
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runInterruptible
@@ -293,6 +303,7 @@ fun ffmpegPipeArgs(ffmpegPath: String, filePath: String, seekArgs: List<String>)
         "-f", "rawvideo", "-pix_fmt", "bgra", "-an", "-",
     )
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun FfmpegVideoPlayer(
     file: File,
@@ -310,14 +321,17 @@ fun FfmpegVideoPlayer(
     initialSeekSeconds: Double? = null,
     knownFrameTimestamps: List<Double>? = null,
     onPlaybackStateChanged: (Boolean) -> Unit = {},
-    onFrameDropped: (FramePosition, PlaybackDropReason) -> Unit = { _, _ -> },
     playPauseRequestTick: Int = 0,
     handleSpacebar: Boolean = true,
+    enableFrameZoom: Boolean = false,
 ) {
     val initialStart = remember(file) { initialPlaybackStart(initialSeekSeconds, seekRequestTick) }
     val suppliedTimestamps = remember(file) { knownFrameTimestamps?.takeIf { it.isNotEmpty() }?.toList() }
     var videoBitmap by remember(file) { mutableStateOf<ImageBitmap?>(null, neverEqualPolicy()) }
     var isPlaying by remember(file) { mutableStateOf(false) }
+    var frameZoom by remember(file) { mutableStateOf(1f) }
+    var framePan by remember(file) { mutableStateOf(Offset.Zero) }
+    var frameBoxSize by remember(file) { mutableStateOf(Size.Zero) }
     var loadError by remember(file) { mutableStateOf(false) }
     // ffmpeg's rawvideo pipe is one-shot -- once it hits EOF, that process is done and can't be
     // rewound. Reaching the end sets hasEnded and stops isPlaying (below); clicking play again
@@ -347,6 +361,10 @@ fun FfmpegVideoPlayer(
     var audioTrackRef by remember(file) { mutableStateOf<VideoAudioTrack?>(null) }
 
     fun setPlaying(play: Boolean) {
+        if (play && !isPlaying) {
+            frameZoom = 1f
+            framePan = Offset.Zero
+        }
         if (isPlaying != play) onPlaybackStateChanged(play)
         isPlaying = play
         audioPlayingAtomic.set(play)
@@ -556,13 +574,6 @@ fun FfmpegVideoPlayer(
                         }
                     }
 
-                    fun reportDropped(reason: PlaybackDropReason) {
-                        val position = timestampIndex?.position(firstSourceFrameIndex + frameIndex - 1) ?: return
-                        EventQueue.invokeLater {
-                            if (!stopped.get()) onFrameDropped(position, reason)
-                        }
-                    }
-
                     // First frame, shown immediately while paused -- still advances frameIndex so
                     // the duration list stays aligned with frames read from here on, but it
                     // doesn't count toward playedSeconds since nothing played yet.
@@ -626,7 +637,6 @@ fun FfmpegVideoPlayer(
                             // the self-pacing video-frame clock (unchanged behavior for audio-less files).
                             if (shouldSkipFrame(cumulativeLagMillis, budgetMillis)) {
                                 cumulativeLagMillis = laggedAfterSkip(cumulativeLagMillis, budgetMillis)
-                                reportDropped(PlaybackDropReason.VIDEO_LAG)
                                 EventQueue.invokeLater { playedSeconds += durationSeconds }
                             } else {
                                 deliver(durationSeconds)
@@ -643,7 +653,7 @@ fun FfmpegVideoPlayer(
                                     if (action.millis > 0) Thread.sleep(action.millis)
                                     deliver(null)
                                 }
-                                FrameAction.Drop -> reportDropped(PlaybackDropReason.AUDIO_SYNC)
+                                FrameAction.Drop -> { /* Behind the audio clock: omit this frame. */ }
                                 FrameAction.Deliver -> deliver(null)
                             }
                         }
@@ -688,16 +698,37 @@ fun FfmpegVideoPlayer(
     }
 
     Box(
-        modifier = modifier.fillMaxSize().background(AppColors.Background),
+        modifier = modifier.fillMaxSize().clipToBounds().background(AppColors.Background),
         contentAlignment = Alignment.Center,
     ) {
         val currentFrame = videoBitmap
         if (loadError) {
             Text("Could not start ffmpeg playback", color = AppColors.NeonRed)
         } else if (currentFrame != null) {
-            Image(bitmap = currentFrame, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+            Image(
+                bitmap = currentFrame,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize().graphicsLayer(
+                    scaleX = frameZoom,
+                    scaleY = frameZoom,
+                    translationX = framePan.x,
+                    translationY = framePan.y,
+                    transformOrigin = TransformOrigin(0f, 0f),
+                ),
+                contentScale = ContentScale.Fit,
+            )
             if (LocalShowPixelGrid.current) {
-                PixelGridOverlay(nativeSize = Size(currentFrame.width.toFloat(), currentFrame.height.toFloat()), scale = 1f)
+                PixelGridOverlay(
+                    nativeSize = Size(currentFrame.width.toFloat(), currentFrame.height.toFloat()),
+                    scale = frameZoom,
+                    modifier = Modifier.graphicsLayer(
+                        scaleX = frameZoom,
+                        scaleY = frameZoom,
+                        translationX = framePan.x,
+                        translationY = framePan.y,
+                        transformOrigin = TransformOrigin(0f, 0f),
+                    ),
+                )
             }
         } else {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -754,8 +785,28 @@ fun FfmpegVideoPlayer(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .clipToBounds()
+                .onGloballyPositioned { frameBoxSize = it.size.toSize() }
                 .focusRequester(playerFocusRequester)
                 .focusable()
+                .then(if (enableFrameZoom) Modifier
+                    .onPointerEvent(PointerEventType.Scroll, pass = PointerEventPass.Initial) { event ->
+                        val change = event.changes.firstOrNull() ?: return@onPointerEvent
+                        val bitmap = videoBitmap ?: return@onPointerEvent
+                        val contentSize = fittedContentSize(frameBoxSize, Size(bitmap.width.toFloat(), bitmap.height.toFloat()))
+                        val (zoom, pan) = zoomTowardPoint(frameZoom, framePan, change.position, change.scrollDelta.y)
+                        frameZoom = zoom
+                        framePan = clampPanOffset(pan, frameBoxSize, zoom, contentSize)
+                        event.changes.forEach { it.consume() }
+                    }
+                    .pointerInput(file) {
+                        detectDragGestures { change, dragAmount ->
+                            val bitmap = videoBitmap ?: return@detectDragGestures
+                            val contentSize = fittedContentSize(frameBoxSize, Size(bitmap.width.toFloat(), bitmap.height.toFloat()))
+                            change.consume()
+                            framePan = clampPanOffset(framePan + dragAmount, frameBoxSize, frameZoom, contentSize)
+                        }
+                    } else Modifier)
                 .onKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                     when (event.key) {
