@@ -341,6 +341,26 @@ class AiChatControllerTest {
     }
 
     @Test
+    fun `an exception thrown by the check run still sends the question with coordinates only`() = runBlocking {
+        val a = imageTab()
+        var state: CapabilityState? = null
+        var prompt = ""
+        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default,
+            capabilities = { AiProviderCapabilities(it, image = CapabilityState.UNKNOWN) },
+            onCapabilityUpdate = { u -> u.image?.let { state = it } },
+            runner = { _, _, p, _, _ ->
+                if (p == IMAGE_PROBE_PROMPT) throw java.io.IOException("disk full")
+                prompt = p
+                AiCliResult.Answer("ok", false)
+            })
+        controller.send(a, "q", AiProviderId.CLAUDE, File("/bin/true"))
+        waitFor { a.aiConversation.status == AiRunStatus.FINISHED }
+        assertEquals(CapabilityState.UNKNOWN, state)
+        assertTrue(prompt.contains("확인되지 않음"), prompt)
+        assertFalse(a.aiImageChecking)
+    }
+
+    @Test
     fun `no check runs without a preview image or for a provider that cannot take images`() = runBlocking {
         var probes = 0
         val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default,

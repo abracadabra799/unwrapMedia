@@ -172,7 +172,7 @@ class AgyCliAdapter : AiCliAdapter {
             AiCliInvocation(
                 arguments(),
                 "Attached images in the current directory: $names. Open each one with the view_file tool before " +
-                    "answering. Do not run any commands.\n\n" + prompt,
+                    "answering. If you could not open an image, say so plainly instead of describing it. Do not run any commands.\n\n" + prompt,
                 { AiParsedOutput.Answer(parseAnswer(it)) },
             )
         }

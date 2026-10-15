@@ -28,8 +28,12 @@ private val AUTH_REASON_HINT = Regex("(?i)error|auth|log ?in|eligib|tier|unautho
 internal const val IMAGE_PROBE_PROMPT =
     "The attached image is one solid color. Reply with only that color as a single lowercase English word."
 
+// More colors lower the chance that a model that never saw the image guesses right (1 in 7); ambiguous hues
+// (purple/violet, cyan) are avoided because a correct-but-differently-named answer is final for the session.
 internal val IMAGE_PROBE_COLORS = listOf(
     "red" to java.awt.Color(220, 20, 20), "green" to java.awt.Color(20, 180, 40), "blue" to java.awt.Color(20, 40, 220),
+    "yellow" to java.awt.Color(240, 220, 20), "orange" to java.awt.Color(245, 130, 20),
+    "black" to java.awt.Color(0, 0, 0), "white" to java.awt.Color(255, 255, 255),
 )
 
 /** Just the pixels of [region] from [source], without converting the whole bitmap. */
@@ -302,7 +306,15 @@ class AiChatController(
         val probe = java.awt.image.BufferedImage(96, 96, java.awt.image.BufferedImage.TYPE_INT_RGB).apply {
             val g = createGraphics(); g.color = color; g.fillRect(0, 0, 96, 96); g.dispose()
         }
-        val result = runner(adapterFor(provider), executable, IMAGE_PROBE_PROMPT, { true }, listOf(probe))
+        val result = try {
+            runner(adapterFor(provider), executable, IMAGE_PROBE_PROMPT, { true }, listOf(probe))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            System.err.println("[AI] ${provider.name} image check failed: $e")
+            report(AiCapabilityUpdate(provider, image = CapabilityState.UNKNOWN, detail = e.toString().take(80)))
+            return CapabilityState.UNKNOWN
+        }
         val state = when {
             result is AiCliResult.Answer && result.text.trim().trimEnd('.').lowercase() == word -> CapabilityState.VERIFIED
             result is AiCliResult.Answer -> CapabilityState.UNSUPPORTED

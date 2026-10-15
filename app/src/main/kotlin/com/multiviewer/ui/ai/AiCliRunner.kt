@@ -140,7 +140,11 @@ suspend fun runAiCli(
                     if (parsed.text.isBlank()) AiCliResult.Failed(AiFailure.EMPTY_OUTPUT, exit, excerpt(stderr))
                     else AiCliResult.Answer(parsed.text, out.truncated)
                 // The CLI exited 0 but said in its own output that the run failed (stream-json `is_error`).
-                is AiParsedOutput.Error -> AiCliResult.Failed(
+                is AiParsedOutput.Error -> if (out.truncated) AiCliResult.Failed(
+                    AiFailure.EXIT_ERROR,
+                    exit,
+                    "Output exceeded the ${maxOutputBytes / 1024} KB limit before the CLI finished its answer",
+                ) else AiCliResult.Failed(
                     if (AUTH_HINT.containsMatchIn(parsed.message)) AiFailure.AUTH_REQUIRED else AiFailure.EXIT_ERROR,
                     exit,
                     excerpt(parsed.message),

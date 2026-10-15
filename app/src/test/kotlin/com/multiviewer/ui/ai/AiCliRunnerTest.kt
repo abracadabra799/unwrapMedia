@@ -235,6 +235,18 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"red"}'""",
     }
 
     @Test
+    fun `capped output without a result event reports the limit, not a parse error`() {
+        val exe = script(
+            "claude",
+            """cat > /dev/null; echo '{"type":"system","subtype":"init"}'; i=0; while [ ${'$'}i -lt 400 ]; do echo '{"type":"system","subtype":"x","pad":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'; i=${'$'}((i+1)); done""",
+        )
+        val result = runBlocking { runAiCli(ClaudeCliAdapter(), exe, "q", maxOutputBytes = 4096, images = listOf(square())) }
+        assertIs<AiCliResult.Failed>(result)
+        assertEquals(AiFailure.EXIT_ERROR, result.reason)
+        assertTrue(result.detail.contains("limit"), result.detail)
+    }
+
+    @Test
     fun `codex image runs still get png files in the work dir`() {
         val exe = script("codex", """cat > /dev/null; echo "ARGS:$*"; ls""")
         val result = runBlocking { runAiCli(CodexCliAdapter(), exe, "q", images = listOf(square())) }

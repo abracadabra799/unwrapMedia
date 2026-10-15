@@ -87,6 +87,7 @@ class AiCliAdapterTest {
         assertEquals(adapter.arguments(), inv.arguments)
         assertFalse(inv.imagesInline)
         assertTrue(inv.stdin.contains("view_file"), inv.stdin)
+        assertTrue(inv.stdin.contains("say so plainly"), inv.stdin)
         assertTrue(inv.stdin.contains("view-1.png, view-2.png"), inv.stdin)
         assertFalse(inv.stdin.contains("/tmp/"), inv.stdin) // file names only: the CLI runs in that directory
         assertTrue(inv.stdin.endsWith("\n\nPROMPT"), inv.stdin)
