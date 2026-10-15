@@ -2,6 +2,7 @@ package com.multiviewer.ui.ai
 
 import com.multiviewer.ui.AppLanguage
 import com.multiviewer.ui.TabState
+import com.multiviewer.ui.decodeSelectedFrame
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -81,6 +82,9 @@ class AiChatController(
     private val capabilities: (AiProviderId) -> AiProviderCapabilities? = { null },
     /** Test hook run inside context capture (e.g. to simulate a failure there). */
     private val contextCapture: () -> Any? = {},
+    /** Decodes a video tab's selected frame for the AI (blocking; run off the UI thread). */
+    private val frameDecoder: (File, com.multiviewer.ui.FrameInfo, List<com.multiviewer.ui.FrameInfo>?) -> com.multiviewer.ui.ExactFrameResult =
+        ::decodeSelectedFrame,
 ) {
     var lastCapabilityUpdate: AiCapabilityUpdate? = null
         private set
@@ -123,6 +127,10 @@ class AiChatController(
             }
         }
         val imageSource = tab.aiImageSource
+        // A video tab sends its selected frame (filmstrip/GOP/popup), decoded exactly at native size at send time.
+        val isVideo = type == com.multiviewer.ui.MediaType.VIDEO && imageSource == null
+        val av2 = isVideo && com.multiviewer.ui.isAv2VideoTrack(root)
+        val videoFrame = frame?.takeIf { isVideo && !av2 }
         val adapter = adapterFor(provider, webSearch = webSearch)
         val canPassImages = adapter.canAttachImages
         val imageState = capabilities(provider)?.image ?: CapabilityState.UNKNOWN
@@ -143,13 +151,58 @@ class AiChatController(
                     label("컨텍스트를 만들지 못해 보내지 않았습니다: ", "Not sent: the context could not be built: ") + (e.message ?: e.toString()), now())
                 return@launch
             }
+            // Video: decode the selected frame (once per send). A frame that cannot be shown exactly is not
+            // shown at all -- the reason goes into the context instead.
+            var frameImage: java.awt.image.BufferedImage? = null
+            val frameNotes = mutableListOf<String>()
+            if (isVideo) {
+                when {
+                    av2 -> frameNotes += label("AV2 프레임 이미지는 아직 첨부하지 않습니다.", "AV2 frame images are not attached yet.")
+                    videoFrame == null -> frameNotes += label(
+                        "프레임 이미지 없음 — 필름스트립/GOP에서 프레임을 선택하면 첨부됩니다.",
+                        "No frame image: select a frame in the filmstrip/GOP view to attach it.",
+                    )
+                    !canPassImages -> frameNotes += label(
+                        "이 앱의 ${provider.displayName} 연동은 이미지를 보낼 수 없음",
+                        "this app's ${provider.displayName} integration cannot send images",
+                    )
+                    !snapshot.fileChangedSinceOpen -> when (
+                        val r = withContext(ioDispatcher) { kotlinx.coroutines.runInterruptible { frameDecoder(file, videoFrame, frames) } }
+                    ) {
+                        is com.multiviewer.ui.ExactFrameResult.Frame -> {
+                            frameImage = r.image
+                            if (r.hdr) frameNotes += label(
+                                "HDR 프레임을 톤매핑 없이 8비트로 변환한 이미지 — 밝기·색이 실제와 다를 수 있음",
+                                "HDR frame converted to 8-bit without tone mapping: brightness and colour may differ",
+                            )
+                        }
+                        is com.multiviewer.ui.ExactFrameResult.Failed -> frameNotes += label(
+                            "선택한 프레임 이미지를 정확히 얻지 못해 첨부하지 않음 (${r.reason})",
+                            "Selected frame image not attached: it could not be decoded exactly (${r.reason})",
+                        )
+                    }
+                }
+            }
+            val videoImage = frameImage
+            val withFrame = if (videoImage != null && videoFrame != null) {
+                snapshot.copy(
+                    visual = AiVisualContext(
+                        "video frame #${videoFrame.index} ${videoFrame.type} PTS ${String.format(java.util.Locale.US, "%.6f", videoFrame.ptsSeconds)} s",
+                        videoImage.width, videoImage.height, ImageRegion(0, 0, videoImage.width, videoImage.height), null, null,
+                    ),
+                    warnings = snapshot.warnings + frameNotes,
+                )
+            } else {
+                snapshot.copy(warnings = snapshot.warnings + frameNotes)
+            }
             // A crop goes only to a provider whose image input was verified here, and only of the marked
             // region (else the visible viewport); otherwise the coordinates travel alone, labeled as such.
-            val shown = snapshot.visual
+            val shown = withFrame.visual
+            val hasPixels = imageSource != null || videoImage != null
             val region = shown?.let { it.marked ?: it.visible }
             // A provider's first image send checks its image input once, before the question goes out. A run
             // that fails (timeout, login) stays UNKNOWN, so a later send tries again; a wrong answer does not.
-            val checkedImage = if (shown != null && region != null && imageSource != null && canPassImages &&
+            val checkedImage = if (shown != null && region != null && hasPixels && canPassImages &&
                 imageState == CapabilityState.UNKNOWN && executable != null && !snapshot.fileChangedSinceOpen
             ) {
                 tab.aiImageChecking = true
@@ -162,10 +215,13 @@ class AiChatController(
                 imageState
             }
             var cropFailed: String? = null
-            val crop = if (shown != null && region != null && imageSource != null && canPassImages && checkedImage == CapabilityState.VERIFIED) {
+            val crop = if (shown != null && region != null && hasPixels && canPassImages && checkedImage == CapabilityState.VERIFIED) {
                 try {
                     // Read only the region's pixels: converting a 200 MP bitmap whole would need ~1.6 GB.
-                    withContext(Dispatchers.Default) { cropForAi(regionPixels(imageSource, region), ImageRegion(0, 0, region.width, region.height)) }
+                    withContext(Dispatchers.Default) {
+                        if (videoImage != null) cropForAi(videoImage, region)
+                        else cropForAi(regionPixels(imageSource!!, region), ImageRegion(0, 0, region.width, region.height))
+                    }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Throwable) {
@@ -180,7 +236,7 @@ class AiChatController(
                     label("확인용 이미지를 읽지 못함 (${provider.displayName})", "${provider.displayName} failed the image input check")
                 else -> label("${provider.displayName} 이미지 입력이 아직 확인되지 않음", "${provider.displayName} image input is not verified yet")
             }
-            val context = renderAiContext(snapshot, attachedImage = region.takeIf { crop != null }, imageOmittedReason = omitted)
+            val context = renderAiContext(withFrame, attachedImage = region.takeIf { crop != null }, imageOmittedReason = omitted)
             val history = tab.aiConversation.messages
             val (started, run) = tab.aiConversation.withUserMessage(text, context, provider, now())
             tab.aiConversation = started

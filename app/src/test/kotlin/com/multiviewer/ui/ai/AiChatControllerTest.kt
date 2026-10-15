@@ -377,4 +377,82 @@ class AiChatControllerTest {
         waitFor { a.aiConversation.status == AiRunStatus.FINISHED }
         assertEquals(0, probes)
     }
+
+    private fun videoTab(name: String = "v.mp4"): TabState = tab(name).apply {
+        type = MediaType.VIDEO
+        selectedFrame = com.multiviewer.ui.FrameInfo(7, 'P', 100, 0.25)
+        gopFrames = listOf(com.multiviewer.ui.FrameInfo(6, 'I', 100, 0.2), com.multiviewer.ui.FrameInfo(7, 'P', 100, 0.25))
+    }
+
+    private fun frameImage(w: Int = 320, h: Int = 180) = java.awt.image.BufferedImage(w, h, java.awt.image.BufferedImage.TYPE_INT_RGB)
+
+    @Test
+    fun `a video tab attaches the selected frame decoded at send time`() = runBlocking {
+        val a = videoTab()
+        var decoded: com.multiviewer.ui.FrameInfo? = null
+        var mainImages = -1
+        var prompt = ""
+        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default,
+            capabilities = { AiProviderCapabilities(it, image = CapabilityState.VERIFIED) },
+            frameDecoder = { _, f, _ -> decoded = f; com.multiviewer.ui.ExactFrameResult.Frame(frameImage(), f.ptsSeconds, hdr = false) },
+            runner = { _, _, p, _, imgs -> prompt = p; mainImages = imgs.size; AiCliResult.Answer("ok", false) })
+        controller.send(a, "q", AiProviderId.CLAUDE, File("/bin/true"))
+        a.selectedFrame = com.multiviewer.ui.FrameInfo(6, 'I', 100, 0.2) // moved after sending
+        waitFor { a.aiConversation.status == AiRunStatus.FINISHED }
+        assertEquals(7, decoded?.index)
+        assertEquals(1, mainImages)
+        assertTrue(prompt.contains("video frame #7"), prompt)
+        assertTrue(prompt.contains("320x180"), prompt)
+    }
+
+    @Test
+    fun `no frame, AV2, a failed decode or a text-only provider attach nothing and say why`() = runBlocking {
+        var decodes = 0
+        var prompt = ""
+        var mainImages = -1
+        fun controller(result: com.multiviewer.ui.ExactFrameResult) = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default,
+            capabilities = { AiProviderCapabilities(it, image = CapabilityState.VERIFIED) },
+            frameDecoder = { _, _, _ -> decodes++; result },
+            runner = { _, _, p, _, imgs -> prompt = p; mainImages = imgs.size; AiCliResult.Answer("ok", false) })
+        val ok = com.multiviewer.ui.ExactFrameResult.Frame(frameImage(), 0.25, hdr = false)
+
+        val none = videoTab("n.mp4").apply { selectedFrame = null }
+        controller(ok).send(none, "q", AiProviderId.CLAUDE, File("/bin/true"))
+        waitFor { none.aiConversation.status == AiRunStatus.FINISHED }
+        assertEquals(0, decodes); assertEquals(0, mainImages)
+        assertTrue(prompt.contains("필름스트립/GOP에서 프레임을 선택"), prompt)
+
+        val av2 = videoTab("a.mp4").apply {
+            root = BoxNode("root", 0, 0, 100, listOf(BoxNode("av02", 0, 8, 50, listOf(BoxNode("av2C", 8, 8, 20)))))
+        }
+        controller(ok).send(av2, "q", AiProviderId.CLAUDE, File("/bin/true"))
+        waitFor { av2.aiConversation.status == AiRunStatus.FINISHED }
+        assertEquals(0, decodes)
+        assertTrue(prompt.contains("AV2"), prompt)
+
+        val failed = videoTab("f.ts")
+        controller(com.multiviewer.ui.ExactFrameResult.Failed("decoded PTS 0.300000 ≠ selected 0.250000")).send(failed, "q", AiProviderId.CLAUDE, File("/bin/true"))
+        waitFor { failed.aiConversation.status == AiRunStatus.FINISHED }
+        assertEquals(1, decodes); assertEquals(0, mainImages)
+        assertTrue(prompt.contains("정확히 얻지 못해") && prompt.contains("0.300000"), prompt)
+
+        val gemini = videoTab("g.mp4")
+        controller(ok).send(gemini, "q", AiProviderId.GEMINI, File("/bin/true"))
+        waitFor { gemini.aiConversation.status == AiRunStatus.FINISHED }
+        assertEquals(1, decodes) // no decode for a provider that cannot take images
+        assertTrue(prompt.contains("이미지를 보낼 수 없음"), prompt)
+    }
+
+    @Test
+    fun `an HDR frame is attached with a tone-mapping note`() = runBlocking {
+        val a = videoTab()
+        var prompt = ""
+        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default,
+            capabilities = { AiProviderCapabilities(it, image = CapabilityState.VERIFIED) },
+            frameDecoder = { _, f, _ -> com.multiviewer.ui.ExactFrameResult.Frame(frameImage(), f.ptsSeconds, hdr = true) },
+            runner = { _, _, p, _, _ -> prompt = p; AiCliResult.Answer("ok", false) })
+        controller.send(a, "q", AiProviderId.CLAUDE, File("/bin/true"))
+        waitFor { a.aiConversation.status == AiRunStatus.FINISHED }
+        assertTrue(prompt.contains("톤매핑 없이"), prompt)
+    }
 }
