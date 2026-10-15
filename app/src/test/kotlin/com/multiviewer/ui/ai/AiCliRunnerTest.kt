@@ -195,7 +195,7 @@ class AiCliRunnerTest {
         assertEquals(AiProviderId.AGY, adapter.provider)
         assertEquals(listOf("--mode", "plan", "--output-format", "text"), adapter.arguments())
         assertFalse(adapter.supportsWebSearch)
-        assertFalse(adapter.canAttachImages)
+        assertTrue(adapter.canAttachImages)
     }
 
     private fun square() = java.awt.image.BufferedImage(8, 8, java.awt.image.BufferedImage.TYPE_INT_RGB)
@@ -241,5 +241,17 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"red"}'""",
         assertIs<AiCliResult.Answer>(result)
         assertTrue(result.text.contains("ARGS:exec -i "), result.text)
         assertTrue(result.text.contains("view-1.png"), result.text)
+    }
+
+    @Test
+    fun `antigravity image runs get png files in the work dir and the view_file instruction on stdin`() {
+        val stdin = File(dir, "agy-stdin.txt")
+        val exe = script("agy", """cat > "${stdin.absolutePath}"; ls""")
+        val result = runBlocking { runAiCli(AgyCliAdapter(), exe, "q", images = listOf(square())) }
+        assertIs<AiCliResult.Answer>(result)
+        assertTrue(result.text.contains("view-1.png"), result.text)
+        val sent = stdin.readText()
+        assertTrue(sent.contains("view_file") && sent.contains("view-1.png"), sent)
+        assertTrue(sent.endsWith("\n\nq"), sent)
     }
 }

@@ -157,6 +157,25 @@ class AgyCliAdapter : AiCliAdapter {
     override val provider = AiProviderId.AGY
     // No documented per-run web toggle: the prompt can request search, but cannot guarantee it.
     override fun arguments() = listOf("--mode", "plan", "--output-format", "text")
+
+    // No attach flag, and `@file` is not attached (observed: it tries shell commands instead, refused in plan
+    // mode). Its own view_file tool does read a PNG in the working directory (verified with agy 1.3.5), so the
+    // crops stay files in the app-owned temp dir and the prompt names them. Whether it really looked is still
+    // decided by the first-send color check.
+    override val canAttachImages = true
+
+    override fun invocation(prompt: String, images: List<AiImageAttachment>): AiCliInvocation =
+        if (images.isEmpty()) {
+            textInvocation(prompt)
+        } else {
+            val names = images.joinToString(", ") { it.file.name }
+            AiCliInvocation(
+                arguments(),
+                "Attached images in the current directory: $names. Open each one with the view_file tool before " +
+                    "answering. Do not run any commands.\n\n" + prompt,
+                { AiParsedOutput.Answer(parseAnswer(it)) },
+            )
+        }
 }
 
 fun adapterFor(provider: AiProviderId, webSearch: Boolean = false): AiCliAdapter = when (provider) {

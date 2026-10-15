@@ -66,11 +66,30 @@ class AiCliAdapterTest {
     }
 
     @Test
-    fun `only claude and codex can attach images`() {
+    fun `claude, codex and antigravity can attach images, gemini cannot`() {
         assertEquals(
-            setOf(AiProviderId.CLAUDE, AiProviderId.CODEX),
+            setOf(AiProviderId.CLAUDE, AiProviderId.CODEX, AiProviderId.AGY),
             AiProviderId.entries.filter { adapterFor(it).canAttachImages }.toSet(),
         )
         assertEquals(null, adapterFor(AiProviderId.GEMINI).invocation("q", listOf(AiImageAttachment(File("x.png"), ByteArray(1)))))
+    }
+
+    @Test
+    fun `antigravity image runs name the work-dir files for view_file and keep the prompt`() {
+        val adapter = AgyCliAdapter()
+        val inv = adapter.invocation(
+            "PROMPT",
+            listOf(
+                AiImageAttachment(File("/tmp/unwrapmedia-ai-1/view-1.png"), ByteArray(1)),
+                AiImageAttachment(File("/tmp/unwrapmedia-ai-1/view-2.png"), ByteArray(1)),
+            ),
+        )!!
+        assertEquals(adapter.arguments(), inv.arguments)
+        assertFalse(inv.imagesInline)
+        assertTrue(inv.stdin.contains("view_file"), inv.stdin)
+        assertTrue(inv.stdin.contains("view-1.png, view-2.png"), inv.stdin)
+        assertFalse(inv.stdin.contains("/tmp/"), inv.stdin) // file names only: the CLI runs in that directory
+        assertTrue(inv.stdin.endsWith("\n\nPROMPT"), inv.stdin)
+        assertEquals(AiParsedOutput.Answer("blue"), inv.parse("blue\n"))
     }
 }

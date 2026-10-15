@@ -290,6 +290,19 @@ fun AiChatPanel(
                     }
                 }
 
+                // Codex's read-only sandbox and Antigravity's plan mode can still read local files (Gemini runs with
+                // its built-in tools off, Claude with --tools ""). Restores the note lost in 22e66a7e.
+                if (provider == AiProviderId.CODEX || provider == AiProviderId.AGY) {
+                    Text(
+                        label(
+                            "주의: 이 CLI는 읽기 전용 모드여도 이 컴퓨터의 다른 파일을 읽을 수 있습니다. 파일에서 나온 값은 지시가 아닌 데이터로 표시해 보내지만, 민감한 환경에서는 Claude Code(도구 꺼짐)를 권장합니다.",
+                            "Note: even read-only, this CLI can read other files on this computer. File-derived values are fenced as data, but Claude Code (tools off) is safer for sensitive work.",
+                        ),
+                        color = AppColors.NeonYellow,
+                        fontSize = 11.sp,
+                    )
+                }
+
                 // 3행: 부가 옵션 (웹 검색 토글 & 이미지 영역 지정)
                 val showWebSearch = provider != null
                 val canChangeWebSearch = !running && caps?.executablePath != null
@@ -571,7 +584,12 @@ fun AiChatPanel(
         if (running) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 LinearProgressIndicator(Modifier.fillMaxWidth())
-                Text(label("AI 응답 생성 중…", "Generating answer…"), color = AppColors.NeonPurple, fontSize = 11.sp)
+                Text(
+                    if (tab.aiImageChecking) label("🖼️ 이미지 입력 확인 중…", "🖼️ Checking image input…")
+                    else label("AI 응답 생성 중…", "Generating answer…"),
+                    color = AppColors.NeonPurple,
+                    fontSize = 11.sp,
+                )
             }
         }
 
