@@ -7,6 +7,7 @@ import javax.imageio.ImageIO
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ExactFrameDecoderTest {
@@ -31,9 +32,21 @@ class ExactFrameDecoderTest {
     }
 
     @Test
+    fun `a failed probe is null, not a cacheable start of zero`() {
+        assumeTrue(ffmpegAvailable(), "ffmpeg not on PATH")
+        kotlin.test.assertNull(probeFrameStreamInfoOrNull(File("/nonexistent/clip.ts")))
+        assertTrue(probeFrameStreamInfoOrNull(fixture("offset.ts"))!!.needsExactSeek)
+    }
+
+    @Test
     fun `stream info parses start time and transfer, N_A is zero`() {
         assertEquals(FrameStreamInfo(11.4, "bt709"), parseFrameStreamInfo(listOf("color_transfer=bt709", "start_time=11.400000")))
         assertEquals(FrameStreamInfo(0.0, null), parseFrameStreamInfo(listOf("color_transfer=unknown", "start_time=N/A")))
+        val ts = parseFrameStreamInfo(listOf("format_name=mpegts", "start_time=1.466667"))
+        assertTrue(ts.needsExactSeek)
+        assertFalse(parseFrameStreamInfo(listOf("format_name=mov,mp4,m4a,3gp,3g2,mj2", "start_time=5.0")).needsExactSeek)
+        assertFalse(parseFrameStreamInfo(listOf("format_name=matroska,webm")).needsExactSeek)
+        assertFalse(FrameStreamInfo(11.4, null).needsExactSeek) // unknown container: keep the old fast path
     }
 
     @Test

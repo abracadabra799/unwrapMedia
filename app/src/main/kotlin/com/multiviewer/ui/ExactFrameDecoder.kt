@@ -21,11 +21,17 @@ private val HDR_TRANSFERS = setOf("smpte2084", "arib-std-b67")
 
 internal fun fmt6(x: Double): String = String.format(Locale.US, "%.6f", x)
 
-data class FrameStreamInfo(val startTime: Double, val colorTransfer: String?)
+data class FrameStreamInfo(val startTime: Double, val colorTransfer: String?, val formatName: String? = null) {
+    // Measured (docs/validation/video-frame-fixtures): a plain `-ss` lands on the requested frame in MP4/MOV,
+    // Matroska/WebM and MPEG-PS even with a non-zero start_time, but not in MPEG-TS (no seek index) -- and
+    // ffmpeg's own default TS output starts at 1.47 s, so practically every TS file is affected.
+    val needsExactSeek: Boolean get() = formatName?.split(',')?.any { it.trim() == "mpegts" } == true
+}
 
 fun parseFrameStreamInfo(lines: List<String>): FrameStreamInfo {
     var start = 0.0
     var transfer: String? = null
+    var format: String? = null
     for (line in lines) {
         val eq = line.indexOf('=')
         if (eq < 0) continue
@@ -33,26 +39,32 @@ fun parseFrameStreamInfo(lines: List<String>): FrameStreamInfo {
         when (line.substring(0, eq).trim()) {
             "start_time" -> start = value.toDoubleOrNull() ?: 0.0
             "color_transfer" -> transfer = value.takeIf { it.isNotEmpty() && it != "unknown" }
+            "format_name" -> format = value.takeIf { it.isNotEmpty() }
         }
     }
-    return FrameStreamInfo(start, transfer)
+    return FrameStreamInfo(start, transfer, format)
 }
 
-/** One cheap ffprobe; on any failure start_time is taken as 0 (the PTS check in [decodeExactFrame] still guards). */
-fun probeFrameStreamInfo(file: File): FrameStreamInfo {
+/** One cheap ffprobe; null when it failed (timeout, missing ffprobe, unreadable file) -- callers must not cache that. */
+fun probeFrameStreamInfoOrNull(file: File): FrameStreamInfo? {
     return try {
         val process = ProcessBuilder(
             FfmpegLocator.ffprobePath(), "-v", "error", "-select_streams", "v:0",
-            "-show_entries", "format=start_time:stream=color_transfer", "-of", "default=noprint_wrappers=1", file.absolutePath,
+            "-show_entries", "format=start_time,format_name:stream=color_transfer", "-of", "default=noprint_wrappers=1", file.absolutePath,
         ).redirectError(ProcessBuilder.Redirect.DISCARD).also { FfmpegLocator.configureEnvironment(it) }.start()
         val lines = readProcessOutputWithTimeout(process, 5) { process.inputStream.bufferedReader().readLines() }
-        parseFrameStreamInfo(lines.orEmpty())
+            ?: return null
+        if (lines.none { it.startsWith("format_name=") }) return null
+        parseFrameStreamInfo(lines)
     } catch (e: InterruptedException) {
         throw e
     } catch (e: Exception) {
-        FrameStreamInfo(0.0, null)
+        null
     }
 }
+
+/** As [probeFrameStreamInfoOrNull], with start_time 0 on failure (the PTS check in [decodeExactFrame] still guards). */
+fun probeFrameStreamInfo(file: File): FrameStreamInfo = probeFrameStreamInfoOrNull(file) ?: FrameStreamInfo(0.0, null)
 
 /** ffmpeg arguments up to (not including) the output path. */
 fun exactFrameArgs(ffmpeg: String, file: String, ptsSeconds: Double, startTime: Double): List<String> = listOf(

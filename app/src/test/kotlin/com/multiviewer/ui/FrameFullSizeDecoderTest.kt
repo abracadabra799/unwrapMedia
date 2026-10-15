@@ -31,7 +31,7 @@ class FrameFullSizeDecoderTest {
 
     @Test
     fun `a stream starting at zero keeps today's two ffmpeg attempts`() {
-        val attempts = frameDecodeAttempts("ffmpeg", "/v/a.mp4", 1.5, 0.0)
+        val attempts = frameDecodeAttempts("ffmpeg", "/v/a.mp4", 1.5, FrameStreamInfo(0.0, null, "mov,mp4,m4a,3gp,3g2,mj2"))
         assertEquals(
             listOf(
                 listOf("ffmpeg", "-y", "-hwaccel", "auto", "-ss", "1.5", "-i", "/v/a.mp4", "-frames:v", "1", "-q:v", "2", "-update", "1"),
@@ -40,11 +40,14 @@ class FrameFullSizeDecoderTest {
             attempts.map { it.args },
         )
         assertEquals(listOf(".jpg", ".jpg"), attempts.map { it.extension })
+        // Measured exact with a start offset too (MP4/MOV, MKV/WebM, MPEG-PS): same fast attempts.
+        assertEquals(attempts, frameDecodeAttempts("ffmpeg", "/v/a.mp4", 1.5, FrameStreamInfo(5.0, null, "mov,mp4,m4a,3gp,3g2,mj2")))
+        assertEquals(attempts, frameDecodeAttempts("ffmpeg", "/v/a.mp4", 1.5, FrameStreamInfo(5.0, null, null)))
     }
 
     @Test
-    fun `an offset stream uses one exact absolute-time attempt`() {
-        val attempts = frameDecodeAttempts("ffmpeg", "/v/a.ts", 1.5, 11.4)
+    fun `an MPEG-TS stream uses one exact absolute-time attempt`() {
+        val attempts = frameDecodeAttempts("ffmpeg", "/v/a.ts", 1.5, FrameStreamInfo(11.4, null, "mpegts"))
         assertEquals(listOf(exactFrameArgs("ffmpeg", "/v/a.ts", 12.9, 11.4)), attempts.map { it.args })
         assertEquals(listOf(".png"), attempts.map { it.extension })
     }
@@ -71,6 +74,13 @@ class FrameFullSizeDecoderTest {
         val pixels = IntArray(bitmap.width * bitmap.height)
         bitmap.readPixels(pixels)
         assertContentEquals(referenceAt(file, start + 1.5), pixels)
+    }
+
+    @Test
+    fun `an MP4 with a start offset decodes through the fast path`() {
+        assumeTrue(ffmpegAvailable(), "ffmpeg not on PATH")
+        val bitmap = assertNotNull(FrameFullSizeDecoder.decodeFrameBlocking(fixture("offset5.mp4"), 1.5))
+        assertEquals(160, bitmap.width)
     }
 
     @Test

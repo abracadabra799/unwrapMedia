@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Assumptions.assumeTrue
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class FfmpegVideoPlayerTest {
@@ -390,16 +391,17 @@ class FfmpegVideoPlayerTest {
 
     @Test
     fun `player seek keeps today's args when the stream starts at zero`() {
-        assertEquals(PlayerSeek(emptyList(), null), playerSeek(0.0, 0.0))
-        assertEquals(PlayerSeek(listOf("-ss", 1.5.toString()), null), playerSeek(1.5, 0.0))
-        assertEquals(PlayerSeek(listOf("-ss", 1.5.toString()), null), playerSeek(1.5, 0.0004))
-        assertEquals(PlayerSeek(emptyList(), null), playerSeek(0.0, 11.4))
+        assertEquals(PlayerSeek(emptyList(), null), playerSeek(0.0, 0.0, exactSeek = false))
+        assertEquals(PlayerSeek(listOf("-ss", 1.5.toString()), null), playerSeek(1.5, 0.0, exactSeek = false))
+        assertEquals(PlayerSeek(emptyList(), null), playerSeek(0.0, 11.4, exactSeek = true))
+        // An indexed container with a start offset (MP4 without edit list, -output_ts_offset) keeps the fast path.
+        assertEquals(PlayerSeek(listOf("-ss", 1.5.toString()), null), playerSeek(1.5, 5.0, exactSeek = false))
     }
 
     @Test
     fun `player seek on an offset stream uses copyts, preroll and an absolute select`() {
-        assertEquals(PlayerSeek(listOf("-copyts", "-ss", "0.000000"), "select=gte(t\\,12.899500)"), playerSeek(1.5, 11.4))
-        assertEquals(PlayerSeek(listOf("-copyts", "-ss", "2.000000"), "select=gte(t\\,16.399500)"), playerSeek(5.0, 11.4))
+        assertEquals(PlayerSeek(listOf("-copyts", "-ss", "0.000000"), "select=gte(t\\,12.899500)"), playerSeek(1.5, 11.4, exactSeek = true))
+        assertEquals(PlayerSeek(listOf("-copyts", "-ss", "2.000000"), "select=gte(t\\,16.399500)"), playerSeek(5.0, 11.4, exactSeek = true))
     }
 
     @Test
@@ -419,7 +421,7 @@ class FfmpegVideoPlayerTest {
         val pts = probeFrameTimestamps(file)!!
         for (n in listOf(0, 30, 45)) {
             val rel = pts[n] - info.startTime
-            val seek = playerSeek(rel, info.startTime)
+            val seek = playerSeek(rel, info.startTime, info.needsExactSeek)
             val args = ffmpegPipeArgs("ffmpeg", file.absolutePath, seek.inputArgs, seek.selectFilter)
             val p = ProcessBuilder(args).redirectError(ProcessBuilder.Redirect.DISCARD).start()
             val bytes = p.inputStream.readAllBytes()
@@ -441,6 +443,11 @@ class FfmpegVideoPlayerTest {
         val ts = java.io.File(javaClass.getResource("/video-frame/offset.ts")!!.toURI())
         val mp4 = java.io.File(javaClass.getResource("/video-frame/default.mp4")!!.toURI())
         assertTrue(probeVideo(ts)!!.startTime > 1.0)
+        assertTrue(probeVideo(ts)!!.exactSeek)
         assertEquals(0.0, probeVideo(mp4)!!.startTime, 0.001)
+        assertFalse(probeVideo(mp4)!!.exactSeek)
+        val offsetMp4 = java.io.File(javaClass.getResource("/video-frame/offset5.mp4")!!.toURI())
+        assertEquals(5.0, probeVideo(offsetMp4)!!.startTime, 0.001)
+        assertFalse(probeVideo(offsetMp4)!!.exactSeek)
     }
 }

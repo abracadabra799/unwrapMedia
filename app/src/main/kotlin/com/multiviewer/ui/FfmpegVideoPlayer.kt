@@ -74,7 +74,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 // startTime: the container's format start_time (non-zero for e.g. MPEG-TS). Frame PTS from ffprobe are absolute,
 // the player's own positions are relative to it -- see playerSeek.
-data class VideoInfo(val width: Int, val height: Int, val fps: Double, val rotation: Int = 0, val duration: Double = 0.0, val startTime: Double = 0.0)
+// exactSeek: the container needs playerSeek's exact path (MPEG-TS; see FrameStreamInfo.needsExactSeek).
+data class VideoInfo(val width: Int, val height: Int, val fps: Double, val rotation: Int = 0, val duration: Double = 0.0, val startTime: Double = 0.0, val exactSeek: Boolean = false)
 
 data class PlaybackStart(val seconds: Double, val handledSeekTick: Int)
 
@@ -207,7 +208,7 @@ fun probeVideo(file: File): VideoInfo? {
     return try {
         val process = ProcessBuilder(
             FfmpegLocator.ffprobePath(), "-v", "error", "-select_streams", "v:0",
-            "-show_entries", "stream=width,height,avg_frame_rate,r_frame_rate,duration:stream_side_data=rotation:format=duration,start_time",
+            "-show_entries", "stream=width,height,avg_frame_rate,r_frame_rate,duration:stream_side_data=rotation:format=duration,start_time,format_name",
             // -of csv=p=0 does NOT preserve the field order given in -show_entries -- ffprobe
             // emits fields in the stream struct's internal order regardless of request order
             // (same quirk already worked around in FrameTypeAnalyzer.kt). On a real device video
@@ -260,7 +261,8 @@ fun probeVideo(file: File): VideoInfo? {
         }
         // Only the format section is asked for start_time, so this key is the container's.
         val startTime = values["start_time"]?.toDoubleOrNull() ?: 0.0
-        VideoInfo(width, height, fps, rotation, duration, startTime)
+        val exactSeek = FrameStreamInfo(startTime, null, values["format_name"]).needsExactSeek
+        VideoInfo(width, height, fps, rotation, duration, startTime, exactSeek)
     } catch (e: Exception) {
         null
     }
@@ -271,12 +273,13 @@ fun probeVideo(file: File): VideoInfo? {
 /** How the playback pipe starts at [relSeconds] (seconds from the file's start). */
 data class PlayerSeek(val inputArgs: List<String>, val selectFilter: String?)
 
-// A start_time of 0 keeps the exact arguments this player always used (measured exact there). Otherwise
-// `-ss rel` lands on the wrong frame (MPEG-TS, measured), so keep timestamps absolute, seek 3 s early and
-// select the first frame at/after the absolute target -- see docs/validation/video-frame-fixtures.
-fun playerSeek(relSeconds: Double, startTime: Double): PlayerSeek = when {
+// Containers with a seek index keep the arguments this player always used (`-ss rel`, measured exact for
+// MP4/MOV, MKV/WebM, MPEG-PS, also with a start offset). In MPEG-TS `-ss rel` lands on the wrong frame
+// (measured), so keep timestamps absolute, seek 3 s early and select the first frame at/after the
+// absolute target -- see docs/validation/video-frame-fixtures.
+fun playerSeek(relSeconds: Double, startTime: Double, exactSeek: Boolean): PlayerSeek = when {
     relSeconds <= 0.0 -> PlayerSeek(emptyList(), null)
-    kotlin.math.abs(startTime) < 0.001 -> PlayerSeek(listOf("-ss", relSeconds.toString()), null)
+    !exactSeek -> PlayerSeek(listOf("-ss", relSeconds.toString()), null)
     else -> PlayerSeek(
         listOf("-copyts", "-ss", fmt6(maxOf(0.0, relSeconds - 3.0))),
         "select=gte(t\\,${fmt6(relSeconds + startTime - 0.0005)})",
@@ -512,7 +515,7 @@ fun FfmpegVideoPlayer(
         val timestampIndex = frameTimestamps?.let(::FrameTimestampIndex)
         // Same epsilon as the exact-frame select: a frame whose PTS is a rounding hair below the seek still counts.
         val firstSourceFrameIndex = frameTimestamps?.indexOfFirst { it >= seekSeconds - 0.0005 }?.takeIf { it >= 0 } ?: 0
-        val seek = playerSeek(seekSeconds, info.startTime)
+        val seek = playerSeek(seekSeconds, info.startTime, info.exactSeek)
         val process = try {
             ProcessBuilder(
                 ffmpegPipeArgs(FfmpegLocator.ffmpegPath(), file.absolutePath, seek.inputArgs, seek.selectFilter),
