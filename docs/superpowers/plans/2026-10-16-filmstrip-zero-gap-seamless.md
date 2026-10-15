@@ -25,17 +25,17 @@ In `FrameThumbnailFilmstrip.kt`:
 
 **Files:** `app/src/main/kotlin/com/multiviewer/ui/FrameThumbnailFilmstrip.kt`
 
-- [ ] Remove horizontal padding on cell `Column`.
-- [ ] Change `contentScale` on `Image` to `ContentScale.Crop`.
-- [ ] Run `./gradlew :app:compileKotlin` to verify compilation.
+- [x] Remove horizontal padding on cell `Column`.
+- [x] Change `contentScale` on `Image` to `ContentScale.Crop`.
+- [x] Run `./gradlew :app:compileKotlin` to verify compilation.
 
 ### Task 2: Tests and verification
 
-- [ ] Run `./gradlew :app:test --tests 'com.multiviewer.ui.*'`.
-- [ ] Run full test suite: `./gradlew :app:test`.
+- [x] Run `./gradlew :app:test --tests 'com.multiviewer.ui.*'`.
+- [x] Run full test suite: `./gradlew :app:test`.
 
 ### Task 3: Commit, merge and rerun app
 
-- [ ] Commit changes.
-- [ ] Fast-forward merge to `main`.
-- [ ] Rerun app with `./gradlew :app:run`.
+- [x] Commit changes.
+- [x] Fast-forward merge to `main`.
+- [x] Rerun app with `./gradlew :app:run`.

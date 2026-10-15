@@ -258,7 +258,6 @@ fun FrameThumbnailFilmstrip(
                 Column(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .padding(horizontal = 1.dp)
                         .combinedClickable(
                             onClick = {
                                 focusRequester.requestFocus()
@@ -285,7 +284,7 @@ fun FrameThumbnailFilmstrip(
                                 bitmap = bitmap,
                                 contentDescription = null,
                                 modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Fit,
+                                contentScale = ContentScale.Crop,
                             )
                         }
                     }
