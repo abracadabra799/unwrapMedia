@@ -72,7 +72,9 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
-data class VideoInfo(val width: Int, val height: Int, val fps: Double, val rotation: Int = 0, val duration: Double = 0.0)
+// startTime: the container's format start_time (non-zero for e.g. MPEG-TS). Frame PTS from ffprobe are absolute,
+// the player's own positions are relative to it -- see playerSeek.
+data class VideoInfo(val width: Int, val height: Int, val fps: Double, val rotation: Int = 0, val duration: Double = 0.0, val startTime: Double = 0.0)
 
 data class PlaybackStart(val seconds: Double, val handledSeekTick: Int)
 
@@ -205,7 +207,7 @@ fun probeVideo(file: File): VideoInfo? {
     return try {
         val process = ProcessBuilder(
             FfmpegLocator.ffprobePath(), "-v", "error", "-select_streams", "v:0",
-            "-show_entries", "stream=width,height,avg_frame_rate,r_frame_rate,duration:stream_side_data=rotation:format=duration",
+            "-show_entries", "stream=width,height,avg_frame_rate,r_frame_rate,duration:stream_side_data=rotation:format=duration,start_time",
             // -of csv=p=0 does NOT preserve the field order given in -show_entries -- ffprobe
             // emits fields in the stream struct's internal order regardless of request order
             // (same quirk already worked around in FrameTypeAnalyzer.kt). On a real device video
@@ -256,7 +258,9 @@ fun probeVideo(file: File): VideoInfo? {
             width = height
             height = tmp
         }
-        VideoInfo(width, height, fps, rotation, duration)
+        // Only the format section is asked for start_time, so this key is the container's.
+        val startTime = values["start_time"]?.toDoubleOrNull() ?: 0.0
+        VideoInfo(width, height, fps, rotation, duration, startTime)
     } catch (e: Exception) {
         null
     }
@@ -264,7 +268,22 @@ fun probeVideo(file: File): VideoInfo? {
 
 // Extracted so the exact ffmpeg args (in particular -fps_mode, below) are unit-testable without
 // shelling out to a real process.
-fun ffmpegPipeArgs(ffmpegPath: String, filePath: String, seekArgs: List<String>): List<String> =
+/** How the playback pipe starts at [relSeconds] (seconds from the file's start). */
+data class PlayerSeek(val inputArgs: List<String>, val selectFilter: String?)
+
+// A start_time of 0 keeps the exact arguments this player always used (measured exact there). Otherwise
+// `-ss rel` lands on the wrong frame (MPEG-TS, measured), so keep timestamps absolute, seek 3 s early and
+// select the first frame at/after the absolute target -- see docs/validation/video-frame-fixtures.
+fun playerSeek(relSeconds: Double, startTime: Double): PlayerSeek = when {
+    relSeconds <= 0.0 -> PlayerSeek(emptyList(), null)
+    kotlin.math.abs(startTime) < 0.001 -> PlayerSeek(listOf("-ss", relSeconds.toString()), null)
+    else -> PlayerSeek(
+        listOf("-copyts", "-ss", fmt6(maxOf(0.0, relSeconds - 3.0))),
+        "select=gte(t\\,${fmt6(relSeconds + startTime - 0.0005)})",
+    )
+}
+
+fun ffmpegPipeArgs(ffmpegPath: String, filePath: String, seekArgs: List<String>, selectFilter: String? = null): List<String> =
     listOf(ffmpegPath) + seekArgs + listOf(
         "-i", filePath,
         // Explicit stream selection, matching probeVideo()'s own "-select_streams
@@ -299,7 +318,7 @@ fun ffmpegPipeArgs(ffmpegPath: String, filePath: String, seekArgs: List<String>)
         // there is no visible quality cost. actualWidth/actualHeight below is read
         // from ffmpeg's own stderr banner (watchForActualDimensions), so it already
         // reflects this filter's real output size with no separate prediction needed.
-        "-vf", "scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease:flags=fast_bilinear",
+        "-vf", listOfNotNull(selectFilter, "scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease:flags=fast_bilinear").joinToString(","),
         "-f", "rawvideo", "-pix_fmt", "bgra", "-an", "-",
     )
 
@@ -375,10 +394,12 @@ fun FfmpegVideoPlayer(
         audioMutedAtomic.set(muted)
     }
 
+    var probedInfo by remember(file) { mutableStateOf<VideoInfo?>(null) }
+
     LaunchedEffect(seekRequestTick) {
         if (seekRequestTick != lastHandledSeekTick) {
             lastHandledSeekTick = seekRequestTick
-            startFromSeconds = seekRequestSeconds
+            startFromSeconds = (seekRequestSeconds - (probedInfo?.startTime ?: 0.0)).coerceAtLeast(0.0)
             hasEnded = false
             setPlaying(false) // seek-and-pause: show the requested frame rather than resuming playback
             restartTrigger++
@@ -408,7 +429,6 @@ fun FfmpegVideoPlayer(
     // took. probeFrameTimestamps in particular walks every frame in the file and can take real
     // time on a longer video -- reported as "video opens with a delay and no visible progress
     // indicator" (the indicator was there, just frozen mid-render along with the rest of the UI).
-    var probedInfo by remember(file) { mutableStateOf<VideoInfo?>(null) }
     // Whole-file probe, done once and reused across replays/seeks of the same file (see below for
     // how a seek slices into this list rather than re-probing).
     var frameTimestamps by remember(file) { mutableStateOf<List<Double>?>(null) }
@@ -435,12 +455,17 @@ fun FfmpegVideoPlayer(
         // playthrough would be silent. probeAudioFormat is one cheap ffprobe, same cost class as the
         // probeVideo call already awaited above.
         audioInfo = if (info != null) runInterruptible(Dispatchers.IO) { probeAudioFormat(file) } else null
+        // initialSeekSeconds is an absolute frame PTS; the player's own positions are relative to the start.
+        if (info != null && initialStart.seconds > 0.0) {
+            startFromSeconds = (initialStart.seconds - info.startTime).coerceAtLeast(0.0)
+        }
         probedInfo = info
         probing = false
         if (info != null) {
-            val timestamps = suppliedTimestamps ?: runInterruptible(Dispatchers.IO) { probeFrameTimestamps(file) }
+            val absolute = suppliedTimestamps ?: runInterruptible(Dispatchers.IO) { probeFrameTimestamps(file) }
+            val timestamps = absolute?.map { it - info.startTime }
             frameTimestamps = timestamps
-            onFrameTimestamps(timestamps)
+            onFrameTimestamps(absolute)
             if ((probedInfo?.duration ?: 0.0) <= 0.0 && !timestamps.isNullOrEmpty()) {
                 val lastPts = timestamps.last()
                 val inferredDuration = if (timestamps.size > 1) {
@@ -483,10 +508,10 @@ fun FfmpegVideoPlayer(
         val seekSeconds = startFromSeconds
         val timestampIndex = frameTimestamps?.let(::FrameTimestampIndex)
         val firstSourceFrameIndex = frameTimestamps?.indexOfFirst { it >= seekSeconds }?.takeIf { it >= 0 } ?: 0
-        val seekArgs = if (seekSeconds > 0.0) listOf("-ss", seekSeconds.toString()) else emptyList()
+        val seek = playerSeek(seekSeconds, info.startTime)
         val process = try {
             ProcessBuilder(
-                ffmpegPipeArgs(FfmpegLocator.ffmpegPath(), file.absolutePath, seekArgs),
+                ffmpegPipeArgs(FfmpegLocator.ffmpegPath(), file.absolutePath, seek.inputArgs, seek.selectFilter),
             ).also { FfmpegLocator.configureEnvironment(it) }.start().also {
                 com.multiviewer.util.ProcessManager.register(it)
             }
@@ -567,7 +592,7 @@ fun FfmpegVideoPlayer(
                         EventQueue.invokeLater {
                             if (stopped.get()) return@invokeLater
                             videoBitmap = snapshot
-                            if (position != null) onFramePresented(position)
+                            if (position != null) onFramePresented(position.copy(ptsSeconds = position.ptsSeconds + info.startTime))
                             if (durationSeconds != null) {
                                 playedSeconds += durationSeconds
                             }

@@ -1,6 +1,7 @@
 package com.multiviewer.ui
 
 import java.io.File
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -385,5 +386,61 @@ class FfmpegVideoPlayerTest {
         }
         assertEquals(0, skippedCount)
         assertEquals(0L, cumulativeLagMillis)
+    }
+
+    @Test
+    fun `player seek keeps today's args when the stream starts at zero`() {
+        assertEquals(PlayerSeek(emptyList(), null), playerSeek(0.0, 0.0))
+        assertEquals(PlayerSeek(listOf("-ss", 1.5.toString()), null), playerSeek(1.5, 0.0))
+        assertEquals(PlayerSeek(listOf("-ss", 1.5.toString()), null), playerSeek(1.5, 0.0004))
+        assertEquals(PlayerSeek(emptyList(), null), playerSeek(0.0, 11.4))
+    }
+
+    @Test
+    fun `player seek on an offset stream uses copyts, preroll and an absolute select`() {
+        assertEquals(PlayerSeek(listOf("-copyts", "-ss", "0.000000"), "select=gte(t\\,12.899500)"), playerSeek(1.5, 11.4))
+        assertEquals(PlayerSeek(listOf("-copyts", "-ss", "2.000000"), "select=gte(t\\,16.399500)"), playerSeek(5.0, 11.4))
+    }
+
+    @Test
+    fun `the select filter goes first in the pipe's -vf chain`() {
+        val base = ffmpegPipeArgs("ffmpeg", "/f.ts", listOf("-copyts", "-ss", "0.000000"))
+        val withSelect = ffmpegPipeArgs("ffmpeg", "/f.ts", listOf("-copyts", "-ss", "0.000000"), "select=gte(t\\,1.0)")
+        val vf = withSelect[withSelect.indexOf("-vf") + 1]
+        assertTrue(vf.startsWith("select=gte(t\\,1.0),scale="), vf)
+        assertEquals(base[base.indexOf("-vf") + 1], vf.removePrefix("select=gte(t\\,1.0),"))
+    }
+
+    @Test
+    fun `an offset TS pipe started at a selected frame begins exactly there`() {
+        assumeTrue(runCatching { ProcessBuilder("ffmpeg", "-version").start().waitFor() == 0 }.getOrDefault(false), "ffmpeg not on PATH")
+        val file = java.io.File(javaClass.getResource("/video-frame/offset.ts")!!.toURI())
+        val info = probeFrameStreamInfo(file)
+        val pts = probeFrameTimestamps(file)!!
+        for (n in listOf(0, 30, 45)) {
+            val rel = pts[n] - info.startTime
+            val seek = playerSeek(rel, info.startTime)
+            val args = ffmpegPipeArgs("ffmpeg", file.absolutePath, seek.inputArgs, seek.selectFilter)
+            val p = ProcessBuilder(args).redirectError(ProcessBuilder.Redirect.DISCARD).start()
+            val bytes = p.inputStream.readAllBytes()
+            assertEquals(0, p.waitFor())
+            val frameBytes = 160 * 90 * 4
+            assertEquals(pts.size - n, bytes.size / frameBytes, "frames after #$n")
+            val ref = ProcessBuilder("ffmpeg", "-v", "error", "-i", file.absolutePath, "-map", "0:v:0", "-vf",
+                "select=eq(n\\,$n),scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease:flags=fast_bilinear",
+                "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "bgra", "-").redirectError(ProcessBuilder.Redirect.DISCARD).start()
+            val refBytes = ref.inputStream.readAllBytes()
+            ref.waitFor()
+            assertTrue(refBytes.contentEquals(bytes.copyOfRange(0, frameBytes)), "first frame after seek to #$n")
+        }
+    }
+
+    @Test
+    fun `probeVideo reads the stream start time`() {
+        assumeTrue(runCatching { ProcessBuilder("ffprobe", "-version").start().waitFor() == 0 }.getOrDefault(false), "ffprobe not on PATH")
+        val ts = java.io.File(javaClass.getResource("/video-frame/offset.ts")!!.toURI())
+        val mp4 = java.io.File(javaClass.getResource("/video-frame/default.mp4")!!.toURI())
+        assertTrue(probeVideo(ts)!!.startTime > 1.0)
+        assertEquals(0.0, probeVideo(mp4)!!.startTime, 0.001)
     }
 }
