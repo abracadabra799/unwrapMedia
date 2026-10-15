@@ -246,12 +246,10 @@ fun FrameThumbnailFilmstrip(
             itemsIndexed(frames) { index, frame ->
                 val bitmap = tab.thumbnailCache[index]
                 val isSelected = index == tab.selectedFrame?.index
-                Box(
+                Column(
                     modifier = Modifier
-                        .aspectRatio(aspectRatio)
                         .fillMaxHeight()
-                        .padding(1.dp)
-                        .let { if (isSelected) it.border(2.dp, AppColors.NeonBlue) else it }
+                        .padding(horizontal = 1.dp)
                         .combinedClickable(
                             onClick = {
                                 focusRequester.requestFocus()
@@ -263,19 +261,50 @@ fun FrameThumbnailFilmstrip(
                                 tab.fullSizeFramePreviewOpen = true
                             },
                         ),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    if (bitmap != null) {
-                        Image(
-                            bitmap = bitmap,
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxHeight().fillMaxWidth(),
-                            contentScale = ContentScale.Fit,
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .aspectRatio(aspectRatio)
+                            .background(AppColors.Panel)
+                            .let { if (isSelected) it.border(2.dp, AppColors.NeonBlue) else it },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (bitmap != null) {
+                            Image(
+                                bitmap = bitmap,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit,
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier
+                            .height(14.dp)
+                            .padding(top = 1.dp),
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "#${frame.index}",
+                            fontSize = 9.sp,
+                            color = if (isSelected) AppColors.NeonBlue else AppColors.TextSecondary,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        )
+                        Text(
+                            frame.type.toString(),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = when (frame.type) {
+                                'I' -> AppColors.FrameTypeI
+                                'P' -> AppColors.FrameTypeP
+                                'B' -> AppColors.FrameTypeB
+                                else -> AppColors.TextSecondary
+                            },
                         )
                     }
-                    PreviewCaption(
-                        "#${frame.index} ${frame.type}",
-                        modifier = Modifier.align(Alignment.TopStart).padding(2.dp),
-                    )
                 }
             }
         }

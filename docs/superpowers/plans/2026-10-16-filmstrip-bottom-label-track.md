@@ -27,21 +27,21 @@ In `FrameThumbnailFilmstrip.kt`, restructure each item in `LazyRow`:
 
 **Files:** `app/src/main/kotlin/com/multiviewer/ui/FrameThumbnailFilmstrip.kt`
 
-- [ ] Remove `PreviewCaption` from inside the thumbnail `Box`.
-- [ ] Restructure cell to `Column(modifier = ...)`:
+- [x] Remove `PreviewCaption` from inside the thumbnail `Box`.
+- [x] Restructure cell to `Column(modifier = ...)`:
   - Top `Box(modifier = Modifier.weight(1f)...)`: renders clean thumbnail image with selection border.
   - Bottom `Row(modifier = Modifier.fillMaxWidth().height(14.dp)...)`: renders `#<index>` in 9sp and frame type with `colorForFrameType(frame.type)`.
-- [ ] Run `./gradlew :app:compileKotlin` to verify compilation.
+- [x] Run `./gradlew :app:compileKotlin` to verify compilation.
 
 ### Task 2: Tests and verification
 
 **Files:** `FrameThumbnailDecoderTest.kt`, UI test suite.
 
-- [ ] Run `./gradlew :app:test --tests 'com.multiviewer.ui.*'`.
-- [ ] Run `./gradlew :app:test`.
+- [x] Run `./gradlew :app:test --tests 'com.multiviewer.ui.*'`.
+- [x] Run `./gradlew :app:test`.
 
 ### Task 3: Commit and merge to main
 
-- [ ] Commit changes with conventional commit message (`refactor:` or `feat:`).
-- [ ] Merge to `main` via fast-forward.
-- [ ] Verify clean build.
+- [x] Commit changes with conventional commit message (`refactor:` or `feat:`).
+- [x] Merge to `main` via fast-forward.
+- [x] Verify clean build.
