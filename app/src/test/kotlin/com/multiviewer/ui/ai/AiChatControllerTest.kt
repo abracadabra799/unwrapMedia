@@ -145,12 +145,12 @@ class AiChatControllerTest {
             capabilities = { AiProviderCapabilities(it, image = image) },
             runner = { _, _, p, _, imgs -> prompt = p; images = imgs.size; AiCliResult.Answer("ok", false) })
 
-        controller(CapabilityState.UNKNOWN).send(a, "q", AiProviderId.CODEX, File("/bin/true"))
+        controller(CapabilityState.UNSUPPORTED).send(a, "q", AiProviderId.CODEX, File("/bin/true"))
         a.aiPointer = ImagePoint(300, 100) // moved after sending
         waitFor { a.aiConversation.status == AiRunStatus.FINISHED }
         assertEquals(0, images)
         assertTrue(prompt.contains("(10, 20)"), prompt)
-        assertTrue(prompt.contains("not verified") || prompt.contains("확인되지 않음"), prompt)
+        assertTrue(prompt.contains("확인용 이미지를 읽지 못함"), prompt)
 
         controller(CapabilityState.VERIFIED).send(a, "q", AiProviderId.CLAUDE, File("/bin/true"))
         waitFor { a.aiConversation.messages.count { it.role == AiRole.ASSISTANT } == 2 }
@@ -202,23 +202,131 @@ class AiChatControllerTest {
     }
 
     @Test
-    fun `image input is verified only by an exact one-word color`() = runBlocking {
-        for ((reply, expected) in listOf("I cannot see any image, so I can't say if it is red, green or blue." to CapabilityState.UNSUPPORTED)) {
-            val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, _, _, _ -> AiCliResult.Answer(reply, false) })
-            controller.verifyImageInput(AiProviderId.CODEX, File("/bin/true")).join()
-            assertEquals(expected, controller.lastCapabilityUpdate?.image)
-        }
-        val gemini = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, _, _, _ -> error("must not run") })
-        gemini.verifyImageInput(AiProviderId.GEMINI, File("/bin/true")).join()
-        assertEquals(CapabilityState.UNSUPPORTED, gemini.lastCapabilityUpdate?.image)
-    }
-
-    @Test
     fun `nothing is sent while the tab is still loading`() = runBlocking {
         val a = tab("a.jpg").apply { isLoading = true }
         val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, _, _, _ -> error("must not run") })
         controller.send(a, "q", AiProviderId.CLAUDE, File("/bin/true"))
         yield()
         assertTrue(a.aiConversation.messages.isEmpty())
+    }
+
+    private fun probeAnswer(imgs: List<java.awt.image.BufferedImage>) =
+        IMAGE_PROBE_COLORS.first { it.second.rgb == imgs.single().getRGB(0, 0) }.first
+
+    private fun imageTab(name: String = "a.jpg"): TabState = tab(name).apply {
+        aiImageSource = androidx.compose.ui.graphics.ImageBitmap(400, 200)
+        aiViewport = ImageRegion(0, 0, 400, 200)
+    }
+
+    @Test
+    fun `the first image send checks image input once, then attaches the crop`() = runBlocking {
+        val a = imageTab()
+        var state = CapabilityState.UNKNOWN
+        val prompts = mutableListOf<String>()
+        var mainImages = -1
+        var checkingSeen = false
+        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default,
+            capabilities = { AiProviderCapabilities(it, image = state) },
+            onCapabilityUpdate = { u -> u.image?.let { state = it } },
+            runner = { _, _, p, _, imgs ->
+                prompts += p
+                if (p == IMAGE_PROBE_PROMPT) {
+                    checkingSeen = a.aiImageChecking
+                    AiCliResult.Answer(probeAnswer(imgs), false)
+                } else {
+                    mainImages = imgs.size
+                    AiCliResult.Answer("ok", false)
+                }
+            })
+        controller.send(a, "q", AiProviderId.CLAUDE, File("/bin/true"))
+        waitFor { a.aiConversation.status == AiRunStatus.FINISHED }
+        assertEquals(listOf(IMAGE_PROBE_PROMPT), prompts.take(1))
+        assertEquals(2, prompts.size)
+        assertEquals(1, mainImages)
+        assertEquals(CapabilityState.VERIFIED, state)
+        assertTrue(checkingSeen)
+        assertFalse(a.aiImageChecking)
+
+        controller.send(a, "q2", AiProviderId.CLAUDE, File("/bin/true"))
+        waitFor { a.aiConversation.messages.count { it.role == AiRole.ASSISTANT } == 2 }
+        assertEquals(3, prompts.size) // verified: no second check
+        assertEquals(1, mainImages)
+    }
+
+    @Test
+    fun `a wrong check answer sends coordinates only and is not retried`() = runBlocking {
+        val a = imageTab()
+        var state = CapabilityState.UNKNOWN
+        var probes = 0
+        var prompt = ""
+        var mainImages = -1
+        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default,
+            capabilities = { AiProviderCapabilities(it, image = state) },
+            onCapabilityUpdate = { u -> u.image?.let { state = it } },
+            runner = { _, _, p, _, imgs ->
+                if (p == IMAGE_PROBE_PROMPT) {
+                    probes++
+                    AiCliResult.Answer("I cannot see any image, so I can't say if it is red, green or blue.", false)
+                } else {
+                    prompt = p
+                    mainImages = imgs.size
+                    AiCliResult.Answer("ok", false)
+                }
+            })
+        controller.send(a, "q", AiProviderId.CODEX, File("/bin/true"))
+        waitFor { a.aiConversation.status == AiRunStatus.FINISHED }
+        assertEquals(CapabilityState.UNSUPPORTED, state)
+        assertEquals(0, mainImages)
+        assertTrue(prompt.contains("확인용 이미지를 읽지 못함"), prompt)
+
+        controller.send(a, "q2", AiProviderId.CODEX, File("/bin/true"))
+        waitFor { a.aiConversation.messages.count { it.role == AiRole.ASSISTANT } == 2 }
+        assertEquals(1, probes)
+    }
+
+    @Test
+    fun `a check run that fails leaves image input unknown and the next send checks again`() = runBlocking {
+        val a = imageTab()
+        var state = CapabilityState.UNKNOWN
+        var probes = 0
+        var prompt = ""
+        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default,
+            capabilities = { AiProviderCapabilities(it, image = state) },
+            onCapabilityUpdate = { u -> u.image?.let { state = it } },
+            runner = { _, _, p, _, _ ->
+                if (p == IMAGE_PROBE_PROMPT) {
+                    probes++
+                    AiCliResult.Failed(AiFailure.EXIT_ERROR, 1, "boom")
+                } else {
+                    prompt = p
+                    AiCliResult.Answer("ok", false)
+                }
+            })
+        controller.send(a, "q", AiProviderId.CLAUDE, File("/bin/true"))
+        waitFor { a.aiConversation.status == AiRunStatus.FINISHED }
+        assertEquals(CapabilityState.UNKNOWN, state)
+        assertTrue(prompt.contains("확인되지 않음"), prompt)
+
+        controller.send(a, "q2", AiProviderId.CLAUDE, File("/bin/true"))
+        waitFor { a.aiConversation.messages.count { it.role == AiRole.ASSISTANT } == 2 }
+        assertEquals(2, probes)
+    }
+
+    @Test
+    fun `no check runs without a preview image or for a provider that cannot take images`() = runBlocking {
+        var probes = 0
+        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default,
+            capabilities = { AiProviderCapabilities(it, image = CapabilityState.UNKNOWN) },
+            runner = { _, _, p, _, _ ->
+                if (p == IMAGE_PROBE_PROMPT) probes++
+                AiCliResult.Answer("ok", false)
+            })
+        val plain = tab("b.jpg")
+        controller.send(plain, "q", AiProviderId.CLAUDE, File("/bin/true"))
+        waitFor { plain.aiConversation.status == AiRunStatus.FINISHED }
+        val a = imageTab()
+        controller.send(a, "q", AiProviderId.GEMINI, File("/bin/true"))
+        waitFor { a.aiConversation.status == AiRunStatus.FINISHED }
+        assertEquals(0, probes)
     }
 }

@@ -321,6 +321,8 @@ class TabState(val file: File) {
     // AI visual context from the primary image preview, in native image pixels. The viewport follows
     // zoom/pan; pointer and marked region are set only while the user has "mark on screen" turned on.
     var aiMarkMode: Boolean by mutableStateOf(false)
+    // True while the first image send of a provider checks that its CLI really reads images (AiChatController).
+    var aiImageChecking: Boolean by mutableStateOf(false)
     var aiViewport: com.multiviewer.ui.ai.ImageRegion? by mutableStateOf(null)
     var aiPointer: com.multiviewer.ui.ai.ImagePoint? by mutableStateOf(null)
     var aiMarked: com.multiviewer.ui.ai.ImageRegion? by mutableStateOf(null)

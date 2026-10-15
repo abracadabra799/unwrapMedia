@@ -16,7 +16,7 @@ data class AiCapabilityUpdate(
     val provider: AiProviderId,
     val answered: Boolean = false,
     val failure: AiFailure? = null,
-    /** Result of an explicit image-input check. */
+    /** Result of the image-input check run on a provider's first image send. */
     val image: CapabilityState? = null,
     val detail: String? = null,
     /** Unused for now: a cited URL cannot prove that a search happened, so web search is never marked verified. */
@@ -25,7 +25,10 @@ data class AiCapabilityUpdate(
 
 private val AUTH_REASON_HINT = Regex("(?i)error|auth|log ?in|eligib|tier|unauthori|api key|expired")
 
-private val IMAGE_PROBE_COLORS = listOf(
+internal const val IMAGE_PROBE_PROMPT =
+    "The attached image is one solid color. Reply with only that color as a single lowercase English word."
+
+internal val IMAGE_PROBE_COLORS = listOf(
     "red" to java.awt.Color(220, 20, 20), "green" to java.awt.Color(20, 180, 40), "blue" to java.awt.Color(20, 40, 220),
 )
 
@@ -118,7 +121,7 @@ class AiChatController(
         val imageSource = tab.aiImageSource
         val adapter = adapterFor(provider, webSearch = webSearch)
         val canPassImages = adapter.canAttachImages
-        val imageVerified = capabilities(provider)?.canAttachImage == true
+        val imageState = capabilities(provider)?.image ?: CapabilityState.UNKNOWN
         tab.aiJob = scope.launch {
             // A capture failure must become a visible notice, never an exception that kills the scope.
             val snapshot = try {
@@ -140,8 +143,22 @@ class AiChatController(
             // region (else the visible viewport); otherwise the coordinates travel alone, labeled as such.
             val shown = snapshot.visual
             val region = shown?.let { it.marked ?: it.visible }
+            // A provider's first image send checks its image input once, before the question goes out. A run
+            // that fails (timeout, login) stays UNKNOWN, so a later send tries again; a wrong answer does not.
+            val checkedImage = if (shown != null && region != null && imageSource != null && canPassImages &&
+                imageState == CapabilityState.UNKNOWN && executable != null && !snapshot.fileChangedSinceOpen
+            ) {
+                tab.aiImageChecking = true
+                try {
+                    probeImageInput(provider, executable)
+                } finally {
+                    tab.aiImageChecking = false
+                }
+            } else {
+                imageState
+            }
             var cropFailed: String? = null
-            val crop = if (shown != null && region != null && imageSource != null && canPassImages && imageVerified) {
+            val crop = if (shown != null && region != null && imageSource != null && canPassImages && checkedImage == CapabilityState.VERIFIED) {
                 try {
                     // Read only the region's pixels: converting a 200 MP bitmap whole would need ~1.6 GB.
                     withContext(Dispatchers.Default) { cropForAi(regionPixels(imageSource, region), ImageRegion(0, 0, region.width, region.height)) }
@@ -155,6 +172,8 @@ class AiChatController(
                 shown == null || crop != null -> null
                 cropFailed != null -> label("화면 영역을 잘라내지 못함 ($cropFailed)", "could not crop the view ($cropFailed)")
                 !canPassImages -> label("이 앱의 ${provider.displayName} 연동은 이미지를 보낼 수 없음", "this app's ${provider.displayName} integration cannot send images")
+                checkedImage == CapabilityState.UNSUPPORTED ->
+                    label("확인용 이미지를 읽지 못함 (${provider.displayName})", "${provider.displayName} failed the image input check")
                 else -> label("${provider.displayName} 이미지 입력이 아직 확인되지 않음", "${provider.displayName} image input is not verified yet")
             }
             val context = renderAiContext(snapshot, attachedImage = region.takeIf { crop != null }, imageOmittedReason = omitted)
@@ -274,35 +293,30 @@ class AiChatController(
     }
 
     /**
-     * Explicit, user-started check that [provider] really reads an attached image: one solid red square,
-     * asked for its color. Only a correct answer marks image input VERIFIED.
+     * One round trip proving [provider] reads an attached image: a random solid color, asked for as one exact
+     * word ("I can't see the image, maybe red?" must not pass). VERIFIED / UNSUPPORTED (it answered, wrongly) /
+     * UNKNOWN (the run itself failed or timed out, so a later send tries again).
      */
-    fun verifyImageInput(provider: AiProviderId, executable: File, onDone: () -> Unit = {}) = scope.launch {
-        val adapter = adapterFor(provider)
-        if (!adapter.canAttachImages) {
-            report(AiCapabilityUpdate(provider, image = CapabilityState.UNSUPPORTED, detail = "no image argument"))
-            onDone(); return@launch
-        }
-        // A random color and an exact one-word answer: "I can't see the image, maybe red?" must not pass.
+    private suspend fun probeImageInput(provider: AiProviderId, executable: File): CapabilityState {
         val (word, color) = IMAGE_PROBE_COLORS.random()
         val probe = java.awt.image.BufferedImage(96, 96, java.awt.image.BufferedImage.TYPE_INT_RGB).apply {
             val g = createGraphics(); g.color = color; g.fillRect(0, 0, 96, 96); g.dispose()
         }
-        val prompt = "The attached image is one solid color. Reply with only that color as a single lowercase English word."
-        try {
-            val result = runner(adapter, executable, prompt, { true }, listOf(probe))
-            val ok = result is AiCliResult.Answer && result.text.trim().trimEnd('.').lowercase() == word
-            report(AiCapabilityUpdate(
-                provider,
-                image = if (ok) CapabilityState.VERIFIED else CapabilityState.UNSUPPORTED,
-                detail = when (result) {
-                    is AiCliResult.Answer -> result.text.take(80)
-                    is AiCliResult.Failed -> result.reason.name
-                    else -> result.toString()
-                },
-            ))
-        } finally {
-            onDone()
+        val result = runner(adapterFor(provider), executable, IMAGE_PROBE_PROMPT, { true }, listOf(probe))
+        val state = when {
+            result is AiCliResult.Answer && result.text.trim().trimEnd('.').lowercase() == word -> CapabilityState.VERIFIED
+            result is AiCliResult.Answer -> CapabilityState.UNSUPPORTED
+            else -> CapabilityState.UNKNOWN
         }
+        report(AiCapabilityUpdate(
+            provider,
+            image = state,
+            detail = when (result) {
+                is AiCliResult.Answer -> result.text.take(80)
+                is AiCliResult.Failed -> result.reason.name
+                else -> result.toString()
+            },
+        ))
+        return state
     }
 }

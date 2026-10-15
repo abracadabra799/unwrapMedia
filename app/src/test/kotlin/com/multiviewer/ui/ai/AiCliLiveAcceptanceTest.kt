@@ -49,7 +49,7 @@ class AiCliLiveAcceptanceTest {
                 is AiCliResult.Failed -> println("LIVE FAIL ${provider.name}: ${result.reason} exit=${result.exitCode} ${result.detail.take(2000).replace("\n", "\nLIVE | ")}")
                 else -> println("LIVE OTHER ${provider.name}: $result")
             }
-            if (provider == AiProviderId.CODEX) {
+            if (adapterFor(provider).canAttachImages) {
                 val probe = java.awt.image.BufferedImage(96, 96, java.awt.image.BufferedImage.TYPE_INT_RGB).apply {
                     val g = createGraphics(); g.color = java.awt.Color(220, 20, 20); g.fillRect(0, 0, 96, 96); g.dispose()
                 }
@@ -58,6 +58,10 @@ class AiCliLiveAcceptanceTest {
                         timeoutMillis = 240_000, images = listOf(probe))
                 }
                 println("LIVE IMAGE ${provider.name}: $img")
+                kotlin.test.assertTrue(
+                    img is AiCliResult.Answer && img.text.trim().trimEnd('.').lowercase() == "red",
+                    "${provider.name} did not read the attached image: $img",
+                )
             }
         }
     }

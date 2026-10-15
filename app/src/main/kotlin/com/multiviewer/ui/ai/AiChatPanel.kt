@@ -381,6 +381,9 @@ fun AiChatPanel(
                             } else if (tab.aiMarkMode) {
                                 Text(label("이미지 위를 드래그하세요", "Drag on image"), color = AppColors.TextMuted, fontSize = 10.sp, softWrap = false)
                             }
+                            if (tab.aiImageChecking) {
+                                Text(label("🖼️ 이미지 입력 확인 중…", "🖼️ Checking image input…"), color = AppColors.TextMuted, fontSize = 10.sp, softWrap = false)
+                            }
                         }
                     }
                 }
