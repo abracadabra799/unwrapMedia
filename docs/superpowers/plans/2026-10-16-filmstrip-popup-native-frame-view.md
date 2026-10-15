@@ -28,19 +28,19 @@ In `FrameFullSizePreviewWindow.kt`:
 
 **Files:** `app/src/main/kotlin/com/multiviewer/ui/FrameFullSizePreviewWindow.kt`
 
-- [ ] Add `var nativeView by remember(tab) { mutableStateOf(av2) }`.
-- [ ] In header `Row`, add toggle `AssistChip` (when `!av2`).
-- [ ] Update `LaunchedEffect` to decode frame bitmap when `nativeView` is true (not just `av2`).
-- [ ] Display `PixelInspectorPreview` when `nativeView` is true; display `FfmpegVideoPlayer` when `nativeView` is false.
-- [ ] Run `./gradlew :app:compileKotlin` to verify compilation.
+- [x] Add `var nativeView by remember(tab) { mutableStateOf(av2) }`.
+- [x] In header `Row`, add toggle `AssistChip` (when `!av2`).
+- [x] Update `LaunchedEffect` to decode frame bitmap when `nativeView` is true (not just `av2`).
+- [x] Display `PixelInspectorPreview` when `nativeView` is true; display `FfmpegVideoPlayer` when `nativeView` is false.
+- [x] Run `./gradlew :app:compileKotlin` to verify compilation.
 
 ### Task 2: Tests and verification
 
-- [ ] Run `./gradlew :app:test --tests 'com.multiviewer.ui.*'`.
-- [ ] Run full test suite: `./gradlew :app:test`.
+- [x] Run `./gradlew :app:test --tests 'com.multiviewer.ui.*'`.
+- [x] Run full test suite: `./gradlew :app:test`.
 
 ### Task 3: Commit, merge and rerun app
 
-- [ ] Commit changes.
-- [ ] Fast-forward merge to `main`.
-- [ ] Rerun app with `./gradlew :app:run`.
+- [x] Commit changes.
+- [x] Fast-forward merge to `main`.
+- [x] Rerun app with `./gradlew :app:run`.

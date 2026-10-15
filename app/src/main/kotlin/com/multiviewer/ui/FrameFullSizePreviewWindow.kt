@@ -25,6 +25,7 @@ fun FrameFullSizePreviewWindow(
 ) {
     val frames = tab.gopFrames ?: emptyList()
     val av2 = isAv2VideoTrack(tab.root)
+    var nativeView by remember(tab) { mutableStateOf(av2) }
     var intervalOpen by remember(tab) { mutableStateOf(false) }
     var timestamps by remember(tab) { mutableStateOf<FrameTimestampIndex?>(null) }
     var probeFinished by remember(tab) { mutableStateOf(false) }
@@ -46,7 +47,7 @@ fun FrameFullSizePreviewWindow(
     }
 
     fun step(delta: Int): Boolean {
-        if (av2) {
+        if (nativeView) {
             val current = frames.indexOfFirst { it.index == frame?.index }
             if (current < 0) return false
             tab.selectedFrame = frames[(current + delta).coerceIn(frames.indices)]
@@ -84,9 +85,9 @@ fun FrameFullSizePreviewWindow(
         pendingInterval = null
     }
 
-    LaunchedEffect(tab.file, frame, av2) {
+    LaunchedEffect(tab.file, frame, nativeView) {
         tab.fullSizeFrameBitmap = null
-        if (!av2 || frame == null) return@LaunchedEffect
+        if (!nativeView || frame == null) return@LaunchedEffect
         kotlinx.coroutines.delay(40)
         val bitmap = suspendCancellableCoroutine<androidx.compose.ui.graphics.ImageBitmap?> { cont ->
             val future = FrameFullSizeDecoder.decodeFrameAtPtsAsync(tab.file, frame.ptsSeconds) { result ->
@@ -104,7 +105,7 @@ fun FrameFullSizePreviewWindow(
             if (event.type != KeyEventType.KeyDown) false else when (event.key) {
                 Key.DirectionLeft, Key.A, Key.Comma -> step(-1)
                 Key.DirectionRight, Key.D, Key.Period -> step(1)
-                Key.Spacebar -> if (!av2) { playPauseTick++; true } else false
+                Key.Spacebar -> if (!nativeView && !av2) { playPauseTick++; true } else false
                 else -> false
             }
         },
@@ -115,12 +116,31 @@ fun FrameFullSizePreviewWindow(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    if (av2) label("AV2 원본 프레임 검사 · ←/→ 이동", "AV2 native frame inspection · ←/→ step")
+                    if (nativeView) label("←/→ 이동 · 휠 확대/축소 · 드래그 이동", "←/→ step · wheel zoom · drag pan")
                     else label("←/→ 한 프레임 · Space 재생/일시정지 · 휠 확대 · 드래그 이동", "←/→ one frame · Space play/pause · wheel zoom · drag pan"),
                     color = AppColors.TextSecondary,
                     fontSize = 11.sp,
                 )
                 Spacer(Modifier.weight(1f))
+                if (!av2) {
+                    AssistChip(
+                        onClick = {
+                            nativeView = !nativeView
+                            playing = false
+                        },
+                        label = {
+                            Text(
+                                if (nativeView) label("▶ 동영상 재생기", "▶ Video Player")
+                                else label("🖼️ 원본 프레임 보기", "🖼️ View Native Frame"),
+                                fontSize = 11.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                color = if (nativeView) AppColors.NeonGreen else AppColors.NeonBlue,
+                            )
+                        },
+                        modifier = Modifier.height(30.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                }
                 AssistChip(
                     onClick = { intervalOpen = true },
                     label = { Text(label("간격 분석", "Intervals"), fontSize = 11.sp) },
@@ -128,17 +148,17 @@ fun FrameFullSizePreviewWindow(
                 )
             }
 
-            if (av2) {
+            if (nativeView) {
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     val bitmap = tab.fullSizeFrameBitmap
                     when {
                         frame == null -> Text(label("프레임을 선택하세요", "Select a frame"), Modifier.align(Alignment.Center), color = AppColors.TextSecondary)
                         bitmap != null -> PixelInspectorPreview(bitmap = bitmap, resetKey = frame, modifier = Modifier.fillMaxSize())
-                        else -> DecodingIndicator(label("프레임 디코딩 중...", "Decoding frame..."), Modifier.align(Alignment.Center))
+                        else -> DecodingIndicator(label("원본 프레임 디코딩 중...", "Decoding native frame..."), Modifier.align(Alignment.Center))
                     }
                     frame?.let { selected ->
                         Text(
-                            "${label("프레임", "Frame")} ${selected.index + 1}/${frames.size} · PTS ${String.format(Locale.US, "%.6f", selected.ptsSeconds)} s",
+                            "${label("프레임", "Frame")} ${selected.index + 1}/${frames.size} (${selected.type}) · PTS ${String.format(Locale.US, "%.6f", selected.ptsSeconds)} s",
                             Modifier.align(Alignment.BottomStart).padding(8.dp),
                             color = AppColors.TextPrimary,
                         )
