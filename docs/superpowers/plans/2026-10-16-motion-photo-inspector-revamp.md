@@ -35,34 +35,34 @@
 **Files:**
 - Create: `app/src/main/kotlin/com/multiviewer/parser/motionphoto/MotionPhotoInspectorEngine.kt`
 
-- [ ] Define data models:
+- [x] Define data models:
   - `MotionPhotoInspectionReport` (overallStatus, stillImageSection, formatXmpSection, sefSection, videoCodecSection, avSyncSection).
   - `InspectionSection` (title, status, checks: List<InspectionItem>).
   - `InspectionItem` (id, status, label, expected, actual, detail, offset, length).
-- [ ] Implement Category 1 (Still Image Spec):
+- [x] Implement Category 1 (Still Image Spec):
   - Check format (JPEG / HEIC).
   - Check primary markers/boxes (SOI, APP1, SOF, SOS, EOI / ftyp, meta, iloc, idat).
   - Compare Exif ImageWidth/Height with SOF/ispe dimensions.
-- [ ] Implement Category 2 (Format & Primary XMP):
+- [x] Implement Category 2 (Format & Primary XMP):
   - Check schema presence (Google V2 / Google V1 / Apple MPVD).
   - Parse declared length/offset and verify exact byte match against `root.size - declaredLength` for `ftyp`.
   - Validate MIME type vs actual container major brand.
   - Validate PresentationTimestampUs and Item:Padding.
-- [ ] Implement Category 3 (Full SEF Integrity):
+- [x] Implement Category 3 (Full SEF Integrity):
   - Verify SEFT/SEFH trailer and header.
   - Verify `MotionPhoto_Data` entry, boundary, and payload MP4 validity.
   - Check all other SEF entries (non-motion SEF): markers, boundaries, overlaps between adjacent entries, orphan gaps.
-- [ ] Implement Category 4 (Embedded MP4 & Codec):
+- [x] Implement Category 4 (Embedded MP4 & Codec):
   - Verify container hierarchy (`ftyp`, `moov`, `mdat`).
   - Verify `moov` fast-start position.
   - Parse video codec name, resolution, FPS, duration.
   - Parse audio codec name, sample rate, channels, duration.
   - Run ffmpeg decoding test and collect error logs.
-- [ ] Implement Category 5 (A/V Sync & Timing):
+- [x] Implement Category 5 (A/V Sync & Timing):
   - Calculate Audio vs Video duration delta: report `PASS` if `<= 100ms`, `WARN` if `> 100ms`, `INFO` if no audio.
   - Map PresentationTimestampUs to exact video frame index & PTS.
   - Verify PTS monotonicity and detect drops.
-- [ ] Run `./gradlew :app:compileKotlin` to verify compilation.
+- [x] Run `./gradlew :app:compileKotlin` to verify compilation.
 
 ---
 
@@ -71,12 +71,12 @@
 **Files:**
 - Create: `app/src/test/kotlin/com/multiviewer/parser/motionphoto/MotionPhotoInspectorEngineTest.kt`
 
-- [ ] Write test for Category 1: Still image dimension cross-check and truncation detection.
-- [ ] Write test for Category 2: Primary XMP offset match and MIME validation.
-- [ ] Write test for Category 3: Full SEF entries validation (boundary, overlaps, gaps).
-- [ ] Write test for Category 4 & 5: Audio/Video duration delta calculation and timing checks.
-- [ ] Test on existing fixture files (`s26-motion-photo.heic`, synthetic files).
-- [ ] Run `./gradlew :app:test --tests 'com.multiviewer.parser.motionphoto.MotionPhotoInspectorEngineTest'`.
+- [x] Write test for Category 1: Still image dimension cross-check and truncation detection.
+- [x] Write test for Category 2: Primary XMP offset match and MIME validation.
+- [x] Write test for Category 3: Full SEF entries validation (boundary, overlaps, gaps).
+- [x] Write test for Category 4 & 5: Audio/Video duration delta calculation and timing checks.
+- [x] Test on existing fixture files (`s26-motion-photo.heic`, synthetic files).
+- [x] Run `./gradlew :app:test --tests 'com.multiviewer.parser.motionphoto.MotionPhotoInspectorEngineTest'`.
 
 ---
 
@@ -85,17 +85,17 @@
 **Files:**
 - Create: `app/src/main/kotlin/com/multiviewer/ui/MotionPhotoInspectorWindow.kt`
 
-- [ ] Build window container with title `모션포토 검사 (Motion Photo Inspector) — <file.name>`.
-- [ ] Build compact toolbar:
+- [x] Build window container with title `모션포토 검사 (Motion Photo Inspector) — <file.name>`.
+- [x] Build compact toolbar:
   - Format tag & overall status badge (`PASS` / `WARN` / `FAIL`).
   - AssistChip buttons: `[ ⟳ 재검사 / Re-check ]`, `[ 📋 JSON 복사 / Copy JSON ]`, `[ 🎬 동영상 재생 / Play Video ]`.
-- [ ] Build 5 Accordion Cards:
+- [x] Build 5 Accordion Cards:
   - Header: Section title, status badge, pass ratio, chevron.
   - Auto-expand cards that have `WARN` or `FAIL`; collapse passed cards by default.
   - Card body: Compact detail table showing Status, Check, Expected, Actual, and Detail.
   - Clickable byte offsets linking to `tab.parameterSetHighlightRange`.
-- [ ] Add JSON serialization function for the inspection report (`buildMotionPhotoInspectionJson`).
-- [ ] Run `./gradlew :app:compileKotlin`.
+- [x] Add JSON serialization function for the inspection report (`buildMotionPhotoInspectionJson`).
+- [x] Run `./gradlew :app:compileKotlin`.
 
 ---
 
@@ -104,8 +104,8 @@
 **Files:**
 - Modify: `app/src/main/kotlin/com/multiviewer/Main.kt`
 
-- [ ] In `Main.kt`, declare `var motionPhotoInspectorOpen by remember { mutableStateOf(false) }`.
-- [ ] In `모션포토` menu, update `I18n.menuMotionPhotoCheck` `onClick` to set `motionPhotoInspectorOpen = true`.
-- [ ] Render `if (motionPhotoInspectorOpen && currentTab != null) MotionPhotoInspectorWindow(appState, currentTab, onCloseRequest = { motionPhotoInspectorOpen = false })`.
-- [ ] Run `./gradlew :app:compileKotlin` and full test suite `./gradlew :app:test`.
-- [ ] Commit, fast-forward merge to `main`, and run the app with `./gradlew :app:run`.
+- [x] In `Main.kt`, declare `var motionPhotoInspectorTab by remember { mutableStateOf<TabState?>(null) }`.
+- [x] In `모션포토` menu, update `I18n.menuMotionPhotoCheck` `onClick` to set `motionPhotoInspectorTab = currentTab`.
+- [x] Render `MotionPhotoInspectorWindow` pinned to tab with disposal check.
+- [x] Run `./gradlew :app:compileKotlin` and full test suite `./gradlew :app:test`.
+- [x] Commit, fast-forward merge to `main`, and run the app with `./gradlew :app:run`.

@@ -1,0 +1,876 @@
+package com.multiviewer.parser.motionphoto
+
+import com.multiviewer.parser.BoxNode
+import com.multiviewer.parser.ByteReader
+import com.multiviewer.parser.EmbeddedVideo
+import com.multiviewer.parser.SefIntegrityAnalyzer
+import com.multiviewer.parser.SefIntegritySeverity
+import com.multiviewer.parser.buildVideoSampleTable
+import com.multiviewer.parser.correctMp4StartOffset
+import com.multiviewer.parser.extractEmbeddedVideo
+import com.multiviewer.parser.findEmbeddedVideo
+import com.multiviewer.parser.findFirst
+import com.multiviewer.parser.findMicroVideoOffset
+import com.multiviewer.parser.findMotionPhotoInDirectory
+import com.multiviewer.parser.findPresentationTimestampUs
+import com.multiviewer.parser.integrity.CheckStatus
+import com.multiviewer.parser.integrity.ImageIntegrityChecker
+import com.multiviewer.parser.parseFile
+import com.multiviewer.parser.parseXmpDocument
+import com.multiviewer.ui.FfmpegLocator
+import com.multiviewer.ui.readProcessOutputWithTimeout
+import java.io.File
+import java.util.Locale
+import kotlin.math.abs
+
+data class MotionPhotoInspectionItem(
+    val id: String,
+    val status: CheckStatus,
+    val label: String,
+    val expected: String? = null,
+    val actual: String? = null,
+    val detail: String,
+    val offset: Long? = null,
+    val length: Long? = null,
+)
+
+data class MotionPhotoInspectionSection(
+    val id: String,
+    val titleKo: String,
+    val titleEn: String,
+    val status: CheckStatus,
+    val items: List<MotionPhotoInspectionItem>,
+) {
+    val passCount: Int get() = items.count { it.status == CheckStatus.PASS }
+    val totalCount: Int get() = items.size
+}
+
+data class MotionPhotoInspectionReport(
+    val formatLabel: String,
+    val overallStatus: CheckStatus,
+    val stillImageSection: MotionPhotoInspectionSection,
+    val formatXmpSection: MotionPhotoInspectionSection,
+    val sefSection: MotionPhotoInspectionSection,
+    val videoCodecSection: MotionPhotoInspectionSection,
+    val avSyncSection: MotionPhotoInspectionSection,
+) {
+    val allSections: List<MotionPhotoInspectionSection>
+        get() = listOf(stillImageSection, formatXmpSection, sefSection, videoCodecSection, avSyncSection)
+}
+
+object MotionPhotoInspectorEngine {
+
+    fun inspect(file: File, root: BoxNode): MotionPhotoInspectionReport {
+        return ByteReader.open(file).use { reader ->
+            val stillSection = inspectStillImage(file, root, reader)
+            val embeddedVideo = try { findEmbeddedVideo(root, reader) } catch (_: Exception) { null }
+
+            // Extract embedded video once if available for video and av-sync analysis
+            var tempVideoFile: File? = null
+            var videoRoot: BoxNode? = null
+            if (embeddedVideo != null) {
+                try {
+                    val temp = File.createTempFile("motion-photo-inspect-video", ".${embeddedVideo.extension}")
+                    temp.deleteOnExit()
+                    extractEmbeddedVideo(file, embeddedVideo, temp)
+                    tempVideoFile = temp
+                    videoRoot = try { parseFile(temp) } catch (_: Exception) { null }
+                } catch (_: Exception) {
+                    // Extraction failed
+                }
+            }
+
+            try {
+                val formatXmpSection = inspectFormatAndXmp(root, reader, tempVideoFile)
+                val sefSection = inspectSefIntegrity(file, root, reader)
+                val videoCodecSection = inspectVideoAndCodec(file, root, reader, embeddedVideo, tempVideoFile, videoRoot)
+                val avSyncSection = inspectAvSyncAndTiming(file, root, reader, embeddedVideo, tempVideoFile, videoRoot)
+
+                val detectedFormats = mutableListOf<String>()
+                if (sefSection.status != CheckStatus.SKIP) detectedFormats.add("Samsung SEF")
+                if (formatXmpSection.items.any { it.id.startsWith("xmp") && it.status == CheckStatus.PASS }) detectedFormats.add("Google XMP")
+                if (findFirst(root) { it.type == "mpvd" || it.type == "EmbeddedVideoData" } != null) detectedFormats.add("HEIC mpvd")
+                val formatLabel = if (detectedFormats.isEmpty()) "Unknown Motion Photo" else detectedFormats.joinToString(" + ")
+
+                val allSections = listOf(stillSection, formatXmpSection, sefSection, videoCodecSection, avSyncSection)
+                val allStatuses = allSections.flatMap { it.items }.map { it.status }
+                val overallStatus = when {
+                    allStatuses.any { it == CheckStatus.FAIL } -> CheckStatus.FAIL
+                    allStatuses.any { it == CheckStatus.WARN } -> CheckStatus.WARN
+                    else -> CheckStatus.PASS
+                }
+
+                MotionPhotoInspectionReport(
+                    formatLabel = formatLabel,
+                    overallStatus = overallStatus,
+                    stillImageSection = stillSection,
+                    formatXmpSection = formatXmpSection,
+                    sefSection = sefSection,
+                    videoCodecSection = videoCodecSection,
+                    avSyncSection = avSyncSection,
+                )
+            } finally {
+                tempVideoFile?.delete()
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // 1. Still Image Specification Check
+    // -----------------------------------------------------------------------------------------------------------------
+    private fun inspectStillImage(file: File, root: BoxNode, reader: ByteReader): MotionPhotoInspectionSection {
+        val items = mutableListOf<MotionPhotoInspectionItem>()
+        val structure = try { ImageIntegrityChecker.check(root, reader) } catch (e: Exception) { null }
+
+        if (structure == null) {
+            items.add(
+                MotionPhotoInspectionItem(
+                    id = "still.structure",
+                    status = CheckStatus.FAIL,
+                    label = "정지 이미지 구조 해석",
+                    expected = "유효한 JPEG 또는 HEIC 구조",
+                    actual = "구조 파싱 실패",
+                    detail = "정지 이미지의 메타데이터 및 마커를 파싱할 수 없습니다.",
+                )
+            )
+            return MotionPhotoInspectionSection("still_image", "메인 정지 이미지 규격", "Main Still Image Spec", CheckStatus.FAIL, items)
+        }
+
+        // Format check
+        val formatValid = structure.format in setOf("JPEG", "HEIF")
+        items.add(
+            MotionPhotoInspectionItem(
+                id = "still.format",
+                status = if (formatValid) CheckStatus.PASS else CheckStatus.FAIL,
+                label = "이미지 포맷 규격",
+                expected = "JPEG 또는 HEIF(HEIC)",
+                actual = structure.format,
+                detail = if (formatValid) "${structure.format} 컨테이너 규격을 준수합니다." else "지원되지 않는 이미지 포맷입니다: ${structure.format}",
+                offset = 0L,
+                length = 4L,
+            )
+        )
+
+        // Structure check items from ImageIntegrityChecker
+        for (item in structure.items) {
+            if (item.id == "format") continue
+            items.add(
+                MotionPhotoInspectionItem(
+                    id = "still.${item.id}",
+                    status = item.status,
+                    label = item.title,
+                    expected = "정상 마커/박스 배치",
+                    actual = item.detail,
+                    detail = item.detail,
+                    offset = item.offset,
+                    length = item.length,
+                )
+            )
+        }
+
+        // Exif Dimension vs Bitstream Dimension
+        val bitstreamW = structure.declaredWidth
+        val bitstreamH = structure.declaredHeight
+        var exifW: Int? = null
+        var exifH: Int? = null
+
+        fun findExifDimensions(node: BoxNode) {
+            for (field in node.fields) {
+                if (field.name == "ExifImageWidth" || (field.name == "ImageWidth" && node.type == "IFD0")) {
+                    field.value.toIntOrNull()?.let { if (exifW == null) exifW = it }
+                }
+                if (field.name == "ExifImageLength" || (field.name == "ImageLength" && node.type == "IFD0")) {
+                    field.value.toIntOrNull()?.let { if (exifH == null) exifH = it }
+                }
+            }
+            node.children.forEach { findExifDimensions(it) }
+        }
+        findExifDimensions(root)
+
+        if (bitstreamW != null && bitstreamH != null && exifW != null && exifH != null) {
+            val matches = (bitstreamW == exifW && bitstreamH == exifH) || (bitstreamW == exifH && bitstreamH == exifW)
+            items.add(
+                MotionPhotoInspectionItem(
+                    id = "still.dimensions",
+                    status = if (matches) CheckStatus.PASS else CheckStatus.WARN,
+                    label = "해상도 메타데이터 일치",
+                    expected = "Exif (${exifW}x${exifH}) == 비트스트림 (${bitstreamW}x${bitstreamH})",
+                    actual = "${bitstreamW}x${bitstreamH}",
+                    detail = if (matches) "Exif 메타데이터와 실제 이미지 비트스트림 해상도가 일치합니다."
+                    else "Exif 해상도(${exifW}x${exifH})와 실제 디코딩 해상도(${bitstreamW}x${bitstreamH})가 다릅니다.",
+                )
+            )
+        } else if (bitstreamW != null && bitstreamH != null) {
+            items.add(
+                MotionPhotoInspectionItem(
+                    id = "still.dimensions",
+                    status = CheckStatus.PASS,
+                    label = "비트스트림 해상도",
+                    expected = "유효한 가로/세로 해상도",
+                    actual = "${bitstreamW}x${bitstreamH}",
+                    detail = "실제 이미지 해상도: ${bitstreamW}x${bitstreamH} px",
+                )
+            )
+        }
+
+        val sectionStatus = when {
+            items.any { it.status == CheckStatus.FAIL } -> CheckStatus.FAIL
+            items.any { it.status == CheckStatus.WARN } -> CheckStatus.WARN
+            else -> CheckStatus.PASS
+        }
+        return MotionPhotoInspectionSection("still_image", "메인 정지 이미지 규격", "Main Still Image Spec", sectionStatus, items)
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // 2. Format & Primary XMP Check
+    // -----------------------------------------------------------------------------------------------------------------
+    private fun inspectFormatAndXmp(root: BoxNode, reader: ByteReader, videoFile: File?): MotionPhotoInspectionSection {
+        val items = mutableListOf<MotionPhotoInspectionItem>()
+        val xmpNode = findFirst(root) { it.fields.any { f -> f.name == "xmp" } }
+        val xmpText = xmpNode?.fields?.find { f -> f.name == "xmp" }?.value
+
+        if (xmpText == null) {
+            // Check if it's HEIC mpvd or pure SEF
+            val hasMpvd = findFirst(root) { it.type == "mpvd" || it.type == "EmbeddedVideoData" } != null
+            val hasSef = findFirst(root) { it.type == "sefd" } != null
+            if (hasMpvd) {
+                items.add(
+                    MotionPhotoInspectionItem(
+                        id = "xmp.heic_mpvd",
+                        status = CheckStatus.PASS,
+                        label = "HEIC 임베디드 비디오 박스",
+                        expected = "mpvd 박스 존재",
+                        actual = "mpvd 감지됨",
+                        detail = "XMP 대신 ISO-BMFF mpvd 박스로 임베디드 동영상이 선언되었습니다.",
+                    )
+                )
+            } else if (hasSef) {
+                items.add(
+                    MotionPhotoInspectionItem(
+                        id = "xmp.sef_only",
+                        status = CheckStatus.INFO,
+                        label = "모션포토 XMP 메타데이터",
+                        expected = "XMP (선택 사항)",
+                        actual = "미포함 (삼성 SEF 전용)",
+                        detail = "파일에 모션포토 XMP 태그가 없으며 삼성 SEF 방식으로만 구성되었습니다.",
+                    )
+                )
+            } else {
+                items.add(
+                    MotionPhotoInspectionItem(
+                        id = "xmp.missing",
+                        status = CheckStatus.WARN,
+                        label = "모션포토 XMP 메타데이터",
+                        expected = "모션포토 XMP 태그",
+                        actual = "XMP 없음",
+                        detail = "모션포토 XMP 태그가 발견되지 않았습니다.",
+                    )
+                )
+            }
+            val status = if (items.any { it.status == CheckStatus.FAIL }) CheckStatus.FAIL
+            else if (items.any { it.status == CheckStatus.WARN }) CheckStatus.WARN else CheckStatus.PASS
+            return MotionPhotoInspectionSection("format_xmp", "모션포토 포맷 & Primary XMP", "Format & Primary XMP", status, items)
+        }
+
+        // XMP Syntax check
+        val doc = try {
+            parseXmpDocument(xmpText)
+        } catch (e: Throwable) {
+            items.add(
+                MotionPhotoInspectionItem(
+                    id = "xmp.syntax",
+                    status = CheckStatus.FAIL,
+                    label = "XMP 파싱 무결성",
+                    expected = "유효한 XML/RDF 구조",
+                    actual = "파싱 오류: ${e.message}",
+                    detail = "Primary XMP 문서를 파싱할 수 없습니다.",
+                    offset = xmpNode.offset,
+                    length = xmpNode.size,
+                )
+            )
+            return MotionPhotoInspectionSection("format_xmp", "모션포토 포맷 & Primary XMP", "Format & Primary XMP", CheckStatus.FAIL, items)
+        }
+
+        items.add(
+            MotionPhotoInspectionItem(
+                id = "xmp.syntax",
+                status = CheckStatus.PASS,
+                label = "XMP XML/RDF 파싱",
+                expected = "유효한 XML 구조",
+                actual = "정상 파싱 완료",
+                detail = "Primary XMP XML 구조가 올바르게 파싱되었습니다.",
+                offset = xmpNode.offset,
+                length = xmpNode.size,
+            )
+        )
+
+        val fromDir = findMotionPhotoInDirectory(doc)
+        val microVideoOffset = findMicroVideoOffset(doc)
+
+        if (fromDir == null && microVideoOffset == null) {
+            items.add(
+                MotionPhotoInspectionItem(
+                    id = "xmp.schema",
+                    status = CheckStatus.INFO,
+                    label = "구글 모션포토 스키마",
+                    expected = "Container:Directory 또는 GCamera:MicroVideo",
+                    actual = "미선언",
+                    detail = "구글 모션포토 스키마 항목이 선언되지 않았습니다.",
+                )
+            )
+        } else {
+            val declaredLength = fromDir?.length ?: microVideoOffset!!
+            val schemaName = if (fromDir != null) "Google V2 (Container:Directory)" else "Google V1 (MicroVideoOffset)"
+            items.add(
+                MotionPhotoInspectionItem(
+                    id = "xmp.schema",
+                    status = CheckStatus.PASS,
+                    label = "감지된 모션포토 스키마",
+                    expected = "Google Motion Photo 스펙",
+                    actual = "$schemaName (선언 길이: $declaredLength bytes)",
+                    detail = "스키마 규격을 만족하며, 비디오 데이터 길이가 선언되어 있습니다.",
+                )
+            )
+
+            // Byte offset validation
+            if (declaredLength <= 0 || declaredLength > root.size) {
+                items.add(
+                    MotionPhotoInspectionItem(
+                        id = "xmp.length_bounds",
+                        status = CheckStatus.FAIL,
+                        label = "선언된 비디오 길이 유효성",
+                        expected = "0 < length <= ${root.size}",
+                        actual = "$declaredLength",
+                        detail = "선언된 비디오 길이가 전체 파일 크기를 벗어납니다.",
+                    )
+                )
+            } else {
+                val approxStart = root.size - declaredLength
+                val declaredHasFtyp = try { reader.readFourCC(approxStart + 4) == "ftyp" } catch (_: Exception) { false }
+                if (declaredHasFtyp) {
+                    items.add(
+                        MotionPhotoInspectionItem(
+                            id = "xmp.offset_match",
+                            status = CheckStatus.PASS,
+                            label = "비디오 시작 오프셋 정확도",
+                            expected = "0x${approxStart.toString(16)} 위치에 ftyp 존재",
+                            actual = "일치 (0x${approxStart.toString(16)})",
+                            detail = "XMP 선언 길이로 계산된 오프셋에서 정확히 MP4 ftyp 컨테이너를 확인했습니다.",
+                            offset = approxStart,
+                            length = 8L,
+                        )
+                    )
+                } else {
+                    val corrected = correctMp4StartOffset(reader, approxStart)
+                    if (corrected != approxStart) {
+                        val delta = corrected - approxStart
+                        items.add(
+                            MotionPhotoInspectionItem(
+                                id = "xmp.offset_match",
+                                status = CheckStatus.WARN,
+                                label = "비디오 시작 오프셋 불일치",
+                                expected = "0x${approxStart.toString(16)}",
+                                actual = "0x${corrected.toString(16)} (${delta}바이트 편차)",
+                                detail = "선언된 오프셋 위치가 실제 ftyp 시작점과 ${delta}바이트 차이가 납니다 (XMP 길이 부정확).",
+                                offset = corrected,
+                                length = 8L,
+                            )
+                        )
+                    } else {
+                        items.add(
+                            MotionPhotoInspectionItem(
+                                id = "xmp.offset_match",
+                                status = CheckStatus.FAIL,
+                                label = "비디오 시작 오프셋 확인",
+                                expected = "0x${approxStart.toString(16)} 근방 ftyp",
+                                actual = "ftyp 미발견",
+                                detail = "선언된 비디오 위치에서 유효한 MP4 헤더를 찾지 못했습니다.",
+                            )
+                        )
+                    }
+                }
+            }
+
+            // MIME match
+            fromDir?.mimeType?.let { declaredMime ->
+                val majorBrand = try {
+                    val approxStart = root.size - declaredLength
+                    reader.readFourCC(approxStart + 8).trim()
+                } catch (_: Exception) { null }
+                val expectedMime = if (majorBrand == "qt") "video/quicktime" else "video/mp4"
+                val match = declaredMime == expectedMime
+                items.add(
+                    MotionPhotoInspectionItem(
+                        id = "xmp.mime",
+                        status = if (match) CheckStatus.PASS else CheckStatus.WARN,
+                        label = "Item:Mime 규격 일치",
+                        expected = expectedMime,
+                        actual = declaredMime,
+                        detail = if (match) "선언된 MIME($declaredMime)이 실제 컨테이너 major_brand($majorBrand)와 일치합니다."
+                        else "선언된 MIME($declaredMime)과 실제 컨테이너($majorBrand, 예상: $expectedMime)가 다릅니다.",
+                    )
+                )
+            }
+
+            // Padding
+            fromDir?.padding?.let { pStr ->
+                val pad = pStr.toLongOrNull()
+                val valid = pad != null && pad >= 0
+                items.add(
+                    MotionPhotoInspectionItem(
+                        id = "xmp.padding",
+                        status = if (valid) CheckStatus.PASS else CheckStatus.WARN,
+                        label = "Item:Padding 값 유효성",
+                        expected = ">= 0 정수",
+                        actual = pStr,
+                        detail = if (valid) "패딩 값이 올바르게 기입되었습니다 ($pad bytes)." else "유효하지 않은 패딩 값입니다: $pStr",
+                    )
+                )
+            }
+        }
+
+        // PresentationTimestampUs
+        val ptsUs = findPresentationTimestampUs(doc)
+        if (ptsUs != null) {
+            val valid = ptsUs >= 0
+            items.add(
+                MotionPhotoInspectionItem(
+                    id = "xmp.presentation_timestamp",
+                    status = if (valid) CheckStatus.PASS else CheckStatus.WARN,
+                    label = "셔터 타임스탬프 (PresentationTimestampUs)",
+                    expected = ">= 0 us",
+                    actual = "${ptsUs} us (${String.format(Locale.US, "%.3f", ptsUs / 1_000_000.0)} s)",
+                    detail = if (valid) "셔터 캡처 시점이 명시되어 있습니다." else "타임스탬프 값이 음수입니다: $ptsUs",
+                )
+            )
+        }
+
+        val status = when {
+            items.any { it.status == CheckStatus.FAIL } -> CheckStatus.FAIL
+            items.any { it.status == CheckStatus.WARN } -> CheckStatus.WARN
+            else -> CheckStatus.PASS
+        }
+        return MotionPhotoInspectionSection("format_xmp", "모션포토 포맷 & Primary XMP", "Format & Primary XMP", status, items)
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // 3. Full SEF Integrity & Non-Motion SEF Validation
+    // -----------------------------------------------------------------------------------------------------------------
+    private fun inspectSefIntegrity(file: File, root: BoxNode, reader: ByteReader): MotionPhotoInspectionSection {
+        val items = mutableListOf<MotionPhotoInspectionItem>()
+        val sefdNode = findFirst(root) { it.type == "sefd" }
+
+        if (sefdNode == null) {
+            items.add(
+                MotionPhotoInspectionItem(
+                    id = "sef.not_present",
+                    status = CheckStatus.SKIP,
+                    label = "삼성 SEF 트레일러",
+                    expected = "SEF 트레일러 (삼성 포맷인 경우)",
+                    actual = "미포함",
+                    detail = "파일에 삼성 SEF(Samsung Extension Format) 트레일러가 존재하지 않습니다.",
+                )
+            )
+            return MotionPhotoInspectionSection("sef_integrity", "SEF 무결성 및 전체 엔트리", "Full SEF Integrity", CheckStatus.SKIP, items)
+        }
+
+        val sefReport = SefIntegrityAnalyzer.analyze(reader, sefdNode.offset, sefdNode.headerSize, sefdNode.size, file.length())
+
+        // 1. Structural checks (SEFT, SEFH)
+        for (check in sefReport.structuralChecks) {
+            items.add(
+                MotionPhotoInspectionItem(
+                    id = "sef.struct.${check.label}",
+                    status = when (check.severity) {
+                        SefIntegritySeverity.CRITICAL -> CheckStatus.FAIL
+                        SefIntegritySeverity.WARNING -> CheckStatus.WARN
+                        SefIntegritySeverity.INFO -> CheckStatus.INFO
+                        else -> CheckStatus.PASS
+                    },
+                    label = "SEF 구조: ${check.label}",
+                    expected = "정상 SEF 매직 및 헤더",
+                    actual = check.detail,
+                    detail = check.detail,
+                )
+            )
+        }
+
+        // 2. Directory Entry count
+        val countStatus = when (sefReport.declaredEntryCountSeverity) {
+            SefIntegritySeverity.CRITICAL -> CheckStatus.FAIL
+            SefIntegritySeverity.WARNING -> CheckStatus.WARN
+            else -> CheckStatus.PASS
+        }
+        items.add(
+            MotionPhotoInspectionItem(
+                id = "sef.entry_count",
+                status = countStatus,
+                label = "SEF 디렉토리 엔트리 수 일치",
+                expected = "${sefReport.declaredEntryCount ?: "N/A"} 개",
+                actual = "${sefReport.directoryEntries.size} 개",
+                detail = if (countStatus == CheckStatus.PASS) "선언된 엔트리 수와 실제 파싱된 엔트리 수가 일치합니다."
+                else "선언된 엔트리 수(${sefReport.declaredEntryCount})와 실제 수(${sefReport.directoryEntries.size})가 다릅니다.",
+            )
+        )
+
+        // 3. MotionPhoto_Data specific check
+        val motionEntry = sefReport.directoryEntries.find { it.name == "MotionPhoto_Data" }
+        if (motionEntry != null) {
+            val payloadHasFtyp = try {
+                reader.readFourCC(motionEntry.computedDataStart + 4) == "ftyp"
+            } catch (_: Exception) { false }
+
+            items.add(
+                MotionPhotoInspectionItem(
+                    id = "sef.motion_photo_data",
+                    status = if (motionEntry.inBounds && payloadHasFtyp) CheckStatus.PASS else CheckStatus.FAIL,
+                    label = "MotionPhoto_Data 엔트리 및 MP4 페이로드",
+                    expected = "0x${motionEntry.computedDataStart.toString(16)} 위치의 유효한 MP4",
+                    actual = if (payloadHasFtyp) "유효한 MP4 (길이: ${motionEntry.declaredLength} bytes)" else "MP4 매직(ftyp) 불일치",
+                    detail = "오프셋: 0x${motionEntry.computedDataStart.toString(16)} .. 0x${motionEntry.computedDataEnd.toString(16)}, 길이: ${motionEntry.declaredLength} bytes",
+                    offset = motionEntry.computedDataStart,
+                    length = motionEntry.declaredLength,
+                )
+            )
+        } else {
+            items.add(
+                MotionPhotoInspectionItem(
+                    id = "sef.motion_photo_data",
+                    status = CheckStatus.WARN,
+                    label = "MotionPhoto_Data 엔트리 확인",
+                    expected = "MotionPhoto_Data 키 존재",
+                    actual = "미발견",
+                    detail = "SEF 트레일러 내에 MotionPhoto_Data 엔트리가 없습니다.",
+                )
+            )
+        }
+
+        // 4. All other SEF entries validation (bounds, markers)
+        val nonMotionEntries = sefReport.directoryEntries.filter { it.name != "MotionPhoto_Data" }
+        var allBoundsValid = true
+        var allMarkersValid = true
+        for (entry in nonMotionEntries) {
+            if (!entry.inBounds) allBoundsValid = false
+            if (entry.markerMatches != true) allMarkersValid = false
+        }
+
+        items.add(
+            MotionPhotoInspectionItem(
+                id = "sef.non_motion_entries",
+                status = if (allBoundsValid && allMarkersValid) CheckStatus.PASS else CheckStatus.FAIL,
+                label = "기타 전체 SEF 엔트리 무결성 (${nonMotionEntries.size}개)",
+                expected = "모든 엔트리 인바운드 및 매직 일치",
+                actual = if (allBoundsValid && allMarkersValid) "전체 정상 (${nonMotionEntries.size}개)"
+                else "경계 또는 매직 오류 감지",
+                detail = "파일 내 포함된 모든 SEF 키: " + nonMotionEntries.mapNotNull { it.name }.joinToString(", "),
+            )
+        )
+
+        // 5. Overlap detection between SEF entries
+        val sortedEntries = sefReport.directoryEntries.filter { it.inBounds }.sortedBy { it.computedDataStart }
+        var hasOverlap = false
+        val overlapDetails = mutableListOf<String>()
+        for (i in 0 until sortedEntries.size - 1) {
+            val curr = sortedEntries[i]
+            val next = sortedEntries[i + 1]
+            if (curr.computedDataEnd > next.computedDataStart) {
+                hasOverlap = true
+                overlapDetails.add("${curr.name ?: "Entry $i"}과(와) ${next.name ?: "Entry ${i+1}"} 간 ${curr.computedDataEnd - next.computedDataStart}바이트 중복")
+            }
+        }
+
+        items.add(
+            MotionPhotoInspectionItem(
+                id = "sef.overlap_check",
+                status = if (!hasOverlap) CheckStatus.PASS else CheckStatus.FAIL,
+                label = "SEF 엔트리 데이터 간 중복(Overlap) 검사",
+                expected = "엔트리 간 데이터 중복 없음",
+                actual = if (!hasOverlap) "중복 없음" else "${overlapDetails.size}건 중복 발생",
+                detail = if (!hasOverlap) "모든 SEF 데이터 블록이 고유한 영역에 독립 배치되어 있습니다."
+                else overlapDetails.joinToString("; "),
+            )
+        )
+
+        val status = when {
+            items.any { it.status == CheckStatus.FAIL } -> CheckStatus.FAIL
+            items.any { it.status == CheckStatus.WARN } -> CheckStatus.WARN
+            else -> CheckStatus.PASS
+        }
+        return MotionPhotoInspectionSection("sef_integrity", "SEF 무결성 및 전체 엔트리", "Full SEF Integrity", status, items)
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // 4. Embedded Video & Codec Check
+    // -----------------------------------------------------------------------------------------------------------------
+    private fun inspectVideoAndCodec(
+        file: File,
+        root: BoxNode,
+        reader: ByteReader,
+        video: EmbeddedVideo?,
+        tempVideoFile: File?,
+        videoRoot: BoxNode?,
+    ): MotionPhotoInspectionSection {
+        val items = mutableListOf<MotionPhotoInspectionItem>()
+
+        if (video == null || tempVideoFile == null || videoRoot == null) {
+            items.add(
+                MotionPhotoInspectionItem(
+                    id = "video.missing",
+                    status = CheckStatus.FAIL,
+                    label = "임베디드 동영상 데이터 추출",
+                    expected = "유효한 MP4 비디오 스트림",
+                    actual = "추출 실패 또는 데이터 없음",
+                    detail = "모션포토 임베디드 동영상을 추출할 수 없습니다.",
+                )
+            )
+            return MotionPhotoInspectionSection("video_codec", "임베디드 동영상 & 코덱", "Embedded MP4 & Codec", CheckStatus.FAIL, items)
+        }
+
+        // 1. Box container hierarchy
+        val boxes = videoRoot.children.map { it.type }
+        val hasFtyp = "ftyp" in boxes
+        val hasMoov = "moov" in boxes
+        val hasMdat = "mdat" in boxes
+        val containerValid = hasFtyp && hasMoov && hasMdat
+
+        items.add(
+            MotionPhotoInspectionItem(
+                id = "video.container_boxes",
+                status = if (containerValid) CheckStatus.PASS else CheckStatus.FAIL,
+                label = "MP4 컨테이너 박스 구조",
+                expected = "ftyp, moov, mdat 포함",
+                actual = boxes.joinToString(", "),
+                detail = if (containerValid) "표준 ISO-BMFF 컨테이너 구조를 만족합니다." else "필수 박스가 누락되었습니다 (ftyp:$hasFtyp, moov:$hasMoov, mdat:$hasMdat)",
+            )
+        )
+
+        // 2. Fast-start moov check
+        val moovNode = videoRoot.children.find { it.type == "moov" }
+        val mdatNode = videoRoot.children.find { it.type == "mdat" }
+        if (moovNode != null && mdatNode != null) {
+            val fastStart = moovNode.offset < mdatNode.offset
+            items.add(
+                MotionPhotoInspectionItem(
+                    id = "video.fast_start",
+                    status = CheckStatus.PASS,
+                    label = "moov 헤더 배치 (Fast-start)",
+                    expected = "moov 위치",
+                    actual = if (fastStart) "시작부 (Fast-start / moov < mdat)" else "후미 (Trailer / mdat < moov)",
+                    detail = if (fastStart) "moov 박스가 mdat 앞에 위치하여 빠른 스트리밍 재생에 유리합니다."
+                    else "moov 박스가 비디오 끝부분에 위치합니다.",
+                )
+            )
+        }
+
+        // 3. Video Sample Table & Track Details
+        val sampleTable = ByteReader.open(tempVideoFile).use { vReader ->
+            buildVideoSampleTable(vReader, videoRoot)
+        }
+
+        if (sampleTable != null) {
+            val sampleCount = sampleTable.samples.size
+            val durationSec = if (sampleCount > 0) {
+                val last = sampleTable.samples.last()
+                (last.decodeTime + 1000L).toDouble() / sampleTable.timescale
+            } else 0.0
+
+            items.add(
+                MotionPhotoInspectionItem(
+                    id = "video.codec_details",
+                    status = CheckStatus.PASS,
+                    label = "비디오 코덱 및 스트림 규격",
+                    expected = "H.264 / HEVC / AV1",
+                    actual = "${sampleTable.codec.name} (${sampleCount} 프레임, timescale: ${sampleTable.timescale})",
+                    detail = "코덱: ${sampleTable.codec.name}, 총 샘플: $sampleCount 개, 길이: ${String.format(Locale.US, "%.3f", durationSec)} s",
+                )
+            )
+        }
+
+        // 4. Software decoding test via ffmpeg
+        val processBuilder = ProcessBuilder(
+            FfmpegLocator.ffmpegPath(), "-v", "error",
+            "-i", tempVideoFile.absolutePath,
+            "-f", "null", "-",
+        ).redirectErrorStream(true)
+        FfmpegLocator.configureEnvironment(processBuilder)
+
+        var decodeExit = -1
+        var decodeOutput = ""
+        try {
+            val process = processBuilder.start()
+            val output = readProcessOutputWithTimeout(process, 30) { process.inputStream.bufferedReader().readText().trim() }
+            if (output != null) {
+                decodeExit = process.waitFor()
+                decodeOutput = output
+            }
+        } catch (_: Exception) {}
+
+        val decodeSuccess = decodeExit == 0 && decodeOutput.isEmpty()
+        items.add(
+            MotionPhotoInspectionItem(
+                id = "video.decode_integrity",
+                status = if (decodeSuccess) CheckStatus.PASS else CheckStatus.FAIL,
+                label = "동영상 소프트웨어 디코딩 검증",
+                expected = "오류 없는 전체 디코딩 (exit: 0)",
+                actual = if (decodeSuccess) "정상 디코딩 완료" else "디코딩 오류 (exit: $decodeExit)",
+                detail = if (decodeSuccess) "ffmpeg 전체 프레임 디코딩을 무결하게 통과했습니다."
+                else "디코더 에러 로그: ${decodeOutput.take(300)}",
+            )
+        )
+
+        val status = when {
+            items.any { it.status == CheckStatus.FAIL } -> CheckStatus.FAIL
+            items.any { it.status == CheckStatus.WARN } -> CheckStatus.WARN
+            else -> CheckStatus.PASS
+        }
+        return MotionPhotoInspectionSection("video_codec", "임베디드 동영상 & 코덱", "Embedded MP4 & Codec", status, items)
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // 5. A/V Sync & Timing Check
+    // -----------------------------------------------------------------------------------------------------------------
+    private fun inspectAvSyncAndTiming(
+        file: File,
+        root: BoxNode,
+        reader: ByteReader,
+        video: EmbeddedVideo?,
+        tempVideoFile: File?,
+        videoRoot: BoxNode?,
+    ): MotionPhotoInspectionSection {
+        val items = mutableListOf<MotionPhotoInspectionItem>()
+
+        if (video == null || tempVideoFile == null || videoRoot == null) {
+            items.add(
+                MotionPhotoInspectionItem(
+                    id = "sync.no_video",
+                    status = CheckStatus.SKIP,
+                    label = "A/V 싱크 분석",
+                    expected = "유효한 비디오",
+                    actual = "비디오 없음",
+                    detail = "임베디드 비디오가 없어 A/V 싱크 분석을 건너뜁니다.",
+                )
+            )
+            return MotionPhotoInspectionSection("av_sync", "A/V 길이 편차 & 셔터 타이밍", "A/V Sync & Timing", CheckStatus.SKIP, items)
+        }
+
+        // Probing streams via ffprobe
+        var videoDurationMs: Long? = null
+        var audioDurationMs: Long? = null
+
+        try {
+            val processBuilder = ProcessBuilder(
+                FfmpegLocator.ffprobePath(), "-v", "error",
+                "-show_entries", "stream=codec_type,duration",
+                "-of", "csv=p=0",
+                tempVideoFile.absolutePath,
+            ).redirectError(ProcessBuilder.Redirect.DISCARD)
+            FfmpegLocator.configureEnvironment(processBuilder)
+            val process = processBuilder.start()
+            val output = readProcessOutputWithTimeout(process, 15) { process.inputStream.bufferedReader().readText().trim() }
+            if (output != null) {
+                // Format: audio,2.500000 \n video,2.520000
+                output.lines().forEach { line ->
+                    val parts = line.split(",")
+                    if (parts.size >= 2) {
+                        val type = parts[0].trim()
+                        val durSec = parts[1].trim().toDoubleOrNull()
+                        if (durSec != null) {
+                            val durMs = (durSec * 1000).toLong()
+                            if (type == "video" && videoDurationMs == null) videoDurationMs = durMs
+                            if (type == "audio" && audioDurationMs == null) audioDurationMs = durMs
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        // Fallback to sample table duration if ffprobe didn't report stream duration
+        if (videoDurationMs == null) {
+            val sampleTable = ByteReader.open(tempVideoFile).use { vReader -> buildVideoSampleTable(vReader, videoRoot) }
+            if (sampleTable != null && sampleTable.samples.isNotEmpty()) {
+                val last = sampleTable.samples.last()
+                videoDurationMs = ((last.decodeTime.toDouble() / sampleTable.timescale) * 1000).toLong()
+            }
+        }
+
+        // 1. A/V Duration discrepancy
+        if (videoDurationMs != null && audioDurationMs != null) {
+            val deltaMs = abs(videoDurationMs!! - audioDurationMs!!)
+            val status = when {
+                deltaMs <= 100 -> CheckStatus.PASS
+                deltaMs <= 300 -> CheckStatus.WARN
+                else -> CheckStatus.FAIL
+            }
+            items.add(
+                MotionPhotoInspectionItem(
+                    id = "sync.duration_delta",
+                    status = status,
+                    label = "비디오 / 오디오 길이 편차 (A/V Delta)",
+                    expected = "편차 <= 100 ms",
+                    actual = "편차: ${deltaMs} ms (비디오: ${videoDurationMs}ms, 오디오: ${audioDurationMs}ms)",
+                    detail = when (status) {
+                        CheckStatus.PASS -> "비디오와 오디오 스트림의 재생 길이가 완벽하게 일치합니다."
+                        CheckStatus.WARN -> "비디오와 오디오의 재생 길이에 ${deltaMs}ms의 미세 편차가 있습니다."
+                        else -> "비디오와 오디오 길이 편차가 ${deltaMs}ms로 큽니다. 스트림 일부가 트렁케이션되었을 수 있습니다."
+                    },
+                )
+            )
+        } else if (videoDurationMs != null) {
+            items.add(
+                MotionPhotoInspectionItem(
+                    id = "sync.no_audio_stream",
+                    status = CheckStatus.INFO,
+                    label = "오디오 스트림 상태",
+                    expected = "오디오 스트림 (선택)",
+                    actual = "오디오 없음 (비디오만 존재, 길이: ${videoDurationMs}ms)",
+                    detail = "임베디드 동영상에 오디오 트랙이 포함되어 있지 않습니다.",
+                )
+            )
+        }
+
+        // 2. Shutter PresentationTimestampUs match
+        val xmpDoc = try {
+            findFirst(root) { it.fields.any { f -> f.name == "xmp" } }?.fields?.find { it.name == "xmp" }?.value?.let { parseXmpDocument(it) }
+        } catch (_: Exception) { null }
+        val presentationTimestampUs = xmpDoc?.let { findPresentationTimestampUs(it) }
+
+        if (presentationTimestampUs != null && videoDurationMs != null) {
+            val videoDurUs = videoDurationMs!! * 1000L
+            val inRange = presentationTimestampUs in 0..videoDurUs
+            items.add(
+                MotionPhotoInspectionItem(
+                    id = "sync.shutter_bounds",
+                    status = if (inRange) CheckStatus.PASS else CheckStatus.WARN,
+                    label = "셔터 시점 비디오 구간 내 포함 여부",
+                    expected = "0 .. ${videoDurUs} us (동영상 전체 구간)",
+                    actual = "${presentationTimestampUs} us (${String.format(Locale.US, "%.3f", presentationTimestampUs / 1_000_000.0)} s)",
+                    detail = if (inRange) "셔터 캡처 시점이 동영상 재생 시간 내에 위치합니다."
+                    else "셔터 시점(${presentationTimestampUs}us)이 동영상 총 길이(${videoDurUs}us)를 초과합니다.",
+                )
+            )
+
+            // Frame Match
+            val sampleTable = ByteReader.open(tempVideoFile).use { vReader -> buildVideoSampleTable(vReader, videoRoot) }
+            val match = if (sampleTable != null) matchFrameToTimestamp(sampleTable, presentationTimestampUs) else null
+            if (match != null) {
+                items.add(
+                    MotionPhotoInspectionItem(
+                        id = "sync.frame_match",
+                        status = CheckStatus.PASS,
+                        label = "정지 이미지 ↔ 비디오 프레임 매칭",
+                        expected = "가장 근접한 비디오 프레임",
+                        actual = "프레임 #${match.matchedFrameNumber} / ${match.totalSamples} (PTS: ${String.format(Locale.US, "%.4f", match.matchedPtsUs / 1_000_000.0)} s)",
+                        detail = "시간 오차: ${match.deltaUs} us, 정렬 상태: ${match.alignmentVerdict.name}",
+                    )
+                )
+            }
+        }
+
+        val status = when {
+            items.any { it.status == CheckStatus.FAIL } -> CheckStatus.FAIL
+            items.any { it.status == CheckStatus.WARN } -> CheckStatus.WARN
+            else -> CheckStatus.PASS
+        }
+        return MotionPhotoInspectionSection("av_sync", "A/V 길이 편차 & 셔터 타이밍", "A/V Sync & Timing", status, items)
+    }
+}

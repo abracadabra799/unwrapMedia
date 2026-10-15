@@ -429,6 +429,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var c2paTab by remember { mutableStateOf<TabState?>(null) }
         var hdrMetadataTab by remember { mutableStateOf<TabState?>(null) }
         var structureDiagramTab by remember { mutableStateOf<TabState?>(null) }
+        var motionPhotoInspectorTab by remember { mutableStateOf<TabState?>(null) }
         // Supervisor scope: one failed AI request must not cancel the others or later sends.
         // Compose's own UI scope (this app has no Dispatchers.Main module — kotlinx-coroutines-swing is not on
         // the classpath), with a SupervisorJob under it so one failed request never cancels later sends; it is
@@ -614,7 +615,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 item(
                     I18n.menuMotionPhotoCheck(language),
                     enabled = hasMotionPhoto,
-                    onClick = { appState.openContentCheck(currentTab, ContentTab.MOTION_PHOTO) },
+                    onClick = { motionPhotoInspectorTab = currentTab },
                 )
                 item(
                     I18n.menuMotionFrameDropAnalysis(language),
@@ -940,6 +941,13 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     spatialVideoTab = null
                 } else {
                     SpatialVideoAnalysisWindow(tab = t, language = language, onCloseRequest = { spatialVideoTab = null })
+                }
+            }
+            motionPhotoInspectorTab?.let { t ->
+                if (appState.tabs.none { it === t }) {
+                    motionPhotoInspectorTab = null
+                } else {
+                    com.multiviewer.ui.MotionPhotoInspectorWindow(appState = appState, tab = t, language = language, onCloseRequest = { motionPhotoInspectorTab = null })
                 }
             }
             timedMetadataTab?.let { t ->
