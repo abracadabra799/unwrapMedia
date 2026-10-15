@@ -195,6 +195,51 @@ class AiCliRunnerTest {
         assertEquals(AiProviderId.AGY, adapter.provider)
         assertEquals(listOf("--mode", "plan", "--output-format", "text"), adapter.arguments())
         assertFalse(adapter.supportsWebSearch)
-        assertEquals(null, adapter.argumentsWithImages(listOf(File("crop.png"))))
+        assertFalse(adapter.canAttachImages)
+    }
+
+    private fun square() = java.awt.image.BufferedImage(8, 8, java.awt.image.BufferedImage.TYPE_INT_RGB)
+
+    @Test
+    fun `claude image runs send one stream-json line with the image inline and read the result event`() {
+        val stdin = File(dir, "stdin.txt")
+        val listing = File(dir, "ls.txt")
+        val exe = script(
+            "claude",
+            """cat > "${stdin.absolutePath}"; ls -A > "${listing.absolutePath}"
+echo '{"type":"system","subtype":"init"}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"red"}'""",
+        )
+        val result = runBlocking { runAiCli(ClaudeCliAdapter(), exe, "q", images = listOf(square())) }
+        assertEquals(AiCliResult.Answer("red", false), result)
+        val sent = stdin.readText()
+        assertEquals(1, sent.trimEnd('\n').lines().size)
+        assertTrue(sent.contains("\"media_type\":\"image/png\""), sent.take(200))
+        assertEquals("", listing.readText().trim()) // inline CLI: no PNG written to the work dir
+    }
+
+    @Test
+    fun `an error result from claude is a failure and a login error is reported as such`() {
+        val exe = script("claude", """cat > /dev/null; echo '{"type":"result","subtype":"success","is_error":true,"result":"Invalid API key · Please run /login"}'""")
+        val result = runBlocking { runAiCli(ClaudeCliAdapter(), exe, "q", images = listOf(square())) }
+        assertIs<AiCliResult.Failed>(result)
+        assertEquals(AiFailure.AUTH_REQUIRED, result.reason)
+    }
+
+    @Test
+    fun `a claude image run without a result event is a failure, not an answer`() {
+        val exe = script("claude", """cat > /dev/null; echo '{"type":"system","subtype":"init"}'""")
+        val result = runBlocking { runAiCli(ClaudeCliAdapter(), exe, "q", images = listOf(square())) }
+        assertIs<AiCliResult.Failed>(result)
+        assertEquals(AiFailure.EXIT_ERROR, result.reason)
+    }
+
+    @Test
+    fun `codex image runs still get png files in the work dir`() {
+        val exe = script("codex", """cat > /dev/null; echo "ARGS:$*"; ls""")
+        val result = runBlocking { runAiCli(CodexCliAdapter(), exe, "q", images = listOf(square())) }
+        assertIs<AiCliResult.Answer>(result)
+        assertTrue(result.text.contains("ARGS:exec -i "), result.text)
+        assertTrue(result.text.contains("view-1.png"), result.text)
     }
 }

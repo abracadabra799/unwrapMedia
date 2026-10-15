@@ -77,14 +77,17 @@ suspend fun runAiCli(
         } catch (e: Exception) {
             return@runInterruptible AiCliResult.Failed(AiFailure.LAUNCH_FAILED, null, "Could not prepare CLI configuration: ${e.message ?: e}")
         }
-        // Images are re-encoded crops written only inside the app-owned temp dir (deleted below).
-        val imageFiles = images.mapIndexed { i, image ->
-            File(workDir, "view-${i + 1}.png").also { javax.imageio.ImageIO.write(image, "png", it) }
+        // Images are re-encoded crops (no source metadata). CLIs that take paths get them as files inside the
+        // app-owned temp dir (deleted below); inline CLIs get the bytes in stdin and no file is written.
+        val attachments = images.mapIndexed { i, image ->
+            val png = ByteArrayOutputStream().also { javax.imageio.ImageIO.write(image, "png", it) }.toByteArray()
+            AiImageAttachment(File(workDir, "view-${i + 1}.png"), png)
         }
-        val args = adapter.argumentsWithImages(imageFiles)
+        val invocation = adapter.invocation(prompt, attachments)
             ?: return@runInterruptible AiCliResult.Failed(AiFailure.LAUNCH_FAILED, null, "${adapter.provider.displayName} cannot take images from this app")
+        if (!invocation.imagesInline) attachments.forEach { it.file.writeBytes(it.png) }
         val command = try {
-            launchCommand(executable, args)
+            launchCommand(executable, invocation.arguments)
         } catch (e: IllegalArgumentException) {
             return@runInterruptible AiCliResult.Failed(AiFailure.LAUNCH_FAILED, null, e.message ?: e.toString())
         }
@@ -106,7 +109,7 @@ suspend fun runAiCli(
         val err = BoundedCollector(started.errorStream, MAX_STDERR_BYTES).also { it.start() }
         Thread({
             try {
-                started.outputStream.use { it.write(prompt.toByteArray(Charsets.UTF_8)) }
+                started.outputStream.use { it.write(invocation.stdin.toByteArray(Charsets.UTF_8)) }
             } catch (_: Exception) {
                 // The CLI may exit before reading everything; its exit status tells the story.
             }
@@ -132,10 +135,16 @@ suspend fun runAiCli(
             exit != 0 && (AUTH_HINT.containsMatchIn(stderr) || AUTH_HINT.containsMatchIn(stdout.takeLast(2_000))) ->
                 AiCliResult.Failed(AiFailure.AUTH_REQUIRED, exit, excerpt(stderr.ifBlank { stdout }))
             exit != 0 -> AiCliResult.Failed(AiFailure.EXIT_ERROR, exit, excerpt(stderr.ifBlank { stdout }))
-            else -> {
-                val answer = adapter.parseAnswer(stdout)
-                if (answer.isBlank()) AiCliResult.Failed(AiFailure.EMPTY_OUTPUT, exit, excerpt(stderr))
-                else AiCliResult.Answer(answer, out.truncated)
+            else -> when (val parsed = invocation.parse(stdout)) {
+                is AiParsedOutput.Answer ->
+                    if (parsed.text.isBlank()) AiCliResult.Failed(AiFailure.EMPTY_OUTPUT, exit, excerpt(stderr))
+                    else AiCliResult.Answer(parsed.text, out.truncated)
+                // The CLI exited 0 but said in its own output that the run failed (stream-json `is_error`).
+                is AiParsedOutput.Error -> AiCliResult.Failed(
+                    if (AUTH_HINT.containsMatchIn(parsed.message)) AiFailure.AUTH_REQUIRED else AiFailure.EXIT_ERROR,
+                    exit,
+                    excerpt(parsed.message),
+                )
             }
         }
     } finally {

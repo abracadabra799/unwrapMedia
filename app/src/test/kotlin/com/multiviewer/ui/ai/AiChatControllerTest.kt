@@ -154,19 +154,11 @@ class AiChatControllerTest {
 
         controller(CapabilityState.VERIFIED).send(a, "q", AiProviderId.CLAUDE, File("/bin/true"))
         waitFor { a.aiConversation.messages.count { it.role == AiRole.ASSISTANT } == 2 }
-        assertEquals(0, images) // Claude adapter cannot pass images
+        assertEquals(1, images) // Claude passes images inline (stream-json)
         controller(CapabilityState.VERIFIED).send(a, "q", AiProviderId.CODEX, File("/bin/true"))
         waitFor { a.aiConversation.messages.count { it.role == AiRole.ASSISTANT } == 3 }
         assertEquals(1, images)
         assertTrue(prompt.contains("x=50, y=60, w=100, h=40"), prompt)
-    }
-
-    @Test
-    fun `codex image flags end before the stdin marker`() {
-        val args = CodexCliAdapter().argumentsWithImages(listOf(File("/t/view-1.png")))
-        assertEquals(listOf("exec", "-i", "/t/view-1.png", "--sandbox"), args.take(4))
-        assertEquals("-", args.last())
-        assertEquals(null, ClaudeCliAdapter().argumentsWithImages(listOf(File("x.png"))))
     }
 
     @Test
@@ -216,9 +208,9 @@ class AiChatControllerTest {
             controller.verifyImageInput(AiProviderId.CODEX, File("/bin/true")).join()
             assertEquals(expected, controller.lastCapabilityUpdate?.image)
         }
-        val claude = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, _, _, _ -> error("must not run") })
-        claude.verifyImageInput(AiProviderId.CLAUDE, File("/bin/true")).join()
-        assertEquals(CapabilityState.UNSUPPORTED, claude.lastCapabilityUpdate?.image)
+        val gemini = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, _, _, _ -> error("must not run") })
+        gemini.verifyImageInput(AiProviderId.GEMINI, File("/bin/true")).join()
+        assertEquals(CapabilityState.UNSUPPORTED, gemini.lastCapabilityUpdate?.image)
     }
 
     @Test

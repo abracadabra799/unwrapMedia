@@ -117,7 +117,7 @@ class AiChatController(
         }
         val imageSource = tab.aiImageSource
         val adapter = adapterFor(provider, webSearch = webSearch)
-        val canPassImages = adapter.argumentsWithImages(listOf(File("probe.png"))) != null
+        val canPassImages = adapter.canAttachImages
         val imageVerified = capabilities(provider)?.canAttachImage == true
         tab.aiJob = scope.launch {
             // A capture failure must become a visible notice, never an exception that kills the scope.
@@ -279,7 +279,7 @@ class AiChatController(
      */
     fun verifyImageInput(provider: AiProviderId, executable: File, onDone: () -> Unit = {}) = scope.launch {
         val adapter = adapterFor(provider)
-        if (adapter.argumentsWithImages(listOf(File("probe.png"))) == null) {
+        if (!adapter.canAttachImages) {
             report(AiCapabilityUpdate(provider, image = CapabilityState.UNSUPPORTED, detail = "no image argument"))
             onDone(); return@launch
         }

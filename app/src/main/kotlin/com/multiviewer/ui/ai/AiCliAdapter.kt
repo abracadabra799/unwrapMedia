@@ -1,5 +1,7 @@
 package com.multiviewer.ui.ai
 
+import com.multiviewer.cli.JsonValue
+import com.multiviewer.cli.renderCompact
 import java.io.File
 
 /**
@@ -17,8 +19,55 @@ interface AiCliAdapter {
     val supportsWebSearch: Boolean get() = false
     fun parseAnswer(stdout: String): String = stdout.trim()
 
-    /** Arguments that attach [images] (app-owned temp PNGs), or null when this adapter cannot pass images. */
-    fun argumentsWithImages(images: List<File>): List<String>? = if (images.isEmpty()) arguments() else null
+    /** Whether this integration can attach images at all (answered without running anything). */
+    val canAttachImages: Boolean get() = false
+
+    /**
+     * The run for [prompt] with [images] (app-owned PNG crops), or null when this adapter cannot pass images.
+     * No images = the plain text run: [arguments], the prompt on stdin, the trimmed stdout as the answer.
+     */
+    fun invocation(prompt: String, images: List<AiImageAttachment> = emptyList()): AiCliInvocation? =
+        if (images.isEmpty()) textInvocation(prompt) else null
+}
+
+/** One crop: its PNG bytes, and where it is written when the CLI takes file paths. */
+class AiImageAttachment(val file: File, val png: ByteArray)
+
+/** One CLI run: the argument list, the exact stdin text, and how to read stdout. */
+class AiCliInvocation(
+    val arguments: List<String>,
+    val stdin: String,
+    val parse: (stdout: String) -> AiParsedOutput,
+    /** True when the images travel inside [stdin], so no PNG files are written. */
+    val imagesInline: Boolean = false,
+)
+
+/** Today's text run: [AiCliAdapter.arguments], the prompt as stdin, the plain-text answer. */
+fun AiCliAdapter.textInvocation(prompt: String) =
+    AiCliInvocation(arguments(), prompt, { AiParsedOutput.Answer(parseAnswer(it)) })
+
+/** One stream-json user message line: the images first, then the whole prompt as the text block. */
+internal fun claudeImageMessage(prompt: String, pngs: List<ByteArray>): String {
+    val blocks = pngs.map { png ->
+        JsonValue.JObject(
+            listOf(
+                "type" to JsonValue.JString("image"),
+                "source" to JsonValue.JObject(
+                    listOf(
+                        "type" to JsonValue.JString("base64"),
+                        "media_type" to JsonValue.JString("image/png"),
+                        "data" to JsonValue.JString(java.util.Base64.getEncoder().encodeToString(png)),
+                    ),
+                ),
+            ),
+        )
+    } + JsonValue.JObject(listOf("type" to JsonValue.JString("text"), "text" to JsonValue.JString(prompt)))
+    return JsonValue.JObject(
+        listOf(
+            "type" to JsonValue.JString("user"),
+            "message" to JsonValue.JObject(listOf("role" to JsonValue.JString("user"), "content" to JsonValue.JArray(blocks))),
+        ),
+    ).renderCompact() + "\n"
 }
 
 /**
@@ -28,9 +77,27 @@ interface AiCliAdapter {
 class ClaudeCliAdapter(private val webSearch: Boolean = false) : AiCliAdapter {
     override val provider = AiProviderId.CLAUDE
     override val supportsWebSearch = true
-    override fun arguments() = listOf(
-        "-p", "--output-format", "text", "--tools", if (webSearch) "WebSearch" else "", "--strict-mcp-config", "--no-session-persistence",
-    ) + if (webSearch) listOf("--allowedTools", "WebSearch") else emptyList()
+    override val canAttachImages = true
+
+    private fun toolArguments() =
+        listOf("--tools", if (webSearch) "WebSearch" else "", "--strict-mcp-config", "--no-session-persistence") +
+            if (webSearch) listOf("--allowedTools", "WebSearch") else emptyList()
+
+    override fun arguments() = listOf("-p", "--output-format", "text") + toolArguments()
+
+    // Print mode takes images only as content blocks of a stream-json user message. Verified with 2.1.300:
+    // `--input-format stream-json` requires `--output-format stream-json`, which requires `--verbose`.
+    override fun invocation(prompt: String, images: List<AiImageAttachment>): AiCliInvocation =
+        if (images.isEmpty()) {
+            textInvocation(prompt)
+        } else {
+            AiCliInvocation(
+                listOf("-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose") + toolArguments(),
+                claudeImageMessage(prompt, images.map { it.png }),
+                ::parseClaudeStreamJson,
+                imagesInline = true,
+            )
+        }
 }
 
 /**
@@ -45,9 +112,19 @@ class CodexCliAdapter(private val webSearch: Boolean = false) : AiCliAdapter {
         "-c", if (webSearch) "web_search=live" else "web_search=disabled", "-",
     )
 
+    override val canAttachImages = true
+
     // `-i` takes several values, so it goes right after `exec`, ended by the next flag (never next to `-`).
-    override fun argumentsWithImages(images: List<File>): List<String> =
-        if (images.isEmpty()) arguments() else listOf("exec", "-i") + images.map { it.path } + arguments().drop(1)
+    override fun invocation(prompt: String, images: List<AiImageAttachment>): AiCliInvocation =
+        if (images.isEmpty()) {
+            textInvocation(prompt)
+        } else {
+            AiCliInvocation(
+                listOf("exec", "-i") + images.map { it.file.path } + arguments().drop(1),
+                prompt,
+                { AiParsedOutput.Answer(parseAnswer(it)) },
+            )
+        }
 }
 
 /**
