@@ -183,7 +183,12 @@ fun executeToolRequest(request: AiToolRequest, ctx: AiToolContext): AiToolResult
         } ?: fail("Frame ${request.index} is not available (frame analysis has ${ctx.frames?.size ?: 0} frames).")
         is AiToolRequest.Report -> when (val source = AiReportKind.of(request.kind)?.let { ctx.reports[it] }) {
             null -> fail("The ${request.kind} report does not apply to this file.")
-            is AiReportSource.Ready -> AiToolResult(line, true, bounded(source.text))
+            is AiReportSource.Ready -> {
+                if (identity == null || !identity.matches(ctx.file)) {
+                    return fail("The file changed (or is missing) since it was opened; the ${request.kind} report is refused.")
+                }
+                AiToolResult(line, true, bounded(source.text))
+            }
             is AiReportSource.Unavailable -> fail("The ${request.kind} report is not available: ${source.reason}")
             is AiReportSource.OnRequest -> {
                 // On-request analyses read the file at the tree's offsets: never against changed bytes.

@@ -64,8 +64,6 @@ data class AiReportInputs(
 )
 
 private val TIMED_NODE_TYPES = setOf("camm", "gpmd", "mebx")
-private const val BITSTREAM_WINDOW_KO = "비트스트림 결함 & 손상 프레임 정밀 분석"
-private const val BITSTREAM_WINDOW_EN = "Bitstream Defect & Corrupt Frame Analysis"
 
 private fun menu(name: (AppLanguage) -> String, label: (String, String) -> String) =
     label(name(AppLanguage.KO), name(AppLanguage.EN))
@@ -81,7 +79,14 @@ private fun <T> stored(
         "'$menuName'에서 실행하면 요청 가능", "available after running '$menuName'"))
     val current = s.currentFor(file) ?: return AiReportSource.Unavailable(label(
         "파일이 바뀌어 결과가 무효 — '$menuName'을(를) 다시 실행", "the file changed, so the result is void — run '$menuName' again"))
-    return AiReportSource.Ready(render(current))
+    // A renderer bug must degrade to one unavailable kind, never block the whole send.
+    return try {
+        AiReportSource.Ready(render(current))
+    } catch (e: Exception) {
+        if (e is InterruptedException) throw e
+        if (e is java.util.concurrent.CancellationException) throw e
+        AiReportSource.Unavailable("report could not be rendered (${e::class.simpleName})")
+    }
 }
 
 private fun notRun(menuName: String, label: (String, String) -> String) = AiReportSource.Unavailable(label(
@@ -91,7 +96,12 @@ private fun notRun(menuName: String, label: (String, String) -> String) = AiRepo
  * Which reports apply to this file and what state each is in. Blocking (file stat, cheap tree scans):
  * call off the UI thread. Kinds that do not apply to this file are absent from the map.
  */
-fun aiReportSources(inputs: AiReportInputs, label: (String, String) -> String): Map<AiReportKind, AiReportSource> {
+fun aiReportSources(
+    inputs: AiReportInputs,
+    label: (String, String) -> String,
+    /** Test seam: the HDR renderer. */
+    renderHdr: (HdrScanResult, File) -> String = ::renderHdrReport,
+): Map<AiReportKind, AiReportSource> {
     val file = inputs.file
     val root = inputs.root
     fun has(pred: (BoxNode) -> Boolean) = root?.let { findFirst(it, pred) } != null
@@ -100,9 +110,9 @@ fun aiReportSources(inputs: AiReportInputs, label: (String, String) -> String): 
     if (video) {
         out[AiReportKind.AVSYNC] = inputs.avSync?.let { AiReportSource.Ready(it) }
             ?: notRun(menu(I18n::menuAvSyncAnalysis, label), label)
-        out[AiReportKind.BITSTREAM] = inputs.bitstream?.let { AiReportSource.Ready(it) }
-            ?: notRun(label(BITSTREAM_WINDOW_KO, BITSTREAM_WINDOW_EN), label)
-        out[AiReportKind.HDR] = stored(inputs.hdr, file, menu(I18n::menuHdrSeiAnalysis, label), label) { renderHdrReport(it, file) }
+        // Nothing in the app produces this result yet; list it only when one exists.
+        inputs.bitstream?.let { out[AiReportKind.BITSTREAM] = AiReportSource.Ready(it) }
+        out[AiReportKind.HDR] = stored(inputs.hdr, file, menu(I18n::menuHdrSeiAnalysis, label), label) { renderHdr(it, file) }
         out[AiReportKind.HRD] = stored(inputs.hrd, file, menu(I18n::menuHrdBufferSimulation, label), label) { renderHrdReport(it) }
         val frames = inputs.frames
         out[AiReportKind.INTERVAL] = if (frames != null && frames.size >= 2) {
@@ -124,7 +134,7 @@ fun aiReportSources(inputs: AiReportInputs, label: (String, String) -> String): 
             val store = readC2paManifestStore(file, root) ?: return@OnRequest "C2PA store could not be read"
             val binding = runCatching { verifyC2paHardBinding(file, root, store) }
             val error = binding.exceptionOrNull()?.let { e ->
-                if (e is InterruptedException) throw e
+                if (e is InterruptedException || e is java.util.concurrent.CancellationException) throw e
                 scrubPaths("${e::class.simpleName}: ${e.message ?: ""}", file)
             }
             renderC2paReport(store, binding.getOrNull(), error, file)
@@ -187,7 +197,11 @@ fun runReportWithTimeout(run: () -> String, file: File, timeoutSeconds: Long = R
             throw e
         } catch (e: ExecutionException) {
             val cause = e.cause ?: e
-            false to "The report failed: ${cause::class.simpleName}: ${scrubPaths(cause.message ?: "", file)}".trimEnd(' ', ':')
+            val name = cause::class.simpleName ?: "Exception"
+            // Only this app's own exceptions have messages written for the user; JDK ones can echo file content.
+            val own = cause::class.java.name.startsWith("com.multiviewer")
+            val detail = if (own) scrubPaths(cause.message ?: "", file).take(200) else ""
+            false to "The report failed: $name: $detail".trimEnd(' ', ':')
         }
     } finally {
         executor.shutdownNow()

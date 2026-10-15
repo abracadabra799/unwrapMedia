@@ -35,8 +35,9 @@ class AiReportRegistryTest {
         hdr: StoredAnalysis<HdrScanResult>? = null,
         frames: List<FrameInfo>? = null,
         avSync: String? = null,
+        bitstream: String? = null,
     ) = AiReportInputs(
-        file = file, root = root, type = type, avSync = avSync, bitstream = null,
+        file = file, root = root, type = type, avSync = avSync, bitstream = bitstream,
         hdr = hdr, hrd = null, timed = null, frames = frames, gainmap = null, gainmapBase = null,
     )
 
@@ -55,7 +56,7 @@ class AiReportRegistryTest {
     @Test
     fun `a video tab lists the video reports, timed and spatial only with their boxes`() {
         val sources = aiReportSources(inputs(MediaType.VIDEO), label)
-        listOf(AiReportKind.HDR, AiReportKind.HRD, AiReportKind.INTERVAL, AiReportKind.AVSYNC, AiReportKind.BITSTREAM)
+        listOf(AiReportKind.HDR, AiReportKind.HRD, AiReportKind.INTERVAL, AiReportKind.AVSYNC)
             .forEach { assertTrue(it in sources, "$it missing: $sources") }
         assertFalse(AiReportKind.TIMED in sources)
         assertFalse(AiReportKind.SPATIAL in sources)
@@ -111,6 +112,45 @@ class AiReportRegistryTest {
         assertTrue(three.run().contains("intervals 2"), three.run())
     }
 
+    @Test
+    fun `bitstream is listed only when a result exists`() {
+        val none = aiReportSources(inputs(MediaType.VIDEO), label)
+        assertFalse(AiReportKind.BITSTREAM in none)
+        assertFalse(renderReportSection(none, label).contains("bitstream", ignoreCase = true))
+        val some = aiReportSources(inputs(MediaType.VIDEO, bitstream = "corrupt frames: 0"), label)
+        assertIs<AiReportSource.Ready>(some[AiReportKind.BITSTREAM])
+    }
+
+    @Test
+    fun `a ready render that throws becomes unavailable and leaves other kinds`() {
+        val sources = aiReportSources(
+            inputs(MediaType.VIDEO, hdr = StoredAnalysis(hdrResult, ContentFileIdentity.capture(file)), avSync = "ok"),
+            label, renderHdr = { _, _ -> throw IllegalStateException("secret Jane Doe") },
+        )
+        val hdr = sources[AiReportKind.HDR]
+        assertIs<AiReportSource.Unavailable>(hdr)
+        assertTrue(hdr.reason.contains("IllegalStateException") && !hdr.reason.contains("Jane"), hdr.reason)
+        assertIs<AiReportSource.Ready>(sources[AiReportKind.AVSYNC])
+    }
+
+    @Test
+    fun `a ready result is refused when the file changed after the context was captured`() {
+        val c = ctx(mapOf(AiReportKind.AVSYNC to AiReportSource.Ready("skew 12 ms")))
+        file.writeBytes(ByteArray(4_001))
+        val r = executeToolRequest(AiToolRequest.Report("avsync"), c)
+        assertFalse(r.ok)
+        assertTrue(r.text.contains("changed"), r.text)
+        assertFalse(r.text.contains("skew"))
+    }
+
+    @Test
+    fun `failure text of a foreign exception carries only the class name`() {
+        val (ok, text) = runReportWithTimeout({ throw NumberFormatException("For input string: \"Jane Doe secret\"") }, file)
+        assertFalse(ok)
+        assertTrue(text.contains("NumberFormatException"), text)
+        assertFalse(text.contains("Jane Doe"), text)
+    }
+
     // --- bridge ---
 
     private fun ctx(reports: Map<AiReportKind, AiReportSource>) =
@@ -142,7 +182,7 @@ class AiReportRegistryTest {
         assertTrue(ok.ok && ok.text.contains("intervals 2"), ok.text)
         val failed = executeToolRequest(AiToolRequest.Report("sef"), ctx)
         assertFalse(failed.ok)
-        assertTrue(failed.text.contains("IllegalStateException") && failed.text.contains("boom"), failed.text)
+        assertTrue(failed.text.contains("IllegalStateException") && !failed.text.contains("boom"), failed.text)
         assertFalse(failed.text.contains(dir.absolutePath), failed.text)
 
         val started = System.nanoTime()
