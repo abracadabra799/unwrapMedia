@@ -139,8 +139,9 @@ object SpecDiagramLayoutEngine {
             currentY += 12 // Gap between blocks
         }
 
-        // Layout Brackets (e.g. File Size bracket on left, DIB header bracket on right)
+        // Layout Brackets (e.g. File Size bracket on left, semantic block brackets on right)
         val layoutBrackets = mutableListOf<LayoutSpecBracket>()
+        var rightBracketIndex = 0
         for (b in diagram.brackets) {
             if (b.fromOffset == 0L && b.toOffset == diagram.fileSize) {
                 // File Size: Left side bracket spanning from top of first block to bottom of last block
@@ -148,12 +149,33 @@ object SpecDiagramLayoutEngine {
                 val bottomY = layoutBlocks.lastOrNull()?.rows?.lastOrNull()?.let { it.y + SPEC_ROW_HEIGHT } ?: currentY
                 layoutBrackets += LayoutSpecBracket(SPEC_GRID_LEFT - 30, topY, bottomY, b.label, b.color, onLeft = true)
             } else {
-                // Block level bracket on right
-                val dibBlock = layoutBlocks.find { it.id == "block_dib_header" }
-                if (dibBlock != null && dibBlock.rows.isNotEmpty()) {
-                    val y1 = dibBlock.headerY
-                    val y2 = dibBlock.rows.last().y + SPEC_ROW_HEIGHT
-                    layoutBrackets += LayoutSpecBracket(SPEC_GRID_LEFT + SPEC_GRID_WIDTH + 20, y1, y2, b.label, b.color, onLeft = false)
+                // Find blocks in diagram matching the offset range
+                val matchingBlocks = layoutBlocks.filter { lBlock ->
+                    val sBlock = diagram.blocks.find { it.id == lBlock.id }
+                    if (sBlock != null) {
+                        val sStart = sBlock.offset
+                        val sEnd = sBlock.offset + sBlock.length
+                        (maxOf(sStart, b.fromOffset) < minOf(sEnd, b.toOffset)) ||
+                            (b.fromOffset == sStart && b.toOffset == sEnd)
+                    } else false
+                }
+                if (matchingBlocks.isNotEmpty()) {
+                    val y1 = matchingBlocks.first().headerY
+                    val lastB = matchingBlocks.last()
+                    val y2 = lastB.rows.lastOrNull()?.let { it.y + SPEC_ROW_HEIGHT } ?: (lastB.headerY + lastB.headerH)
+                    val bracketX = SPEC_GRID_LEFT + SPEC_GRID_WIDTH + 20 + (rightBracketIndex * 26)
+                    layoutBrackets += LayoutSpecBracket(bracketX, y1, y2, b.label, b.color, onLeft = false)
+                    rightBracketIndex++
+                } else {
+                    // Fallback: check if id matches (e.g. block_dib_header)
+                    val dibBlock = layoutBlocks.find { it.id == "block_dib_header" }
+                    if (dibBlock != null && dibBlock.rows.isNotEmpty()) {
+                        val y1 = dibBlock.headerY
+                        val y2 = dibBlock.rows.last().y + SPEC_ROW_HEIGHT
+                        val bracketX = SPEC_GRID_LEFT + SPEC_GRID_WIDTH + 20 + (rightBracketIndex * 26)
+                        layoutBrackets += LayoutSpecBracket(bracketX, y1, y2, b.label, b.color, onLeft = false)
+                        rightBracketIndex++
+                    }
                 }
             }
         }
