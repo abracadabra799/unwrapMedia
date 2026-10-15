@@ -219,6 +219,34 @@ class AiChatControllerTest {
     }
 
     @Test
+    fun `stopping during the image check cancels it and clears the checking flag`() = runBlocking {
+        val a = imageTab()
+        val probeStarted = CompletableDeferred<Unit>()
+        var mainRuns = 0
+        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default,
+            capabilities = { AiProviderCapabilities(it, image = CapabilityState.UNKNOWN) },
+            runner = { _, _, p, _, _ ->
+                if (p == IMAGE_PROBE_PROMPT) {
+                    probeStarted.complete(Unit)
+                    awaitCancellation()
+                } else {
+                    mainRuns++
+                    AiCliResult.Answer("ok", false)
+                }
+            })
+        controller.send(a, "q", AiProviderId.CLAUDE, File("/bin/true"))
+        probeStarted.await()
+        assertTrue(a.aiImageChecking)
+        assertTrue(controller.isRunning(a))
+        controller.stop(a)
+        waitFor { !controller.isRunning(a) }
+        // isActive turns false at cancellation, before the finally that clears the flag has run: join first.
+        a.aiJob?.join()
+        assertFalse(a.aiImageChecking)
+        assertEquals(0, mainRuns)
+    }
+
+    @Test
     fun `the first image send checks image input once, then attaches the crop`() = runBlocking {
         val a = imageTab()
         var state = CapabilityState.UNKNOWN

@@ -174,7 +174,8 @@ fun AiChatPanel(
     }
 
     val conversation = tab.aiConversation
-    val running = conversation.status == AiRunStatus.RUNNING
+    // The first image send checks image input before the question is added, so that phase counts as running too.
+    val running = conversation.status == AiRunStatus.RUNNING || tab.aiImageChecking
     val provider = appState.aiProvider
     val caps = provider?.let { appState.aiCapabilities[it] }
     var input by remember(tab) { mutableStateOf("") }
