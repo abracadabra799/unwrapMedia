@@ -141,6 +141,12 @@ fun HrdBufferSimulationWindow(
                 initialDelaySeconds = initialDelaySec,
             )
         }
+        // Keep the latest report on the tab for the AI (not while frames are unloaded / errored).
+        LaunchedEffect(report) {
+            if (frames.isNotEmpty()) {
+                tab.hrdReport = StoredAnalysis(report, withContext(Dispatchers.IO) { ContentFileIdentity.capture(tab.file) })
+            }
+        }
 
         fun saveCsv() {
             val dialog = FileDialog(null as Frame?, label("HRD 버퍼 시뮬레이션 CSV 저장", "Save HRD Buffer Simulation CSV"), FileDialog.SAVE)

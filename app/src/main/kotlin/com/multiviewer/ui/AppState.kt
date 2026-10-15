@@ -302,6 +302,10 @@ class TabState(val file: File) {
 
     // Cached A/V Sync report for this tab
     var avSyncReport: AvSyncReport? by mutableStateOf(null)
+    // Finished heavy-window results, kept for the AI report bridge (survive window close; stale once the file changes).
+    var hdrScan: StoredAnalysis<HdrScanResult>? by mutableStateOf(null)
+    var hrdReport: StoredAnalysis<com.multiviewer.parser.hrd.HrdSimulationReport>? by mutableStateOf(null)
+    var timedMetadata: StoredAnalysis<com.multiviewer.parser.metadata.TimedMetadataReport>? by mutableStateOf(null)
 
     // Cached Bitstream corruption scan report for this tab
     var bitstreamCorruptionReport: BitstreamCorruptionReport? by mutableStateOf(null)
@@ -1005,4 +1009,10 @@ class AppState {
             }
         }
     }
+}
+
+/** A window's finished result plus the bytes it describes; stale once the file changes. */
+data class StoredAnalysis<T>(val value: T, val identity: ContentFileIdentity?) {
+    /** Blocking stat: call off the UI thread. */
+    fun currentFor(file: File): T? = value.takeIf { identity?.matches(file) == true }
 }

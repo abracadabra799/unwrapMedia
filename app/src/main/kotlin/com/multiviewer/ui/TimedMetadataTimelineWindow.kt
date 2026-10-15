@@ -83,11 +83,13 @@ fun TimedMetadataTimelineWindow(
 
             withContext(Dispatchers.IO) {
                 try {
+                    val identity = ContentFileIdentity.capture(tab.file) // before the read: a mid-read change reads as stale
                     val rep = readTimedMetadataReport(tab.file, root)
                     if (rep == null || rep.samples.isEmpty()) {
                         error = label("Timed Metadata 트랙(camm / gpmd / mebx)을 찾을 수 없습니다", "No Timed Metadata track (camm / gpmd / mebx) found")
                     } else {
                         report = rep
+                        tab.timedMetadata = StoredAnalysis(rep, identity)
                     }
                 } catch (e: Exception) {
                     error = e.message ?: e.toString()
