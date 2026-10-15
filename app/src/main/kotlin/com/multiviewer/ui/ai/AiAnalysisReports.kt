@@ -51,18 +51,30 @@ private fun c2(s: String, file: File): String =
     clip(scrubPaths(s, file).replace(UUID_RE, ID_WITHHELD).replace(LONG_HEX_RE, ID_WITHHELD))
 
 private const val NAME_WITHHELD = "<name withheld>"
-private val SAFE_SEF_NAME = Regex("^[A-Za-z0-9_.\\-]{1,48}$")
+// SefIntegrityAnalyzer reads an entry name as `name_size` bytes. A corrupted, oversized name_size makes the
+// name swallow the entry's value bytes with NO NUL separator (e.g. "Image_UTC_Data1697412345678"), so a
+// "plausible" name can carry a value. Real SEF names are identifiers without digit runs; anything else is
+// withheld (the marker hex still identifies the entry type).
+private val SAFE_SEF_NAME = Regex("^[A-Za-z_][A-Za-z0-9_.\\-]{0,39}$")
+private val DIGIT_RUN_3 = Regex("[0-9]{3,}")
 private val SAFE_LABEL_CHARS = Regex("^[A-Za-z0-9_.\\-#()/:, ]*$")
+private val ENTRY_NAME_LABEL = Regex("^Entry #(\\d+) \\((.*)\\) (encoding|JSON syntax)$", RegexOption.DOT_MATCHES_ALL)
 
-internal fun sanitizeSefName(name: String): String = if (SAFE_SEF_NAME.matches(name)) name else NAME_WITHHELD
+internal fun sanitizeSefName(name: String): String =
+    if (SAFE_SEF_NAME.matches(name) && !DIGIT_RUN_3.containsMatchIn(name)) name else NAME_WITHHELD
 
-/** Entry names read from a corrupted file may embed entry values; swap them for sanitized forms, or drop the label. */
-private fun sanitizeSefLabel(label: String, rawNames: List<String>): String? {
-    var l = label
-    for (raw in rawNames.filter { it.isNotEmpty() }.distinct().sortedByDescending { it.length }) {
-        l = l.replace(raw, sanitizeSefName(raw))
+/**
+ * Semantic-check labels may embed the (untrusted) entry name. Rebuild them by structure instead of substituting
+ * names: the parenthesised-name templates drop the name entirely; any other label is kept only if it is short
+ * and made of allowed characters.
+ */
+private fun sanitizeSefLabel(label: String): String? {
+    ENTRY_NAME_LABEL.matchEntire(label)?.let { m ->
+        val n = m.groupValues[1]
+        if (n.length > 9) return null
+        return "Entry #$n ${m.groupValues[3]}"
     }
-    return if (l.length <= 120 && SAFE_LABEL_CHARS.matches(l.replace(NAME_WITHHELD, ""))) l else null
+    return if (label.length <= 120 && SAFE_LABEL_CHARS.matches(label)) label else null
 }
 
 private fun yn(b: Boolean): String = if (b) "y" else "n"
@@ -257,9 +269,8 @@ fun renderSefReport(r: SefIntegrityReport, file: File): String {
     out += "overall: ${r.overallSeverity} · declared entries: ${r.declaredEntryCount ?: "unknown"} (${r.declaredEntryCountSeverity})"
     section(out, "structural checks:", r.structuralChecks.map { "- [${it.severity}] ${clean(it.label, file)}: ${clean(it.detail, file)}" })
     // Semantic details carry entry values (MCC, timestamps) -- label and severity only.
-    val rawNames = r.directoryEntries.mapNotNull { it.name }
     section(out, "semantic checks:", r.semanticChecks.map {
-        "- [${it.severity}] ${sanitizeSefLabel(it.label, rawNames)?.let { l -> clean(l, file) } ?: "Entry check"}"
+        "- [${it.severity}] ${sanitizeSefLabel(it.label)?.let { l -> clean(l, file) } ?: "Entry check"}"
     })
     section(out, "directory:", r.directoryEntries.map { e ->
         "#${e.entryIndex} marker ${e.markerHex} ${e.name?.let(::sanitizeSefName) ?: "?"} @${e.declaredOffset} +${e.declaredLength} " +

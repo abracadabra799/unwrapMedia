@@ -370,8 +370,44 @@ class AiAnalysisReportsTest {
         assertTrue(out.contains("#1 marker 0xA01 Image_UTC_Data @"), out)
         assertTrue(out.contains("#2 marker 0xA01 <name withheld> @"), out)
         assertTrue(out.contains("#3 marker 0xA01 <name withheld> @"), out)
-        assertTrue(out.contains("- [PASS] Entry #1 (Image_UTC_Data) JSON syntax"), out)
+        assertTrue(out.contains("- [PASS] Entry #1 JSON syntax"), out)
         assertTrue(out.contains("- [WARNING] Entry check"), out)
         assertAbsent(out, "1697412345678", long.take(60), "\u0001")
+    }
+
+    @Test
+    fun `sef name swallowing value bytes without NUL is withheld in rows and labels`() {
+        val swallowed = "Image_UTC_Data1697412345678"
+        val r = sefReport(
+            listOf("Image_UTC_Data", swallowed),
+            listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "Entry #2 ($swallowed) JSON syntax", "d")),
+        )
+        val out = renderSefReport(r, file)
+        assertTrue(out.contains("Entry #2 JSON syntax"), out)
+        assertTrue(out.contains("#2 marker 0xA01 <name withheld> @"), out)
+        assertTrue(out.contains("#1 marker 0xA01 Image_UTC_Data @"), out)
+        assertAbsent(out, "1697412345678")
+    }
+
+    @Test
+    fun `sef overlapping crafted names cannot bypass label handling`() {
+        val r = sefReport(
+            listOf("Entry #2 (x", "x 16974123"),
+            listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "Entry #2 (x 16974123) JSON syntax", "d")),
+        )
+        val out = renderSefReport(r, file)
+        assertAbsent(out, "16974123")
+    }
+
+    @Test
+    fun `sef normal names and non-parenthesised labels remain`() {
+        val r = sefReport(
+            listOf("Image_UTC_Data", "MotionPhoto_Data"),
+            listOf(SefCheckResult(SefIntegritySeverity.PASS, "Entry #1 MotionPhoto_Data bounds", "d")),
+        )
+        val out = renderSefReport(r, file)
+        assertTrue(out.contains("#1 marker 0xA01 Image_UTC_Data @"), out)
+        assertTrue(out.contains("#2 marker 0xA01 MotionPhoto_Data @"), out)
+        assertTrue(out.contains("- [PASS] Entry #1 MotionPhoto_Data bounds"), out)
     }
 }
