@@ -1166,6 +1166,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `app/src/main/kotlin/com/multiviewer/ui/ai/AiCliAdapter.kt` (`AgyCliAdapter`)
+- Modify: `app/src/main/kotlin/com/multiviewer/ui/ai/AiChatPanel.kt` (Codex/agy 로컬 파일 경고 복원, 확인 중 진행 문구)
 - Modify: `app/src/test/kotlin/com/multiviewer/ui/ai/AiCliAdapterTest.kt`, `app/src/test/kotlin/com/multiviewer/ui/ai/AiCliRunnerTest.kt`
 
 **Interfaces:**
@@ -1284,14 +1285,60 @@ Expected: PASS / BUILD SUCCESSFUL
 Run: `UNWRAPMEDIA_LIVE_AI=1 UNWRAPMEDIA_LIVE_AI_PROVIDERS=AGY ./gradlew :app:test --tests 'com.multiviewer.ui.ai.AiCliLiveAcceptanceTest' -i 2>&1 | grep "LIVE"`
 Expected: `LIVE IMAGE AGY: Answer(text=red, …)`, 테스트 PASS. (실패하면 LIVE 줄을 그대로 보고한다 — 단언을 약하게 바꾸지 않는다.)
 
+- [ ] **Step 6b: 패널 — 로컬 파일 접근 경고 복원 + 확인 중 진행 문구 (사용자 요청 2026-10-16)**
+
+`22e66a7e`에서 지워진 경고를 복원한다. Codex(읽기 전용 샌드박스)와 agy(plan 모드, `view_file`)는 로컬 파일을 읽을 수 있다. Gemini는 내장 도구를 모두 끄고(`tools.core = []`), Claude는 `--tools ""`로 실행하므로 대상이 아니다.
+
+`app/src/main/kotlin/com/multiviewer/ui/ai/AiChatPanel.kt`에서 다음 줄을 찾아
+
+```kotlin
+                // 3행: 부가 옵션 (웹 검색 토글 & 이미지 영역 지정)
+```
+바로 위에 추가:
+
+```kotlin
+                // Codex's read-only sandbox and Antigravity's plan mode can still read local files (Gemini runs with
+                // its built-in tools off, Claude with --tools ""). Restores the note lost in 22e66a7e.
+                if (provider == AiProviderId.CODEX || provider == AiProviderId.AGY) {
+                    Text(
+                        label(
+                            "주의: 이 CLI는 읽기 전용 모드여도 이 컴퓨터의 다른 파일을 읽을 수 있습니다. 파일에서 나온 값은 지시가 아닌 데이터로 표시해 보내지만, 민감한 환경에서는 Claude Code(도구 꺼짐)를 권장합니다.",
+                            "Note: even read-only, this CLI can read other files on this computer. File-derived values are fenced as data, but Claude Code (tools off) is safer for sensitive work.",
+                        ),
+                        color = AppColors.NeonYellow,
+                        fontSize = 11.sp,
+                    )
+                }
+
+```
+
+같은 파일에서 진행 문구 줄
+
+```kotlin
+                Text(label("AI 응답 생성 중…", "Generating answer…"), color = AppColors.NeonPurple, fontSize = 11.sp)
+```
+을 다음으로 교체(확인 단계에는 확인 중이라고 표시):
+
+```kotlin
+                Text(
+                    if (tab.aiImageChecking) label("🖼️ 이미지 입력 확인 중…", "🖼️ Checking image input…")
+                    else label("AI 응답 생성 중…", "Generating answer…"),
+                    color = AppColors.NeonPurple,
+                    fontSize = 11.sp,
+                )
+```
+
+Run: `./gradlew :app:compileKotlin`
+Expected: BUILD SUCCESSFUL
+
 - [ ] **Step 7: 커밋**
 
 ```bash
 git -C .worktrees/ai-claude-image branch --show-current   # feat/ai-claude-image-input 이어야 함
 cd .worktrees/ai-claude-image
-git add app/src/main/kotlin/com/multiviewer/ui/ai/AiCliAdapter.kt \
+git add app/src/main/kotlin/com/multiviewer/ui/ai/AiCliAdapter.kt app/src/main/kotlin/com/multiviewer/ui/ai/AiChatPanel.kt \
   app/src/test/kotlin/com/multiviewer/ui/ai/AiCliAdapterTest.kt app/src/test/kotlin/com/multiviewer/ui/ai/AiCliRunnerTest.kt
-git commit -m "feat: let Antigravity read AI image crops via view_file
+git commit -m "feat: let Antigravity read AI image crops via view_file; restore local-file note
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
