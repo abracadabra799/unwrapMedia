@@ -496,7 +496,7 @@ private fun OverviewTabContent(appState: AppState, tab: TabState) {
     }
     val listState = rememberLazyListState()
     Box(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(end = 14.dp)) {
             item { SummaryBox(title, summary.sections) }
             val gainmap = tab.gainmapInfo
             if (gainmap != null && gainmap.hasGainmap) {
@@ -603,7 +603,7 @@ private fun WarningsTabContent(
         }
         val listState = rememberLazyListState()
         Box(modifier = Modifier.fillMaxSize()) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(end = 14.dp)) {
                 item {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -750,7 +750,7 @@ private fun DetailPropertiesTabContent(appState: AppState, tab: TabState) {
         LaunchedEffect(tab.selectedFrame) { tab.parameterSetHighlightRange = null }
         Box(modifier = Modifier.fillMaxSize()) {
             androidx.compose.foundation.text.selection.SelectionContainer(modifier = Modifier.fillMaxSize()) {
-                LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(end = 14.dp)) {
                 when {
                     selectedFrame != null -> {
                         item {
