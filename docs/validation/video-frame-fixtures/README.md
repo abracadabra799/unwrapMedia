@@ -37,3 +37,6 @@ So only MPEG-TS (no seek index) takes the exact path (`FrameStreamInfo.needsExac
 every other container keeps the fast hardware-accelerated path. Note that ffmpeg's *default* TS output already
 starts at 1.47 s, so practically every TS file is affected. `offset5.mp4` pins the indexed-with-offset case.
 Regenerating with `generate.sh` rewrites `vfr.mkv` with a new Matroska segment UID; keep the committed copy.
+
+Not measured (stay on the fast path until a real file shows otherwise): raw `h264`/`hevc` elementary streams, MXF,
+FLV, AVI. Only the AI frame attach (`decodeExactFrame`) checks the decoded PTS; the fast paths do not.
