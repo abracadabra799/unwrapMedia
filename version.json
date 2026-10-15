@@ -1,7 +1,7 @@
 {
-  "version": "1.25.0",
+  "version": "1.26.0",
   "releaseDate": "2026-10-15",
-  "releaseNotes": "• GOP 필름스트립: 스크롤 위치가 바뀌면 이전 썸네일 추출을 취소하고 늦게 도착한 결과를 무시하여 ffmpeg 작업 누적을 방지\n• 썸네일 디스크 캐시: 파일 시각이 같거나 어긋나도 최근 사용 항목을 유지하여 불필요한 재추출을 방지\n• 미디어 비교: 재생 미리보기 추출 빈도를 제한하고 느린 디코드에서는 최신 시점만 대기시키며 파일 변경·창 종료 시 작업을 취소\n• 디코드 대기 큐: 취소된 썸네일·프레임·이미지 작업을 새 요청 전에 제거하고 완료된 Skia 이미지 리소스를 즉시 해제\n• 프로세스 수명: 출력 없이 멈춘 분석에 시간 제한을 적용하고 불완전한 프레임·비트스트림 검사의 거짓 정상 판정을 방지",
+  "releaseNotes": "• 모션포토 동영상: 하단 재생기를 팝업으로 열고 실제 프레임 번호·인덱스·PTS를 확인\n• 프레임 검사: 팝업에서 좌우 방향키로 가변 프레임률 영상도 한 프레임씩 이동\n• 프레임 간격 분석: 그래프나 목록에서 선택한 프레임으로 팝업 재생기를 이동",
   "windowsUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest",
   "macUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest"
 }

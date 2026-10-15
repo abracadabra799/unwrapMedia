@@ -1370,7 +1370,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                             }
                         } else {
                             when (currentTab.type) {
-                                MediaType.IMAGE -> ImageInspectorUI(appState, currentTab, leftPanel, bottomPanel)
+                                MediaType.IMAGE -> ImageInspectorUI(appState, currentTab, leftPanel, bottomPanel, language)
                                 MediaType.VIDEO -> VideoInspectorUI(appState, currentTab, leftPanel, bottomPanel)
                                 MediaType.AUDIO -> AudioInspectorUI(appState, currentTab, leftPanel, bottomPanel)
                                 MediaType.RAW_PIXEL -> RawPixelInspectorUI(appState, currentTab, leftPanel, bottomPanel)

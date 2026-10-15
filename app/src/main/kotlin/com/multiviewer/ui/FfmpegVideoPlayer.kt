@@ -296,6 +296,11 @@ fun FfmpegVideoPlayer(
     seekRequestTick: Int = 0,
     onProbeComplete: () -> Unit = {},
     onStepFrame: ((delta: Int) -> Unit)? = null,
+    exactFrameInspection: Boolean = false,
+    onFrameTimestamps: (List<Double>?) -> Unit = {},
+    onFramePresented: (FramePosition) -> Unit = {},
+    handleArrowKeys: Boolean = true,
+    inspectionLanguage: AppLanguage = AppLanguage.KO,
 ) {
     var videoBitmap by remember(file) { mutableStateOf<ImageBitmap?>(null, neverEqualPolicy()) }
     var isPlaying by remember(file) { mutableStateOf(false) }
@@ -358,9 +363,11 @@ fun FfmpegVideoPlayer(
     // how a seek slices into this list rather than re-probing).
     var frameTimestamps by remember(file) { mutableStateOf<List<Double>?>(null) }
     var probing by remember(file) { mutableStateOf(true) }
+    var timestampScanComplete by remember(file) { mutableStateOf(false) }
 
     LaunchedEffect(file) {
         probing = true
+        timestampScanComplete = false
         val info = runInterruptible(Dispatchers.IO) { probeVideo(file) }
         // Flip probing off (and let the player UI render) after the two cheap probes (video format
         // above, audio format below) -- do not wait on the expensive full-file frame-timestamp scan
@@ -383,6 +390,7 @@ fun FfmpegVideoPlayer(
         if (info != null) {
             val timestamps = runInterruptible(Dispatchers.IO) { probeFrameTimestamps(file) }
             frameTimestamps = timestamps
+            onFrameTimestamps(timestamps)
             if ((probedInfo?.duration ?: 0.0) <= 0.0 && !timestamps.isNullOrEmpty()) {
                 val lastPts = timestamps.last()
                 val inferredDuration = if (timestamps.size > 1) {
@@ -393,12 +401,18 @@ fun FfmpegVideoPlayer(
                 probedInfo = info.copy(duration = inferredDuration)
             }
         }
+        timestampScanComplete = true
         onProbeComplete()
     }
 
-    if (probing) {
+    if (probing || (exactFrameInspection && !timestampScanComplete)) {
         Box(modifier.fillMaxSize().background(AppColors.Background), contentAlignment = Alignment.Center) {
-            DecodingIndicator("동영상 정보 분석 중...")
+            val loadingText = if (probing) {
+                if (inspectionLanguage == AppLanguage.KO) "동영상 정보 분석 중..." else "Analyzing video information..."
+            } else {
+                if (inspectionLanguage == AppLanguage.KO) "프레임 타임스탬프 분석 중..." else "Analyzing frame timestamps..."
+            }
+            DecodingIndicator(loadingText)
         }
         return
     }
@@ -416,6 +430,8 @@ fun FfmpegVideoPlayer(
         audioPlayingAtomic.set(isPlaying)
         audioMutedAtomic.set(isMuted)
         val seekSeconds = startFromSeconds
+        val timestampIndex = frameTimestamps?.let(::FrameTimestampIndex)
+        val firstSourceFrameIndex = frameTimestamps?.indexOfFirst { it >= seekSeconds }?.takeIf { it >= 0 } ?: 0
         val seekArgs = if (seekSeconds > 0.0) listOf("-ss", seekSeconds.toString()) else emptyList()
         val process = try {
             ProcessBuilder(
@@ -463,8 +479,7 @@ fun FfmpegVideoPlayer(
         // getOrElse below then falls back to fallbackDurationSeconds for every frame, same
         // behavior as before per-frame timestamps existed at all.
         val durations: List<Double> = frameTimestamps?.let { timestamps ->
-            val startIndex = timestamps.indexOfFirst { it >= seekSeconds }.let { if (it < 0) 0 else it }
-            frameDurationsSeconds(timestamps, fallbackDurationSeconds).drop(startIndex)
+            frameDurationsSeconds(timestamps, fallbackDurationSeconds).drop(firstSourceFrameIndex)
         } ?: emptyList()
 
         val readerThread = if (process != null) {
@@ -496,9 +511,12 @@ fun FfmpegVideoPlayer(
                         durations.getOrElse(frameIndex) { fallbackDurationSeconds }.also { frameIndex++ }
 
                     fun deliver(durationSeconds: Double?) {
+                        val position = timestampIndex?.position(firstSourceFrameIndex + frameIndex - 1)
                         val snapshot = pixelBufferToImageBitmap(actualWidth, actualHeight, buffer, ColorType.BGRA_8888, ColorAlphaType.PREMUL)
                         EventQueue.invokeLater {
+                            if (stopped.get()) return@invokeLater
                             videoBitmap = snapshot
+                            if (position != null) onFramePresented(position)
                             if (durationSeconds != null) {
                                 playedSeconds += durationSeconds
                             }
@@ -700,14 +718,14 @@ fun FfmpegVideoPlayer(
                 .onKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                     when (event.key) {
-                        Key.DirectionLeft -> {
+                        Key.DirectionLeft -> if (handleArrowKeys) {
                             stepSingleFrame(-1)
                             true
-                        }
-                        Key.DirectionRight -> {
+                        } else false
+                        Key.DirectionRight -> if (handleArrowKeys) {
                             stepSingleFrame(1)
                             true
-                        }
+                        } else false
                         Key.Spacebar -> {
                             if (!isPlaying) {
                                 if (hasEnded) {

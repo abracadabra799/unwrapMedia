@@ -43,7 +43,8 @@ fun ImageInspectorUI(
     appState: AppState,
     tab: TabState,
     leftPanel: @Composable ColumnScope.() -> Unit,
-    bottomPanel: @Composable ColumnScope.() -> Unit
+    bottomPanel: @Composable ColumnScope.() -> Unit,
+    language: AppLanguage,
 ) {
     val forensic = tab.imageForensic ?: return
 
@@ -282,7 +283,7 @@ fun ImageInspectorUI(
                                 .background(AppColors.Background),
                             contentAlignment = Alignment.Center
                         ) {
-                            MotionPhotoVideoPreview(tab, embeddedVideo)
+                            MotionPhotoVideoPreview(appState, tab, embeddedVideo, language)
 
                             Text("MOTION PHOTO VIDEO",
                                 modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
@@ -302,9 +303,10 @@ fun ImageInspectorUI(
 }
 
 @Composable
-private fun MotionPhotoVideoPreview(tab: TabState, video: EmbeddedVideo) {
+private fun MotionPhotoVideoPreview(appState: AppState, tab: TabState, video: EmbeddedVideo, language: AppLanguage) {
     var extractedFile by remember(tab.file, video) { mutableStateOf<File?>(null) }
     var extractError by remember(tab.file, video) { mutableStateOf<String?>(null) }
+    var popupOpen by remember(tab.file, video) { mutableStateOf(false) }
 
     LaunchedEffect(tab.file, video) {
         var dest: File? = null
@@ -335,12 +337,47 @@ private fun MotionPhotoVideoPreview(tab: TabState, video: EmbeddedVideo) {
 
     val file = extractedFile
     val error = extractError
-    if (file != null) {
-        FfmpegVideoPlayer(file, modifier = Modifier.fillMaxSize())
-    } else if (error != null) {
-        Text("Could not extract motion video: $error", color = AppColors.NeonRed, fontSize = 13.sp)
-    } else {
-        DecodingIndicator("모션포토 동영상 추출 중...")
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        if (file != null) {
+            if (popupOpen) {
+                Text(
+                    if (language == AppLanguage.KO) "팝업에서 재생 중" else "Playing in popup",
+                    color = AppColors.TextSecondary,
+                )
+                MotionPhotoVideoWindow(appState, tab, file, language, onCloseRequest = { popupOpen = false })
+            } else {
+                FfmpegVideoPlayer(file, modifier = Modifier.fillMaxSize())
+            }
+        } else if (error != null) {
+            Text("Could not extract motion video: $error", color = AppColors.NeonRed, fontSize = 13.sp)
+        } else {
+            DecodingIndicator("모션포토 동영상 추출 중...")
+        }
+
+        if (file != null) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .fillMaxWidth()
+                    .padding(top = 4.dp, end = 4.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .clickable { popupOpen = true }
+                        .background(AppColors.Surface.copy(alpha = 0.85f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OpenInNewIcon(modifier = Modifier.size(11.dp), color = AppColors.NeonPurple)
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        if (language == AppLanguage.KO) "팝업으로 보기" else "Open popup",
+                        style = AppTypography.labelMedium.copy(fontSize = 10.sp, color = AppColors.NeonPurple),
+                    )
+                }
+            }
+        }
     }
 }
 

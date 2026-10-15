@@ -8,6 +8,31 @@ import kotlin.test.assertTrue
 
 class FfmpegVideoPlayerTest {
     @Test
+    fun `motion photo frame selection follows adjacent presentation timestamps`() {
+        val timeline = FrameTimestampIndex(listOf(0.0, 0.033, 0.100, 0.133))
+
+        assertEquals(FramePosition(2, 4, 0.033), timeline.position(1))
+        assertEquals(FramePosition(3, 4, 0.100), timeline.step(1, 1))
+        assertEquals(FramePosition(1, 4, 0.0), timeline.step(0, -1))
+        assertEquals(FramePosition(4, 4, 0.133), timeline.step(3, 1))
+    }
+
+    @Test
+    fun `motion photo interval PTS resolves to its real frame index`() {
+        val timeline = FrameTimestampIndex(listOf(0.0, 0.033, 0.100, 0.133))
+
+        assertEquals(FramePosition(3, 4, 0.100), timeline.atPts(0.100))
+        assertNull(timeline.atPts(0.2))
+    }
+
+    @Test
+    fun `interval selection keeps frame identity when two frames share a PTS`() {
+        val timeline = FrameTimestampIndex(listOf(0.0, 0.033, 0.033, 0.066))
+
+        assertEquals(FramePosition(3, 4, 0.033), timeline.forInterval(frameIndex = 2, ptsSeconds = 0.033))
+    }
+
+    @Test
     fun `probeFrameTimestamps reads one pts_time per frame from a real video`() {
         val video = File.createTempFile("ffmpeg-pts-test-", ".mp4")
         video.deleteOnExit()

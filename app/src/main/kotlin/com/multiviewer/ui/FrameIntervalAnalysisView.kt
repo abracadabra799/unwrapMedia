@@ -59,8 +59,18 @@ private const val X_AXIS_TICK_STEP_FRAMES = 5
 // and handling the loading/empty/error states, is the caller's job (see
 // FrameIntervalAnalysisWindow) -- this composable assumes intervals is non-empty.
 @Composable
-fun FrameIntervalAnalysisView(intervals: List<FrameInterval>, fps: Double?, modifier: Modifier = Modifier) {
+fun FrameIntervalAnalysisView(
+    intervals: List<FrameInterval>,
+    fps: Double?,
+    modifier: Modifier = Modifier,
+    onInspectFrame: ((FrameInterval) -> Unit)? = null,
+) {
     var selectedFrameIndex by remember(intervals) { mutableStateOf<Int?>(null) }
+
+    fun selectInterval(interval: FrameInterval) {
+        selectedFrameIndex = interval.frameIndex
+        onInspectFrame?.invoke(interval)
+    }
 
     // AppColors.* getters are @Composable (theme-reactive) and can only be read here, in the
     // composable body -- NOT from inside Canvas's onDraw lambda below, which runs during the draw
@@ -112,7 +122,7 @@ fun FrameIntervalAnalysisView(intervals: List<FrameInterval>, fps: Double?, modi
     fun stepSelection(delta: Int) {
         val currentPosition = intervals.indexOfFirst { it.frameIndex == selectedFrameIndex }
         val targetPosition = (currentPosition + delta).coerceIn(0, intervals.size - 1)
-        selectedFrameIndex = intervals[targetPosition].frameIndex
+        selectInterval(intervals[targetPosition])
     }
 
     Column(modifier = modifier) {
@@ -164,7 +174,7 @@ fun FrameIntervalAnalysisView(intervals: List<FrameInterval>, fps: Double?, modi
                                     hitRadiusPx = hitRadiusPx,
                                 )
                                 if (nearest != null) {
-                                    selectedFrameIndex = nearest.frameIndex
+                                    selectInterval(nearest)
                                 }
                             }
                         },
@@ -279,7 +289,7 @@ fun FrameIntervalAnalysisView(intervals: List<FrameInterval>, fps: Double?, modi
                             .fillMaxWidth()
                             .height(24.dp)
                             .background(if (isSelected) selectionRowColor else Color.Transparent)
-                            .clickable { selectedFrameIndex = interval.frameIndex }
+                            .clickable { selectInterval(interval) }
                             .padding(horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -407,7 +417,12 @@ fun FrameIntervalAnalysisWindow(appState: AppState, tab: TabState, onCloseReques
 // video (tab.embeddedVideo, extracted to a temp file by analyzeMotionPhotoFrames) -- never the
 // live preview player and never tab.file itself, which is the photo, not a video.
 @Composable
-fun MotionPhotoFrameIntervalAnalysisWindow(appState: AppState, tab: TabState, onCloseRequest: () -> Unit) {
+fun MotionPhotoFrameIntervalAnalysisWindow(
+    appState: AppState,
+    tab: TabState,
+    onCloseRequest: () -> Unit,
+    onInspectFrame: ((FrameInterval) -> Unit)? = null,
+) {
     LaunchedEffect(tab) {
         appState.analyzeMotionPhotoFrames(tab)
     }
@@ -418,6 +433,7 @@ fun MotionPhotoFrameIntervalAnalysisWindow(appState: AppState, tab: TabState, on
         isAnalyzing = tab.isAnalyzingMotionPhotoFrames,
         fps = tab.motionPhotoVideoFps,
         onCloseRequest = onCloseRequest,
+        onInspectFrame = onInspectFrame,
     )
 }
 
@@ -428,6 +444,7 @@ private fun FrameIntervalAnalysisWindowContent(
     isAnalyzing: Boolean,
     fps: Double?,
     onCloseRequest: () -> Unit,
+    onInspectFrame: ((FrameInterval) -> Unit)? = null,
 ) {
     Window(onCloseRequest = onCloseRequest, title = title) {
         val intervals = remember(frames) { frames?.let { computeFrameIntervals(it) } ?: emptyList() }
@@ -445,7 +462,7 @@ private fun FrameIntervalAnalysisWindowContent(
                     )
                 }
                 else -> {
-                    FrameIntervalAnalysisView(intervals = intervals, fps = fps, modifier = Modifier.fillMaxSize())
+                    FrameIntervalAnalysisView(intervals = intervals, fps = fps, modifier = Modifier.fillMaxSize(), onInspectFrame = onInspectFrame)
                 }
             }
         }
