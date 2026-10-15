@@ -17,7 +17,7 @@
 - 사용자 문구는 KO/EN 이중 언어 — 패널의 로컬 `label(korean, english)` (규칙 11).
 - 외부 프로세스: 기존 `runAiCli`의 타임아웃·상한·프로세스 트리 종료·임시 폴더 삭제를 그대로 유지 (규칙 5).
 - 이미지 없는 실행(모든 연동)의 인자·stdin·파싱은 바이트 단위로 지금과 같아야 한다.
-- Gemini/agy는 이미지 불가(`canAttachImages = false`) 그대로.
+- Gemini는 이미지 불가(`canAttachImages = false`) 그대로. agy는 Task 4에서 작업 폴더 PNG + `view_file`로 지원.
 - 작업 위치: worktree `.worktrees/ai-claude-image`, 브랜치 `feat/ai-claude-image-input`. 각 커밋 전에 `git -C <worktree> branch --show-current`가 `feat/ai-claude-image-input`인지 확인한다 (서브에이전트가 main에 커밋한 전례 있음).
 - 커밋 메시지 끝: `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`
 - 테스트 명령: `./gradlew :app:test --tests '<FQCN>'` (worktree 루트에서). `ThumbnailDiskCacheTest`는 알려진 flaky.
@@ -1160,7 +1160,145 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 4: 전체 검증
+### Task 4: Antigravity(agy) 이미지 첨부 — 작업 폴더 PNG + `view_file`
+
+(사용자 결정 2026-10-16. 실측: agy 1.3.5, `--mode plan --output-format stream-json`, 작업 폴더의 `view-1.png`(파란 단색, 색과 무관한 이름) + 프롬프트 "Use the view_file tool to open the image file view-1.png in the current directory … Do not run any commands … Reply with only that color" → `view_file` 2회, 거부 동작 없음, 답 `blue`. `@파일`은 첨부되지 않고 셸 명령 시도 후 거부됨 — 쓰지 않는다.)
+
+**Files:**
+- Modify: `app/src/main/kotlin/com/multiviewer/ui/ai/AiCliAdapter.kt` (`AgyCliAdapter`)
+- Modify: `app/src/test/kotlin/com/multiviewer/ui/ai/AiCliAdapterTest.kt`, `app/src/test/kotlin/com/multiviewer/ui/ai/AiCliRunnerTest.kt`
+
+**Interfaces:**
+- Consumes (Task 2): `AiCliAdapter.invocation`, `canAttachImages`, `AiCliInvocation`, `AiImageAttachment`, `textInvocation`, `AiParsedOutput`; 러너는 `imagesInline == false`면 `attachments`를 작업 폴더에 `view-N.png`로 쓰고 그 폴더에서 CLI를 실행한다.
+- Produces: `AgyCliAdapter.canAttachImages == true`; 이미지 실행의 stdin = 안내 문단 + 원래 prompt.
+
+- [ ] **Step 1: 실패하는 테스트 — AiCliAdapterTest**
+
+테스트 `only claude and codex can attach images`를 다음으로 교체(이름과 기대 집합 변경):
+
+```kotlin
+    @Test
+    fun `claude, codex and antigravity can attach images, gemini cannot`() {
+        assertEquals(
+            setOf(AiProviderId.CLAUDE, AiProviderId.CODEX, AiProviderId.AGY),
+            AiProviderId.entries.filter { adapterFor(it).canAttachImages }.toSet(),
+        )
+        assertEquals(null, adapterFor(AiProviderId.GEMINI).invocation("q", listOf(AiImageAttachment(File("x.png"), ByteArray(1)))))
+    }
+```
+
+클래스 안에 추가:
+
+```kotlin
+    @Test
+    fun `antigravity image runs name the work-dir files for view_file and keep the prompt`() {
+        val adapter = AgyCliAdapter()
+        val inv = adapter.invocation(
+            "PROMPT",
+            listOf(
+                AiImageAttachment(File("/tmp/unwrapmedia-ai-1/view-1.png"), ByteArray(1)),
+                AiImageAttachment(File("/tmp/unwrapmedia-ai-1/view-2.png"), ByteArray(1)),
+            ),
+        )!!
+        assertEquals(adapter.arguments(), inv.arguments)
+        assertFalse(inv.imagesInline)
+        assertTrue(inv.stdin.contains("view_file"), inv.stdin)
+        assertTrue(inv.stdin.contains("view-1.png, view-2.png"), inv.stdin)
+        assertFalse(inv.stdin.contains("/tmp/"), inv.stdin) // file names only: the CLI runs in that directory
+        assertTrue(inv.stdin.endsWith("\n\nPROMPT"), inv.stdin)
+        assertEquals(AiParsedOutput.Answer("blue"), inv.parse("blue\n"))
+    }
+```
+
+- [ ] **Step 2: 실패하는 테스트 — AiCliRunnerTest**
+
+`antigravity adapter uses plan mode and text output format`의 마지막 단언
+```kotlin
+        assertFalse(adapter.canAttachImages)
+```
+를
+```kotlin
+        assertTrue(adapter.canAttachImages)
+```
+로 바꾼다.
+
+클래스 안(마지막 테스트 뒤)에 추가(`square()` 헬퍼는 Task 2에서 이 파일에 추가됨):
+
+```kotlin
+    @Test
+    fun `antigravity image runs get png files in the work dir and the view_file instruction on stdin`() {
+        val stdin = File(dir, "agy-stdin.txt")
+        val exe = script("agy", """cat > "${stdin.absolutePath}"; ls""")
+        val result = runBlocking { runAiCli(AgyCliAdapter(), exe, "q", images = listOf(square())) }
+        assertIs<AiCliResult.Answer>(result)
+        assertTrue(result.text.contains("view-1.png"), result.text)
+        val sent = stdin.readText()
+        assertTrue(sent.contains("view_file") && sent.contains("view-1.png"), sent)
+        assertTrue(sent.endsWith("\n\nq"), sent)
+    }
+```
+
+- [ ] **Step 3: 실패 확인**
+
+Run: `./gradlew :app:test --tests 'com.multiviewer.ui.ai.AiCliAdapterTest' --tests 'com.multiviewer.ui.ai.AiCliRunnerTest'`
+Expected: FAIL — 기대 집합에 AGY 없음, `antigravity image runs …`에서 `invocation`이 null(`!!` NPE) / LAUNCH_FAILED.
+
+- [ ] **Step 4: AgyCliAdapter 구현**
+
+`class AgyCliAdapter : AiCliAdapter { … }` 블록 전체를 다음으로 교체(위의 KDoc 주석은 유지):
+
+```kotlin
+class AgyCliAdapter : AiCliAdapter {
+    override val provider = AiProviderId.AGY
+    // No documented per-run web toggle: the prompt can request search, but cannot guarantee it.
+    override fun arguments() = listOf("--mode", "plan", "--output-format", "text")
+
+    // No attach flag, and `@file` is not attached (observed: it tries shell commands instead, refused in plan
+    // mode). Its own view_file tool does read a PNG in the working directory (verified with agy 1.3.5), so the
+    // crops stay files in the app-owned temp dir and the prompt names them. Whether it really looked is still
+    // decided by the first-send color check.
+    override val canAttachImages = true
+
+    override fun invocation(prompt: String, images: List<AiImageAttachment>): AiCliInvocation =
+        if (images.isEmpty()) {
+            textInvocation(prompt)
+        } else {
+            val names = images.joinToString(", ") { it.file.name }
+            AiCliInvocation(
+                arguments(),
+                "Attached images in the current directory: $names. Open each one with the view_file tool before " +
+                    "answering. Do not run any commands.\n\n" + prompt,
+                { AiParsedOutput.Answer(parseAnswer(it)) },
+            )
+        }
+}
+```
+
+- [ ] **Step 5: 통과 확인**
+
+Run: `./gradlew :app:test --tests 'com.multiviewer.ui.ai.*'` 그리고 `./gradlew :app:compileKotlin`
+Expected: PASS / BUILD SUCCESSFUL
+
+- [ ] **Step 6: 실제 CLI로 수용 테스트 (agy)**
+
+Run: `UNWRAPMEDIA_LIVE_AI=1 UNWRAPMEDIA_LIVE_AI_PROVIDERS=AGY ./gradlew :app:test --tests 'com.multiviewer.ui.ai.AiCliLiveAcceptanceTest' -i 2>&1 | grep "LIVE"`
+Expected: `LIVE IMAGE AGY: Answer(text=red, …)`, 테스트 PASS. (실패하면 LIVE 줄을 그대로 보고한다 — 단언을 약하게 바꾸지 않는다.)
+
+- [ ] **Step 7: 커밋**
+
+```bash
+git -C .worktrees/ai-claude-image branch --show-current   # feat/ai-claude-image-input 이어야 함
+cd .worktrees/ai-claude-image
+git add app/src/main/kotlin/com/multiviewer/ui/ai/AiCliAdapter.kt \
+  app/src/test/kotlin/com/multiviewer/ui/ai/AiCliAdapterTest.kt app/src/test/kotlin/com/multiviewer/ui/ai/AiCliRunnerTest.kt
+git commit -m "feat: let Antigravity read AI image crops via view_file
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 5: 전체 검증
 
 - [ ] **Step 1: 전체 테스트**
 
@@ -1173,7 +1311,7 @@ Expected: BUILD SUCCESSFUL (`ThumbnailDiskCacheTest`만 단독 재실행으로 �
 1. "🎯 영역 지정"으로 영역 드래그 → 질문 "표시한 영역에 무엇이 보이나요?" 전송 → 3행에 "🖼️ 이미지 입력 확인 중…"이 잠시 보였다가 사라진다.
 2. 답이 실제 영역 내용을 묘사한다. 두 번째 질문에서는 확인 표시가 다시 나오지 않는다.
 3. 보낸 컨텍스트 펼치기에 "첨부 이미지: … 영역을 잘라 축소한 PNG"가 있다.
-4. 도구를 Antigravity로 바꾸고 질문하면 확인 표시 없이 좌표만 간다(컨텍스트에 "이미지를 보낼 수 없음").
+4. 도구를 Antigravity로 바꾸고 이미지 질문 → 첫 전송에 확인 표시 후 답이 영역 내용을 묘사한다(view_file).
 
 - [ ] **Step 3: Windows 확인 항목 기록**
 

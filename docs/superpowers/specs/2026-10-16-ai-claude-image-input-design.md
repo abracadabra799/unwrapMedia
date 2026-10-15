@@ -18,6 +18,7 @@ AI 대화(`ui/ai/`)는 메인 이미지 미리보기의 표시/마킹 영역을 
 | Claude Code | `--input-format stream-json --output-format text` | 거부: `Error: --input-format=stream-json requires output-format=stream-json.` |
 | Gemini CLI 0.46 | 어떤 호출이든 | 실행 불가: `IneligibleTierError` (개인용 Code Assist 종료, Antigravity 이전 안내). 검증 불가. |
 | Antigravity(agy) | `@<file>` 프롬프트 | 첨부되지 않음. 색과 무관한 파일명으로 재시험하자 셸 명령으로 파일을 읽으려다 plan 모드에서 거부됨. (첫 시험 "green.png"의 정답은 파일명 누설.) |
+| Antigravity(agy) 1.3.5 | 작업 폴더 `view-1.png`(파란 단색) + 프롬프트로 `view_file` 사용 지시, `--mode plan` | `view_file` 2회, 거부 없음, 답 `blue` 정답. → 지원(아래 6절). |
 
 stream-json 출력: 이벤트 한 줄씩(`system`(hook/init), `assistant`, `rate_limit_event`, `result`). 정답 실행의 stdout
 전체 ≈ 21 KB — 기존 상한 512 KB로 충분. `result` 이벤트 필드: `type:"result"`, `subtype:"success"`, `is_error:false`,
@@ -26,7 +27,8 @@ stream-json 출력: 이벤트 한 줄씩(`system`(hook/init), `assistant`, `rate
 ## 범위
 
 - 포함: Claude 연동의 이미지 첨부(채팅 전송), 첫 이미지 전송 때 이미지 입력 자동 확인(5절).
-- 제외: Gemini(검증 불가), agy(첨부 경로 없음) — 지금처럼 "이 연동은 이미지를 보낼 수 없음"으로 표시.
+- 포함(추가 결정 2026-10-16): agy — 작업 폴더 PNG + `view_file` 안내(6절).
+- 제외: Gemini(검증 불가) — 지금처럼 "이 연동은 이미지를 보낼 수 없음"으로 표시.
 - 이미지 없는 실행은 모든 연동에서 지금과 바이트 단위로 같다.
 
 ## 설계
@@ -116,7 +118,13 @@ class AiImageAttachment(val file: File, val png: ByteArray)
   - 실행 실패·타임아웃 → UNKNOWN 유지 → 좌표만("아직 확인되지 않음"), 다음 전송 때 다시 확인.
 - 확인 중에는 `TabState.aiImageChecking` → 패널 3행에 "🖼️ 이미지 입력 확인 중…" / "🖼️ Checking image input…".
   버튼은 없다. 확인 상태는 앱 실행 동안 유지된다(기존 `aiCapabilities` 동작).
-- Gemini/agy: `canAttachImages = false` → 확인 없음, 컨텍스트에 "이 앱의 X 연동은 이미지를 보낼 수 없음".
+- Gemini: `canAttachImages = false` → 확인 없음, 컨텍스트에 "이 앱의 X 연동은 이미지를 보낼 수 없음".
+
+### 6. Antigravity(agy) 이미지
+
+- `canAttachImages = true`, `imagesInline = false` → 러너가 크롭을 앱 소유 임시 작업 폴더에 `view-N.png`로 쓰고 그 폴더에서 agy를 실행한다.
+- 인자는 텍스트 실행과 같다(`--mode plan --output-format text`). stdin = "Attached images in the current directory: view-1.png[, …]. Open each one with the view_file tool before answering. Do not run any commands.\n\n" + 원래 prompt. 파일 이름만 쓴다(경로 없음).
+- agy는 plan 모드에서도 `view_file`로 로컬 파일을 읽을 수 있다 — 이미 열려 있는 능력을 쓰는 것이며 새 권한을 주지 않는다. 실제로 이미지를 봤는지는 5절의 첫 전송 색 확인이 판정한다.
 
 ## 오류 처리
 
