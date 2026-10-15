@@ -1003,7 +1003,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
             }
             appState.tabs.forEach { tab ->
                 if (tab.fullSizeFramePreviewOpen) {
-                    FrameFullSizePreviewWindow(tab, onCloseRequest = { tab.fullSizeFramePreviewOpen = false })
+                    FrameFullSizePreviewWindow(appState, tab, language, onCloseRequest = { tab.fullSizeFramePreviewOpen = false })
                 }
                 if (tab.isPrimaryImagePopupOpen) {
                     PrimaryImagePopupWindow(tab, onCloseRequest = { tab.isPrimaryImagePopupOpen = false })
@@ -1371,7 +1371,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                         } else {
                             when (currentTab.type) {
                                 MediaType.IMAGE -> ImageInspectorUI(appState, currentTab, leftPanel, bottomPanel, language)
-                                MediaType.VIDEO -> VideoInspectorUI(appState, currentTab, leftPanel, bottomPanel)
+                                MediaType.VIDEO -> VideoInspectorUI(appState, currentTab, leftPanel, bottomPanel, language)
                                 MediaType.AUDIO -> AudioInspectorUI(appState, currentTab, leftPanel, bottomPanel)
                                 MediaType.RAW_PIXEL -> RawPixelInspectorUI(appState, currentTab, leftPanel, bottomPanel)
                                 else -> {

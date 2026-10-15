@@ -1,7 +1,7 @@
 {
-  "version": "1.26.0",
+  "version": "1.27.0",
   "releaseDate": "2026-10-15",
-  "releaseNotes": "• 모션포토 동영상: 하단 재생기를 팝업으로 열고 실제 프레임 번호·인덱스·PTS를 확인\n• 프레임 검사: 팝업에서 좌우 방향키로 가변 프레임률 영상도 한 프레임씩 이동\n• 프레임 간격 분석: 그래프나 목록에서 선택한 프레임으로 팝업 재생기를 이동",
+  "releaseNotes": "• 동영상 필름스트립: 선택한 프레임에서 일시정지된 팝업 재생기 열기\n• 팝업 프레임 검사: 방향키 한 프레임 이동, Space 재생·일시정지, 원본 픽셀 확대 보기\n• 끊김 진단: 파일 PTS 간격과 UI 전달 지연·재생기 드롭 기록을 프레임 번호별로 구분",
   "windowsUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest",
   "macUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest"
 }

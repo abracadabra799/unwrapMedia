@@ -8,6 +8,12 @@ import kotlin.test.assertTrue
 
 class FfmpegVideoPlayerTest {
     @Test
+    fun `popup initial seek starts at selected frame without replaying an old seek tick`() {
+        assertEquals(PlaybackStart(0.120, 7), initialPlaybackStart(0.120, 7))
+        assertEquals(PlaybackStart(0.0, 0), initialPlaybackStart(null, 7))
+    }
+
+    @Test
     fun `motion photo frame selection follows adjacent presentation timestamps`() {
         val timeline = FrameTimestampIndex(listOf(0.0, 0.033, 0.100, 0.133))
 

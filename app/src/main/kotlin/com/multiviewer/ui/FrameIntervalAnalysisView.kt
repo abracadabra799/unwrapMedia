@@ -395,7 +395,12 @@ fun findNearestIntervalBinary(
 // a fresh probeVideo call for fps (not cached anywhere else on TabState). Opens an independent,
 // resizable Window rather than a modal Dialog since the data table can be long.
 @Composable
-fun FrameIntervalAnalysisWindow(appState: AppState, tab: TabState, onCloseRequest: () -> Unit) {
+fun FrameIntervalAnalysisWindow(
+    appState: AppState,
+    tab: TabState,
+    onCloseRequest: () -> Unit,
+    onInspectFrame: ((FrameInterval) -> Unit)? = null,
+) {
     LaunchedEffect(tab) {
         appState.analyzeFrames(tab)
     }
@@ -410,6 +415,7 @@ fun FrameIntervalAnalysisWindow(appState: AppState, tab: TabState, onCloseReques
         isAnalyzing = tab.isAnalyzingFrames,
         fps = videoInfo?.fps,
         onCloseRequest = onCloseRequest,
+        onInspectFrame = onInspectFrame,
     )
 }
 

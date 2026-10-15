@@ -64,6 +64,12 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 data class VideoInfo(val width: Int, val height: Int, val fps: Double, val rotation: Int = 0, val duration: Double = 0.0)
 
+data class PlaybackStart(val seconds: Double, val handledSeekTick: Int)
+
+/** An explicit initial seek consumes the existing request tick so opening a popup starts only once. */
+fun initialPlaybackStart(initialSeekSeconds: Double?, seekRequestTick: Int): PlaybackStart =
+    PlaybackStart(initialSeekSeconds?.coerceAtLeast(0.0) ?: 0.0, if (initialSeekSeconds != null) seekRequestTick else 0)
+
 fun formatMmSs(seconds: Double): String {
     val total = seconds.toLong()
     return "%d:%02d".format(total / 60, total % 60)
@@ -301,7 +307,15 @@ fun FfmpegVideoPlayer(
     onFramePresented: (FramePosition) -> Unit = {},
     handleArrowKeys: Boolean = true,
     inspectionLanguage: AppLanguage = AppLanguage.KO,
+    initialSeekSeconds: Double? = null,
+    knownFrameTimestamps: List<Double>? = null,
+    onPlaybackStateChanged: (Boolean) -> Unit = {},
+    onFrameDropped: (FramePosition, PlaybackDropReason) -> Unit = { _, _ -> },
+    playPauseRequestTick: Int = 0,
+    handleSpacebar: Boolean = true,
 ) {
+    val initialStart = remember(file) { initialPlaybackStart(initialSeekSeconds, seekRequestTick) }
+    val suppliedTimestamps = remember(file) { knownFrameTimestamps?.takeIf { it.isNotEmpty() }?.toList() }
     var videoBitmap by remember(file) { mutableStateOf<ImageBitmap?>(null, neverEqualPolicy()) }
     var isPlaying by remember(file) { mutableStateOf(false) }
     var loadError by remember(file) { mutableStateOf(false) }
@@ -321,8 +335,9 @@ fun FfmpegVideoPlayer(
     // fresh ffmpeg process is the only way to "seek" (see restartTrigger above), and -ss before -i
     // resets the piped stream's own pts to ~0, so this offset is added back to playedSeconds
     // everywhere elapsed position is reported, keeping it in absolute video time.
-    var startFromSeconds by remember(file) { mutableStateOf(0.0) }
-    var lastHandledSeekTick by remember(file) { mutableStateOf(0) }
+    var startFromSeconds by remember(file) { mutableStateOf(initialStart.seconds) }
+    var lastHandledSeekTick by remember(file) { mutableStateOf(initialStart.handledSeekTick) }
+    var lastHandledPlayPauseTick by remember(file) { mutableStateOf(playPauseRequestTick) }
     val audioPlayingAtomic = remember(file) { AtomicBoolean(false) }
     val audioMutedAtomic = remember(file) { AtomicBoolean(false) }
     var isMuted by remember(file) { mutableStateOf(false) }
@@ -332,6 +347,7 @@ fun FfmpegVideoPlayer(
     var audioTrackRef by remember(file) { mutableStateOf<VideoAudioTrack?>(null) }
 
     fun setPlaying(play: Boolean) {
+        if (isPlaying != play) onPlaybackStateChanged(play)
         isPlaying = play
         audioPlayingAtomic.set(play)
     }
@@ -348,6 +364,22 @@ fun FfmpegVideoPlayer(
             hasEnded = false
             setPlaying(false) // seek-and-pause: show the requested frame rather than resuming playback
             restartTrigger++
+        }
+    }
+
+    LaunchedEffect(playPauseRequestTick) {
+        if (playPauseRequestTick != lastHandledPlayPauseTick) {
+            lastHandledPlayPauseTick = playPauseRequestTick
+            if (isPlaying) {
+                setPlaying(false)
+            } else {
+                if (hasEnded) {
+                    hasEnded = false
+                    startFromSeconds = 0.0
+                    restartTrigger++
+                }
+                setPlaying(true)
+            }
         }
     }
 
@@ -388,7 +420,7 @@ fun FfmpegVideoPlayer(
         probedInfo = info
         probing = false
         if (info != null) {
-            val timestamps = runInterruptible(Dispatchers.IO) { probeFrameTimestamps(file) }
+            val timestamps = suppliedTimestamps ?: runInterruptible(Dispatchers.IO) { probeFrameTimestamps(file) }
             frameTimestamps = timestamps
             onFrameTimestamps(timestamps)
             if ((probedInfo?.duration ?: 0.0) <= 0.0 && !timestamps.isNullOrEmpty()) {
@@ -427,6 +459,7 @@ fun FfmpegVideoPlayer(
 
     DisposableEffect(file, restartTrigger, audioInfo) {
         playedSeconds = 0.0
+        videoBitmap = null
         audioPlayingAtomic.set(isPlaying)
         audioMutedAtomic.set(isMuted)
         val seekSeconds = startFromSeconds
@@ -523,6 +556,13 @@ fun FfmpegVideoPlayer(
                         }
                     }
 
+                    fun reportDropped(reason: PlaybackDropReason) {
+                        val position = timestampIndex?.position(firstSourceFrameIndex + frameIndex - 1) ?: return
+                        EventQueue.invokeLater {
+                            if (!stopped.get()) onFrameDropped(position, reason)
+                        }
+                    }
+
                     // First frame, shown immediately while paused -- still advances frameIndex so
                     // the duration list stays aligned with frames read from here on, but it
                     // doesn't count toward playedSeconds since nothing played yet.
@@ -586,6 +626,7 @@ fun FfmpegVideoPlayer(
                             // the self-pacing video-frame clock (unchanged behavior for audio-less files).
                             if (shouldSkipFrame(cumulativeLagMillis, budgetMillis)) {
                                 cumulativeLagMillis = laggedAfterSkip(cumulativeLagMillis, budgetMillis)
+                                reportDropped(PlaybackDropReason.VIDEO_LAG)
                                 EventQueue.invokeLater { playedSeconds += durationSeconds }
                             } else {
                                 deliver(durationSeconds)
@@ -602,7 +643,7 @@ fun FfmpegVideoPlayer(
                                     if (action.millis > 0) Thread.sleep(action.millis)
                                     deliver(null)
                                 }
-                                FrameAction.Drop -> { /* >100ms behind audio: bytes already read, skip the render */ }
+                                FrameAction.Drop -> reportDropped(PlaybackDropReason.AUDIO_SYNC)
                                 FrameAction.Deliver -> deliver(null)
                             }
                         }
@@ -726,7 +767,7 @@ fun FfmpegVideoPlayer(
                             stepSingleFrame(1)
                             true
                         } else false
-                        Key.Spacebar -> {
+                        Key.Spacebar -> if (handleSpacebar) {
                             if (!isPlaying) {
                                 if (hasEnded) {
                                     hasEnded = false
@@ -738,7 +779,7 @@ fun FfmpegVideoPlayer(
                                 setPlaying(false)
                             }
                             true
-                        }
+                        } else false
                         else -> false
                     }
                 }

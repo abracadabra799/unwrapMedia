@@ -21,7 +21,8 @@ fun VideoInspectorUI(
     appState: AppState,
     tab: TabState,
     leftPanel: @Composable ColumnScope.() -> Unit,
-    bottomPanel: @Composable ColumnScope.() -> Unit
+    bottomPanel: @Composable ColumnScope.() -> Unit,
+    language: AppLanguage = AppLanguage.KO,
 ) {
     // Gates whether the codec-view panel (motion vectors / QP heatmap; Main.kt's bottomPanel) is
     // offered at all -- only H.264 is known to export the side data codecview needs (see
@@ -150,6 +151,11 @@ fun VideoInspectorUI(
                                 file = tab.file,
                                 root = root!!,
                                 onIndexReady = { tab.videoReadyForAnalysis = true },
+                            )
+                        } else if (tab.fullSizeFramePreviewOpen) {
+                            Text(
+                                if (language == AppLanguage.KO) "팝업에서 동영상 검사 중" else "Inspecting video in popup",
+                                color = AppColors.TextSecondary,
                             )
                         } else {
                             FfmpegVideoPlayer(
