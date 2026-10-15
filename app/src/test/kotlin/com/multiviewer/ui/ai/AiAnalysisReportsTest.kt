@@ -270,4 +270,108 @@ class AiAnalysisReportsTest {
         assertEquals(MAX_REPORT_ITEMS, out.lines().count { it.startsWith("- [INFO]") })
         assertTrue(out.contains("… 15 more"), out)
     }
+
+    // ---- fix pass 1 ----
+
+    private fun manifestWith(label: String, claimGenerator: String? = "G", actionParams: String? = null, sig: C2paSignatureInfo? = null): C2paManifest {
+        val claim = C2paClaim(
+            label = "c2pa.claim.v2", version = 2, title = "t", format = "image/jpeg", instanceId = "i",
+            claimGenerator = claimGenerator, generatorInfo = emptyList(), signatureRef = null,
+            assertionRefs = emptyList(), alg = "sha256", raw = CborMap(emptyList()),
+        )
+        val a = C2paAssertion("c2pa.actions.v2", "c2cb", C2paAssertionContent.Actions(listOf(C2paAction("c2pa.edited", null, null, null, actionParams))), 0, 10)
+        return C2paManifest(label, claim, null, null, listOf(a), sig, null, emptyList())
+    }
+
+    private fun storeOf(vararg ms: C2paManifest): C2paManifestStore {
+        val loc = C2paStoreLocation(C2paContainer.JPEG, ByteArray(0), C2paOffsetMap(listOf(C2paSpan(0, 0, 0))), emptyList(), emptyList())
+        return C2paManifestStore(loc, ms.toList(), emptyList())
+    }
+
+    @Test
+    fun `c2pa manifest label keeps its prefix but withholds the uuid`() {
+        val out = renderC2paReport(storeOf(manifestWith("contentauth:urn:uuid:1b2c3d4e-0000-4abc-8def-123456789abc")), null, null, file)
+        assertTrue(out.contains("contentauth:urn:uuid:<id withheld>"), out)
+        assertAbsent(out, "1b2c3d4e")
+    }
+
+    @Test
+    fun `c2pa long hex runs are withheld`() {
+        val out = renderC2paReport(storeOf(manifestWith("urn:c2pa:0123456789abcdef0123456789abcdef")), null, null, file)
+        assertTrue(out.contains("urn:c2pa:<id withheld>"), out)
+        assertAbsent(out, "0123456789abcdef")
+    }
+
+    @Test
+    fun `c2pa action parameters are never emitted`() {
+        val out = renderC2paReport(storeOf(manifestWith("m", actionParams = "{\"name\":\"Jane Doe\",\"where\":\"Seoul\"}")), null, null, file)
+        assertAbsent(out, "Jane Doe", "Seoul")
+    }
+
+    @Test
+    fun `c2pa signature error text is replaced by a fixed message`() {
+        val sig = C2paSignatureInfo(null, null, null, 0, "bad cert for CN=Jane Doe")
+        val out = renderC2paReport(storeOf(manifestWith("m", sig = sig)), null, null, file)
+        assertTrue(out.contains("signature: could not be parsed"), out)
+        assertAbsent(out, "Jane Doe")
+    }
+
+    @Test
+    fun `c2pa more than five manifests keeps only the last five`() {
+        val ms = (1..7).map { manifestWith("lab$it:urn:uuid:1b2c3d4e-0000-4abc-8def-12345678900$it") }
+        val out = renderC2paReport(storeOf(*ms.toTypedArray()), null, null, file)
+        assertTrue(out.contains("… 2 earlier manifests omitted"), out)
+        assertAbsent(out, "lab1:", "lab2:")
+        for (i in 3..7) assertTrue(out.contains("lab$i:"), out)
+    }
+
+    @Test
+    fun `free text strings are clipped to 200 chars`() {
+        val out = renderC2paReport(storeOf(manifestWith("m", claimGenerator = "Z".repeat(5000))), null, null, file)
+        val line = out.lines().first { it.contains("claim generator:") }
+        assertTrue(line.count { it == 'Z' } <= 200, "len ${line.count { it == 'Z' }}")
+        assertTrue(line.contains("…"), line)
+    }
+
+    @Test
+    fun `timed GENERIC samples never leak their values`() {
+        val r = TimedMetadataReport(
+            trackId = 1, trackFormat = "camm", totalSamples = 1, durationSeconds = 1.0, sampleRateHz = 1.0,
+            samples = listOf(SensorSamplePoint(0, 0.0, SensorType.GENERIC, 37.5665, 126.978, 12.3456)),
+        )
+        val out = renderTimedReport(r)
+        assertTrue(out.contains("GENERIC: 1 samples"), out)
+        assertAbsent(out, "37.5665", "126.978", "12.3456")
+    }
+
+    private fun sefReport(names: List<String?>, semantic: List<SefCheckResult>) = SefIntegrityReport(
+        overallSeverity = SefIntegritySeverity.PASS,
+        structuralChecks = emptyList(),
+        semanticChecks = semantic,
+        declaredEntryCount = names.size.toLong(),
+        directoryEntries = names.mapIndexed { i, n -> SefDirectoryEntryRow(i + 1, "0xA01", n, 100, 16, 1000, 1016, true, true, SefIntegritySeverity.PASS) },
+        declaredEntryCountSeverity = SefIntegritySeverity.PASS,
+    )
+
+    @Test
+    fun `sef names that are clean stay and value-bearing or oversized names are withheld everywhere`() {
+        val bad = "Image_UTC_Data\u0000\u00001697412345678"
+        val long = (0 until 500).map { ('a' + it % 26) }.joinToString("")
+        val r = sefReport(
+            listOf("Image_UTC_Data", bad, long),
+            listOf(
+                SefCheckResult(SefIntegritySeverity.PASS, "Entry #1 (Image_UTC_Data) JSON syntax", "d"),
+                SefCheckResult(SefIntegritySeverity.CRITICAL, "Entry #2 ($bad) JSON syntax", "d"),
+                SefCheckResult(SefIntegritySeverity.WARNING, "Entry #3 ($long) encoding", "d"),
+                SefCheckResult(SefIntegritySeverity.WARNING, "Entry #3 weird \u0001 label", "d"),
+            ),
+        )
+        val out = renderSefReport(r, file)
+        assertTrue(out.contains("#1 marker 0xA01 Image_UTC_Data @"), out)
+        assertTrue(out.contains("#2 marker 0xA01 <name withheld> @"), out)
+        assertTrue(out.contains("#3 marker 0xA01 <name withheld> @"), out)
+        assertTrue(out.contains("- [PASS] Entry #1 (Image_UTC_Data) JSON syntax"), out)
+        assertTrue(out.contains("- [WARNING] Entry check"), out)
+        assertAbsent(out, "1697412345678", long.take(60), "\u0001")
+    }
 }

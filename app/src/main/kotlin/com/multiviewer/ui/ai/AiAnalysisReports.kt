@@ -35,6 +35,36 @@ private const val MAX_LARGEST_GAPS = 10
 
 private fun f(format: String, vararg args: Any?): String = String.format(Locale.US, format, *args)
 
+private const val MAX_TEXT = 200
+
+private fun clip(s: String, max: Int = MAX_TEXT) = if (s.length <= max) s else s.take(max) + "…"
+
+/** Path-scrubbed and length-capped free text. */
+private fun clean(s: String, file: File): String = clip(scrubPaths(s, file))
+
+private val UUID_RE = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+private val LONG_HEX_RE = Regex("[0-9a-fA-F]{16,}")
+private const val ID_WITHHELD = "<id withheld>"
+
+/** [clean] plus removal of per-asset identifiers (UUIDs, long hex runs) that C2PA labels may carry. */
+private fun c2(s: String, file: File): String =
+    clip(scrubPaths(s, file).replace(UUID_RE, ID_WITHHELD).replace(LONG_HEX_RE, ID_WITHHELD))
+
+private const val NAME_WITHHELD = "<name withheld>"
+private val SAFE_SEF_NAME = Regex("^[A-Za-z0-9_.\\-]{1,48}$")
+private val SAFE_LABEL_CHARS = Regex("^[A-Za-z0-9_.\\-#()/:, ]*$")
+
+internal fun sanitizeSefName(name: String): String = if (SAFE_SEF_NAME.matches(name)) name else NAME_WITHHELD
+
+/** Entry names read from a corrupted file may embed entry values; swap them for sanitized forms, or drop the label. */
+private fun sanitizeSefLabel(label: String, rawNames: List<String>): String? {
+    var l = label
+    for (raw in rawNames.filter { it.isNotEmpty() }.distinct().sortedByDescending { it.length }) {
+        l = l.replace(raw, sanitizeSefName(raw))
+    }
+    return if (l.length <= 120 && SAFE_LABEL_CHARS.matches(l.replace(NAME_WITHHELD, ""))) l else null
+}
+
 private fun yn(b: Boolean): String = if (b) "y" else "n"
 
 /** At most [MAX_REPORT_ITEMS] lines, then a "… N more" line. */
@@ -74,10 +104,10 @@ fun renderHdrReport(r: HdrScanResult, file: File): String {
             (w?.let { f(" · MaxSCL %.1f nits · average maxRGB %.1f nits", it.maxSclNits, it.averageMaxrgbNits) } ?: "")
     }
     val anomalies = detectHdrAnomalies(r.records, r.container).map {
-        "- [${it.severity}] ${it.rule} frames ${it.firstFrame ?: "-"}–${it.lastFrame ?: "-"}: ${scrubPaths(it.message, file)}"
+        "- [${it.severity}] ${it.rule} frames ${it.firstFrame ?: "-"}–${it.lastFrame ?: "-"}: ${clean(it.message, file)}"
     }
     section(out, "anomalies (default thresholds):", anomalies)
-    section(out, "warnings:", r.warnings.map { "- " + scrubPaths(it, file) })
+    section(out, "warnings:", r.warnings.map { "- " + clean(it, file) })
     return out.joinToString("\n")
 }
 
@@ -144,17 +174,17 @@ fun renderSpatialReport(r: SpatialVideoReport, file: File): String {
     out += "spatial video: ${if (r.isSpatialVideo) "yes" else "no"}"
     out += listOfNotNull(
         "metadata: spatial boxes ${if (m.hasSpatialBoxes) "yes" else "no"}",
-        m.heroEye?.let { "hero eye ${scrubPaths(it, file)}" },
+        m.heroEye?.let { "hero eye ${clean(it, file)}" },
         m.baselineMm?.let { f("baseline %.3f mm", it) },
         m.horizontalFovDeg?.let { f("hFOV %.3f°", it) },
         m.disparityAdjustment?.let { f("disparity adj %.4f", it) },
-        m.stereoMode?.let { "stereo mode ${scrubPaths(it, file)}" },
-        m.lhvcSummary?.let { "lhvC ${scrubPaths(it, file)}" },
+        m.stereoMode?.let { "stereo mode ${clean(it, file)}" },
+        m.lhvcSummary?.let { "lhvC ${clean(it, file)}" },
     ).joinToString(" · ")
     out += "frames ${r.totalFrames} · layer0 ${r.layer0TotalBytes} B · layer1 ${r.layer1TotalBytes} B · " +
         "keyframes ${r.layer0KeyframeCount}/${r.layer1KeyframeCount} · parity match ${if (r.layerParityMatch) "yes" else "no"}"
     section(out, "anomalies:", r.anomalies.map {
-        "- [${it.severity}] ${it.code}${it.frameIndex?.let { i -> " @$i" } ?: ""}: ${scrubPaths(it.message, file)}"
+        "- [${it.severity}] ${it.code}${it.frameIndex?.let { i -> " @$i" } ?: ""}: ${clean(it.message, file)}"
     })
     return out.joinToString("\n")
 }
@@ -163,38 +193,38 @@ fun renderSpatialReport(r: SpatialVideoReport, file: File): String {
 
 private fun c2paManifestLines(index: Int, total: Int, m: C2paManifest, file: File): List<String> {
     val out = mutableListOf<String>()
-    out += "manifest ${index + 1}/$total: ${scrubPaths(m.label, file)}"
+    out += "manifest ${index + 1}/$total: ${c2(m.label, file)}"
     val c = m.claim
     if (c == null) {
-        out += "  claim error: ${scrubPaths(m.claimError ?: "no claim", file)}"
+        out += "  claim error: ${c2(m.claimError ?: "no claim", file)}"
     } else {
         // claim title and instanceId are deliberately not emitted.
-        out += "  claim generator: ${c.claimGenerator?.let { scrubPaths(it, file) } ?: "-"}"
-        out += "  generator info: ${if (c.generatorInfo.isEmpty()) "-" else c.generatorInfo.joinToString(", ") { scrubPaths(it, file) }}"
-        out += "  format: ${c.format?.let { scrubPaths(it, file) } ?: "-"}"
+        out += "  claim generator: ${c.claimGenerator?.let { c2(it, file) } ?: "-"}"
+        out += "  generator info: ${if (c.generatorInfo.isEmpty()) "-" else c.generatorInfo.joinToString(", ") { c2(it, file) }}"
+        out += "  format: ${c.format?.let { c2(it, file) } ?: "-"}"
         out += "  claim version: ${c.version}"
     }
     // Labels only -- never assertion contents.
-    out += "  assertions: ${capJoin(m.assertions.map { scrubPaths(it.label, file) })}"
+    out += "  assertions: ${capJoin(m.assertions.map { c2(it.label, file) })}"
     val actions = m.assertions.mapNotNull { it.content as? C2paAssertionContent.Actions }.flatMap { it.actions }
     // Action name, softwareAgent and digitalSourceType only -- no `when` time, no parameters.
     val actionTexts = actions.map { a ->
-        scrubPaths(a.action, file) +
-            (a.softwareAgent?.let { " by ${scrubPaths(it, file)}" } ?: "") +
-            (a.digitalSourceType?.let { " (${scrubPaths(it, file)})" } ?: "")
+        c2(a.action, file) +
+            (a.softwareAgent?.let { " by ${c2(it, file)}" } ?: "") +
+            (a.digitalSourceType?.let { " (${c2(it, file)})" } ?: "")
     }
     out += "  actions: ${if (actionTexts.isEmpty()) "none" else capJoin(actionTexts)}"
     out += "  ingredients: ${m.assertions.count { it.content is C2paAssertionContent.Ingredient }}"
     val s = m.signature
     out += when {
         s == null -> "  signature: absent"
-        s.error != null -> "  signature error: ${scrubPaths(s.error, file)}"
+        s.error != null -> "  signature: could not be parsed"
         else -> "  signature: alg ${s.algorithm ?: "-"} · chain ${s.chainLength} certs · " +
             if (s.certificateSubject != null || s.certificateIssuer != null) "certificate subject/issuer present (withheld)" else "no certificate"
     }
     if (m.warnings.isNotEmpty()) {
         out += "  warnings:"
-        out += capLines(m.warnings.map { "  - " + scrubPaths(it, file) })
+        out += capLines(m.warnings.map { "  - " + c2(it, file) })
     }
     return out
 }
@@ -211,12 +241,12 @@ fun renderC2paReport(store: C2paManifestStore, binding: C2paHardBindingReport?, 
     out += when {
         binding != null -> {
             val c = binding.comparison
-            "hard binding: ${c.status} · alg ${scrubPaths(c.algorithm, file)} · hashed ${c.hashedByteCount} B · excluded ${c.excludedByteCount} B" +
-                (c.error?.let { " · error: ${scrubPaths(it, file)}" } ?: "")
+            "hard binding: ${c.status} · alg ${c2(c.algorithm, file)} · hashed ${c.hashedByteCount} B · excluded ${c.excludedByteCount} B" +
+                (c.error?.let { " · error: ${c2(it, file)}" } ?: "")
         }
-        else -> "hard binding: not verified (${scrubPaths(bindingError ?: "no result", file)})"
+        else -> "hard binding: not verified (${c2(bindingError ?: "no result", file)})"
     }
-    section(out, "store warnings:", store.warnings.map { "- " + scrubPaths(it, file) })
+    section(out, "store warnings:", store.warnings.map { "- " + c2(it, file) })
     return out.joinToString("\n")
 }
 
@@ -225,11 +255,14 @@ fun renderC2paReport(store: C2paManifestStore, binding: C2paHardBindingReport?, 
 fun renderSefReport(r: SefIntegrityReport, file: File): String {
     val out = mutableListOf<String>()
     out += "overall: ${r.overallSeverity} · declared entries: ${r.declaredEntryCount ?: "unknown"} (${r.declaredEntryCountSeverity})"
-    section(out, "structural checks:", r.structuralChecks.map { "- [${it.severity}] ${scrubPaths(it.label, file)}: ${scrubPaths(it.detail, file)}" })
+    section(out, "structural checks:", r.structuralChecks.map { "- [${it.severity}] ${clean(it.label, file)}: ${clean(it.detail, file)}" })
     // Semantic details carry entry values (MCC, timestamps) -- label and severity only.
-    section(out, "semantic checks:", r.semanticChecks.map { "- [${it.severity}] ${scrubPaths(it.label, file)}" })
+    val rawNames = r.directoryEntries.mapNotNull { it.name }
+    section(out, "semantic checks:", r.semanticChecks.map {
+        "- [${it.severity}] ${sanitizeSefLabel(it.label, rawNames)?.let { l -> clean(l, file) } ?: "Entry check"}"
+    })
     section(out, "directory:", r.directoryEntries.map { e ->
-        "#${e.entryIndex} marker ${e.markerHex} ${e.name?.let { scrubPaths(it, file) } ?: "?"} @${e.declaredOffset} +${e.declaredLength} " +
+        "#${e.entryIndex} marker ${e.markerHex} ${e.name?.let(::sanitizeSefName) ?: "?"} @${e.declaredOffset} +${e.declaredLength} " +
             "in-bounds ${yn(e.inBounds)} marker-match ${e.markerMatches?.let(::yn) ?: "-"} [${e.status}]"
     })
     return out.joinToString("\n")
@@ -238,7 +271,7 @@ fun renderSefReport(r: SefIntegrityReport, file: File): String {
 // ---- Gain map ----
 
 private fun parametersText(p: GainmapParsedParameters, file: File): String = listOfNotNull(
-    p.version?.let { "version ${scrubPaths(it, file)}" },
+    p.version?.let { "version ${clean(it, file)}" },
     p.gainMapMin?.let { f("gain map min %.4f", it) },
     p.gainMapMax?.let { f("gain map max %.4f", it) },
     p.gamma?.let { f("gamma %.4f", it) },
@@ -252,15 +285,15 @@ private fun parametersText(p: GainmapParsedParameters, file: File): String = lis
 fun renderGainmapReport(info: GainmapInfo, checks: List<IntegrityCheckItem>, file: File): String {
     val out = mutableListOf<String>()
     out += "format: ${info.formatType.displayName} · gain map: ${if (info.hasGainmap) "yes" else "no"} · " +
-        "summary: ${scrubPaths(info.summaryDescription, file).ifEmpty { "-" }}"
+        "summary: ${clean(info.summaryDescription, file).ifEmpty { "-" }}"
     val image = listOfNotNull(
         if (info.imageWidth != null && info.imageHeight != null) "${info.imageWidth}x${info.imageHeight}" else null,
-        info.imageFormat?.let { scrubPaths(it, file) },
+        info.imageFormat?.let { clean(it, file) },
         info.byteOffset?.let { "@$it" },
         info.byteLength?.let { "+$it" },
     )
     out += "gain map image: " + if (image.isEmpty()) (if (info.hasGainmapImage) "present" else "absent") else image.joinToString(" ")
-    info.auxType?.let { out += "aux type: ${scrubPaths(it, file)}" }
+    info.auxType?.let { out += "aux type: ${clean(it, file)}" }
     info.isoMetadata?.let { m ->
         out += f(
             "ISO 21496-1: min version %d · writer version %d · multichannel %s · base colour space %s · direction %s · base headroom %.4f · alternate headroom %.4f",
@@ -277,6 +310,6 @@ fun renderGainmapReport(info: GainmapInfo, checks: List<IntegrityCheckItem>, fil
     info.parameters?.let { out += "parameters: ${parametersText(it, file)}" }
     // Raw XMP may hold free text (owner, device, edit history) -- length only.
     out += "XMP: " + (info.rawXmp?.let { "${it.length} chars (not sent)" } ?: "absent")
-    section(out, "checks:", checks.map { "- [${it.status}] ${scrubPaths(it.title, file)}: ${scrubPaths(it.detail, file)}" })
+    section(out, "checks:", checks.map { "- [${it.status}] ${clean(it.title, file)}: ${clean(it.detail, file)}" })
     return out.joinToString("\n")
 }
