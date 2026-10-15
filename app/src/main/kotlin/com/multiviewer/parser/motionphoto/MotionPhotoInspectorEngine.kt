@@ -32,6 +32,7 @@ data class MotionPhotoInspectionItem(
     val detail: String,
     val offset: Long? = null,
     val length: Long? = null,
+    val remediation: String? = null,
 )
 
 data class MotionPhotoInspectionSection(
@@ -131,6 +132,7 @@ object MotionPhotoInspectorEngine {
                     expected = "유효한 JPEG 또는 HEIC 구조",
                     actual = "구조 파싱 실패",
                     detail = "정지 이미지의 메타데이터 및 마커를 파싱할 수 없습니다.",
+                    remediation = "정지 이미지 컨테이너 헤더가 손상되었습니다. 파일 시작점(SOI/ftyp)과 필수 메타데이터 박스가 올바르게 인코딩되었는지 점검하십시오.",
                 )
             )
             return MotionPhotoInspectionSection("still_image", "메인 정지 이미지 규격", "Main Still Image Spec", CheckStatus.FAIL, items)
@@ -148,12 +150,14 @@ object MotionPhotoInspectorEngine {
                 detail = if (formatValid) "${structure.format} 컨테이너 규격을 준수합니다." else "지원되지 않는 이미지 포맷입니다: ${structure.format}",
                 offset = 0L,
                 length = 4L,
+                remediation = if (formatValid) null else "구글/삼성 모션포토는 JPEG 또는 HEIF(HEIC) 컨테이너만 지원합니다. 표준 JPEG 또는 HEIC 포맷으로 인코딩하십시오.",
             )
         )
 
         // Structure check items from ImageIntegrityChecker
         for (item in structure.items) {
             if (item.id == "format") continue
+            val hasIssue = item.status == CheckStatus.FAIL || item.status == CheckStatus.WARN
             items.add(
                 MotionPhotoInspectionItem(
                     id = "still.${item.id}",
@@ -164,6 +168,7 @@ object MotionPhotoInspectorEngine {
                     detail = item.detail,
                     offset = item.offset,
                     length = item.length,
+                    remediation = if (hasIssue) "정지 이미지 마커 배치 및 헤더 규격을 확인하십시오 (${item.detail})." else null,
                 )
             )
         }
@@ -198,6 +203,7 @@ object MotionPhotoInspectorEngine {
                     actual = "${bitstreamW}x${bitstreamH}",
                     detail = if (matches) "Exif 메타데이터와 실제 이미지 비트스트림 해상도가 일치합니다."
                     else "Exif 해상도(${exifW}x${exifH})와 실제 디코딩 해상도(${bitstreamW}x${bitstreamH})가 다릅니다.",
+                    remediation = if (matches) null else "Exif 해상도 태그(ExifImageWidth/Length)와 실제 비트스트림 해상도가 불일치합니다. 이미지 크롭/회전 또는 리사이징 후 Exif 태그를 실제 비트스트림 해상도로 갱신하십시오.",
                 )
             )
         } else if (bitstreamW != null && bitstreamH != null) {
@@ -264,6 +270,7 @@ object MotionPhotoInspectorEngine {
                         expected = "모션포토 XMP 태그",
                         actual = "XMP 없음",
                         detail = "모션포토 XMP 태그가 발견되지 않았습니다.",
+                        remediation = "모션포토 표준 재생 및 갤러리 연동을 위해 Primary XMP에 구글 모션포토 네임스페이스(Container/Item)와 Container:Directory(Item:Semantic=\"MotionPhoto\")를 작성하십시오.",
                     )
                 )
             }
@@ -286,6 +293,7 @@ object MotionPhotoInspectorEngine {
                     detail = "Primary XMP 문서를 파싱할 수 없습니다.",
                     offset = xmpNode.offset,
                     length = xmpNode.size,
+                    remediation = "Primary XMP XML 구문 오류입니다. XML 특수문자 이스케이프, 태그 닫힘, UTF-8 인코딩을 확인하십시오.",
                 )
             )
             return MotionPhotoInspectionSection("format_xmp", "모션포토 포맷 & Primary XMP", "Format & Primary XMP", CheckStatus.FAIL, items)
@@ -304,6 +312,140 @@ object MotionPhotoInspectorEngine {
             )
         )
 
+        // 1. Google Motion Photo XML Namespaces Conformance
+        val hasContainerNs = xmpText.contains("http://ns.google.com/photos/1.0/container/", ignoreCase = true)
+        val hasItemNs = xmpText.contains("http://ns.google.com/photos/1.0/container/item/", ignoreCase = true)
+        val hasGCameraNs = xmpText.contains("http://ns.google.com/photos/1.0/camera/", ignoreCase = true)
+        val nsValid = hasContainerNs && hasItemNs
+        items.add(
+            MotionPhotoInspectionItem(
+                id = "xmp.namespaces",
+                status = if (nsValid || hasGCameraNs) CheckStatus.PASS else CheckStatus.WARN,
+                label = "구글 모션포토 네임스페이스 규격",
+                expected = "Container, Item, GCamera 네임스페이스",
+                actual = "Container:$hasContainerNs, Item:$hasItemNs, GCamera:$hasGCameraNs",
+                detail = if (nsValid) "구글 모션포토 표준 XML 네임스페이스가 올바르게 선언되어 있습니다."
+                else "구글 모션포토 필수 네임스페이스(Container/Item)가 누락되었습니다.",
+                remediation = if (nsValid) null else "구글 모션포토 표준 사양을 만족하려면 xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" 및 xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" 네임스페이스가 필수 선언되어야 합니다.",
+            )
+        )
+
+        // 2. GCamera Top-level Metadata
+        val gCameraMotionPhoto = findDescriptionAttribute(doc, "MotionPhoto")
+        if (gCameraMotionPhoto != null) {
+            val isMp1 = gCameraMotionPhoto == "1" || gCameraMotionPhoto.equals("true", ignoreCase = true)
+            items.add(
+                MotionPhotoInspectionItem(
+                    id = "xmp.gcamera_motion_photo",
+                    status = if (isMp1) CheckStatus.PASS else CheckStatus.WARN,
+                    label = "GCamera:MotionPhoto 플래그",
+                    expected = "1",
+                    actual = gCameraMotionPhoto,
+                    detail = if (isMp1) "GCamera:MotionPhoto 플래그가 '1'로 활성화되어 있습니다."
+                    else "GCamera:MotionPhoto 값이 '1'이 아닙니다: $gCameraMotionPhoto",
+                    remediation = if (isMp1) null else "구글 카메라 규격 및 갤러리 호환성을 위해 GCamera:MotionPhoto=\"1\"로 설정해야 합니다 (현재: $gCameraMotionPhoto).",
+                )
+            )
+        }
+        val gCameraVersion = findDescriptionAttribute(doc, "MotionPhotoVersion") ?: findDescriptionAttribute(doc, "MicroVideoVersion")
+        if (gCameraVersion != null) {
+            items.add(
+                MotionPhotoInspectionItem(
+                    id = "xmp.gcamera_version",
+                    status = CheckStatus.PASS,
+                    label = "GCamera 모션포토 버전",
+                    expected = "버전 선언",
+                    actual = "Version: $gCameraVersion",
+                    detail = "모션포토 버전 정보가 올바르게 선언되어 있습니다.",
+                )
+            )
+        }
+
+        // 3. Container:Directory inspection (All items)
+        val dirItems = parseAllDirectoryItems(doc)
+        if (dirItems.isNotEmpty()) {
+            items.add(
+                MotionPhotoInspectionItem(
+                    id = "xmp.directory_overview",
+                    status = if (dirItems.size >= 2) CheckStatus.PASS else CheckStatus.WARN,
+                    label = "Container:Directory 엔트리 구성 (${dirItems.size}개)",
+                    expected = "최소 2개 이상 (Primary + MotionPhoto)",
+                    actual = "${dirItems.size}개 아이템 (${dirItems.mapNotNull { it.semantic }.joinToString(", ")})",
+                    detail = "디렉토리에 ${dirItems.size}개의 파일 청크가 선언되어 있습니다.",
+                    remediation = if (dirItems.size >= 2) null else "Container:Directory에 최소 2개(첫 번째: Primary, 두 번째: MotionPhoto) 이상의 Item이 등록되어야 합니다.",
+                )
+            )
+
+            // Inspect each item in Container:Directory
+            for (dItem in dirItems) {
+                val itemPrefix = "xmp.item.${dItem.index}"
+                if (dItem.index == 1) {
+                    val isPrimarySemantic = dItem.semantic == "Primary"
+                    val isImageMime = dItem.mime?.startsWith("image/") == true
+                    val lengthValid = dItem.length == null || dItem.length == 0L
+                    val primaryStatus = if (isPrimarySemantic && isImageMime && lengthValid) CheckStatus.PASS else CheckStatus.WARN
+                    items.add(
+                        MotionPhotoInspectionItem(
+                            id = "$itemPrefix.primary",
+                            status = primaryStatus,
+                            label = "Item #1 (Primary Still Image) 검증",
+                            expected = "Semantic=\"Primary\", Mime=\"image/*\", Length=0",
+                            actual = "Semantic=\"${dItem.semantic}\", Mime=\"${dItem.mime}\", Length=${dItem.length ?: 0}",
+                            detail = if (primaryStatus == CheckStatus.PASS) "첫 번째 아이템이 메인 정지 이미지 규격을 완벽하게 만족합니다."
+                            else "첫 번째 아이템의 Semantic이 'Primary'가 아니거나, 이미지 MIME이 아니거나, 길이가 0이 아닙니다.",
+                            remediation = if (primaryStatus == CheckStatus.PASS) null else "구글 모션포토 스펙상 Directory 첫 번째 Item은 반드시 Item:Semantic=\"Primary\", Item:Mime=\"image/*\", Item:Length=0 (또는 미기입)이어야 합니다.",
+                        )
+                    )
+                } else if (dItem.semantic == "MotionPhoto") {
+                    val length = dItem.length ?: 0L
+                    val lengthValid = length > 0 && length < root.size
+                    items.add(
+                        MotionPhotoInspectionItem(
+                            id = "$itemPrefix.motion_photo",
+                            status = if (lengthValid) CheckStatus.PASS else CheckStatus.FAIL,
+                            label = "Item #${dItem.index} (MotionPhoto Video) 검증",
+                            expected = "Semantic=\"MotionPhoto\", Mime=\"video/*\", Length > 0",
+                            actual = "Semantic=\"MotionPhoto\", Mime=\"${dItem.mime}\", Length=$length",
+                            detail = "모션포토 임베디드 동영상 항목이 올바르게 선언되었습니다 ($length bytes).",
+                            remediation = if (lengthValid) null else "모션포토 동영상 아이템의 Item:Length는 0보다 크고 파일 전체 크기보다 작아야 합니다. (실제 비디오 스트림 바이트 크기를 기입하십시오.)",
+                        )
+                    )
+                } else {
+                    val length = dItem.length ?: 0L
+                    val itemValid = !dItem.semantic.isNullOrBlank() && !dItem.mime.isNullOrBlank() && length > 0
+                    items.add(
+                        MotionPhotoInspectionItem(
+                            id = "$itemPrefix.${dItem.semantic ?: "other"}",
+                            status = if (itemValid) CheckStatus.PASS else CheckStatus.WARN,
+                            label = "Item #${dItem.index} (${dItem.semantic ?: "Unknown"}) 검증",
+                            expected = "Semantic 선언, Mime 선언, Length > 0",
+                            actual = "Semantic=\"${dItem.semantic}\", Mime=\"${dItem.mime}\", Length=$length",
+                            detail = if (itemValid) "보조 컨테이너 아이템(${dItem.semantic})의 정보가 올바르게 기입되었습니다 ($length bytes)."
+                            else "보조 컨테이너 아이템의 선언값(MIME 또는 Length)이 유효하지 않습니다.",
+                            remediation = if (itemValid) null else "보조 컨테이너 아이템(GainMap 등)의 Item:Semantic, Item:Mime, Item:Length 속성을 확인하고 유효한 값을 입력하십시오.",
+                        )
+                    )
+                }
+            }
+
+            // Secondary items cumulative length check
+            val secondaryLengths = dirItems.filter { it.semantic != "Primary" }.mapNotNull { it.length }
+            val totalSecondary = secondaryLengths.sum()
+            val totalSecondaryValid = totalSecondary > 0 && totalSecondary < root.size
+            items.add(
+                MotionPhotoInspectionItem(
+                    id = "xmp.secondary_total_length",
+                    status = if (totalSecondaryValid) CheckStatus.PASS else CheckStatus.FAIL,
+                    label = "보조 아이템 데이터 총합 검증",
+                    expected = "0 < total < ${root.size} (파일 크기 이내)",
+                    actual = "$totalSecondary bytes (${secondaryLengths.size}개 보조 스트림)",
+                    detail = if (totalSecondaryValid) "모든 보조 스트림(동영상 및 게인맵 등)의 데이터 총합이 파일 크기 범위 내에 위치합니다."
+                    else "보조 스트림의 데이터 총합이 파일 크기를 초과하거나 0입니다.",
+                    remediation = if (totalSecondaryValid) null else "보조 스트림들의 Item:Length 총합($totalSecondary bytes)이 파일 크기(${root.size} bytes)를 초과하거나 0입니다. 각 보조 스트림의 길이를 재계산하십시오.",
+                )
+            )
+        }
+
         val fromDir = findMotionPhotoInDirectory(doc)
         val microVideoOffset = findMicroVideoOffset(doc)
 
@@ -312,10 +454,10 @@ object MotionPhotoInspectorEngine {
                 MotionPhotoInspectionItem(
                     id = "xmp.schema",
                     status = CheckStatus.INFO,
-                    label = "구글 모션포토 스키마",
+                    label = "구글 모션포토 비디오 선언",
                     expected = "Container:Directory 또는 GCamera:MicroVideo",
                     actual = "미선언",
-                    detail = "구글 모션포토 스키마 항목이 선언되지 않았습니다.",
+                    detail = "구글 모션포토 비디오 항목이 선언되지 않았습니다.",
                 )
             )
         } else {
@@ -342,6 +484,7 @@ object MotionPhotoInspectorEngine {
                         expected = "0 < length <= ${root.size}",
                         actual = "$declaredLength",
                         detail = "선언된 비디오 길이가 전체 파일 크기를 벗어납니다.",
+                        remediation = "선언된 비디오 길이($declaredLength bytes)가 파일 크기(${root.size} bytes)를 벗어납니다. Muxer에서 'Item:Length = total_file_size - ftyp_offset' 공식을 재점검하십시오.",
                     )
                 )
             } else {
@@ -374,6 +517,7 @@ object MotionPhotoInspectorEngine {
                                 detail = "선언된 오프셋 위치가 실제 ftyp 시작점과 ${delta}바이트 차이가 납니다 (XMP 길이 부정확).",
                                 offset = corrected,
                                 length = 8L,
+                                remediation = "선언된 길이로 계산된 오프셋(0x${approxStart.toString(16)})과 실제 ftyp 시작 오프셋(0x${corrected.toString(16)}) 간에 ${delta}바이트 오차가 있습니다. Muxer 완료 후 비디오 실제 시작 오프셋을 측정하여 'Item:Length = file_size - ftyp_offset'으로 XMP를 갱신하십시오.",
                             )
                         )
                     } else {
@@ -385,6 +529,7 @@ object MotionPhotoInspectorEngine {
                                 expected = "0x${approxStart.toString(16)} 근방 ftyp",
                                 actual = "ftyp 미발견",
                                 detail = "선언된 비디오 위치에서 유효한 MP4 헤더를 찾지 못했습니다.",
+                                remediation = "선언된 위치에서 MP4 ftyp 헤더를 찾을 수 없습니다. 정지 이미지 파일 끝(EOF)에 MP4 비디오가 누락 없이 올바르게 결합되었는지 확인하십시오.",
                             )
                         )
                     }
@@ -408,6 +553,7 @@ object MotionPhotoInspectorEngine {
                         actual = declaredMime,
                         detail = if (match) "선언된 MIME($declaredMime)이 실제 컨테이너 major_brand($majorBrand)와 일치합니다."
                         else "선언된 MIME($declaredMime)과 실제 컨테이너($majorBrand, 예상: $expectedMime)가 다릅니다.",
+                        remediation = if (match) null else "선언된 MIME($declaredMime)과 실제 컨테이너 포맷($expectedMime)이 다릅니다. MP4 비디오는 'video/mp4'로 기입하십시오.",
                     )
                 )
             }
@@ -424,6 +570,7 @@ object MotionPhotoInspectorEngine {
                         expected = ">= 0 정수",
                         actual = pStr,
                         detail = if (valid) "패딩 값이 올바르게 기입되었습니다 ($pad bytes)." else "유효하지 않은 패딩 값입니다: $pStr",
+                        remediation = if (valid) null else "Item:Padding 값은 0 이상의 10진수 정수여야 합니다. 불필요한 공백이나 문자가 들어가지 않도록 점검하십시오.",
                     )
                 )
             }
@@ -441,6 +588,7 @@ object MotionPhotoInspectorEngine {
                     expected = ">= 0 us",
                     actual = "${ptsUs} us (${String.format(Locale.US, "%.3f", ptsUs / 1_000_000.0)} s)",
                     detail = if (valid) "셔터 캡처 시점이 명시되어 있습니다." else "타임스탬프 값이 음수입니다: $ptsUs",
+                    remediation = if (valid) null else "PresentationTimestampUs 값은 0 이상의 정수(마이크로초)여야 합니다.",
                 )
             )
         }
@@ -478,6 +626,7 @@ object MotionPhotoInspectorEngine {
 
         // 1. Structural checks (SEFT, SEFH)
         for (check in sefReport.structuralChecks) {
+            val isIssue = check.severity == SefIntegritySeverity.CRITICAL || check.severity == SefIntegritySeverity.WARNING
             items.add(
                 MotionPhotoInspectionItem(
                     id = "sef.struct.${check.label}",
@@ -491,6 +640,7 @@ object MotionPhotoInspectorEngine {
                     expected = "정상 SEF 매직 및 헤더",
                     actual = check.detail,
                     detail = check.detail,
+                    remediation = if (isIssue) "삼성 SEF 트레일러 구조가 손상되었습니다. 파일 끝의 SEFT 마커, 디렉토리 길이, SEFH 매직 넘버가 온전히 작성되었는지 확인하십시오." else null,
                 )
             )
         }
@@ -510,6 +660,7 @@ object MotionPhotoInspectorEngine {
                 actual = "${sefReport.directoryEntries.size} 개",
                 detail = if (countStatus == CheckStatus.PASS) "선언된 엔트리 수와 실제 파싱된 엔트리 수가 일치합니다."
                 else "선언된 엔트리 수(${sefReport.declaredEntryCount})와 실제 수(${sefReport.directoryEntries.size})가 다릅니다.",
+                remediation = if (countStatus == CheckStatus.PASS) null else "SEF 디렉토리 헤더의 엔트리 개수(${sefReport.declaredEntryCount})와 실제 엔트리 수(${sefReport.directoryEntries.size})가 다릅니다. 엔트리 추가/삭제 후 SEFH 헤더의 카운트를 동기화하십시오.",
             )
         )
 
@@ -519,17 +670,19 @@ object MotionPhotoInspectorEngine {
             val payloadHasFtyp = try {
                 reader.readFourCC(motionEntry.computedDataStart + 4) == "ftyp"
             } catch (_: Exception) { false }
+            val motionValid = motionEntry.inBounds && payloadHasFtyp
 
             items.add(
                 MotionPhotoInspectionItem(
                     id = "sef.motion_photo_data",
-                    status = if (motionEntry.inBounds && payloadHasFtyp) CheckStatus.PASS else CheckStatus.FAIL,
+                    status = if (motionValid) CheckStatus.PASS else CheckStatus.FAIL,
                     label = "MotionPhoto_Data 엔트리 및 MP4 페이로드",
                     expected = "0x${motionEntry.computedDataStart.toString(16)} 위치의 유효한 MP4",
                     actual = if (payloadHasFtyp) "유효한 MP4 (길이: ${motionEntry.declaredLength} bytes)" else "MP4 매직(ftyp) 불일치",
                     detail = "오프셋: 0x${motionEntry.computedDataStart.toString(16)} .. 0x${motionEntry.computedDataEnd.toString(16)}, 길이: ${motionEntry.declaredLength} bytes",
                     offset = motionEntry.computedDataStart,
                     length = motionEntry.declaredLength,
+                    remediation = if (motionValid) null else "SEF MotionPhoto_Data 오프셋(0x${motionEntry.computedDataStart.toString(16)})에 유효한 MP4 ftyp가 없습니다. '오프셋 = 파일크기 - 비디오시작위치' 계산식과 데이터 복사 로직을 점검하십시오.",
                 )
             )
         } else {
@@ -541,6 +694,7 @@ object MotionPhotoInspectorEngine {
                     expected = "MotionPhoto_Data 키 존재",
                     actual = "미발견",
                     detail = "SEF 트레일러 내에 MotionPhoto_Data 엔트리가 없습니다.",
+                    remediation = "SEF 트레일러 내에 MotionPhoto_Data 엔트리가 누락되었습니다. 삼성 모션포토 규격은 MotionPhoto_Data 서브파일 키를 필수로 요구합니다.",
                 )
             )
         }
@@ -553,16 +707,18 @@ object MotionPhotoInspectorEngine {
             if (!entry.inBounds) allBoundsValid = false
             if (entry.markerMatches != true) allMarkersValid = false
         }
+        val nonMotionValid = allBoundsValid && allMarkersValid
 
         items.add(
             MotionPhotoInspectionItem(
                 id = "sef.non_motion_entries",
-                status = if (allBoundsValid && allMarkersValid) CheckStatus.PASS else CheckStatus.FAIL,
+                status = if (nonMotionValid) CheckStatus.PASS else CheckStatus.FAIL,
                 label = "기타 전체 SEF 엔트리 무결성 (${nonMotionEntries.size}개)",
                 expected = "모든 엔트리 인바운드 및 매직 일치",
-                actual = if (allBoundsValid && allMarkersValid) "전체 정상 (${nonMotionEntries.size}개)"
+                actual = if (nonMotionValid) "전체 정상 (${nonMotionEntries.size}개)"
                 else "경계 또는 매직 오류 감지",
                 detail = "파일 내 포함된 모든 SEF 키: " + nonMotionEntries.mapNotNull { it.name }.joinToString(", "),
+                remediation = if (nonMotionValid) null else "일부 SEF 엔트리의 데이터 블록이 파일 범위를 벗어났거나 헤더 마커가 불일치합니다. 각 SEF 모듈의 길이 및 오프셋 직렬화 로직을 검증하십시오.",
             )
         )
 
@@ -588,6 +744,7 @@ object MotionPhotoInspectorEngine {
                 actual = if (!hasOverlap) "중복 없음" else "${overlapDetails.size}건 중복 발생",
                 detail = if (!hasOverlap) "모든 SEF 데이터 블록이 고유한 영역에 독립 배치되어 있습니다."
                 else overlapDetails.joinToString("; "),
+                remediation = if (!hasOverlap) null else "SEF 엔트리 간 데이터 영역 겹침이 감지되었습니다 (${overlapDetails.joinToString("; ")}). 이전 엔트리의 끝점 뒤에 다음 엔트리가 위치하도록 오프셋을 재배치하십시오.",
             )
         )
 
@@ -621,6 +778,7 @@ object MotionPhotoInspectorEngine {
                     expected = "유효한 MP4 비디오 스트림",
                     actual = "추출 실패 또는 데이터 없음",
                     detail = "모션포토 임베디드 동영상을 추출할 수 없습니다.",
+                    remediation = "임베디드 비디오 스트림을 추출할 수 없습니다. XMP Container:Directory, MicroVideoOffset, 또는 SEF MotionPhoto_Data가 파일에 올바르게 삽입되었는지 확인하십시오.",
                 )
             )
             return MotionPhotoInspectionSection("video_codec", "임베디드 동영상 & 코덱", "Embedded MP4 & Codec", CheckStatus.FAIL, items)
@@ -641,6 +799,7 @@ object MotionPhotoInspectorEngine {
                 expected = "ftyp, moov, mdat 포함",
                 actual = boxes.joinToString(", "),
                 detail = if (containerValid) "표준 ISO-BMFF 컨테이너 구조를 만족합니다." else "필수 박스가 누락되었습니다 (ftyp:$hasFtyp, moov:$hasMoov, mdat:$hasMdat)",
+                remediation = if (containerValid) null else "MP4 비디오 컨테이너에 필수 박스(ftyp, moov, mdat)가 누락되었습니다. 비디오 인코더/먹서가 중간에 비정상 종료되지 않고 정상 플러시되었는지 확인하십시오.",
             )
         )
 
@@ -658,6 +817,7 @@ object MotionPhotoInspectorEngine {
                     actual = if (fastStart) "시작부 (Fast-start / moov < mdat)" else "후미 (Trailer / mdat < moov)",
                     detail = if (fastStart) "moov 박스가 mdat 앞에 위치하여 빠른 스트리밍 재생에 유리합니다."
                     else "moov 박스가 비디오 끝부분에 위치합니다.",
+                    remediation = if (fastStart) null else "moov 박스가 mdat 뒤에 위치하여 스트리밍 재생 시 지연이 발생할 수 있습니다. 'movflags +faststart' 옵션을 적용하여 moov 박스를 mdat 앞으로 재배치하는 것을 권장합니다.",
                 )
             )
         }
@@ -715,6 +875,7 @@ object MotionPhotoInspectorEngine {
                 actual = if (decodeSuccess) "정상 디코딩 완료" else "디코딩 오류 (exit: $decodeExit)",
                 detail = if (decodeSuccess) "ffmpeg 전체 프레임 디코딩을 무결하게 통과했습니다."
                 else "디코더 에러 로그: ${decodeOutput.take(300)}",
+                remediation = if (decodeSuccess) null else "ffmpeg 소프트웨어 디코딩 실패입니다. 비디오 인코딩 비트스트림 오류(NAL 헤더 손상, 키프레임 누락, 비호환 프로파일 등)가 원인입니다. 인코더 파라미터 설정을 확인하십시오.",
             )
         )
 
@@ -813,6 +974,7 @@ object MotionPhotoInspectorEngine {
                         CheckStatus.WARN -> "비디오와 오디오의 재생 길이에 ${deltaMs}ms의 미세 편차가 있습니다."
                         else -> "비디오와 오디오 길이 편차가 ${deltaMs}ms로 큽니다. 스트림 일부가 트렁케이션되었을 수 있습니다."
                     },
+                    remediation = if (status == CheckStatus.PASS) null else "비디오와 오디오 재생 길이 편차(${deltaMs}ms)가 큽니다. 오디오 인코더 버퍼 플러시 누락 또는 비디오 녹화 중단 시점의 타임스탬프 불일치가 원인일 수 있습니다. 녹화 종료 시 두 트랙의 길이를 일치시키거나 트림(trim)하십시오.",
                 )
             )
         } else if (videoDurationMs != null) {
@@ -846,6 +1008,7 @@ object MotionPhotoInspectorEngine {
                     actual = "${presentationTimestampUs} us (${String.format(Locale.US, "%.3f", presentationTimestampUs / 1_000_000.0)} s)",
                     detail = if (inRange) "셔터 캡처 시점이 동영상 재생 시간 내에 위치합니다."
                     else "셔터 시점(${presentationTimestampUs}us)이 동영상 총 길이(${videoDurUs}us)를 초과합니다.",
+                    remediation = if (inRange) null else "셔터 캡처 시점(PresentationTimestampUs: ${presentationTimestampUs}us)이 비디오 재생 시간(0 ~ ${videoDurUs}us)을 벗어납니다. 비디오 시작 시점 기준(0us)의 상대 시간으로 PTS를 재계산하십시오.",
                 )
             )
 
@@ -872,5 +1035,50 @@ object MotionPhotoInspectorEngine {
             else -> CheckStatus.PASS
         }
         return MotionPhotoInspectionSection("av_sync", "A/V 길이 편차 & 셔터 타이밍", "A/V Sync & Timing", status, items)
+    }
+
+    private data class XmpContainerItem(
+        val index: Int,
+        val semantic: String?,
+        val mime: String?,
+        val length: Long?,
+        val padding: Long?,
+        val rawLength: String?,
+        val rawPadding: String?,
+    )
+
+    private fun parseAllDirectoryItems(document: org.w3c.dom.Document): List<XmpContainerItem> {
+        val items = mutableListOf<XmpContainerItem>()
+        val liList = document.getElementsByTagNameNS("*", "li")
+        for (i in 0 until liList.length) {
+            val li = liList.item(i) as? org.w3c.dom.Element ?: continue
+            val semantic = com.multiviewer.parser.findPropertyValue(li, "Semantic")
+            val mime = com.multiviewer.parser.findPropertyValue(li, "Mime")
+            val rawLength = com.multiviewer.parser.findPropertyValue(li, "Length")
+            val rawPadding = com.multiviewer.parser.findPropertyValue(li, "Padding")
+            if (semantic != null || mime != null || rawLength != null) {
+                items.add(
+                    XmpContainerItem(
+                        index = items.size + 1,
+                        semantic = semantic,
+                        mime = mime,
+                        length = rawLength?.toLongOrNull(),
+                        padding = rawPadding?.toLongOrNull(),
+                        rawLength = rawLength,
+                        rawPadding = rawPadding,
+                    )
+                )
+            }
+        }
+        return items
+    }
+
+    private fun findDescriptionAttribute(document: org.w3c.dom.Document, localName: String): String? {
+        val descriptions = document.getElementsByTagNameNS("*", "Description")
+        for (i in 0 until descriptions.length) {
+            val desc = descriptions.item(i) as? org.w3c.dom.Element ?: continue
+            com.multiviewer.parser.findPropertyValue(desc, localName)?.let { return it }
+        }
+        return null
     }
 }

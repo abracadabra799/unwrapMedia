@@ -180,4 +180,121 @@ class MotionPhotoInspectorEngineTest {
         assertNotNull(nonMotionItem)
         assertEquals(CheckStatus.PASS, nonMotionItem.status)
     }
+
+    @Test
+    fun `test Google XMP multi-item directory validation (Primary, MotionPhoto, GainMap)`() {
+        val xmpWithGainMap = """
+            <x:xmpmeta xmlns:x="adobe:ns:meta/">
+              <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+                <rdf:Description
+                    xmlns:Container="http://ns.google.com/photos/1.0/container/"
+                    xmlns:Item="http://ns.google.com/photos/1.0/container/item/"
+                    xmlns:GCamera="http://ns.google.com/photos/1.0/camera/"
+                    GCamera:MotionPhoto="1"
+                    GCamera:MotionPhotoVersion="1"
+                    GCamera:MotionPhotoPresentationTimestampUs="250000">
+                  <Container:Directory>
+                    <rdf:Seq>
+                      <rdf:li rdf:parseType="Resource">
+                        <Container:Item Item:Semantic="Primary" Item:Mime="image/jpeg"/>
+                      </rdf:li>
+                      <rdf:li rdf:parseType="Resource">
+                        <Container:Item Item:Semantic="MotionPhoto" Item:Mime="video/mp4" Item:Length="300" Item:Padding="0"/>
+                      </rdf:li>
+                      <rdf:li rdf:parseType="Resource">
+                        <Container:Item Item:Semantic="GainMap" Item:Mime="image/jpeg" Item:Length="100"/>
+                      </rdf:li>
+                    </rdf:Seq>
+                  </Container:Directory>
+                </rdf:Description>
+              </rdf:RDF>
+            </x:xmpmeta>
+        """.trimIndent()
+
+        val totalSize = 1000L
+        val file = tempFileWithFtypAt(700L, totalSize) // 1000 - 300 = 700
+        val root = rootWithXmp(xmpWithGainMap, totalSize)
+
+        val report = MotionPhotoInspectorEngine.inspect(file, root)
+        val xmpItems = report.formatXmpSection.items
+
+        // Namespaces check
+        val nsItem = xmpItems.find { it.id == "xmp.namespaces" }
+        assertNotNull(nsItem)
+        assertEquals(CheckStatus.PASS, nsItem.status)
+
+        // GCamera flags
+        val gcamItem = xmpItems.find { it.id == "xmp.gcamera_motion_photo" }
+        assertNotNull(gcamItem)
+        assertEquals(CheckStatus.PASS, gcamItem.status)
+
+        // Directory overview: 3 items
+        val dirOverview = xmpItems.find { it.id == "xmp.directory_overview" }
+        assertNotNull(dirOverview)
+        assertEquals(CheckStatus.PASS, dirOverview.status)
+        assertTrue(dirOverview.actual?.contains("3개") == true)
+
+        // Item #1: Primary
+        val item1 = xmpItems.find { it.id == "xmp.item.1.primary" }
+        assertNotNull(item1)
+        assertEquals(CheckStatus.PASS, item1.status)
+
+        // Item #2: MotionPhoto
+        val item2 = xmpItems.find { it.id == "xmp.item.2.motion_photo" }
+        assertNotNull(item2)
+        assertEquals(CheckStatus.PASS, item2.status)
+
+        // Item #3: GainMap
+        val item3 = xmpItems.find { it.id == "xmp.item.3.GainMap" }
+        assertNotNull(item3)
+        assertEquals(CheckStatus.PASS, item3.status)
+
+        // Cumulative length (300 + 100 = 400 < 1000)
+        val cumulative = xmpItems.find { it.id == "xmp.secondary_total_length" }
+        assertNotNull(cumulative)
+        assertEquals(CheckStatus.PASS, cumulative.status)
+    }
+
+    @Test
+    fun `test offset mismatch and invalid items provide actionable remediation guide`() {
+        // Offset mismatch test
+        val declaredLength = 200L
+        val totalSize = 1000L
+        val file = tempFileWithFtypAt(816L, totalSize) // 16 bytes off from 800
+        val xmp = googleDirectoryXmp(declaredLength)
+        val root = rootWithXmp(xmp, totalSize)
+
+        val report = MotionPhotoInspectorEngine.inspect(file, root)
+        val offsetItem = report.formatXmpSection.items.find { it.id == "xmp.offset_match" }
+        assertNotNull(offsetItem)
+        assertEquals(CheckStatus.WARN, offsetItem.status)
+        assertNotNull(offsetItem.remediation)
+        assertTrue(offsetItem.remediation!!.contains("Item:Length = file_size - ftyp_offset"))
+
+        // Invalid Primary Item test (e.g. Semantic != Primary, Length != 0)
+        val badPrimaryXmp = """
+            <x:xmpmeta xmlns:x="adobe:ns:meta/">
+              <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+                <rdf:Description
+                    xmlns:Container="http://ns.google.com/photos/1.0/container/"
+                    xmlns:Item="http://ns.google.com/photos/1.0/container/item/">
+                  <Container:Directory>
+                    <rdf:Seq>
+                      <rdf:li rdf:parseType="Resource">
+                        <Container:Item Item:Semantic="Secondary" Item:Mime="image/jpeg" Item:Length="500"/>
+                      </rdf:li>
+                    </rdf:Seq>
+                  </Container:Directory>
+                </rdf:Description>
+              </rdf:RDF>
+            </x:xmpmeta>
+        """.trimIndent()
+        val badRoot = rootWithXmp(badPrimaryXmp, totalSize)
+        val badReport = MotionPhotoInspectorEngine.inspect(file, badRoot)
+        val primaryItem = badReport.formatXmpSection.items.find { it.id == "xmp.item.1.primary" }
+        assertNotNull(primaryItem)
+        assertEquals(CheckStatus.WARN, primaryItem.status)
+        assertNotNull(primaryItem.remediation)
+        assertTrue(primaryItem.remediation!!.contains("Item:Semantic=\"Primary\""))
+    }
 }

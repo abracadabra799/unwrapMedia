@@ -29,25 +29,34 @@ In `MotionPhotoInspectorWindow.kt`:
 **Files:**
 - Modify: `app/src/main/kotlin/com/multiviewer/ui/MotionPhotoInspectorWindow.kt`
 
-- [ ] Add `hScroll = rememberScrollState()` and `lazyListState = rememberLazyListState()`.
-- [ ] Remove `maxLines` and `TextOverflow.Ellipsis` on Expected, Actual, and Detail cells.
-- [ ] Wrap rows in `SelectionContainer`.
-- [ ] Set minimum column widths (Status: 64dp, Check: 220dp, Expected: 260dp, Actual: 260dp, Detail: 520dp).
-- [ ] Wrap `LazyColumn` with width `1350.dp` inside horizontal scroll box.
-- [ ] Add `HorizontalScrollbar` at bottom and `VerticalScrollbar` at right edge.
-- [ ] Run `./gradlew :app:compileKotlin` to verify compilation.
+- [x] Add `hScroll = rememberScrollState()` and `lazyListState = rememberLazyListState()`.
+- [x] Remove `maxLines` and `TextOverflow.Ellipsis` on Expected, Actual, and Detail cells.
+- [x] Wrap rows in `SelectionContainer`.
+- [x] Set minimum column widths (Status: 64dp, Check: 220dp, Expected: 260dp, Actual: 260dp, Detail: 520dp).
+- [x] Wrap `LazyColumn` with width `1350.dp` inside horizontal scroll box.
+- [x] Add `HorizontalScrollbar` at bottom and `VerticalScrollbar` at right edge.
+- [x] Connect "🎬 동영상 보기" to `MotionPhotoVideoWindow` with async video extraction.
+- [x] Add remediation guide banner rendering when WARN/FAIL.
+- [x] Run `./gradlew :app:compileKotlin` to verify compilation.
 
 ---
 
-### Task 2: Tests and verification
+### Task 2: Primary XMP comprehensive validation & Remediation in Engine
 
-- [ ] Run `./gradlew :app:test --tests 'com.multiviewer.parser.motionphoto.*'`.
-- [ ] Run full test suite: `./gradlew :app:test`.
+**Files:**
+- Modify: `app/src/main/kotlin/com/multiviewer/parser/motionphoto/MotionPhotoInspectorEngine.kt`
+- Modify: `app/src/test/kotlin/com/multiviewer/parser/motionphoto/MotionPhotoInspectorEngineTest.kt`
+
+- [x] Verify Google namespaces, top-level flags, and all `Container:Directory` items (Primary, MotionPhoto, GainMap).
+- [x] Calculate and validate cumulative length of all secondary streams.
+- [x] Populate actionable `remediation` guides for all WARN/FAIL items across 5 categories.
+- [x] Run `./gradlew :app:test --tests 'com.multiviewer.parser.motionphoto.*'`.
+- [x] Run full test suite: `./gradlew :app:test`.
 
 ---
 
 ### Task 3: Commit, merge and rerun app
 
-- [ ] Commit changes.
-- [ ] Fast-forward merge to `main`.
-- [ ] Rerun app with `./gradlew :app:run`.
+- [x] Commit changes on feature branch.
+- [x] Fast-forward merge to `main`.
+- [x] Rerun app with `./gradlew :app:run`.
