@@ -72,6 +72,16 @@ class AiCliRunnerTest {
     }
 
     @Test
+    fun `Gemini receives a per-run search-only tool configuration`() {
+        val exe = script("gemini", "cat .gemini/settings.json")
+        val enabled = assertIs<AiCliResult.Answer>(runBlocking { runAiCli(GeminiCliAdapter(webSearch = true), exe, "q") })
+        val disabled = assertIs<AiCliResult.Answer>(runBlocking { runAiCli(GeminiCliAdapter(webSearch = false), exe, "q") })
+        assertTrue(enabled.text.contains("google_web_search"), enabled.text)
+        assertTrue(disabled.text.contains("\"core\":[]"), disabled.text)
+        assertFalse(disabled.text.contains("google_web_search"), disabled.text)
+    }
+
+    @Test
     fun `a missing login is reported as such, not as an answer`() {
         val exe = script("claude", "echo 'Invalid API key · Please run /login' >&2; exit 1")
         val result = assertIs<AiCliResult.Failed>(run(exe))

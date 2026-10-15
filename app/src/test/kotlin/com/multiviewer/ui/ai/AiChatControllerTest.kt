@@ -60,6 +60,27 @@ class AiChatControllerTest {
     }
 
     @Test
+    fun `Codex web search choice reaches both CLI settings and the outgoing instructions`() = runBlocking {
+        val a = tab("search.jpg")
+        val calls = mutableListOf<Pair<List<String>, String>>()
+        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default,
+            runner = { adapter, _, prompt, _, _ ->
+                calls += adapter.arguments() to prompt
+                AiCliResult.Answer("ok", false)
+            })
+
+        controller.send(a, "latest PNG spec?", AiProviderId.CODEX, File("/bin/true"), webSearch = true)
+        waitFor { a.aiConversation.status == AiRunStatus.FINISHED }
+        assertTrue(calls.single().first.contains("web_search=live"))
+        assertTrue(calls.single().second.contains("웹 검색"))
+
+        controller.send(a, "only local data", AiProviderId.CODEX, File("/bin/true"), webSearch = false)
+        waitFor { calls.size == 2 && a.aiConversation.status == AiRunStatus.FINISHED }
+        assertTrue(calls.last().first.contains("web_search=disabled"))
+        assertTrue(calls.last().second.contains("외부 검색을 하지 마세요"))
+    }
+
+    @Test
     fun `stop cancels the request and records a visible notice`() = runBlocking {
         val a = tab("a.jpg")
         val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default, runner = { _, _, _, _, _ -> awaitCancellation() })

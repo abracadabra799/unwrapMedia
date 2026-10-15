@@ -190,7 +190,7 @@ fun AiChatPanel(
     fun send(text: String) {
         val p = provider ?: return
         controller.send(tab, text, p, appState.aiCapabilities[p]?.executablePath?.let { java.io.File(it) },
-            webSearch = appState.aiWebSearch && adapterFor(p).supportsWebSearch)
+            webSearch = appState.aiWebSearch)
         input = ""
         preview = null
     }
@@ -290,15 +290,16 @@ fun AiChatPanel(
                 }
 
                 // 3행: 부가 옵션 (웹 검색 토글 & 이미지 영역 지정)
-                val supportsWebSearch = caps?.executablePath != null && adapterFor(caps.provider).supportsWebSearch
+                val showWebSearch = provider != null
+                val canChangeWebSearch = !running && caps?.executablePath != null
                 val hasImageSource = tab.aiImageSource != null
-                if (supportsWebSearch || hasImageSource) {
+                if (showWebSearch || hasImageSource) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         // 웹 검색 옵션 (충분한 독립 공간 확보 및 클릭 가능한 칩 스타일)
-                        if (supportsWebSearch) {
+                        if (showWebSearch) {
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
                                 color = if (appState.aiWebSearch) AppColors.NeonPurple.copy(alpha = 0.12f) else AppColors.Background,
@@ -306,7 +307,7 @@ fun AiChatPanel(
                                     1.dp,
                                     if (appState.aiWebSearch) AppColors.NeonPurple.copy(alpha = 0.5f) else AppColors.Border,
                                 ),
-                                modifier = Modifier.clickable(enabled = !running) {
+                                modifier = Modifier.clickable(enabled = canChangeWebSearch) {
                                     appState.aiWebSearch = !appState.aiWebSearch
                                 },
                             ) {
@@ -316,7 +317,7 @@ fun AiChatPanel(
                                 ) {
                                     Checkbox(
                                         checked = appState.aiWebSearch,
-                                        enabled = !running,
+                                        enabled = canChangeWebSearch,
                                         onCheckedChange = { appState.aiWebSearch = it },
                                         modifier = Modifier.size(18.dp),
                                         colors = CheckboxDefaults.colors(
@@ -327,7 +328,8 @@ fun AiChatPanel(
                                     )
                                     Spacer(Modifier.width(4.dp))
                                     Text(
-                                        label("🌐 웹 검색", "🌐 Web Search"),
+                                        if (provider == AiProviderId.AGY) label("🌐 웹 검색 요청", "🌐 Request Web Search")
+                                        else label("🌐 웹 검색", "🌐 Web Search"),
                                         color = if (appState.aiWebSearch) AppColors.NeonPurple else AppColors.TextSecondary,
                                         fontSize = 11.sp,
                                         fontWeight = if (appState.aiWebSearch) FontWeight.Medium else FontWeight.Normal,

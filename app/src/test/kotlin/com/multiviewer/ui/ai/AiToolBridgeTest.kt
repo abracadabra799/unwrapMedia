@@ -97,7 +97,7 @@ class AiToolBridgeTest {
     fun `web search only adds the WebSearch tool, and tool rounds never enter the history`() {
         assertEquals(listOf("--tools", "WebSearch"), ClaudeCliAdapter(webSearch = true).arguments().let { it.subList(it.indexOf("--tools"), it.indexOf("--tools") + 2) })
         assertEquals("", ClaudeCliAdapter().arguments().let { it[it.indexOf("--tools") + 1] })
-        assertFalse(CodexCliAdapter().supportsWebSearch)
+        assertTrue(CodexCliAdapter().supportsWebSearch)
         val history = listOf(
             AiMessage(1, AiRole.USER, "q1", AiProviderId.CLAUDE, 1),
             AiMessage(2, AiRole.TOOL, "@@unwrapmedia hex → SECRET TOOL DUMP", AiProviderId.CLAUDE, 2),
@@ -107,6 +107,23 @@ class AiToolBridgeTest {
         assertFalse(prompt.contains("SECRET TOOL DUMP"))
         assertTrue(prompt.contains("a1") && prompt.contains("q1"))
         assertTrue(prompt.contains(TOOL_PREFIX))
+    }
+
+    @Test
+    fun `web search choice reaches each CLI without enabling local command access`() {
+        val codexOn = adapterFor(AiProviderId.CODEX, webSearch = true).arguments()
+        val codexOff = adapterFor(AiProviderId.CODEX, webSearch = false).arguments()
+        assertTrue(codexOn.contains("web_search=live"))
+        assertTrue(codexOff.contains("web_search=disabled"))
+        assertTrue(codexOn.contains("read-only"))
+        assertTrue(adapterFor(AiProviderId.GEMINI).supportsWebSearch)
+        assertFalse(adapterFor(AiProviderId.AGY).supportsWebSearch)
+
+        val enabledPrompt = buildAiCliPrompt(emptyList(), "ctx", "latest specification?", webSearch = true)
+        val disabledPrompt = buildAiCliPrompt(emptyList(), "ctx", "latest specification?", webSearch = false)
+        assertTrue(enabledPrompt.contains("웹 검색") && enabledPrompt.contains("URL"))
+        assertFalse(enabledPrompt.contains("아래에 주어진 자료만으로 답하세요"))
+        assertTrue(disabledPrompt.contains("외부 검색을 하지 마세요"))
     }
 
     @Test

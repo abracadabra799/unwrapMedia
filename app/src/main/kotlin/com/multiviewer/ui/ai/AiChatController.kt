@@ -189,7 +189,7 @@ class AiChatController(
                 var round = 0
                 var result: AiCliResult
                 while (true) {
-                    val prompt = buildAiCliPrompt(history, context + toolResults, text)
+                    val prompt = buildAiCliPrompt(history, context + toolResults, text, webSearch = webSearch)
                     result = runner(adapter, executable, prompt, { snapshot.isCurrent(file) }, listOfNotNull(crop))
                     val requests = (result as? AiCliResult.Answer)?.let { parseToolRequests(it.text) }.orEmpty()
                     if (requests.isEmpty()) break

@@ -72,6 +72,11 @@ suspend fun runAiCli(
     val workDir = Files.createTempDirectory("unwrapmedia-ai-").toFile()
     var process: Process? = null
     try {
+        try {
+            adapter.prepareWorkDirectory(workDir)
+        } catch (e: Exception) {
+            return@runInterruptible AiCliResult.Failed(AiFailure.LAUNCH_FAILED, null, "Could not prepare CLI configuration: ${e.message ?: e}")
+        }
         // Images are re-encoded crops written only inside the app-owned temp dir (deleted below).
         val imageFiles = images.mapIndexed { i, image ->
             File(workDir, "view-${i + 1}.png").also { javax.imageio.ImageIO.write(image, "png", it) }

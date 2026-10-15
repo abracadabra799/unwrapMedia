@@ -10,8 +10,10 @@ import java.io.File
 interface AiCliAdapter {
     val provider: AiProviderId
     fun arguments(): List<String>
+    /** Optional per-run configuration inside the app-owned temporary working directory. */
+    fun prepareWorkDirectory(directory: File) {}
 
-    /** Whether this integration can turn on the provider's web search (Claude Code only, for now). */
+    /** Whether this adapter has an explicit web-search tool or per-run setting. */
     val supportsWebSearch: Boolean get() = false
     fun parseAnswer(stdout: String): String = stdout.trim()
 
@@ -35,10 +37,12 @@ class ClaudeCliAdapter(private val webSearch: Boolean = false) : AiCliAdapter {
  * Codex exec in its read-only sandbox (no writes, no network for commands), outside any git repo, ephemeral.
  * Note: the read-only sandbox can still read local files; the panel reports the tool bridge as unverified.
  */
-class CodexCliAdapter : AiCliAdapter {
+class CodexCliAdapter(private val webSearch: Boolean = false) : AiCliAdapter {
     override val provider = AiProviderId.CODEX
+    override val supportsWebSearch = true
     override fun arguments() = listOf(
-        "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral", "--color", "never", "-",
+        "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral", "--color", "never",
+        "-c", if (webSearch) "web_search=live" else "web_search=disabled", "-",
     )
 
     // `-i` takes several values, so it goes right after `exec`, ended by the next flag (never next to `-`).
@@ -52,11 +56,21 @@ class CodexCliAdapter : AiCliAdapter {
  * approval mode to "default" — observed live — so plan mode would not hold without it. It trusts only the
  * empty app-owned temp dir for this one run.
  */
-class GeminiCliAdapter : AiCliAdapter {
+class GeminiCliAdapter(private val webSearch: Boolean = false) : AiCliAdapter {
     override val provider = AiProviderId.GEMINI
+    override val supportsWebSearch = true
     override fun arguments() = listOf(
         "--skip-trust", "--approval-mode", "plan", "--output-format", "text", "-p", "Answer the request above.",
     )
+
+    override fun prepareWorkDirectory(directory: File) {
+        val settings = File(directory, ".gemini/settings.json")
+        check(settings.parentFile.mkdirs() || settings.parentFile.isDirectory)
+        // tools.core is the built-in tool allowlist, unlike tools.allowed (approval bypass).
+        // This leaves the app's own typed read-only bridge in the prompt untouched.
+        settings.writeText(if (webSearch) """{"tools":{"core":["google_web_search"]}}"""
+            else """{"tools":{"core":[]}}""")
+    }
 }
 
 /**
@@ -64,14 +78,15 @@ class GeminiCliAdapter : AiCliAdapter {
  */
 class AgyCliAdapter : AiCliAdapter {
     override val provider = AiProviderId.AGY
+    // No documented per-run web toggle: the prompt can request search, but cannot guarantee it.
     override fun arguments() = listOf("--mode", "plan", "--output-format", "text")
 }
 
 fun adapterFor(provider: AiProviderId, webSearch: Boolean = false): AiCliAdapter = when (provider) {
     AiProviderId.CLAUDE -> ClaudeCliAdapter(webSearch)
-    AiProviderId.CODEX -> CodexCliAdapter()
+    AiProviderId.CODEX -> CodexCliAdapter(webSearch)
     AiProviderId.AGY -> AgyCliAdapter()
-    AiProviderId.GEMINI -> GeminiCliAdapter()
+    AiProviderId.GEMINI -> GeminiCliAdapter(webSearch)
 }
 
 internal val isWindowsOs: Boolean get() = System.getProperty("os.name").lowercase().contains("win")
@@ -137,9 +152,15 @@ private const val MAX_HISTORY_CHARS_PER_TURN = 4_000
  * The text sent on stdin. Session resume is not assumed for any provider, so the recent turns are resent
  * explicitly (questions and answers only; older contexts and app notices are dropped).
  */
-fun buildAiCliPrompt(history: List<AiMessage>, context: String, question: String): String = buildString {
+fun buildAiCliPrompt(history: List<AiMessage>, context: String, question: String, webSearch: Boolean = false): String = buildString {
     appendLine("당신은 미디어 분석 앱 unwrapMedia 안에서 동작하는 분석 보조자입니다.")
-    appendLine("- 파일을 수정하거나 명령을 실행하지 말고, 아래에 주어진 자료만으로 답하세요.")
+    appendLine("- 파일을 수정하거나 명령을 실행하지 마세요. 파일 자체에 대한 판단은 아래 자료를 근거로 하세요.")
+    if (webSearch) {
+        appendLine("- 공개 기술 정보나 최신 문서를 확인할 필요가 있으면 웹 검색을 사용하세요. 실제로 검색한 결과의 URL을 답변에 적고, 검색하지 않았다면 검색했다고 주장하지 마세요.")
+        appendLine("- 웹 검색어에 아래 파일 자료의 내용, 로컬 경로, 일련번호, GPS 정보, 사용자 대화 내용을 넣지 마세요.")
+    } else {
+        appendLine("- 외부 검색을 하지 마세요. 아래 자료와 이미 알고 있는 공개 지식으로 답하세요.")
+    }
     appendLine("- 근거가 되는 오프셋, 검사 ID, 프레임 번호를 인용하고, 확인된 사실과 가설을 구분하세요.")
     appendLine("- 앱의 PASS/FAIL 판정을 바꾸지 마세요. 판정과 다른 의견은 가설로 표시하세요.")
     appendLine("- 사용자가 쓴 언어로 답하세요.")
