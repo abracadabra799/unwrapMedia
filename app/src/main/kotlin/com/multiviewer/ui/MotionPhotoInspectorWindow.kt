@@ -286,7 +286,17 @@ fun MotionPhotoInspectorWindow(
                 val hScroll = rememberScrollState()
                 val vListState = rememberLazyListState()
 
-                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    val containerWidth = maxWidth
+                    val colStatusWidth = 56.dp
+                    val colLabelWidth = 180.dp
+                    val colExpectedWidth = 180.dp
+                    val colActualWidth = 180.dp
+                    val fixedColumnsWidth = colStatusWidth + colLabelWidth + colExpectedWidth + colActualWidth // 596.dp
+                    val availableForDetail = containerWidth - fixedColumnsWidth - 56.dp
+                    val colDetailWidth = maxOf(440.dp, availableForDetail)
+                    val tableRowWidth = fixedColumnsWidth + colDetailWidth
+
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -297,8 +307,7 @@ fun MotionPhotoInspectorWindow(
                             state = vListState,
                             modifier = Modifier
                                 .fillMaxHeight()
-                                .widthIn(min = 1350.dp)
-                                .fillMaxWidth(),
+                                .width(tableRowWidth + 24.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             items(currentReport.allSections, key = { it.id }) { section ->
@@ -308,6 +317,12 @@ fun MotionPhotoInspectorWindow(
                                     isExpanded = isExpanded,
                                     onToggle = { expandedSections[section.id] = !isExpanded },
                                     ko = ko,
+                                    colStatusWidth = colStatusWidth,
+                                    colLabelWidth = colLabelWidth,
+                                    colExpectedWidth = colExpectedWidth,
+                                    colActualWidth = colActualWidth,
+                                    colDetailWidth = colDetailWidth,
+                                    tableRowWidth = tableRowWidth,
                                     onSelectRange = { offset, length ->
                                         tab.parameterSetHighlightRange = offset until (offset + length)
                                         statusMessage = label(
@@ -356,6 +371,12 @@ private fun InspectionAccordionCard(
     isExpanded: Boolean,
     onToggle: () -> Unit,
     ko: Boolean,
+    colStatusWidth: androidx.compose.ui.unit.Dp,
+    colLabelWidth: androidx.compose.ui.unit.Dp,
+    colExpectedWidth: androidx.compose.ui.unit.Dp,
+    colActualWidth: androidx.compose.ui.unit.Dp,
+    colDetailWidth: androidx.compose.ui.unit.Dp,
+    tableRowWidth: androidx.compose.ui.unit.Dp,
     onSelectRange: (Long, Long) -> Unit,
 ) {
     val statusColor = checkStatusColor(section.status)
@@ -437,14 +458,14 @@ private fun InspectionAccordionCard(
                 ) {
                     // Table Header
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                        modifier = Modifier.width(tableRowWidth).padding(bottom = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(if (ko) "상태" else "Status", color = AppColors.TextMuted, fontSize = 11.sp, modifier = Modifier.width(64.dp))
-                        Text(if (ko) "검사 항목" else "Check Item", color = AppColors.TextMuted, fontSize = 11.sp, modifier = Modifier.width(220.dp))
-                        Text(if (ko) "스펙 / 기대치" else "Expected", color = AppColors.TextMuted, fontSize = 11.sp, modifier = Modifier.width(260.dp))
-                        Text(if (ko) "실제 파일값" else "Actual", color = AppColors.TextMuted, fontSize = 11.sp, modifier = Modifier.width(260.dp))
-                        Text(if (ko) "세부 내용" else "Detail", color = AppColors.TextMuted, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                        Text(if (ko) "상태" else "Status", color = AppColors.TextMuted, fontSize = 11.sp, modifier = Modifier.width(colStatusWidth))
+                        Text(if (ko) "검사 항목" else "Check Item", color = AppColors.TextMuted, fontSize = 11.sp, modifier = Modifier.width(colLabelWidth).padding(end = 6.dp))
+                        Text(if (ko) "스펙 / 기대치" else "Expected", color = AppColors.TextMuted, fontSize = 11.sp, modifier = Modifier.width(colExpectedWidth).padding(end = 8.dp))
+                        Text(if (ko) "실제 파일값" else "Actual", color = AppColors.TextMuted, fontSize = 11.sp, modifier = Modifier.width(colActualWidth).padding(end = 8.dp))
+                        Text(if (ko) "세부 내용" else "Detail", color = AppColors.TextMuted, fontSize = 11.sp, modifier = Modifier.width(colDetailWidth))
                     }
 
                     // Table Items
@@ -459,7 +480,7 @@ private fun InspectionAccordionCard(
                                 .padding(vertical = 6.dp, horizontal = 2.dp),
                         ) {
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.width(tableRowWidth),
                                 verticalAlignment = Alignment.Top,
                             ) {
                                 // Status
@@ -474,7 +495,7 @@ private fun InspectionAccordionCard(
                                     color = itemColor,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.width(64.dp),
+                                    modifier = Modifier.width(colStatusWidth),
                                 )
 
                                 // Label
@@ -483,7 +504,7 @@ private fun InspectionAccordionCard(
                                     color = AppColors.TextPrimary,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.width(220.dp).padding(end = 6.dp),
+                                    modifier = Modifier.width(colLabelWidth).padding(end = 6.dp),
                                 )
 
                                 // Expected
@@ -491,7 +512,7 @@ private fun InspectionAccordionCard(
                                     item.expected ?: "—",
                                     color = AppColors.TextSecondary,
                                     fontSize = 11.sp,
-                                    modifier = Modifier.width(260.dp).padding(end = 8.dp),
+                                    modifier = Modifier.width(colExpectedWidth).padding(end = 8.dp),
                                 )
 
                                 // Actual
@@ -499,19 +520,19 @@ private fun InspectionAccordionCard(
                                     item.actual ?: "—",
                                     color = if (item.status == CheckStatus.PASS) AppColors.TextPrimary else itemColor,
                                     fontSize = 11.sp,
-                                    modifier = Modifier.width(260.dp).padding(end = 8.dp),
+                                    modifier = Modifier.width(colActualWidth).padding(end = 8.dp),
                                 )
 
                                 // Detail & Byte Range link
                                 Row(
-                                    modifier = Modifier.weight(1f),
+                                    modifier = Modifier.width(colDetailWidth),
                                     verticalAlignment = Alignment.Top,
                                 ) {
                                     Text(
                                         item.detail,
                                         color = AppColors.TextSecondary,
                                         fontSize = 11.sp,
-                                        modifier = Modifier.weight(1f),
+                                        modifier = Modifier.weight(1f, fill = false),
                                     )
 
                                     if (item.offset != null && item.length != null) {
@@ -532,8 +553,8 @@ private fun InspectionAccordionCard(
                             if (!item.remediation.isNullOrBlank() && (item.status == CheckStatus.WARN || item.status == CheckStatus.FAIL)) {
                                 Row(
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(start = 64.dp, top = 5.dp, end = 8.dp)
+                                        .width(tableRowWidth)
+                                        .padding(start = colStatusWidth, top = 5.dp, end = 8.dp)
                                         .background(AppColors.Panel.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
                                         .border(1.dp, itemColor.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
                                         .padding(horizontal = 10.dp, vertical = 6.dp),
@@ -550,7 +571,7 @@ private fun InspectionAccordionCard(
                                         color = AppColors.TextPrimary,
                                         fontSize = 11.sp,
                                         lineHeight = 16.sp,
-                                        modifier = Modifier.weight(1f),
+                                        modifier = Modifier.weight(1f, fill = false),
                                     )
                                 }
                             }
