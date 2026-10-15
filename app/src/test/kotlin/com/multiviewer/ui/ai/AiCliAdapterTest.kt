@@ -93,4 +93,16 @@ class AiCliAdapterTest {
         assertTrue(inv.stdin.endsWith("\n\nPROMPT"), inv.stdin)
         assertEquals(AiParsedOutput.Answer("blue"), inv.parse("blue\n"))
     }
+
+    @Test
+    fun `the report section is sent outside the untrusted-data fence`() {
+        val section = "### [분석 리포트 …]\n- c2pa: on request"
+        val prompt = buildAiCliPrompt(emptyList(), "file data", "q", reportSection = section)
+        val at = prompt.indexOf(section)
+        val beginLine = prompt.lastIndexOf("\n$UNTRUSTED_DATA_BEGIN\n")
+        val endLine = prompt.lastIndexOf("\n$UNTRUSTED_DATA_END\n")
+        assertTrue(at >= 0, prompt)
+        assertTrue(beginLine >= 0 && endLine > beginLine, prompt)
+        assertTrue(at > endLine, "section must follow the END marker: $at vs $endLine")
+    }
 }

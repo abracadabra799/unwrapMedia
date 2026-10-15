@@ -110,7 +110,7 @@ fun aiReportSources(
     if (video) {
         out[AiReportKind.AVSYNC] = inputs.avSync?.let { AiReportSource.Ready(it) }
             ?: notRun(menu(I18n::menuAvSyncAnalysis, label), label)
-        // Nothing in the app produces this result yet; list it only when one exists.
+        // No menu opens the bitstream window yet; the kind is listed only when a result exists.
         inputs.bitstream?.let { out[AiReportKind.BITSTREAM] = AiReportSource.Ready(it) }
         out[AiReportKind.HDR] = stored(inputs.hdr, file, menu(I18n::menuHdrSeiAnalysis, label), label) { renderHdr(it, file) }
         out[AiReportKind.HRD] = stored(inputs.hrd, file, menu(I18n::menuHrdBufferSimulation, label), label) { renderHrdReport(it) }
@@ -135,7 +135,7 @@ fun aiReportSources(
             val binding = runCatching { verifyC2paHardBinding(file, root, store) }
             val error = binding.exceptionOrNull()?.let { e ->
                 if (e is InterruptedException || e is java.util.concurrent.CancellationException) throw e
-                scrubPaths("${e::class.simpleName}: ${e.message ?: ""}", file)
+                reportErrorText(e, file)
             }
             renderC2paReport(store, binding.getOrNull(), error, file)
         }
@@ -157,6 +157,24 @@ fun aiReportSources(
         }
     }
     return out
+}
+
+/**
+ * "ClassName: message" for this app's own exceptions (their messages are written for the user, path-scrubbed,
+ * clipped); only the class name for anything else, since JDK messages can echo file content.
+ */
+fun reportErrorText(e: Throwable, file: File): String {
+    val name = e::class.simpleName ?: "Exception"
+    val own = e::class.java.name.startsWith("com.multiviewer")
+    val detail = if (own) scrubPaths(e.message ?: "", file).take(200) else ""
+    return "$name: $detail".trimEnd(' ', ':')
+}
+
+/** When the file changed since it was opened the bridge refuses every report, so none may be offered. */
+fun markReportsStale(sources: Map<AiReportKind, AiReportSource>, label: (String, String) -> String): Map<AiReportKind, AiReportSource> {
+    val reason = AiReportSource.Unavailable(label(
+        "파일이 열린 뒤 바뀌었습니다 — 다시 열어 주세요", "the file changed since it was opened — reopen it"))
+    return sources.mapValues { (_, s) -> if (s is AiReportSource.Unavailable) s else reason }
 }
 
 /** The context lines telling the model which reports exist for this file; empty when none apply. */
@@ -197,11 +215,7 @@ fun runReportWithTimeout(run: () -> String, file: File, timeoutSeconds: Long = R
             throw e
         } catch (e: ExecutionException) {
             val cause = e.cause ?: e
-            val name = cause::class.simpleName ?: "Exception"
-            // Only this app's own exceptions have messages written for the user; JDK ones can echo file content.
-            val own = cause::class.java.name.startsWith("com.multiviewer")
-            val detail = if (own) scrubPaths(cause.message ?: "", file).take(200) else ""
-            false to "The report failed: $name: $detail".trimEnd(' ', ':')
+            false to "The report failed: ${reportErrorText(cause, file)}"
         }
     } finally {
         executor.shutdownNow()

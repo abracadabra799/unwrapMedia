@@ -248,7 +248,7 @@ private const val MAX_HISTORY_CHARS_PER_TURN = 4_000
  * The text sent on stdin. Session resume is not assumed for any provider, so the recent turns are resent
  * explicitly (questions and answers only; older contexts and app notices are dropped).
  */
-fun buildAiCliPrompt(history: List<AiMessage>, context: String, question: String, webSearch: Boolean = false): String = buildString {
+fun buildAiCliPrompt(history: List<AiMessage>, context: String, question: String, webSearch: Boolean = false, reportSection: String = ""): String = buildString {
     appendLine("당신은 미디어 분석 앱 unwrapMedia 안에서 동작하는 분석 보조자입니다.")
     appendLine("- 파일을 수정하거나 명령을 실행하지 마세요. 파일 자체에 대한 판단은 아래 자료를 근거로 하세요.")
     if (webSearch) {
@@ -282,6 +282,8 @@ fun buildAiCliPrompt(history: List<AiMessage>, context: String, question: String
     appendLine()
     appendLine(UNTRUSTED_DATA_END)
     appendLine(TOOL_PROTOCOL_HELP)
+    // App-authored (kind keys and fixed strings only), so it sits outside the untrusted-data fence.
+    if (reportSection.isNotEmpty()) appendLine(reportSection)
     appendLine("### [질문]")
     appendLine(question)
 }

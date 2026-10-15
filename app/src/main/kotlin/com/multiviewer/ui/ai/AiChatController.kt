@@ -258,9 +258,11 @@ class AiChatController(
                 "HDR frame converted to 8-bit without tone mapping: brightness and colour may differ",
             )
             val contextSnapshot = if (crop != null && frameHdr) withFrame.copy(warnings = withFrame.warnings + hdrNote) else withFrame
-            val reportSection = renderReportSection(reportSources, ::label)
-            val context = renderAiContext(contextSnapshot, attachedImage = region.takeIf { crop != null }, imageOmittedReason = omitted) +
-                (if (reportSection.isEmpty()) "" else "\n\n$reportSection")
+            val reportSection = renderReportSection(
+                if (snapshot.fileChangedSinceOpen) markReportsStale(reportSources, ::label) else reportSources, ::label)
+            val fileContext = renderAiContext(contextSnapshot, attachedImage = region.takeIf { crop != null }, imageOmittedReason = omitted)
+            // The stored/previewed context still shows the section; the prompt sends it outside the data fence.
+            val context = fileContext + (if (reportSection.isEmpty()) "" else "\n\n$reportSection")
             val history = tab.aiConversation.messages
             val (started, run) = tab.aiConversation.withUserMessage(text, context, provider, now())
             tab.aiConversation = started
@@ -292,7 +294,7 @@ class AiChatController(
                 var round = 0
                 var result: AiCliResult
                 while (true) {
-                    val prompt = buildAiCliPrompt(history, context + toolResults, text, webSearch = webSearch)
+                    val prompt = buildAiCliPrompt(history, fileContext + toolResults, text, webSearch = webSearch, reportSection = reportSection)
                     result = runner(adapter, executable, prompt, { snapshot.isCurrent(file) }, listOfNotNull(crop))
                     val requests = (result as? AiCliResult.Answer)?.let { parseToolRequests(it.text) }.orEmpty()
                     if (requests.isEmpty()) break

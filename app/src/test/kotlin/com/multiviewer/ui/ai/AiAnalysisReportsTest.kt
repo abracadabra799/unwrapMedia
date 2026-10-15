@@ -273,10 +273,10 @@ class AiAnalysisReportsTest {
 
     // ---- fix pass 1 ----
 
-    private fun manifestWith(label: String, claimGenerator: String? = "G", actionParams: String? = null, sig: C2paSignatureInfo? = null): C2paManifest {
+    private fun manifestWith(label: String, claimGenerator: String? = "G", actionParams: String? = null, sig: C2paSignatureInfo? = null, generatorInfo: List<String> = emptyList()): C2paManifest {
         val claim = C2paClaim(
             label = "c2pa.claim.v2", version = 2, title = "t", format = "image/jpeg", instanceId = "i",
-            claimGenerator = claimGenerator, generatorInfo = emptyList(), signatureRef = null,
+            claimGenerator = claimGenerator, generatorInfo = generatorInfo, signatureRef = null,
             assertionRefs = emptyList(), alg = "sha256", raw = CborMap(emptyList()),
         )
         val a = C2paAssertion("c2pa.actions.v2", "c2cb", C2paAssertionContent.Actions(listOf(C2paAction("c2pa.edited", null, null, null, actionParams))), 0, 10)
@@ -409,5 +409,13 @@ class AiAnalysisReportsTest {
         assertTrue(out.contains("#1 marker 0xA01 Image_UTC_Data @"), out)
         assertTrue(out.contains("#2 marker 0xA01 MotionPhoto_Data @"), out)
         assertTrue(out.contains("- [PASS] Entry #1 MotionPhoto_Data bounds"), out)
+    }
+
+    @Test
+    fun `c2pa generator info is capped`() {
+        val out = renderC2paReport(storeOf(manifestWith("m", generatorInfo = (1..50).map { "gen$it" })), null, null, file)
+        val line = out.lines().first { it.contains("generator info:") }
+        assertEquals(MAX_REPORT_ITEMS, Regex("gen\\d+").findAll(line).count(), line)
+        assertTrue(line.contains("… 20 more"), line)
     }
 }

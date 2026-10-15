@@ -212,7 +212,7 @@ private fun c2paManifestLines(index: Int, total: Int, m: C2paManifest, file: Fil
     } else {
         // claim title and instanceId are deliberately not emitted.
         out += "  claim generator: ${c.claimGenerator?.let { c2(it, file) } ?: "-"}"
-        out += "  generator info: ${if (c.generatorInfo.isEmpty()) "-" else c.generatorInfo.joinToString(", ") { c2(it, file) }}"
+        out += "  generator info: ${if (c.generatorInfo.isEmpty()) "-" else capJoin(c.generatorInfo.map { c2(it, file) })}"
         out += "  format: ${c.format?.let { c2(it, file) } ?: "-"}"
         out += "  claim version: ${c.version}"
     }

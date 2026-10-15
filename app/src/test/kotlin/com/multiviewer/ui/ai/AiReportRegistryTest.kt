@@ -260,4 +260,25 @@ class AiReportRegistryTest {
         assertFalse(AiReportKind.C2PA in aiReportSources(
             AiReportInputs(none, parseFile(none), MediaType.IMAGE, null, null, null, null, null, null, null, null), label))
     }
+
+    @Test
+    fun `report error text keeps messages only for this app's exceptions`() {
+        val jdk = reportErrorText(java.io.IOException("secret content in message"), file)
+        assertFalse(jdk.contains("secret"), jdk)
+        assertEquals("IOException", jdk)
+    }
+
+    @Test
+    fun `a changed file turns every offered report into unavailable`() {
+        val src = mapOf(
+            AiReportKind.HDR to AiReportSource.Ready("x"),
+            AiReportKind.C2PA to AiReportSource.OnRequest { "y" },
+            AiReportKind.HRD to AiReportSource.Unavailable("not run"),
+        )
+        val out = markReportsStale(src, label)
+        assertTrue(out.values.all { it is AiReportSource.Unavailable })
+        assertEquals("not run", (out[AiReportKind.HRD] as AiReportSource.Unavailable).reason)
+        val section = renderReportSection(out, label)
+        assertFalse(section.contains("available\n") || section.contains("on request"), section)
+    }
 }

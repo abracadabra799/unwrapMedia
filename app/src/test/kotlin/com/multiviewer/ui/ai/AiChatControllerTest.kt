@@ -522,4 +522,17 @@ class AiChatControllerTest {
         waitFor { a.aiConversation.status == AiRunStatus.FINISHED }
         assertFalse(prompt.contains("톤매핑 없이"), prompt)
     }
+
+    @Test
+    fun `the report list reaches the prompt outside the untrusted-data fence`() = runBlocking {
+        val a = videoTab()
+        var prompt = ""
+        val controller = AiChatController(this, now = { 1L }, ioDispatcher = Dispatchers.Default,
+            runner = { _, _, p, _, _ -> prompt = p; AiCliResult.Answer("ok", false) })
+        controller.send(a, "q", AiProviderId.CLAUDE, File("/bin/true"))
+        waitFor { a.aiConversation.status == AiRunStatus.FINISHED }
+        val end = prompt.lastIndexOf(UNTRUSTED_DATA_END)
+        val at = prompt.indexOf("- avsync:")
+        assertTrue(end >= 0 && at > end, prompt)
+    }
 }
