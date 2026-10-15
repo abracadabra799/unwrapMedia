@@ -1,10 +1,11 @@
 package com.multiviewer.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.HorizontalScrollbar
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
@@ -12,6 +13,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollbarAdapter
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -36,8 +39,11 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+
 
 // Fallback aspect ratio (width/height) used only until the first thumbnail decodes and reveals
 // the video's actual aspect -- 16:9 is a reasonable landscape-video default guess. Fixing cell
@@ -55,9 +61,14 @@ private const val FILMSTRIP_PREFETCH_MARGIN = 20
 // scrolls, via FrameThumbnailDecoder -- safe for videos with thousands of frames. Not
 // horizontally synchronized with GopAnalysisView's own scroll/zoom -- an independent LazyRow, by
 // design (see spec's Out of scope section).
-@OptIn(ExperimentalComposeUiApi::class)
+@OptIn(ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
 @Composable
-fun FrameThumbnailFilmstrip(tab: TabState, frames: List<FrameInfo>, modifier: Modifier = Modifier) {
+fun FrameThumbnailFilmstrip(
+    tab: TabState,
+    frames: List<FrameInfo>,
+    language: AppLanguage = AppLanguage.KO,
+    modifier: Modifier = Modifier,
+) {
     if (frames.isEmpty()) return
 
     val listState = rememberLazyListState()
@@ -144,6 +155,38 @@ fun FrameThumbnailFilmstrip(tab: TabState, frames: List<FrameInfo>, modifier: Mo
             .fillMaxSize()
             .background(AppColors.Background),
     ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    if (language == AppLanguage.KO) "🎞️ 프레임 필름스트립" else "🎞️ Frame Filmstrip",
+                    style = AppTypography.labelLarge.copy(fontSize = 11.sp, color = AppColors.NeonBlue, fontWeight = FontWeight.Bold),
+                )
+                Text(
+                    if (language == AppLanguage.KO) "• 클릭: 플레이어 이동 · 더블클릭: 팝업 검사기" else "• Click: seek player · Double-click: popup inspector",
+                    style = AppTypography.bodySmall.copy(fontSize = 10.sp, color = AppColors.TextSecondary),
+                )
+            }
+            AssistChip(
+                onClick = { tab.fullSizeFramePreviewOpen = true },
+                label = {
+                    Text(
+                        if (language == AppLanguage.KO) "정밀 검사 팝업 ↗" else "Popup Inspector ↗",
+                        fontSize = 10.sp,
+                    )
+                },
+                modifier = Modifier.height(24.dp),
+            )
+        }
+
         LazyRow(
             state = listState,
             modifier = Modifier
@@ -209,11 +252,17 @@ fun FrameThumbnailFilmstrip(tab: TabState, frames: List<FrameInfo>, modifier: Mo
                         .fillMaxHeight()
                         .padding(1.dp)
                         .let { if (isSelected) it.border(2.dp, AppColors.NeonBlue) else it }
-                        .clickable {
-                            focusRequester.requestFocus()
-                            selectFrame(frame)
-                            tab.fullSizeFramePreviewOpen = true
-                        },
+                        .combinedClickable(
+                            onClick = {
+                                focusRequester.requestFocus()
+                                selectFrame(frame)
+                            },
+                            onDoubleClick = {
+                                focusRequester.requestFocus()
+                                selectFrame(frame)
+                                tab.fullSizeFramePreviewOpen = true
+                            },
+                        ),
                 ) {
                     if (bitmap != null) {
                         Image(

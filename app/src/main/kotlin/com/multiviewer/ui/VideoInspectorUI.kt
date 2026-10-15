@@ -131,6 +131,9 @@ fun VideoInspectorUI(
                         .fillMaxSize()
                         .onGloballyPositioned { topContainerWidthPx = it.size.width }
                 ) {
+                    var livePlayerPlaying by remember(tab) { mutableStateOf(false) }
+                    var livePlayerDisplayed by remember(tab) { mutableStateOf<FramePosition?>(null) }
+
                     // Left: Live Player (full height of the top region)
                     Box(
                         modifier = Modifier
@@ -139,12 +142,6 @@ fun VideoInspectorUI(
                             .background(AppColors.Background),
                         contentAlignment = Alignment.Center
                     ) {
-                        // The live player runs fully independently of the GOP / filmstrip panel on
-                        // the right: no elapsed-position feedback, no seek-request wiring, no frame
-                        // step delegation. Playback, progress-bar seek, and arrow-key single-frame
-                        // stepping are all handled internally by FfmpegVideoPlayer (via its own
-                        // per-frame timestamp list). onProbeComplete is kept -- it only enables the
-                        // "analyze frames" button, it is not interactive linkage.
                         val root = tab.root
                         if (isAv2VideoTrack(root)) {
                             Av2VideoPlayer(
@@ -159,8 +156,25 @@ fun VideoInspectorUI(
                             )
                         } else {
                             FfmpegVideoPlayer(
-                                tab.file,
+                                file = tab.file,
+                                seekRequestSeconds = tab.seekTargetSeconds,
+                                seekRequestTick = tab.seekRequestTick,
+                                knownFrameTimestamps = tab.gopFrames?.takeIf { !tab.isAnalyzingFrames && it.isNotEmpty() }?.map { it.ptsSeconds },
                                 onProbeComplete = { tab.videoReadyForAnalysis = true },
+                                onPlaybackStateChanged = { isPlaying ->
+                                    livePlayerPlaying = isPlaying
+                                    if (!isPlaying) {
+                                        livePlayerDisplayed?.let { pos ->
+                                            tab.gopFrames?.getOrNull(pos.number - 1)?.let { tab.selectedFrame = it }
+                                        }
+                                    }
+                                },
+                                onFramePresented = { pos ->
+                                    livePlayerDisplayed = pos
+                                    if (!livePlayerPlaying) {
+                                        tab.gopFrames?.getOrNull(pos.number - 1)?.let { tab.selectedFrame = it }
+                                    }
+                                },
                             )
                         }
 
@@ -207,6 +221,7 @@ fun VideoInspectorUI(
                             tab.gopFrames?.let { frames ->
                                 FrameThumbnailFilmstrip(
                                     tab, frames,
+                                    language = language,
                                     modifier = Modifier.weight(1f - gopFilmstripSplit).fillMaxWidth(),
                                 )
                             }

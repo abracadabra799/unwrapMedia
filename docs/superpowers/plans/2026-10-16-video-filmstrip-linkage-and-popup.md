@@ -26,36 +26,36 @@
 
 **Files:** `app/src/main/kotlin/com/multiviewer/ui/FrameThumbnailFilmstrip.kt`
 
-- [ ] Add compact sub-header above the filmstrip:
+- [x] Add compact sub-header above the filmstrip:
   - Title: `🎞️ 프레임 필름스트립` / `🎞️ Frame Filmstrip`
   - Hint: `• 클릭: 플레이어 이동 · 더블클릭: 팝업 검사기` / `• Click: seek player · Double-click: popup inspector`
   - Action chip: `정밀 검사 팝업 ↗` / `Popup Inspector ↗` setting `tab.fullSizeFramePreviewOpen = true`
-- [ ] Update thumbnail click handler to `combinedClickable`:
+- [x] Update thumbnail click handler to `combinedClickable`:
   - `onClick`: select frame, update seekTargetSeconds & seekRequestTick
   - `onDoubleClick`: select frame and set `tab.fullSizeFramePreviewOpen = true`
-- [ ] Run `./gradlew :app:compileKotlin` to verify compilation.
+- [x] Run `./gradlew :app:compileKotlin` to verify compilation.
 
 ### Task 2: Live player linkage in VideoInspectorUI
 
 **Files:** `app/src/main/kotlin/com/multiviewer/ui/VideoInspectorUI.kt`
 
-- [ ] Wire `seekRequestSeconds` and `seekRequestTick` into `FfmpegVideoPlayer` from `tab.seekTargetSeconds` and `tab.seekRequestTick`.
-- [ ] Wire `onElapsedChanged` to keep track of the current playback position.
-- [ ] Wire `onPlaybackStateChanged` so when playback pauses (`isPlaying == false`), `tab.selectedFrame` is synchronized to the frame closest to the paused PTS from `tab.gopFrames`.
-- [ ] Run `./gradlew :app:compileKotlin` to verify compilation.
+- [x] Wire `seekRequestSeconds` and `seekRequestTick` into `FfmpegVideoPlayer` from `tab.seekTargetSeconds` and `tab.seekRequestTick`.
+- [x] Wire `onElapsedChanged` to keep track of the current playback position.
+- [x] Wire `onPlaybackStateChanged` so when playback pauses (`isPlaying == false`), `tab.selectedFrame` is synchronized to the frame closest to the paused PTS from `tab.gopFrames`.
+- [x] Run `./gradlew :app:compileKotlin` to verify compilation.
 
 ### Task 3: Unit tests and verification
 
-**Files:** `app/src/test/kotlin/com/multiviewer/ui/FrameTypeAnalyzerTest.kt` (or focused tests)
+**Files:** `app/src/test/kotlin/com/multiviewer/ui/VideoInspectorLinkageTest.kt`
 
-- [ ] Add unit test verifying frame resolution by playback elapsed seconds on pause.
-- [ ] Run focused tests: `./gradlew :app:test --tests 'com.multiviewer.ui.*'`.
-- [ ] Run full test suite: `./gradlew :app:test`.
+- [x] Add unit test verifying frame resolution by playback elapsed seconds on pause.
+- [x] Run focused tests: `./gradlew :app:test --tests 'com.multiviewer.ui.*'`.
+- [x] Run full test suite: `./gradlew :app:test`.
 
 ### Task 4: Version bump & documentation
 
 **Files:** `app/build.gradle.kts`, `app/src/main/kotlin/com/multiviewer/ui/I18n.kt`, `version.json`
 
-- [ ] Bump version from `1.28.0` to `1.29.0` across all 3 files.
-- [ ] Add bilingual release note for the filmstrip UI and live player linkage.
-- [ ] Verify clean build.
+- [x] Bump version from `1.28.0` to `1.29.0` across all 3 files.
+- [x] Add bilingual release note for the filmstrip UI and live player linkage.
+- [x] Verify clean build.

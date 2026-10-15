@@ -1,7 +1,7 @@
 {
-  "version": "1.28.0",
-  "releaseDate": "2026-10-15",
-  "releaseNotes": "• AI 대화: Claude Code·Codex·Gemini CLI·Antigravity에서 웹 검색 옵션 표시\n• Codex: 웹검색 켜기/끄기를 CLI 설정에 전달; Gemini CLI: 요청별 Google 검색 도구 설정\n• AI 응답: 검색 결과 URL 표시를 요청하고 파일 분석 자료가 검색어에 섞이지 않도록 지시",
+  "version": "1.29.0",
+  "releaseDate": "2026-10-16",
+  "releaseNotes": "• 동영상 인스펙터: GOP 막대 및 필름스트립 썸네일 클릭 시 좌측 Live Player 동기화 및 프레임 탐색\n• 동영상 필름스트립: 상단 인터랙션 가이드 및 정밀 검사 팝업 버튼 추가, 더블클릭으로 팝업 오픈\n• 재생 성능: Live Player 일시정지 시에만 GOP 프레임을 동기화하여 재생 중 지연 방지",
   "windowsUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest",
   "macUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest"
 }
