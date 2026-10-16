@@ -303,6 +303,16 @@ fun AiChatPanel(
                         fontSize = 11.sp,
                     )
                 }
+                if (provider == AiProviderId.AGY || provider == AiProviderId.GEMINI) {
+                    Text(
+                        label(
+                            "이 CLI는 대화 기록을 자체 저장할 수 있습니다. 앱은 해당 기록을 삭제하지 않습니다.",
+                            "This CLI may save its own conversation history. The app does not delete that history.",
+                        ),
+                        color = AppColors.NeonYellow,
+                        fontSize = 11.sp,
+                    )
+                }
 
                 // 3행: 부가 옵션 (웹 검색 토글 & 이미지 영역 지정)
                 val showWebSearch = provider != null
