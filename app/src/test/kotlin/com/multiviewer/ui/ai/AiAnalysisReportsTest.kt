@@ -36,7 +36,12 @@ import com.multiviewer.parser.c2pa.CborMap
 import com.multiviewer.parser.c2pa.CborText
 import com.multiviewer.parser.c2pa.EditImpactAssessment
 import com.multiviewer.parser.c2pa.HashComparison
+import com.multiviewer.parser.hrd.HrdBufferPoint
 import com.multiviewer.parser.hrd.HrdSimulationReport
+import com.multiviewer.ui.AvSyncReport
+import com.multiviewer.ui.SyncDiagnosis
+import com.multiviewer.ui.SyncPoint
+import com.multiviewer.ui.SyncSeverity
 import com.multiviewer.parser.integrity.CheckStatus
 import com.multiviewer.parser.integrity.IntegrityCheckItem
 import com.multiviewer.parser.metadata.SensorSamplePoint
@@ -417,5 +422,72 @@ class AiAnalysisReportsTest {
         val line = out.lines().first { it.contains("generator info:") }
         assertEquals(MAX_REPORT_ITEMS, Regex("gen\\d+").findAll(line).count(), line)
         assertTrue(line.contains("… 20 more"), line)
+    }
+
+    // ---- trends ----
+
+    @Test
+    fun `hdr report appends luminance and MaxCLL trends`() {
+        val records = listOf(
+            FrameHdrRecord(0, 0, 0.0, true, listOf(plus(4000, 1000))),
+            FrameHdrRecord(1, 1, 1 / 30.0, false, listOf(plus(6000, 1000))),
+        )
+        val r = HdrScanResult(VideoCodec.HEVC, records, ContainerHdrStatic(null, null), emptyList())
+        val out = renderHdrReport(r, file)
+        assertTrue(out.contains("trend:"), out)
+        assertTrue(out.contains("HDR10+ targeted max luminance (nits) over s, 2 points:"), out)
+        assertFalse(out.contains("SEI MaxCLL"), out)
+    }
+
+    @Test
+    fun `hrd report appends occupancy trend`() {
+        val pts = listOf(HrdBufferPoint(0, 0.0, 10, 10, 50.0, false, false, true), HrdBufferPoint(1, 0.04, 10, 10, 60.0, false, false, false))
+        val r = HrdSimulationReport(1000, 1000, 0.1, 2, 50.0, 60.0, 55.0, 0, emptyList(), emptyList(), pts)
+        val out = renderHrdReport(r)
+        assertTrue(out.contains("trend:"), out)
+        assertTrue(out.contains("buffer occupancy (%) over s, 2 points:"), out)
+    }
+
+    @Test
+    fun `interval report appends frame interval trend`() {
+        val frames = listOf(0.0, 0.033, 0.066, 0.3).mapIndexed { i, p -> FrameInfo(i, if (i == 0) 'I' else 'P', 100, p) }
+        val out = renderIntervalReport(frames)
+        assertTrue(out.contains("trend:"), out)
+        assertTrue(out.contains("frame interval (ms) over s, 3 points:"), out)
+    }
+
+    @Test
+    fun `timed trend has gyro magnitude and never GPS or GENERIC values`() {
+        val r = TimedMetadataReport(
+            trackId = 3, trackFormat = "camm", totalSamples = 4, durationSeconds = 2.0, sampleRateHz = 1.5,
+            samples = listOf(
+                SensorSamplePoint(0, 0.0, SensorType.GPS, 37.5665, 126.978, 30.0),
+                SensorSamplePoint(1, 0.5, SensorType.GYRO, 0.1, 0.2, 0.3),
+                SensorSamplePoint(2, 1.0, SensorType.GYRO, 0.3, 0.4, 0.5),
+                SensorSamplePoint(3, 1.5, SensorType.GENERIC, 12.3456, 7.7777, 1.0),
+            ),
+        )
+        val out = renderTimedReport(r)
+        assertTrue(out.contains("trend:"), out)
+        assertTrue(out.contains("GYRO magnitude ( ) over s, 2 points:") || out.contains("GYRO magnitude () over s, 2 points:"), out)
+        assertFalse(out.contains("GPS magnitude") || out.contains("GENERIC magnitude"), out)
+        assertAbsent(out, "37.5665", "126.978", "12.3456", "7.7777")
+    }
+
+    @Test
+    fun `avsync report keeps the legacy first line and appends a skew trend`() {
+        val diag = SyncDiagnosis("drift", SyncSeverity.WARNING, "audio drifts", emptyList(), "", "", "")
+        val r = AvSyncReport(
+            file, true, true, 10.0, 9.5, 0.5, 20.0, 40.0, 10.0, 25.0, 1.5,
+            listOf(SyncPoint(0.0, 0.0, 0.0, 20.0, 0, 0), SyncPoint(1.0, 1.0, 1.0, 40.0, 1, 1)),
+            listOf(diag), SyncSeverity.WARNING,
+        )
+        val out = renderAvSyncReport(r)
+        assertEquals(
+            "video 10.0 s, audio 9.5 s, initial skew 20.0 ms, max 40.0 ms, avg 25.0 ms, drift 1.5 ms/min; [WARNING] drift: audio drifts",
+            out.lines().first(),
+        )
+        assertTrue(out.contains("trend:"), out)
+        assertTrue(out.contains("A/V skew (ms) over s, 2 points:"), out)
     }
 }

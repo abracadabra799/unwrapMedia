@@ -114,11 +114,7 @@ class AiChatController(
         val video = tab.embeddedVideo
         val visual = tab.aiVisualContext()
         val frames = tab.gopFrames
-        val avSyncText = tab.avSyncReport?.let { r ->
-            "video ${r.videoDurationSec} s, audio ${r.audioDurationSec} s, initial skew ${r.initialSkewMs} ms, " +
-                "max ${r.maxSkewMs} ms, avg ${r.avgSkewMs} ms, drift ${r.driftRateMsPerMin} ms/min; " +
-                r.diagnoses.take(10).joinToString("; ") { "[${it.severity}] ${it.category}: ${it.summary}" }
-        }
+        val avSyncText = tab.avSyncReport?.let(::renderAvSyncReport)
         val bitstreamText = tab.bitstreamCorruptionReport?.let { r ->
             com.multiviewer.cli.scrubPaths(
                 "${r.overallStatus}: ${r.corruptFrameCount}/${r.totalFramesScanned} corrupt frames, ${r.criticalErrorCount} critical, " +

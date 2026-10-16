@@ -120,6 +120,13 @@ fun renderHdrReport(r: HdrScanResult, file: File): String {
     }
     section(out, "anomalies (default thresholds):", anomalies)
     section(out, "warnings:", r.warnings.map { "- " + clean(it, file) })
+    val trends = listOfNotNull(
+        r.records.mapNotNull { rec -> rec.hdr10Plus?.let { SeriesPoint(rec.ptsSeconds, it.targetedSystemDisplayMaximumLuminance.toDouble()) } }
+            .takeIf { it.isNotEmpty() }?.let { renderSeries("HDR10+ targeted max luminance", "nits", "s", it) },
+        r.records.mapNotNull { rec -> rec.contentLightLevel?.let { SeriesPoint(rec.ptsSeconds, it.maxCll.toDouble()) } }
+            .takeIf { it.isNotEmpty() }?.let { renderSeries("SEI MaxCLL", "nits", "s", it) },
+    )
+    if (trends.isNotEmpty()) { out += "trend:"; out += trends }
     return out.joinToString("\n")
 }
 
@@ -131,6 +138,8 @@ fun renderHrdReport(r: HrdSimulationReport): String {
     out += f("occupancy min/avg/max %.2f/%.2f/%.2f %%", r.minOccupancyPercent, r.avgOccupancyPercent, r.maxOccupancyPercent)
     out += "underflows ${r.underflowCount}" + if (r.underflowFrames.isEmpty()) "" else ": frames ${capJoin(r.underflowFrames)}"
     out += if (r.warningFrames.isEmpty()) "warnings at frames: none" else "warnings at frames ${capJoin(r.warningFrames)}"
+    out += "trend:"
+    out += renderSeries("buffer occupancy", "%", "s", r.points.map { SeriesPoint(it.dtsSeconds, it.occupancyPercent) })
     return out.joinToString("\n")
 }
 
@@ -149,6 +158,8 @@ fun renderIntervalReport(frames: List<FrameInfo>): String {
     intervals.sortedByDescending { it.intervalMs }.take(MAX_LARGEST_GAPS).forEach {
         out += f("  #%d %s PTS %.6f s: %.3f ms (Δ %+.3f ms)", it.frameIndex, it.type, it.ptsSeconds, it.intervalMs, it.intervalDiffMs)
     }
+    out += "trend:"
+    out += renderSeries("frame interval", "ms", "s", intervals.map { SeriesPoint(it.ptsSeconds, it.intervalMs) })
     return out.joinToString("\n")
 }
 
@@ -174,9 +185,24 @@ fun renderTimedReport(r: TimedMetadataReport): String {
             }
         }
     }
-    // Sample labels are free text and are not sent.
+    // Sample labels are free text and are not sent. GPS/GENERIC values never enter a trend either.
+    val trends = SensorType.entries.filter { it != SensorType.GPS && it != SensorType.GENERIC }.mapNotNull { type ->
+        byType[type]?.let { pts ->
+            renderSeries("$type magnitude", "", "s", pts.map { SeriesPoint(it.timestampSeconds, sqrt(it.x * it.x + it.y * it.y + it.z * it.z)) })
+        }
+    }
+    if (trends.isNotEmpty()) { out += "trend:"; out += trends }
     return out.joinToString("\n")
 }
+
+// ---- A/V sync ----
+
+fun renderAvSyncReport(r: com.multiviewer.ui.AvSyncReport): String =
+    "video ${r.videoDurationSec} s, audio ${r.audioDurationSec} s, initial skew ${r.initialSkewMs} ms, " +
+        "max ${r.maxSkewMs} ms, avg ${r.avgSkewMs} ms, drift ${r.driftRateMsPerMin} ms/min; " +
+        r.diagnoses.take(10).joinToString("; ") { "[${it.severity}] ${it.category}: ${it.summary}" } +
+        "\ntrend:\n" +
+        renderSeries("A/V skew", "ms", "s", r.syncPoints.map { SeriesPoint(it.timeSeconds, it.deltaMs) })
 
 // ---- Spatial video ----
 
