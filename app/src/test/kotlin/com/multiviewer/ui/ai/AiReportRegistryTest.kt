@@ -6,6 +6,9 @@ import com.multiviewer.parser.HdrScanResult
 import com.multiviewer.parser.VideoCodec
 import com.multiviewer.parser.c2pa.readC2paManifestStore
 import com.multiviewer.parser.parseFile
+import com.multiviewer.ui.AudioWaveformData
+import com.multiviewer.ui.ChannelPeaks
+import com.multiviewer.ui.WaveformPeaks
 import com.multiviewer.ui.ContentFileIdentity
 import com.multiviewer.ui.FrameInfo
 import com.multiviewer.ui.MediaType
@@ -36,9 +39,10 @@ class AiReportRegistryTest {
         frames: List<FrameInfo>? = null,
         avSync: String? = null,
         bitstream: String? = null,
+        audio: StoredAnalysis<AudioWaveformData>? = null,
     ) = AiReportInputs(
         file = file, root = root, type = type, avSync = avSync, bitstream = bitstream,
-        hdr = hdr, hrd = null, timed = null, frames = frames, gainmap = null, gainmapBase = null,
+        hdr = hdr, hrd = null, timed = null, frames = frames, gainmap = null, gainmapBase = null, audio = audio,
     )
 
     private val hdrResult = HdrScanResult(VideoCodec.HEVC, emptyList(), ContainerHdrStatic(null, null), emptyList())
@@ -280,5 +284,38 @@ class AiReportRegistryTest {
         assertEquals("not run", (out[AiReportKind.HRD] as AiReportSource.Unavailable).reason)
         val section = renderReportSection(out, label)
         assertFalse(section.contains("available\n") || section.contains("on request"), section)
+    }
+
+    private fun frames3() = List(3) { FrameInfo(it, if (it == 0) 'I' else 'P', 1000, it / 30.0) }
+
+    private val waveData = AudioWaveformData(
+        WaveformPeaks(1, 4, listOf(ChannelPeaks(FloatArray(4) { -0.5f }, FloatArray(4) { 0.5f }))), 1.0)
+
+    @Test
+    fun `gop is on request for a video with frames and unavailable without them`() {
+        val on = aiReportSources(inputs(MediaType.VIDEO, frames = frames3()), label)[AiReportKind.GOP]
+        assertIs<AiReportSource.OnRequest>(on)
+        assertTrue(on.run().contains("frames 3"))
+        assertIs<AiReportSource.Unavailable>(aiReportSources(inputs(MediaType.VIDEO), label)[AiReportKind.GOP])
+    }
+
+    @Test
+    fun `audio is ready while the stored waveform is current, void when the file changes, unavailable when absent`() {
+        val audioFile = File(dir, "a.wav").apply { writeBytes(ByteArray(100)) }
+        fun audioInputs(a: StoredAnalysis<AudioWaveformData>?) = inputs(MediaType.AUDIO, audio = a).copy(file = audioFile)
+        val stored = StoredAnalysis(waveData, ContentFileIdentity.capture(audioFile))
+        assertIs<AiReportSource.Ready>(aiReportSources(audioInputs(stored), label)[AiReportKind.AUDIO])
+        assertIs<AiReportSource.Unavailable>(aiReportSources(audioInputs(null), label)[AiReportKind.AUDIO])
+        audioFile.writeBytes(ByteArray(200))
+        val void = aiReportSources(audioInputs(stored), label)[AiReportKind.AUDIO]
+        assertIs<AiReportSource.Unavailable>(void)
+        assertTrue(void.reason.contains("changed"), void.reason)
+    }
+
+    @Test
+    fun `an image tab offers neither gop nor audio`() {
+        val sources = aiReportSources(inputs(MediaType.IMAGE, frames = frames3()), label)
+        assertFalse(AiReportKind.GOP in sources)
+        assertFalse(AiReportKind.AUDIO in sources)
     }
 }

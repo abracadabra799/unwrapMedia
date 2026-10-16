@@ -15,6 +15,7 @@ import com.multiviewer.parser.hrd.HrdSimulationReport
 import com.multiviewer.parser.metadata.TimedMetadataReport
 import com.multiviewer.parser.spatial.analyzeSpatialVideo
 import com.multiviewer.ui.AppLanguage
+import com.multiviewer.ui.AudioWaveformData
 import com.multiviewer.ui.FrameInfo
 import com.multiviewer.ui.I18n
 import com.multiviewer.ui.MediaType
@@ -30,7 +31,8 @@ const val REPORT_TIMEOUT_SECONDS = 20L
 
 enum class AiReportKind(val key: String) {
     AVSYNC("avsync"), BITSTREAM("bitstream"), HDR("hdr"), HRD("hrd"), INTERVAL("interval"),
-    TIMED("timed"), SPATIAL("spatial"), C2PA("c2pa"), SEF("sef"), GAINMAP("gainmap");
+    TIMED("timed"), SPATIAL("spatial"), C2PA("c2pa"), SEF("sef"), GAINMAP("gainmap"),
+    GOP("gop"), AUDIO("audio");
 
     companion object {
         fun of(key: String): AiReportKind? = entries.firstOrNull { it.key == key }
@@ -61,6 +63,7 @@ data class AiReportInputs(
     val gainmap: GainmapInfo?,
     /** Coded base-image size, as GainmapCheckPage computes it (EXIF rotation undone). */
     val gainmapBase: Pair<Int, Int>?,
+    val audio: StoredAnalysis<AudioWaveformData>? = null,
 )
 
 private val TIMED_NODE_TYPES = setOf("camm", "gpmd", "mebx")
@@ -92,6 +95,20 @@ private fun <T> stored(
 private fun notRun(menuName: String, label: (String, String) -> String) = AiReportSource.Unavailable(label(
     "아직 실행되지 않음 — '$menuName' 실행 필요", "not run for this file — run '$menuName' first"))
 
+private fun audioSource(s: StoredAnalysis<AudioWaveformData>?, file: File, label: (String, String) -> String): AiReportSource {
+    if (s == null) return AiReportSource.Unavailable(label(
+        "오디오 파형이 그려지면 요청 가능", "available once the waveform has been drawn"))
+    val current = s.currentFor(file) ?: return AiReportSource.Unavailable(label(
+        "파일이 바뀌어 파형이 무효 — 파일을 다시 여세요", "the file changed, so the waveform is void — reopen the file"))
+    return try {
+        AiReportSource.Ready(renderAudioReport(current))
+    } catch (e: Exception) {
+        if (e is InterruptedException) throw e
+        if (e is java.util.concurrent.CancellationException) throw e
+        AiReportSource.Unavailable("report could not be rendered (${e::class.simpleName})")
+    }
+}
+
 /**
  * Which reports apply to this file and what state each is in. Blocking (file stat, cheap tree scans):
  * call off the UI thread. Kinds that do not apply to this file are absent from the map.
@@ -120,6 +137,11 @@ fun aiReportSources(
         } else {
             AiReportSource.Unavailable(label("프레임 분석(GOP) 실행 필요", "needs frame analysis (GOP) first"))
         }
+        out[AiReportKind.GOP] = if (frames != null && frames.size >= 2) {
+            AiReportSource.OnRequest { renderGopReport(frames) }
+        } else {
+            AiReportSource.Unavailable(label("프레임 분석(GOP) 실행 필요", "needs frame analysis (GOP) first"))
+        }
         if (inputs.timed != null || has { it.type in TIMED_NODE_TYPES }) {
             out[AiReportKind.TIMED] = stored(inputs.timed, file, menu(I18n::menuTimedMetadataTimeline, label), label) { renderTimedReport(it) }
         }
@@ -128,6 +150,9 @@ fun aiReportSources(
                 analyzeSpatialVideo(file, root)?.let { renderSpatialReport(it, file) } ?: "no HEVC video track"
             }
         }
+    }
+    if (inputs.type == MediaType.AUDIO) {
+        out[AiReportKind.AUDIO] = audioSource(inputs.audio, file, label)
     }
     if (root != null && hasC2paManifestStore(root)) {
         out[AiReportKind.C2PA] = AiReportSource.OnRequest {

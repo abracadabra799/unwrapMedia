@@ -1,5 +1,8 @@
 package com.multiviewer.ui.ai
 
+import com.multiviewer.ui.AudioWaveformData
+import com.multiviewer.ui.ChannelPeaks
+import com.multiviewer.ui.WaveformPeaks
 import com.multiviewer.parser.ContainerHdrStatic
 import com.multiviewer.parser.ContentLightLevel
 import com.multiviewer.parser.DecodedMetadata
@@ -548,5 +551,44 @@ class AiAnalysisReportsTest {
         assertFalse(hdr.contains("trend:"), hdr)
         val timed = renderTimedReport(TimedMetadataReport(3, "camm", 0, 1.0, 1.0, emptyList()))
         assertFalse(timed.contains("trend:"), timed)
+    }
+
+    @Test
+    fun `gop report counts types, GOP lengths and average bitrate`() {
+        val types = "IPBBPIPB"
+        val sizes = listOf(9000, 3000, 1000, 1000, 3000, 9000, 3000, 1000)
+        val frames = types.mapIndexed { i, t -> FrameInfo(i, t, sizes[i], i / 30.0) }
+        val out = renderGopReport(frames)
+        assertTrue(out.contains("frames 8 · I 2 · P 3 · B 3 · other 0"), out)
+        assertTrue(out.contains("GOP length (frames): min/mean/max 5.0/5.0/5.0 over 1 GOPs (last GOP open: 3 frames)"), out)
+        assertTrue(out.contains("I 9000/9000.0/9000"), out)
+        // 30000 bytes * 8 / (8/30 s) / 1000 = 900 kbps
+        assertTrue(out.contains("average bitrate 900.0 kbps over 0.267 s"), out)
+        assertTrue(out.contains("trend:\nbitrate (kbps) over s, 8 points:"), out)
+    }
+
+    @Test
+    fun `gop report without I-frames says so`() {
+        val out = renderGopReport(List(3) { FrameInfo(it, 'P', 100, it / 30.0) })
+        assertTrue(out.contains("no I-frames"), out)
+    }
+
+    @Test
+    fun `audio report finds clipping, silence and dBFS`() {
+        val n = 100
+        val c0min = FloatArray(n) { -0.5f }; val c0max = FloatArray(n) { 0.5f }
+        c0max[5] = 1.0f
+        val c1min = FloatArray(n) { -0.5f }; val c1max = FloatArray(n) { 0.5f }
+        for (i in 20..29) { c1min[i] = 0f; c1max[i] = 0f }
+        val data = AudioWaveformData(WaveformPeaks(2, n, listOf(ChannelPeaks(c0min, c0max), ChannelPeaks(c1min, c1max))), 10.0)
+        val out = renderAudioReport(data)
+        assertTrue(out.contains("channels 2 · duration 10.000 s · buckets 100 (100.0 ms each)"), out)
+        val ch0 = out.lines().first { it.startsWith("channel 0:") }
+        val ch1 = out.lines().first { it.startsWith("channel 1:") }
+        assertTrue(ch0.contains("peak 0.0 dBFS") && ch0.contains("clipped buckets 1 (first at 0.500 s)"), ch0)
+        assertTrue(ch0.contains("silent spans ≥0.5 s below −60 dBFS: 0"), ch0)
+        assertTrue(ch1.contains("peak -6.0 dBFS") && ch1.contains("clipped buckets 0"), ch1)
+        assertTrue(ch1.contains("silent spans ≥0.5 s below −60 dBFS: 1 (2.000–3.000 s)"), ch1)
+        assertTrue(out.contains("channel 1 peak (dBFS) over s"), out)
     }
 }

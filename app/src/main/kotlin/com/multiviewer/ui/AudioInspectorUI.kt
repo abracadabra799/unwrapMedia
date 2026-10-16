@@ -41,6 +41,9 @@ fun AudioInspectorUI(
                             appState.openFile(java.io.File(dir, name))
                         }
                     },
+                    onWaveformComputed = { p, d, id ->
+                        tab.audioWaveform = id?.let { StoredAnalysis(AudioWaveformData(p, d), it) }
+                    },
                     modifier = Modifier.fillMaxSize(),
                 )
             }

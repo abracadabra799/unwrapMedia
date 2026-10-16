@@ -103,6 +103,7 @@ fun FfmpegAudioPlayer(
     file: File,
     rawAudioParams: RawAudioParams? = null,
     onOpenAudio: (() -> Unit)? = null,
+    onWaveformComputed: (WaveformPeaks, Double, ContentFileIdentity?) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     var isPlaying by remember(file) { mutableStateOf(false) }
@@ -154,9 +155,13 @@ fun FfmpegAudioPlayer(
         probedInfo = info
         probing = false
         if (info != null) {
-            waveformPeaks = runInterruptible(Dispatchers.IO) {
-                computeWaveformPeaks(file, info, bucketCount = waveformBucketCountFor(info.duration), rawAudioParams = rawAudioParams)
+            // Identity is captured in the same IO step (a stat must not run on the UI thread).
+            val (peaks, identity) = runInterruptible(Dispatchers.IO) {
+                val identity = ContentFileIdentity.capture(file)
+                computeWaveformPeaks(file, info, bucketCount = waveformBucketCountFor(info.duration), rawAudioParams = rawAudioParams) to identity
             }
+            waveformPeaks = peaks
+            if (peaks != null) onWaveformComputed(peaks, info.duration, identity)
         }
     }
 

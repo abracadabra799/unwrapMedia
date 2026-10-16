@@ -306,6 +306,7 @@ class TabState(val file: File) {
     var hdrScan: StoredAnalysis<HdrScanResult>? by mutableStateOf(null)
     var hrdReport: StoredAnalysis<com.multiviewer.parser.hrd.HrdSimulationReport>? by mutableStateOf(null)
     var timedMetadata: StoredAnalysis<com.multiviewer.parser.metadata.TimedMetadataReport>? by mutableStateOf(null)
+    var audioWaveform: StoredAnalysis<AudioWaveformData>? by mutableStateOf(null)
 
     // Cached Bitstream corruption scan report for this tab
     var bitstreamCorruptionReport: BitstreamCorruptionReport? by mutableStateOf(null)
@@ -1010,6 +1011,9 @@ class AppState {
         }
     }
 }
+
+/** The audio player's waveform peaks and the duration they span, kept for the AI report bridge. */
+data class AudioWaveformData(val peaks: WaveformPeaks, val durationSeconds: Double)
 
 /** A window's finished result plus the bytes it describes; stale once the file changes. */
 data class StoredAnalysis<T>(val value: T, val identity: ContentFileIdentity?) {

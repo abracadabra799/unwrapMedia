@@ -124,7 +124,7 @@ class AiChatController(
         val reportInputs = AiReportInputs(
             file = file, root = root, type = type, avSync = avSyncText, bitstream = bitstreamText,
             hdr = tab.hdrScan, hrd = tab.hrdReport, timed = tab.timedMetadata, frames = frames,
-            gainmap = tab.gainmapInfo,
+            gainmap = tab.gainmapInfo, audio = tab.audioWaveform,
             gainmapBase = tab.imageForensic?.let { f ->
                 f.bitmap?.let { com.multiviewer.ui.codedSize(it.width, it.height, f.orientationCode) }
             },

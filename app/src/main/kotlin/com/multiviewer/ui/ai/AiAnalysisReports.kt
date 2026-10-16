@@ -23,6 +23,7 @@ import com.multiviewer.parser.integrity.IntegrityCheckItem
 import com.multiviewer.parser.metadata.SensorType
 import com.multiviewer.parser.metadata.TimedMetadataReport
 import com.multiviewer.parser.spatial.SpatialVideoReport
+import com.multiviewer.ui.AudioWaveformData
 import com.multiviewer.ui.FrameInfo
 import com.multiviewer.ui.computeFrameIntervals
 import java.io.File
@@ -354,5 +355,105 @@ fun renderGainmapReport(info: GainmapInfo, checks: List<IntegrityCheckItem>, fil
     // Raw XMP may hold free text (owner, device, edit history) -- length only.
     out += "XMP: " + (info.rawXmp?.let { "${it.length} chars (not sent)" } ?: "absent")
     section(out, "checks:", checks.map { "- [${it.status}] ${clean(it.title, file)}: ${clean(it.detail, file)}" })
+    return out.joinToString("\n")
+}
+
+// ---- GOP ----
+
+private fun sizeStats(label: String, sizes: List<Int>): String? =
+    if (sizes.isEmpty()) null else f("%s %d/%.1f/%d", label, sizes.min(), sizes.average(), sizes.max())
+
+fun renderGopReport(frames: List<FrameInfo>): String {
+    val sorted = frames.sortedBy { it.ptsSeconds }
+    val n = sorted.size
+    if (n == 0) return "frames 0"
+    fun count(t: Char) = sorted.count { it.type == t }
+    val other = sorted.count { it.type !in "IPB" }
+    val out = mutableListOf(f("frames %d · I %d · P %d · B %d · other %d", n, count('I'), count('P'), count('B'), other))
+    val iIdx = sorted.indices.filter { sorted[it].type == 'I' }
+    if (iIdx.isEmpty()) {
+        out += "GOP length (frames): no I-frames"
+    } else {
+        val lengths = iIdx.zipWithNext { a, b -> b - a }
+        val open = n - iIdx.last()
+        out += if (lengths.isEmpty()) {
+            "GOP length (frames): no complete GOP (last GOP open: $open frames)"
+        } else {
+            f("GOP length (frames): min/mean/max %.1f/%.1f/%.1f over %d GOPs (last GOP open: %d frames)",
+                lengths.min().toDouble(), lengths.average(), lengths.max().toDouble(), lengths.size, open)
+        }
+    }
+    val bySize = listOf('I', 'P', 'B').mapNotNull { t -> sizeStats(t.toString(), sorted.filter { it.type == t }.map { it.sizeBytes }) }
+    if (bySize.isNotEmpty()) out += "frame size by type (bytes min/mean/max): " + bySize.joinToString(" · ")
+    if (n >= 2) {
+        val first = sorted.first().ptsSeconds
+        val span = sorted.last().ptsSeconds - first
+        val duration = span * n / (n - 1)
+        if (duration > 0.0) {
+            val bytes = sorted.sumOf { it.sizeBytes.toLong() }
+            out += f("average bitrate %.1f kbps over %.3f s", bytes * 8.0 / duration / 1000.0, duration)
+            val b = minOf(60, n)
+            val sums = DoubleArray(b)
+            sorted.forEach { fr ->
+                val i = (((fr.ptsSeconds - first) / duration) * b).toInt().coerceIn(0, b - 1)
+                sums[i] += fr.sizeBytes.toDouble()
+            }
+            val bucketLen = duration / b
+            val points = List(b) { SeriesPoint(first + (it + 0.5) * bucketLen, sums[it] * 8.0 / bucketLen / 1000.0) }
+            out += "trend:"
+            out += renderSeries("bitrate", "kbps", "s", points, buckets = 60)
+        }
+    }
+    return out.joinToString("\n")
+}
+
+// ---- Audio waveform ----
+
+private const val CLIP_THRESHOLD = 0.999f
+private const val SILENCE_LINEAR = 0.001f
+private const val MIN_SILENCE_SECONDS = 0.5
+private const val MAX_LISTED_SPANS = 10
+
+private fun dbfs(amp: Float): Double = if (amp <= 0f) -120.0 else maxOf(-120.0, 20.0 * Math.log10(amp.toDouble()))
+
+fun renderAudioReport(data: AudioWaveformData): String {
+    val peaks = data.peaks
+    val buckets = peaks.bucketCount
+    val dur = data.durationSeconds
+    val bucketSec = if (buckets > 0) dur / buckets else 0.0
+    val out = mutableListOf(
+        f("channels %d · duration %.3f s · buckets %d (%.1f ms each) · peak-only (min/max per bucket); RMS/loudness not available",
+            peaks.channelCount, dur, buckets, bucketSec * 1000.0))
+    val trends = mutableListOf<String>()
+    peaks.channels.forEachIndexed { c, ch ->
+        val n = minOf(buckets, ch.min.size, ch.max.size)
+        val amp = FloatArray(n) { maxOf(Math.abs(ch.min[it]), Math.abs(ch.max[it])) }
+        val peak = if (n == 0) 0f else amp.max()
+        val clipped = amp.indices.filter { amp[it] >= CLIP_THRESHOLD }
+        val silent = mutableListOf<Pair<Double, Double>>()
+        var i = 0
+        while (i < n) {
+            if (amp[i] < SILENCE_LINEAR) {
+                var j = i
+                while (j + 1 < n && amp[j + 1] < SILENCE_LINEAR) j++
+                val start = i * bucketSec
+                val end = (j + 1) * bucketSec
+                if (end - start >= MIN_SILENCE_SECONDS) silent += start to end
+                i = j + 1
+            } else i++
+        }
+        val clipText = if (clipped.isEmpty()) "clipped buckets 0"
+        else f("clipped buckets %d (first at %s s)", clipped.size,
+            clipped.take(MAX_LISTED_SPANS).joinToString(", ") { f("%.3f", it * bucketSec) })
+        val silentText = f("silent spans ≥0.5 s below −60 dBFS: %d", silent.size) +
+            if (silent.isEmpty()) "" else " (" + silent.take(MAX_LISTED_SPANS).joinToString(", ") { f("%.3f–%.3f", it.first, it.second) } + " s)"
+        out += f("channel %d: peak %.1f dBFS · ", c, dbfs(peak)) + clipText + " · " + silentText
+        renderSeriesOrNull("channel $c peak", "dBFS", "s",
+            List(n) { SeriesPoint((it + 0.5) * bucketSec, dbfs(amp[it])) })?.let { trends += it }
+    }
+    if (trends.isNotEmpty()) {
+        out += "trend:"
+        out += trends
+    }
     return out.joinToString("\n")
 }
