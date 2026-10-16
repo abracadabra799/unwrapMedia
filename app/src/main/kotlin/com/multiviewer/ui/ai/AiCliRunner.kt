@@ -7,6 +7,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.util.concurrent.TimeUnit
 
 enum class AiFailure { AUTH_REQUIRED, EXIT_ERROR, EMPTY_OUTPUT, LAUNCH_FAILED }
@@ -66,13 +67,44 @@ fun cleanStaleAiWorkDirs(
     olderThanMillis: Long = 60 * 60 * 1000L,
     now: Long = System.currentTimeMillis(),
 ): Int {
-    val candidates = tempDir.listFiles { f -> f.isDirectory && f.name.startsWith(AI_WORK_DIR_PREFIX) } ?: return 0
+    // NOFOLLOW_LINKS throughout: a symlink named like a work dir is not ours, and a link inside one must be
+    // removed itself, never followed (its target could be anything on the machine).
+    val candidates = tempDir.listFiles { f ->
+        f.name.startsWith(AI_WORK_DIR_PREFIX) && Files.isDirectory(f.toPath(), LinkOption.NOFOLLOW_LINKS)
+    } ?: return 0
     var removed = 0
     for (dir in candidates) {
-        val newest = dir.walkTopDown().maxOfOrNull { it.lastModified() } ?: dir.lastModified()
-        if (now - newest >= olderThanMillis && dir.deleteRecursively()) removed++
+        val newest = try {
+            Files.walk(dir.toPath()).use { paths ->
+                paths.mapToLong { Files.getLastModifiedTime(it, LinkOption.NOFOLLOW_LINKS).toMillis() }.max().orElse(0L)
+            }
+        } catch (e: java.io.IOException) {
+            continue
+        } catch (e: java.io.UncheckedIOException) {
+            continue
+        }
+        if (now - newest >= olderThanMillis && deleteTreeNoFollow(dir)) removed++
     }
     return removed
+}
+
+/** Deletes [root] and everything under it without following symbolic links: a link is removed, never its target. */
+internal fun deleteTreeNoFollow(root: File): Boolean {
+    val start = root.toPath()
+    if (!Files.exists(start, LinkOption.NOFOLLOW_LINKS)) return true
+    return try {
+        Files.walkFileTree(start, object : java.nio.file.SimpleFileVisitor<java.nio.file.Path>() {
+            override fun visitFile(file: java.nio.file.Path, attrs: java.nio.file.attribute.BasicFileAttributes) =
+                java.nio.file.FileVisitResult.CONTINUE.also { Files.deleteIfExists(file) }
+            override fun visitFileFailed(file: java.nio.file.Path, exc: java.io.IOException) =
+                java.nio.file.FileVisitResult.CONTINUE.also { Files.deleteIfExists(file) }
+            override fun postVisitDirectory(dir: java.nio.file.Path, exc: java.io.IOException?) =
+                java.nio.file.FileVisitResult.CONTINUE.also { Files.deleteIfExists(dir) }
+        })
+        !Files.exists(start, LinkOption.NOFOLLOW_LINKS)
+    } catch (e: java.io.IOException) {
+        false
+    }
 }
 
 /**
@@ -180,7 +212,7 @@ suspend fun runAiCli(
         val interrupted = Thread.interrupted()
         try {
             var attempt = 0
-            while (!workDir.deleteRecursively() && attempt < 5) Thread.sleep(100L * ++attempt)
+            while (!deleteTreeNoFollow(workDir) && attempt < 5) Thread.sleep(100L * ++attempt)
         } catch (_: InterruptedException) {
         } finally {
             if (interrupted) Thread.currentThread().interrupt()

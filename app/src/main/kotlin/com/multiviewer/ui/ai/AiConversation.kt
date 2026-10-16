@@ -32,7 +32,7 @@ data class AiActivity(val timestampMillis: Long, val text: String)
 const val AI_FULL_DETAIL_RUNS = 10
 /** Activity log entries kept per tab. */
 const val AI_MAX_ACTIVITY = 200
-private const val MAX_STUB_OFFSETS = 40
+private const val MAX_STUB_OFFSETS = 200
 private val HEX_OFFSET = Regex("\\b0x[0-9A-Fa-f]{1,12}\\b")
 
 // A long session would otherwise hold every sent context (~24 k chars) and every tool round (up to 15 × 8 k)

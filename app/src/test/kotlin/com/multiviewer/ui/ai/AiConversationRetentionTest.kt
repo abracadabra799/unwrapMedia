@@ -73,4 +73,27 @@ class AiConversationRetentionTest {
             tmp.deleteRecursively()
         }
     }
+
+    @Test
+    fun `deleting a work dir never follows a symlink out of it`() {
+        val tmp = Files.createTempDirectory("ai-link").toFile()
+        try {
+            val outside = File(tmp, "outside").apply { mkdirs() }
+            val precious = File(outside, "keep.txt").apply { writeText("keep") }
+            val work = File(tmp, "unwrapmedia-ai-333").apply { mkdirs() }
+            Files.createSymbolicLink(File(work, "link").toPath(), outside.toPath())
+            assertTrue(deleteTreeNoFollow(work))
+            assertFalse(work.exists())
+            assertTrue(precious.exists(), "symlink target was deleted")
+            // The sweep uses the same delete.
+            val stale = File(tmp, "unwrapmedia-ai-444").apply { mkdirs() }
+            Files.createSymbolicLink(File(stale, "link").toPath(), outside.toPath())
+            // The link's own mtime is fresh and can't portably be set; judge staleness from "two hours later".
+            cleanStaleAiWorkDirs(tmp, olderThanMillis = 60 * 60 * 1000L, now = System.currentTimeMillis() + 2 * 60 * 60 * 1000L)
+            assertFalse(stale.exists())
+            assertTrue(precious.exists(), "sweep followed the symlink")
+        } finally {
+            tmp.deleteRecursively()
+        }
+    }
 }
