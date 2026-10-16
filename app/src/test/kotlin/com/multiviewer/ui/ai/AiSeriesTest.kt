@@ -16,10 +16,10 @@ class AiSeriesTest {
         val pts = listOf(1.0, 5.0, 3.0, 2.0, 4.0).mapIndexed { i, y -> SeriesPoint(i.toDouble(), y) }
         val lines = renderSeries("T", "ms", "s", pts).lines()
         assertEquals("T (ms) over s, 5 points:", lines[0])
-        assertEquals("  0.000: 1.000", lines[1])
-        assertEquals("  4.000: 4.000", lines[5])
-        assertTrue(lines[6].startsWith("  largest: 1.000=5.000, "), lines[6])
-        assertEquals("  overall: min 1.000 · mean 3.000 · max 5.000", lines[7])
+        assertEquals("  overall: min 1.000 · mean 3.000 · max 5.000", lines[1])
+        assertTrue(lines[2].startsWith("  largest: 1.000=5.000, "), lines[2])
+        assertEquals("  0.000: 1.000", lines[3])
+        assertEquals("  4.000: 4.000", lines[7])
         assertEquals(8, lines.size)
     }
 
@@ -53,5 +53,34 @@ class AiSeriesTest {
         assertTrue(out.contains("1 points"), out)
         assertFalse(out.contains("NaN") || out.contains("Infinity"), out)
         assertEquals("T: no data", renderSeries("T", "", "s", listOf(SeriesPoint(0.0, Double.NaN))))
+    }
+
+    @Test
+    fun `summary lines come before bucket lines`() {
+        val pts = (0 until 500).map { SeriesPoint(it.toDouble(), (it % 7).toDouble()) }
+        val lines = renderSeries("T", "ms", "s", pts, buckets = 10).lines()
+        val overall = lines.indexOfFirst { it.trim().startsWith("overall:") }
+        val largest = lines.indexOfFirst { it.trim().startsWith("largest:") }
+        val firstBucket = lines.indexOfFirst { it.contains("min ") && it.contains("mean ") && !it.trim().startsWith("overall:") }
+        assertEquals(1, overall, lines.toString())
+        assertEquals(2, largest, lines.toString())
+        assertEquals(3, firstBucket, lines.toString())
+    }
+
+    @Test
+    fun `x values are frame precise with three decimals`() {
+        val few = renderSeries("T", "ms", "s", listOf(SeriesPoint(123.4567, 9.0), SeriesPoint(124.0, 1.0)))
+        assertTrue(few.contains("  123.457: 9.000"), few)
+        assertTrue(few.contains("largest: 123.457=9.000"), few)
+        val many = renderSeries("T", "ms", "s", (0 until 100).map { SeriesPoint(123.4567 + it, it.toDouble()) }, buckets = 5)
+        assertTrue(many.contains("123.457–"), many)
+        assertFalse(many.contains("123.5"), many)
+    }
+
+    @Test
+    fun `empty unit leaves no parentheses in the header`() {
+        val out = renderSeries("T", "", "s", listOf(SeriesPoint(0.0, 1.0)))
+        assertEquals("T over s, 1 points:", out.lines().first())
+        assertFalse(out.contains("()"), out)
     }
 }

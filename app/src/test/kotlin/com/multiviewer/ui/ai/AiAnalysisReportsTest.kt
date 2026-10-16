@@ -469,7 +469,8 @@ class AiAnalysisReportsTest {
         )
         val out = renderTimedReport(r)
         assertTrue(out.contains("trend:"), out)
-        assertTrue(out.contains("GYRO magnitude ( ) over s, 2 points:") || out.contains("GYRO magnitude () over s, 2 points:"), out)
+        assertTrue(out.contains("GYRO magnitude over s, 2 points:"), out)
+        assertFalse(out.contains("()"), out)
         assertFalse(out.contains("GPS magnitude") || out.contains("GENERIC magnitude"), out)
         assertAbsent(out, "37.5665", "126.978", "12.3456", "7.7777")
     }
@@ -489,5 +490,63 @@ class AiAnalysisReportsTest {
         )
         assertTrue(out.contains("trend:"), out)
         assertTrue(out.contains("A/V skew (ms) over s, 2 points:"), out)
+    }
+
+    private fun bucketLines(out: String, title: String): Int =
+        out.lines().dropWhile { !it.startsWith(title) }.drop(1).takeWhile { it.startsWith("  ") }
+            .count { !it.trim().startsWith("overall:") && !it.trim().startsWith("largest:") }
+
+    private fun cll(v: Int) = MetadataUnit(
+        MetadataSource.HEVC_PREFIX_SEI, 144, "cll", 0, 1, 1, DecodedMetadata.LightLevel(ContentLightLevel(v, 400)),
+    )
+
+    private fun bigHdr(n: Int) = HdrScanResult(
+        VideoCodec.HEVC,
+        (0 until n).map { FrameHdrRecord(it, it, it / 30.0, it == 0, listOf(plus(1000 + it % 3000, 1000), cll(500 + it % 500))) },
+        ContainerHdrStatic(null, null), emptyList(),
+    )
+
+    @Test
+    fun `hdr report with two series uses at most 30 buckets each`() {
+        val out = renderHdrReport(bigHdr(10_000), file)
+        assertTrue(bucketLines(out, "HDR10+ targeted max luminance") in 1..30, out)
+        assertTrue(bucketLines(out, "SEI MaxCLL") in 1..30, out)
+    }
+
+    @Test
+    fun `hdr report with 10000 records keeps both overall lines inside the 8000 char bridge limit`() {
+        val out = renderHdrReport(bigHdr(10_000), file)
+        val head = out.take(8000)
+        val overalls = Regex("(?m)^  overall:").findAll(head).count()
+        assertEquals(2, overalls, "length ${out.length}\n$out")
+    }
+
+    @Test
+    fun `timed report with three sensor types uses at most 30 buckets each`() {
+        val samples = SensorType.entries.filter { it == SensorType.GYRO || it == SensorType.ACCEL || it == SensorType.ORIENTATION }
+            .flatMap { t -> (0 until 500).map { SensorSamplePoint(it, it / 100.0, t, it * 0.01, 0.2, 0.3) } }
+        val out = renderTimedReport(TimedMetadataReport(3, "camm", samples.size, 5.0, 100.0, samples))
+        for (t in listOf("GYRO", "ACCEL", "ORIENTATION")) assertTrue(bucketLines(out, "$t magnitude") in 1..30, out)
+    }
+
+    @Test
+    fun `single series keeps 60 buckets`() {
+        val records = (0 until 1000).map { FrameHdrRecord(it, it, it / 30.0, it == 0, listOf(plus(1000 + it, 1000))) }
+        val out = renderHdrReport(HdrScanResult(VideoCodec.HEVC, records, ContainerHdrStatic(null, null), emptyList()), file)
+        assertEquals(60, bucketLines(out, "HDR10+ targeted max luminance"), out)
+    }
+
+    @Test
+    fun `reports whose only series is empty have no trend line`() {
+        val hrd = renderHrdReport(HrdSimulationReport(1000, 1000, 0.1, 0, 0.0, 0.0, 0.0, 0, emptyList(), emptyList(), emptyList()))
+        assertFalse(hrd.contains("trend:"), hrd)
+        assertFalse(hrd.contains("no data"), hrd)
+        val av = renderAvSyncReport(AvSyncReport(file, true, true, 10.0, 9.5, 0.5, 20.0, 40.0, 10.0, 25.0, 1.5, emptyList(), emptyList(), SyncSeverity.WARNING))
+        assertFalse(av.contains("trend:"), av)
+        assertFalse(av.contains("no data"), av)
+        val hdr = renderHdrReport(HdrScanResult(VideoCodec.HEVC, emptyList(), ContainerHdrStatic(null, null), emptyList()), file)
+        assertFalse(hdr.contains("trend:"), hdr)
+        val timed = renderTimedReport(TimedMetadataReport(3, "camm", 0, 1.0, 1.0, emptyList()))
+        assertFalse(timed.contains("trend:"), timed)
     }
 }

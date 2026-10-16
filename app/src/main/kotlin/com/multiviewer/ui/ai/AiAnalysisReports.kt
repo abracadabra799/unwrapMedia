@@ -120,11 +120,12 @@ fun renderHdrReport(r: HdrScanResult, file: File): String {
     }
     section(out, "anomalies (default thresholds):", anomalies)
     section(out, "warnings:", r.warnings.map { "- " + clean(it, file) })
+    val lumPts = r.records.mapNotNull { rec -> rec.hdr10Plus?.let { SeriesPoint(rec.ptsSeconds, it.targetedSystemDisplayMaximumLuminance.toDouble()) } }
+    val cllPts = r.records.mapNotNull { rec -> rec.contentLightLevel?.let { SeriesPoint(rec.ptsSeconds, it.maxCll.toDouble()) } }
+    val buckets = if (lumPts.isNotEmpty() && cllPts.isNotEmpty()) 30 else 60
     val trends = listOfNotNull(
-        r.records.mapNotNull { rec -> rec.hdr10Plus?.let { SeriesPoint(rec.ptsSeconds, it.targetedSystemDisplayMaximumLuminance.toDouble()) } }
-            .takeIf { it.isNotEmpty() }?.let { renderSeries("HDR10+ targeted max luminance", "nits", "s", it) },
-        r.records.mapNotNull { rec -> rec.contentLightLevel?.let { SeriesPoint(rec.ptsSeconds, it.maxCll.toDouble()) } }
-            .takeIf { it.isNotEmpty() }?.let { renderSeries("SEI MaxCLL", "nits", "s", it) },
+        renderSeriesOrNull("HDR10+ targeted max luminance", "nits", "s", lumPts, buckets),
+        renderSeriesOrNull("SEI MaxCLL", "nits", "s", cllPts, buckets),
     )
     if (trends.isNotEmpty()) { out += "trend:"; out += trends }
     return out.joinToString("\n")
@@ -138,8 +139,9 @@ fun renderHrdReport(r: HrdSimulationReport): String {
     out += f("occupancy min/avg/max %.2f/%.2f/%.2f %%", r.minOccupancyPercent, r.avgOccupancyPercent, r.maxOccupancyPercent)
     out += "underflows ${r.underflowCount}" + if (r.underflowFrames.isEmpty()) "" else ": frames ${capJoin(r.underflowFrames)}"
     out += if (r.warningFrames.isEmpty()) "warnings at frames: none" else "warnings at frames ${capJoin(r.warningFrames)}"
-    out += "trend:"
-    out += renderSeries("buffer occupancy", "%", "s", r.points.map { SeriesPoint(it.dtsSeconds, it.occupancyPercent) })
+    renderSeriesOrNull("buffer occupancy", "%", "s", r.points.map { SeriesPoint(it.dtsSeconds, it.occupancyPercent) })?.let {
+        out += "trend:"; out += it
+    }
     return out.joinToString("\n")
 }
 
@@ -158,8 +160,9 @@ fun renderIntervalReport(frames: List<FrameInfo>): String {
     intervals.sortedByDescending { it.intervalMs }.take(MAX_LARGEST_GAPS).forEach {
         out += f("  #%d %s PTS %.6f s: %.3f ms (Δ %+.3f ms)", it.frameIndex, it.type, it.ptsSeconds, it.intervalMs, it.intervalDiffMs)
     }
-    out += "trend:"
-    out += renderSeries("frame interval", "ms", "s", intervals.map { SeriesPoint(it.ptsSeconds, it.intervalMs) })
+    renderSeriesOrNull("frame interval", "ms", "s", intervals.map { SeriesPoint(it.ptsSeconds, it.intervalMs) })?.let {
+        out += "trend:"; out += it
+    }
     return out.joinToString("\n")
 }
 
@@ -186,9 +189,11 @@ fun renderTimedReport(r: TimedMetadataReport): String {
         }
     }
     // Sample labels are free text and are not sent. GPS/GENERIC values never enter a trend either.
-    val trends = SensorType.entries.filter { it != SensorType.GPS && it != SensorType.GENERIC }.mapNotNull { type ->
+    val trendTypes = SensorType.entries.filter { it != SensorType.GPS && it != SensorType.GENERIC && byType[it] != null }
+    val buckets = if (trendTypes.size > 1) 30 else 60
+    val trends = trendTypes.mapNotNull { type ->
         byType[type]?.let { pts ->
-            renderSeries("$type magnitude", "", "s", pts.map { SeriesPoint(it.timestampSeconds, sqrt(it.x * it.x + it.y * it.y + it.z * it.z)) })
+            renderSeriesOrNull("$type magnitude", "", "s", pts.map { SeriesPoint(it.timestampSeconds, sqrt(it.x * it.x + it.y * it.y + it.z * it.z)) }, buckets)
         }
     }
     if (trends.isNotEmpty()) { out += "trend:"; out += trends }
@@ -197,12 +202,13 @@ fun renderTimedReport(r: TimedMetadataReport): String {
 
 // ---- A/V sync ----
 
-fun renderAvSyncReport(r: com.multiviewer.ui.AvSyncReport): String =
-    "video ${r.videoDurationSec} s, audio ${r.audioDurationSec} s, initial skew ${r.initialSkewMs} ms, " +
+fun renderAvSyncReport(r: com.multiviewer.ui.AvSyncReport): String {
+    val head = "video ${r.videoDurationSec} s, audio ${r.audioDurationSec} s, initial skew ${r.initialSkewMs} ms, " +
         "max ${r.maxSkewMs} ms, avg ${r.avgSkewMs} ms, drift ${r.driftRateMsPerMin} ms/min; " +
-        r.diagnoses.take(10).joinToString("; ") { "[${it.severity}] ${it.category}: ${it.summary}" } +
-        "\ntrend:\n" +
-        renderSeries("A/V skew", "ms", "s", r.syncPoints.map { SeriesPoint(it.timeSeconds, it.deltaMs) })
+        r.diagnoses.take(10).joinToString("; ") { "[${it.severity}] ${it.category}: ${it.summary}" }
+    val trend = renderSeriesOrNull("A/V skew", "ms", "s", r.syncPoints.map { SeriesPoint(it.timeSeconds, it.deltaMs) })
+    return if (trend == null) head else "$head\ntrend:\n$trend"
+}
 
 // ---- Spatial video ----
 
