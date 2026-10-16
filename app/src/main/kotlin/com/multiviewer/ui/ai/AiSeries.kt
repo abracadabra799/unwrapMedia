@@ -40,7 +40,7 @@ fun renderSeriesOrNull(
     val all = pts.map { it.y }
     out += "  overall: min ${num(all.min())} · mean ${num(all.average())} · max ${num(all.max())}"
     val top = pts.sortedByDescending { it.y }.take(spikes.coerceAtLeast(0))
-    if (top.isNotEmpty()) out += "  largest: " + top.joinToString(", ") { "${xNum(it.x)}=${num(it.y)}" }
+    if (spikes > 0 && top.isNotEmpty()) out += "  largest: " + top.joinToString(", ") { "${xNum(it.x)}=${num(it.y)}" }
     val b = buckets.coerceAtLeast(1)
     if (n <= b) {
         pts.forEach { out += "  ${xNum(it.x)}: ${num(it.y)}" }

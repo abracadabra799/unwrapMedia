@@ -484,11 +484,19 @@ fun renderAudioReport(data: AudioWaveformData): String {
 
 private const val QUALITY_WORST_FRAMES = 10
 
-/** Per pair and metric: statistics, the worst frames (lowest values first) and the per-frame trend. File names only. */
+/**
+ * Summary first, then trends (the tool bridge truncates from the end): every pair with, per metric, statistics and the
+ * worst frames (lowest first); then one trend series per pair x metric. Trend buckets scale with the series count:
+ * `buckets = max(8, 60 / seriesCount)` (integer division), e.g. 1 series 60, 3 series 20, 9 series 8. File names only.
+ * No "largest" values: for quality metrics those are the best frames.
+ */
 fun renderQualityReport(c: StoredComparison): String {
     fun role(f: File) = c.files.entries.firstOrNull { it.value.absolutePath == f.absolutePath }?.key ?: "?"
     fun name(f: File) = scrubPaths(f.name, f)
     val out = mutableListOf<String>()
+    if (c.missing.isNotEmpty()) out += "incomplete: " + c.missing.joinToString(", ")
+    val seriesCount = c.results.values.sumOf { it.size }
+    val buckets = maxOf(8, 60 / maxOf(1, seriesCount))
     c.results.forEach { (pairLabel, metrics) ->
         val pair = c.pairs.firstOrNull { it.label == pairLabel }
         out += if (pair != null) {
@@ -500,10 +508,18 @@ fun renderQualityReport(c: StoredComparison): String {
                 .joinToString(", ") { f("#%d=%.3f", it.frameIndex, it.value) }
             out += f("  %s: min %.3f / mean %.3f / median %.3f / max %.3f · worst frames: %s", metric, st.min, st.mean, st.median, st.max,
                 worst.ifEmpty { "none" })
-            out += "  trend:"
-            out += renderSeries(metric, "", "frame", r.perFrame.map { SeriesPoint(it.frameIndex.toDouble(), it.value) }, buckets = 30)
-                .lines().joinToString("\n") { "  $it" }
         }
+    }
+    val trends = mutableListOf<String>()
+    c.results.forEach { (pairLabel, metrics) ->
+        metrics.forEach { (metric, r) ->
+            renderSeriesOrNull("$pairLabel $metric", "", "frame", r.perFrame.map { SeriesPoint(it.frameIndex.toDouble(), it.value) },
+                buckets = buckets, spikes = 0)?.let { trends += it }
+        }
+    }
+    if (trends.isNotEmpty()) {
+        out += "trend:"
+        out += trends
     }
     return out.joinToString("\n")
 }

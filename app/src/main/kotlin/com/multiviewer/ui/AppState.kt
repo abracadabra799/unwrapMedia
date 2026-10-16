@@ -1032,6 +1032,8 @@ data class StoredComparison(
     /** pair label -> metric -> result, as the window holds them. */
     val results: Map<String, Map<String, MetricRunResult>>,
     val pairs: List<ComparisonPair>,
+    /** "pair metric" combinations that produced no result (failed passes), so the run is known to be incomplete. */
+    val missing: List<String> = emptyList(),
 ) {
     /** Blocking stat: call off the UI thread. */
     fun currentFor(file: File): Boolean = files.values.any { it.absolutePath == file.absolutePath } &&

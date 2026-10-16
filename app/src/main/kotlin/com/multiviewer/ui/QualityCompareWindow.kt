@@ -167,6 +167,7 @@ fun QualityCompareWindow(appState: AppState? = null, language: AppLanguage = App
             totalFrames = null
             currentPassLabel = null
             results = null
+            appState?.lastQualityComparison = null
             statusMessage = null
             cancelRequested.set(false)
 
@@ -200,18 +201,21 @@ fun QualityCompareWindow(appState: AppState? = null, language: AppLanguage = App
                     }
                 }
 
+                val cancelled = cancelRequested.get()
+                val missing = queue.filter { collected[it.pair.label]?.containsKey(it.metricName) != true }
+                    .map { "${it.pair.label} ${it.metricName}" }
                 EventQueue.invokeLater {
                     isRunning = false
                     currentPassLabel = null
                     statusMessage = when {
-                        cancelRequested.get() -> "취소됨"
+                        cancelled -> "취소됨"
                         collected.isEmpty() -> "측정 실패"
                         else -> null
                     }
                     if (collected.isNotEmpty()) results = collected
                     // A cancelled run's partial results never replace the previous stored comparison.
-                    if (collected.isNotEmpty() && !cancelRequested.get()) {
-                        appState?.lastQualityComparison = StoredComparison(runFiles, identities, collected.mapValues { it.value.toMap() }, runPairs)
+                    if (collected.isNotEmpty() && !cancelled) {
+                        appState?.lastQualityComparison = StoredComparison(runFiles, identities, collected.mapValues { it.value.toMap() }, runPairs, missing)
                     }
                 }
             }

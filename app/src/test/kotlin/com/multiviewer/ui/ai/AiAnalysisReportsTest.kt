@@ -637,4 +637,45 @@ class AiAnalysisReportsTest {
         assertTrue(text.contains("trend:"), text)
         assertFalse(text.contains("/secret"), text)
     }
+
+    private fun qr(n: Int, seed: Int) = com.multiviewer.ui.MetricRunResult(
+        List(n) { com.multiviewer.ui.MetricFrameSample(it, 30.0 + ((it * 7 + seed) % 1000) / 100.0) },
+        com.multiviewer.ui.MetricStatistics(30.0, 40.0, 35.0, 35.0))
+
+    @Test
+    fun `quality report of 3 pairs x 3 metrics stays within the bridge limit and keeps every summary`() {
+        val raw = File("/s/raw.yuv"); val a = File("/s/a.mp4"); val b = File("/s/b.mp4")
+        val metrics = listOf("PSNR", "SSIM", "VMAF")
+        val labels = listOf("Raw vs A", "Raw vs B", "A vs B")
+        val c = com.multiviewer.ui.StoredComparison(
+            mapOf("raw" to raw, "encodedA" to a, "encodedB" to b), emptyMap(),
+            labels.mapIndexed { i, l -> l to metrics.associateWith { qr(5000, i) } }.toMap(),
+            listOf(com.multiviewer.ui.ComparisonPair("rawA", "Raw vs A", a, raw),
+                com.multiviewer.ui.ComparisonPair("rawB", "Raw vs B", b, raw),
+                com.multiviewer.ui.ComparisonPair("AB", "A vs B", b, a)))
+        val text = renderQualityReport(c)
+        assertTrue(text.length <= 8000, "length ${text.length}")
+        val summaryLines = text.lines().filter { it.contains("worst frames:") }
+        assertEquals(9, summaryLines.size, text)
+        labels.forEach { assertTrue(text.contains("pair $it"), text) }
+        assertFalse(text.contains("largest:"), text)
+        assertTrue(text.indexOf("trend:") > text.lastIndexOf("worst frames:"), text)
+    }
+
+    @Test
+    fun `quality report lists incomplete pair metric combinations`() {
+        val c = com.multiviewer.ui.StoredComparison(
+            mapOf("raw" to File("r.yuv")), emptyMap(),
+            mapOf("Raw vs A" to mapOf("PSNR" to qr(5, 0))), emptyList(),
+            missing = listOf("Raw vs A SSIM", "Raw vs B PSNR"))
+        val text = renderQualityReport(c)
+        assertTrue(text.contains("incomplete: Raw vs A SSIM, Raw vs B PSNR"), text)
+    }
+
+    @Test
+    fun `series with zero spikes has no largest line`() {
+        val pts = (0..20).map { SeriesPoint(it.toDouble(), it.toDouble()) }
+        assertFalse(renderSeries("t", "", "x", pts, spikes = 0).contains("largest:"))
+        assertTrue(renderSeries("t", "", "x", pts).contains("largest:"))
+    }
 }
