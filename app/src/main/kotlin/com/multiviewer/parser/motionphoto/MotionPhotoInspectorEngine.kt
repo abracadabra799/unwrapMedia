@@ -496,9 +496,9 @@ object MotionPhotoInspectorEngine {
                             id = "xmp.offset_match",
                             status = CheckStatus.PASS,
                             label = "비디오 시작 오프셋 정확도",
-                            expected = "0x${approxStart.toString(16)} 위치에 ftyp 존재",
+                            expected = "0x${approxStart.toString(16)} (파일 크기: ${root.size} - Length: $declaredLength)",
                             actual = "일치 (0x${approxStart.toString(16)})",
-                            detail = "XMP 선언 길이로 계산된 오프셋에서 정확히 MP4 ftyp 컨테이너를 확인했습니다.",
+                            detail = "공식(파일 크기 ${root.size} - 선언 길이 $declaredLength = 0x${approxStart.toString(16)})으로 계산된 오프셋에서 정확히 MP4 ftyp 컨테이너를 확인했습니다.",
                             offset = approxStart,
                             length = 8L,
                         )
@@ -512,12 +512,12 @@ object MotionPhotoInspectorEngine {
                                 id = "xmp.offset_match",
                                 status = CheckStatus.WARN,
                                 label = "비디오 시작 오프셋 불일치",
-                                expected = "0x${approxStart.toString(16)}",
+                                expected = "0x${approxStart.toString(16)} (공식: ${root.size} - $declaredLength)",
                                 actual = "0x${corrected.toString(16)} (${delta}바이트 편차)",
-                                detail = "선언된 오프셋 위치가 실제 ftyp 시작점과 ${delta}바이트 차이가 납니다 (XMP 길이 부정확).",
+                                detail = "공식(파일 크기 ${root.size} - 선언 길이 $declaredLength = 0x${approxStart.toString(16)})으로 계산된 위치가 실제 ftyp 시작점(0x${corrected.toString(16)})과 ${delta}바이트 차이가 납니다.",
                                 offset = corrected,
                                 length = 8L,
-                                remediation = "선언된 길이로 계산된 오프셋(0x${approxStart.toString(16)})과 실제 ftyp 시작 오프셋(0x${corrected.toString(16)}) 간에 ${delta}바이트 오차가 있습니다. Muxer 완료 후 비디오 실제 시작 오프셋을 측정하여 'Item:Length = file_size - ftyp_offset'으로 XMP를 갱신하십시오.",
+                                remediation = "선언된 길이로 계산된 오프셋(0x${approxStart.toString(16)} = 파일 크기 ${root.size} - 선언 길이 $declaredLength)과 실제 ftyp 시작 오프셋(0x${corrected.toString(16)}) 간에 ${delta}바이트 오차가 있습니다. Muxer 완료 후 비디오 실제 시작 오프셋을 측정하여 'Item:Length = file_size - ftyp_offset'으로 XMP를 갱신하십시오.",
                             )
                         )
                     } else {
@@ -526,9 +526,9 @@ object MotionPhotoInspectorEngine {
                                 id = "xmp.offset_match",
                                 status = CheckStatus.FAIL,
                                 label = "비디오 시작 오프셋 확인",
-                                expected = "0x${approxStart.toString(16)} 근방 ftyp",
+                                expected = "0x${approxStart.toString(16)} (공식: ${root.size} - $declaredLength 근방 ftyp)",
                                 actual = "ftyp 미발견",
-                                detail = "선언된 비디오 위치에서 유효한 MP4 헤더를 찾지 못했습니다.",
+                                detail = "공식(파일 크기 ${root.size} - 선언 길이 $declaredLength = 0x${approxStart.toString(16)}) 위치 근방에서 유효한 MP4 ftyp 헤더를 찾지 못했습니다.",
                                 remediation = "선언된 위치에서 MP4 ftyp 헤더를 찾을 수 없습니다. 정지 이미지 파일 끝(EOF)에 MP4 비디오가 누락 없이 올바르게 결합되었는지 확인하십시오.",
                             )
                         )
