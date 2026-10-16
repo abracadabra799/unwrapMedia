@@ -19,7 +19,7 @@ class AiToolBridgeTest {
     private val child = BoxNode("moov", 100, 8, 400, fields = listOf(BoxField("GPSLatitude", "37.5", 110, 4), BoxField("version", "0", 108, 1)))
     private val root = BoxNode("root", 0, 0, 10_000, listOf(BoxNode("ftyp", 0, 8, 100), child))
     private fun ctx() = AiToolContext(file, root, ContentFileIdentity.capture(file), contentCheckText = "CHECK TEXT",
-        frames = listOf(FrameInfo(0, 'I', 500, 0.0, 9_000), FrameInfo(1, 'P', 120, 0.033, 9_500)), reports = mapOf(AiReportKind.AVSYNC to AiReportSource.Ready("skew 12 ms")))
+        frames = { listOf(FrameInfo(0, 'I', 500, 0.0, 9_000), FrameInfo(1, 'P', 120, 0.033, 9_500)) }, reports = mapOf(AiReportKind.AVSYNC to AiReportSource.Ready("skew 12 ms")))
 
     @AfterTest
     fun cleanup() { dir.deleteRecursively() }
@@ -131,7 +131,7 @@ class AiToolBridgeTest {
         val gps = BoxNode("GPS IFD", 200, 2, 40, fields = listOf(BoxField("GPSLatitude", "37.5", 210, 8)))
         val text = BoxNode("tEXt", 300, 8, 30, fields = listOf(BoxField("keyword", "Author", 308, 6), BoxField("text", "Kim", 315, 3)))
         val tree = BoxNode("root", 0, 0, 10_000, listOf(BoxNode("ftyp", 0, 8, 100), BoxNode("free", 100, 8, 100), gps, text))
-        val context = AiToolContext(file, tree, ContentFileIdentity.capture(file), null, null, emptyMap())
+        val context = AiToolContext(file, tree, ContentFileIdentity.capture(file), null, { null }, emptyMap())
         val dump = executeToolRequest(AiToolRequest.Hex(192, 64), context).text
         // bytes 192..199 are visible, 200..239 (GPS IFD node) are masked
         assertTrue(dump.contains("C0 C1 C2 C3"), dump)
@@ -145,7 +145,7 @@ class AiToolBridgeTest {
     fun `node parser warnings are path-scrubbed`() {
         val warned = BoxNode("moov", 100, 8, 400, warnings = listOf("cannot read ${file.absolutePath}"))
         val tree = BoxNode("root", 0, 0, 10_000, listOf(warned))
-        val text = executeToolRequest(AiToolRequest.Node(0x70), AiToolContext(file, tree, ContentFileIdentity.capture(file), null, null, emptyMap())).text
+        val text = executeToolRequest(AiToolRequest.Node(0x70), AiToolContext(file, tree, ContentFileIdentity.capture(file), null, { null }, emptyMap())).text
         assertFalse(text.contains(dir.absolutePath), text)
     }
 
@@ -161,7 +161,7 @@ class AiToolBridgeTest {
 
     @Test
     fun `hex refuses without a tree and withholds bytes no parsed node accounts for`() {
-        val noTree = AiToolContext(file, null, ContentFileIdentity.capture(file), null, null, emptyMap())
+        val noTree = AiToolContext(file, null, ContentFileIdentity.capture(file), null, { null }, emptyMap())
         assertFalse(executeToolRequest(AiToolRequest.Hex(0, 16), noTree).ok)
 
         // Children cover 0..100 and 100..500; 500..10000 is an unparsed tail.
@@ -175,7 +175,7 @@ class AiToolBridgeTest {
         val sef = BoxNode("sefd", 600, 0, 100, listOf(BoxNode("Image_UTC_Data", 600, 24, 40)))
         val ilst = BoxNode("ilst", 700, 8, 60, listOf(BoxNode("©ART", 708, 8, 30)))
         val tree = BoxNode("root", 0, 0, 10_000, listOf(BoxNode("a", 0, 8, 600), sef, ilst, BoxNode("b", 760, 8, 9_240)))
-        val context = AiToolContext(file, tree, ContentFileIdentity.capture(file), null, null, emptyMap())
+        val context = AiToolContext(file, tree, ContentFileIdentity.capture(file), null, { null }, emptyMap())
         for ((offset, len) in listOf(610L to 8L, 712L to 8L)) {
             val bytes = executeToolRequest(AiToolRequest.Hex(offset, len), context).text.lines()
                 .filter { it.startsWith("0x") }.flatMap { it.substringAfter(": ").split(" ") }
@@ -190,12 +190,38 @@ class AiToolBridgeTest {
         val name = BoxNode("data", 712, 8, 20, fields = listOf(BoxField("value", "Kim's trip", 720, 10)))
         val udta = BoxNode("udta", 700, 8, 60, listOf(BoxNode("©nam", 708, 8, 30, listOf(name))))
         val tree = BoxNode("root", 0, 0, 10_000, listOf(BoxNode("a", 0, 8, 600), sef, udta, BoxNode("b", 760, 8, 9_240)))
-        val context = AiToolContext(file, tree, ContentFileIdentity.capture(file), null, null, emptyMap())
+        val context = AiToolContext(file, tree, ContentFileIdentity.capture(file), null, { null }, emptyMap())
         val sefText = executeToolRequest(AiToolRequest.Node(630), context).text
         assertFalse(sefText.contains("1739512345678") || sefText.contains("2026-02-14"), sefText)
         val udtaText = executeToolRequest(AiToolRequest.Node(722), context).text
         assertFalse(udtaText.contains("Kim's trip"), udtaText)
         val snapshot = captureAiContext(file, tree, com.multiviewer.ui.MediaType.VIDEO, name, null, null, null, ContentFileIdentity.capture(file), null)
         assertFalse(renderAiContext(snapshot).contains("Kim's trip"))
+    }
+
+    @Test
+    fun `a frame request after an auto-run gop report sees the probed frames`() {
+        val autoRun = AiAutoRunState(null)
+        val probed = List(3) { FrameInfo(it, if (it == 0) 'I' else 'P', 100, it / 30.0, 1_000L + it) }
+        val inputs = AiReportInputs(file, root, com.multiviewer.ui.MediaType.VIDEO, null, null, null, null, null, null, null)
+        val reports = aiReportSources(inputs, { _, en -> en }, autoRun = autoRun, hooks = AiAutoRunHooks(probeFrames = { probed }))
+        val context = AiToolContext(file, root, ContentFileIdentity.capture(file), null, { autoRun.frames.get() }, reports)
+        assertFalse(executeToolRequest(AiToolRequest.Frame(1), context).ok)
+        val gop = executeToolRequest(AiToolRequest.Report("gop"), context)
+        assertTrue(gop.ok && gop.text.contains("frames 3"), gop.text)
+        val frame = executeToolRequest(AiToolRequest.Frame(1), context)
+        assertTrue(frame.ok, frame.text)
+        assertTrue(frame.text.contains("#1 P"), frame.text)
+    }
+
+    @Test
+    fun `the bridge honours an on-request report's own timeout`() {
+        val slow = AiReportSource.OnRequest(timeoutSeconds = 1) { Thread.sleep(5_000); "late" }
+        val context = AiToolContext(file, root, ContentFileIdentity.capture(file), null, { null }, mapOf(AiReportKind.GOP to slow))
+        val started = System.nanoTime()
+        val r = executeToolRequest(AiToolRequest.Report("gop"), context)
+        assertFalse(r.ok)
+        assertTrue(r.text.contains("timed out after 1 s"), r.text)
+        assertTrue(System.nanoTime() - started < 4_000_000_000L)
     }
 }

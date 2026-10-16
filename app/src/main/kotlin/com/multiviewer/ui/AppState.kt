@@ -327,6 +327,8 @@ class TabState(val file: File) {
     var aiImageChecking: Boolean by mutableStateOf(false)
     // True while AiChatController decodes a video tab's selected frame for a send.
     var aiFrameDecoding: Boolean by mutableStateOf(false)
+    // AI auto-run in progress: the analysis label (e.g. "frame analysis") while a report runs it, else null.
+    var aiAutoRunning: String? by mutableStateOf(null)
     var aiViewport: com.multiviewer.ui.ai.ImageRegion? by mutableStateOf(null)
     var aiPointer: com.multiviewer.ui.ai.ImagePoint? by mutableStateOf(null)
     var aiMarked: com.multiviewer.ui.ai.ImageRegion? by mutableStateOf(null)

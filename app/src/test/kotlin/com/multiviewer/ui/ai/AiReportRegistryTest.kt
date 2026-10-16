@@ -91,27 +91,31 @@ class AiReportRegistryTest {
     }
 
     @Test
-    fun `a stored HDR result is ready while current, stale once the file changes, and points at the menu when missing`() {
+    fun `a stored HDR result is ready while current, a stale or missing one runs the scan on request`() {
         val stored = StoredAnalysis(hdrResult, ContentFileIdentity.capture(file))
         assertIs<AiReportSource.Ready>(aiReportSources(inputs(MediaType.VIDEO, hdr = stored), label)[AiReportKind.HDR])
 
         file.writeBytes(ByteArray(5_000))
         val stale = aiReportSources(inputs(MediaType.VIDEO, hdr = stored), label)[AiReportKind.HDR]
-        assertIs<AiReportSource.Unavailable>(stale)
-        assertTrue(stale.reason.contains("file changed"), stale.reason)
+        assertIs<AiReportSource.OnRequest>(stale)
+        assertEquals(AUTO_RUN_TIMEOUT_SECONDS, stale.timeoutSeconds)
 
         val none = aiReportSources(inputs(MediaType.VIDEO), label)[AiReportKind.HDR]
-        assertIs<AiReportSource.Unavailable>(none)
-        assertTrue(none.reason.contains("HDR/SEI Metadata Analysis"), none.reason)
-        val noneKo = aiReportSources(inputs(MediaType.VIDEO), koLabel)[AiReportKind.HDR]
-        assertIs<AiReportSource.Unavailable>(noneKo)
-        assertTrue(noneKo.reason.contains("HDR/SEI 메타데이터 분석"), noneKo.reason)
+        assertIs<AiReportSource.OnRequest>(none)
+        assertEquals("runs the analysis", none.autoRunLabel)
+        // Without a tree nothing can be scanned: the menu hint stays.
+        val noTree = aiReportSources(inputs(MediaType.VIDEO, root = null), koLabel)[AiReportKind.HDR]
+        assertIs<AiReportSource.Unavailable>(noTree)
+        assertTrue(noTree.reason.contains("HDR/SEI 메타데이터 분석"), noTree.reason)
     }
 
     @Test
     fun `interval needs at least two frames and runs on request`() {
-        val one = aiReportSources(inputs(MediaType.VIDEO, frames = listOf(FrameInfo(0, 'I', 10, 0.0))), label)
-        assertIs<AiReportSource.Unavailable>(one[AiReportKind.INTERVAL])
+        val one = aiReportSources(inputs(MediaType.VIDEO, frames = listOf(FrameInfo(0, 'I', 10, 0.0))), label,
+            hooks = AiAutoRunHooks(probeFrames = { listOf(FrameInfo(0, 'I', 10, 0.0)) }))[AiReportKind.INTERVAL]
+        assertIs<AiReportSource.OnRequest>(one)
+        assertEquals(AUTO_RUN_TIMEOUT_SECONDS, one.timeoutSeconds)
+        assertTrue(one.run().contains("fewer than 2 frames"), one.run())
         val three = aiReportSources(inputs(MediaType.VIDEO, frames = listOf(
             FrameInfo(0, 'I', 10, 0.0), FrameInfo(1, 'P', 10, 0.033), FrameInfo(2, 'P', 10, 0.066),
         )), label)[AiReportKind.INTERVAL]
@@ -160,7 +164,7 @@ class AiReportRegistryTest {
     // --- bridge ---
 
     private fun ctx(reports: Map<AiReportKind, AiReportSource>) =
-        AiToolContext(file, root(), ContentFileIdentity.capture(file), null, null, reports)
+        AiToolContext(file, root(), ContentFileIdentity.capture(file), null, { null }, reports)
 
     @Test
     fun `the bridge answers ready, refuses unavailable and inapplicable kinds`() {
@@ -294,11 +298,137 @@ class AiReportRegistryTest {
         WaveformPeaks(1, 4, listOf(ChannelPeaks(FloatArray(4) { -0.5f }, FloatArray(4) { 0.5f }))), 1.0)
 
     @Test
-    fun `gop is on request for a video with frames and unavailable without them`() {
-        val on = aiReportSources(inputs(MediaType.VIDEO, frames = frames3()), label)[AiReportKind.GOP]
+    fun `gop is on request for a video with frames and auto-runs without them`() {
+        var probes = 0
+        val hooks = AiAutoRunHooks(probeFrames = { probes++; null })
+        val on = aiReportSources(inputs(MediaType.VIDEO, frames = frames3()), label, hooks = hooks)[AiReportKind.GOP]
         assertIs<AiReportSource.OnRequest>(on)
+        assertEquals(REPORT_TIMEOUT_SECONDS, on.timeoutSeconds)
+        assertNull(on.autoRunLabel)
         assertTrue(on.run().contains("frames 3"))
-        assertIs<AiReportSource.Unavailable>(aiReportSources(inputs(MediaType.VIDEO), label)[AiReportKind.GOP])
+        assertEquals(0, probes)
+        val auto = aiReportSources(inputs(MediaType.VIDEO), label, hooks = hooks)[AiReportKind.GOP]
+        assertIs<AiReportSource.OnRequest>(auto)
+        assertEquals(AUTO_RUN_TIMEOUT_SECONDS, auto.timeoutSeconds)
+    }
+
+    // --- auto-run ---
+
+    private class Recorder {
+        var probes = 0
+        var scans = 0
+        val publishedFrames = mutableListOf<List<FrameInfo>>()
+        val publishedHdr = mutableListOf<StoredAnalysis<HdrScanResult>>()
+        val running = mutableListOf<String?>()
+    }
+
+    private fun hooks(
+        r: Recorder,
+        frames: List<FrameInfo>? = null,
+        hdr: HdrScanResult? = null,
+        probeError: Throwable? = null,
+    ) = AiAutoRunHooks(
+        probeFrames = { r.probes++; probeError?.let { throw it }; frames },
+        scanHdr = { _, _, _ -> r.scans++; hdr },
+        captureIdentity = { ContentFileIdentity.capture(it) },
+        publishFrames = { r.publishedFrames += it },
+        publishHdr = { r.publishedHdr += it },
+        running = { r.running += it },
+    )
+
+    @Test
+    fun `without frames gop and interval auto-run one shared probe and publish it once`() {
+        val r = Recorder()
+        val sources = aiReportSources(inputs(MediaType.VIDEO), label, hooks = hooks(r, frames = frames3()))
+        val gop = sources[AiReportKind.GOP]
+        val interval = sources[AiReportKind.INTERVAL]
+        assertIs<AiReportSource.OnRequest>(gop)
+        assertIs<AiReportSource.OnRequest>(interval)
+        assertEquals(AUTO_RUN_TIMEOUT_SECONDS, gop.timeoutSeconds)
+        assertEquals(AUTO_RUN_TIMEOUT_SECONDS, interval.timeoutSeconds)
+        assertTrue(gop.run().contains("frames 3"))
+        assertTrue(interval.run().contains("intervals 2"))
+        assertEquals(1, r.probes)
+        assertEquals(listOf(frames3()), r.publishedFrames)
+        assertEquals(listOf<String?>("frame analysis", null), r.running)
+    }
+
+    @Test
+    fun `a probe with fewer than two frames reports so and publishes nothing`() {
+        listOf<List<FrameInfo>?>(null, listOf(FrameInfo(0, 'I', 10, 0.0))).forEach { probed ->
+            val r = Recorder()
+            val gop = aiReportSources(inputs(MediaType.VIDEO), label, hooks = hooks(r, frames = probed))[AiReportKind.GOP]
+            assertIs<AiReportSource.OnRequest>(gop)
+            assertEquals("frame analysis found fewer than 2 frames", gop.run())
+            assertTrue(r.publishedFrames.isEmpty(), "$probed must not be published")
+        }
+    }
+
+    @Test
+    fun `a missing HDR result auto-runs the scan once, publishes it with the file identity, and reuses it`() {
+        val r = Recorder()
+        val autoRun = AiAutoRunState(null)
+        val hdr = aiReportSources(inputs(MediaType.VIDEO), label, renderHdr = { _, _ -> "HDR RENDERED" },
+            autoRun = autoRun, hooks = hooks(r, hdr = hdrResult))[AiReportKind.HDR]
+        assertIs<AiReportSource.OnRequest>(hdr)
+        assertEquals(AUTO_RUN_TIMEOUT_SECONDS, hdr.timeoutSeconds)
+        assertEquals("HDR RENDERED", hdr.run())
+        assertEquals("HDR RENDERED", hdr.run())
+        assertEquals(1, r.scans)
+        assertEquals(1, r.publishedHdr.size)
+        assertEquals(hdrResult, r.publishedHdr.single().value)
+        assertEquals(ContentFileIdentity.capture(file), r.publishedHdr.single().identity)
+        assertEquals(hdrResult, autoRun.hdr.get())
+        assertEquals(listOf<String?>("HDR analysis", null), r.running)
+    }
+
+    @Test
+    fun `an unsupported HDR scan says so and publishes nothing`() {
+        val r = Recorder()
+        val hdr = aiReportSources(inputs(MediaType.VIDEO), label, hooks = hooks(r, hdr = null))[AiReportKind.HDR]
+        assertIs<AiReportSource.OnRequest>(hdr)
+        assertEquals("HDR scan: no supported video sample table (MP4/MOV family only)", hdr.run())
+        assertTrue(r.publishedHdr.isEmpty())
+    }
+
+    @Test
+    fun `the running indicator is cleared even when the probe throws`() {
+        val r = Recorder()
+        val gop = aiReportSources(inputs(MediaType.VIDEO), label,
+            hooks = hooks(r, probeError = IllegalStateException("boom")))[AiReportKind.GOP]
+        assertIs<AiReportSource.OnRequest>(gop)
+        kotlin.test.assertFailsWith<IllegalStateException> { gop.run() }
+        assertEquals(listOf<String?>("frame analysis", null), r.running)
+    }
+
+    @Test
+    fun `the section tells the model which reports run their analysis on request`() {
+        val sources = aiReportSources(inputs(MediaType.VIDEO), label, hooks = hooks(Recorder()))
+        val en = renderReportSection(sources, label)
+        assertTrue(en.contains("- gop: on request (runs the analysis)"), en)
+        assertTrue(en.contains("- hdr: on request (runs the analysis)"), en)
+        val ko = renderReportSection(aiReportSources(inputs(MediaType.VIDEO), koLabel, hooks = hooks(Recorder())), koLabel)
+        assertTrue(ko.contains("- gop: 요청 가능 (분석 자동 실행)"), ko)
+        val withFrames = renderReportSection(aiReportSources(inputs(MediaType.VIDEO, frames = frames3()), label), label)
+        assertTrue(withFrames.contains("- gop: on request\n") || withFrames.endsWith("- gop: on request"), withFrames)
+    }
+
+    private fun ffprobeAvailable() = runCatching {
+        ProcessBuilder(com.multiviewer.ui.FfmpegLocator.ffprobePath(), "-version")
+            .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD).start().waitFor() == 0
+    }.getOrDefault(false)
+
+    @Test
+    fun `a real default mp4 auto-runs ffprobe for the gop report`() {
+        org.junit.jupiter.api.Assumptions.assumeTrue(ffprobeAvailable(), "ffprobe not available")
+        val mp4 = File(javaClass.classLoader.getResource("video-frame/default.mp4")!!.toURI())
+        val sources = aiReportSources(AiReportInputs(mp4, parseFile(mp4), MediaType.VIDEO, null, null, null, null, null, null, null), label)
+        val gop = sources[AiReportKind.GOP]
+        assertIs<AiReportSource.OnRequest>(gop)
+        val (ok, out) = runReportWithTimeout(gop.run, mp4, gop.timeoutSeconds)
+        assertTrue(ok, out)
+        assertTrue(out.contains("frames "), out)
+        assertTrue(out.contains("GOP length"), out)
     }
 
     @Test

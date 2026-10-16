@@ -587,6 +587,7 @@ fun AiChatPanel(
                 LinearProgressIndicator(Modifier.fillMaxWidth())
                 Text(
                     if (tab.aiFrameDecoding) label("🎞️ 프레임 디코딩 중…", "🎞️ Decoding frame…")
+                    else if (tab.aiAutoRunning != null) tab.aiAutoRunning.let { label("📊 $it 실행 중…", "📊 Running $it…") }
                     else if (tab.aiImageChecking) label("🖼️ 이미지 입력 확인 중…", "🖼️ Checking image input…")
                     else label("AI 응답 생성 중…", "Generating answer…"),
                     color = AppColors.NeonPurple,

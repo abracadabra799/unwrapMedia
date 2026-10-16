@@ -134,13 +134,25 @@ class AiChatController(
         val adapter = adapterFor(provider, webSearch = webSearch)
         val canPassImages = adapter.canAttachImages
         val imageState = capabilities(provider)?.image ?: CapabilityState.UNKNOWN
+        // Auto-run analyses (frame probe, HDR scan) happen at most once per send and reach the tab when done,
+        // on the UI thread; a frame list the user's own analysis is producing is never overwritten.
+        val autoRun = AiAutoRunState(frames)
+        val autoRunHooks = AiAutoRunHooks(
+            publishFrames = { f ->
+                java.awt.EventQueue.invokeLater {
+                    if (!tab.isClosed && tab.gopFrames == null && !tab.isAnalyzingFrames) tab.gopFrames = f
+                }
+            },
+            publishHdr = { s -> java.awt.EventQueue.invokeLater { if (!tab.isClosed) tab.hdrScan = s } },
+            running = { l -> java.awt.EventQueue.invokeLater { tab.aiAutoRunning = l } },
+        )
         tab.aiJob = scope.launch {
             // A capture failure must become a visible notice, never an exception that kills the scope.
             val (snapshot, reportSources) = try {
                 withContext(ioDispatcher) {
                     contextCapture()
                     captureAiContext(file, root, type, selected, field, frame, contentCheck, parsed, video, visual) to
-                        aiReportSources(reportInputs, ::label)
+                        aiReportSources(reportInputs, ::label, autoRun = autoRun, hooks = autoRunHooks)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -280,7 +292,7 @@ class AiChatController(
             }
             val toolContext = AiToolContext(
                 file, root?.takeIf { !snapshot.fileChangedSinceOpen }, parsed ?: snapshot.identity,
-                snapshot.contentCheckSection, frames, reportSources,
+                snapshot.contentCheckSection, { autoRun.frames.get() }, reportSources,
             )
             try {
                 var toolResults = ""

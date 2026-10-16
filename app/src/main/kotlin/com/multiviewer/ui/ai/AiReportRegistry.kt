@@ -11,16 +11,19 @@ import com.multiviewer.parser.c2pa.hasC2paManifestStore
 import com.multiviewer.parser.c2pa.readC2paManifestStore
 import com.multiviewer.parser.c2pa.verifyC2paHardBinding
 import com.multiviewer.parser.findFirst
+import com.multiviewer.parser.scanHdrMetadata
 import com.multiviewer.parser.hrd.HrdSimulationReport
 import com.multiviewer.parser.metadata.TimedMetadataReport
 import com.multiviewer.parser.spatial.analyzeSpatialVideo
 import com.multiviewer.ui.AppLanguage
 import com.multiviewer.ui.AudioWaveformData
+import com.multiviewer.ui.ContentFileIdentity
 import com.multiviewer.ui.FrameInfo
 import com.multiviewer.ui.I18n
 import com.multiviewer.ui.MediaType
 import com.multiviewer.ui.StoredAnalysis
 import com.multiviewer.ui.StoredComparison
+import com.multiviewer.ui.probeFrameTypes
 import java.io.File
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
@@ -29,6 +32,9 @@ import java.util.concurrent.TimeoutException
 
 /** Seconds an on-request report may run before the bridge gives up on it (and interrupts it). */
 const val REPORT_TIMEOUT_SECONDS = 20L
+
+/** Seconds a report that first runs its analysis (ffprobe frame probe, HDR scan) may take. */
+const val AUTO_RUN_TIMEOUT_SECONDS = 120L
 
 enum class AiReportKind(val key: String) {
     AVSYNC("avsync"), HDR("hdr"), HRD("hrd"), INTERVAL("interval"),
@@ -44,8 +50,16 @@ enum class AiReportKind(val key: String) {
 sealed interface AiReportSource {
     /** A stored result, already rendered. */
     data class Ready(val text: String) : AiReportSource
-    /** A light analysis, blocking; the bridge runs it off the UI thread with a timeout. */
-    class OnRequest(val run: () -> String) : AiReportSource
+    /**
+     * A light analysis, blocking; the bridge runs it off the UI thread with [timeoutSeconds]. [autoRunLabel]
+     * is set when the report first runs a heavier analysis the user has not run (shown to the model).
+     * [run] is last so call sites can pass it as a trailing lambda.
+     */
+    class OnRequest(
+        val timeoutSeconds: Long = REPORT_TIMEOUT_SECONDS,
+        val autoRunLabel: String? = null,
+        val run: () -> String,
+    ) : AiReportSource
     /** Not run, stale, or missing a prerequisite; [reason] says which (user language). */
     data class Unavailable(val reason: String) : AiReportSource
 }
@@ -66,6 +80,24 @@ data class AiReportInputs(
     val gainmapBase: Pair<Int, Int>?,
     val audio: StoredAnalysis<AudioWaveformData>? = null,
     val quality: StoredComparison? = null,
+)
+
+/** Shared by one send: what an auto-run produced, so later requests in the same send reuse it. */
+class AiAutoRunState(initialFrames: List<FrameInfo>?) {
+    val frames = java.util.concurrent.atomic.AtomicReference(initialFrames)
+    val hdr = java.util.concurrent.atomic.AtomicReference<HdrScanResult?>(null)
+}
+
+/** Injected work for auto-runs (defaults = the real analyses; tests replace them). */
+class AiAutoRunHooks(
+    val probeFrames: (File) -> List<FrameInfo>? = ::probeFrameTypes,
+    val scanHdr: (File, BoxNode, () -> Boolean) -> HdrScanResult? = { f, r, c -> scanHdrMetadata(f, r, isCancelled = c) },
+    val captureIdentity: (File) -> ContentFileIdentity? = { runCatching { ContentFileIdentity.capture(it) }.getOrNull() },
+    /** Called off the UI thread with a finished result; the controller posts it to the tab on the UI thread. */
+    val publishFrames: (List<FrameInfo>) -> Unit = {},
+    val publishHdr: (StoredAnalysis<HdrScanResult>) -> Unit = {},
+    /** Running indicator: non-null label while an auto-run executes, null after (always cleared in finally). */
+    val running: (String?) -> Unit = {},
 )
 
 private val TIMED_NODE_TYPES = setOf("camm", "gpmd", "mebx")
@@ -114,6 +146,9 @@ fun aiReportSources(
     label: (String, String) -> String,
     /** Test seam: the HDR renderer. */
     renderHdr: (HdrScanResult, File) -> String = ::renderHdrReport,
+    /** Shared by every request of one send, so an auto-run happens at most once per send. */
+    autoRun: AiAutoRunState = AiAutoRunState(inputs.frames),
+    hooks: AiAutoRunHooks = AiAutoRunHooks(),
 ): Map<AiReportKind, AiReportSource> {
     val file = inputs.file
     val root = inputs.root
@@ -123,19 +158,59 @@ fun aiReportSources(
     if (video) {
         out[AiReportKind.AVSYNC] = inputs.avSync?.let { AiReportSource.Ready(renderAvSyncReport(it)) }
             ?: notRun(menu(I18n::menuAvSyncAnalysis, label), label)
-        out[AiReportKind.HDR] = stored(inputs.hdr, file, menu(I18n::menuHdrSeiAnalysis, label), label) { renderHdr(it, file) }
+        val autoRunLabel = label("분석 자동 실행", "runs the analysis")
+        // A current stored result is used as is (a renderer failure stays Unavailable); a missing or stale one
+        // is scanned again on request.
+        val hdrCurrent = inputs.hdr?.currentFor(file) != null
+        out[AiReportKind.HDR] = if (hdrCurrent || root == null) {
+            stored(inputs.hdr, file, menu(I18n::menuHdrSeiAnalysis, label), label) { renderHdr(it, file) }
+        } else {
+            AiReportSource.OnRequest(AUTO_RUN_TIMEOUT_SECONDS, autoRunLabel) {
+                val result = autoRun.hdr.get() ?: synchronized(autoRun.hdr) {
+                    autoRun.hdr.get() ?: run {
+                        // Captured before the scan: a file changed mid-scan then never matches the stored result.
+                        val id = hooks.captureIdentity(file)
+                        hooks.running(label("HDR 분석", "HDR analysis"))
+                        val r = try {
+                            hooks.scanHdr(file, root) { Thread.currentThread().isInterrupted }
+                        } finally {
+                            hooks.running(null)
+                        }
+                        // A null scan is also what an interrupted scan returns: never cache or publish it.
+                        if (r == null || Thread.currentThread().isInterrupted) return@OnRequest "HDR scan: no supported video sample table (MP4/MOV family only)"
+                        autoRun.hdr.set(r)
+                        id?.let { hooks.publishHdr(StoredAnalysis(r, it)) }
+                        r
+                    }
+                }
+                renderHdr(result, file)
+            }
+        }
         out[AiReportKind.HRD] = stored(inputs.hrd, file, menu(I18n::menuHrdBufferSimulation, label), label) { renderHrdReport(it) }
-        val frames = inputs.frames
-        out[AiReportKind.INTERVAL] = if (frames != null && frames.size >= 2) {
-            AiReportSource.OnRequest { renderIntervalReport(frames) }
-        } else {
-            AiReportSource.Unavailable(label("프레임 분석(GOP) 실행 필요", "needs frame analysis (GOP) first"))
+        // One probe per send, shared by gop, interval and later frame requests.
+        fun framesOrRun(): List<FrameInfo>? = autoRun.frames.get()?.takeIf { it.size >= 2 } ?: synchronized(autoRun) {
+            autoRun.frames.get()?.takeIf { it.size >= 2 } ?: run {
+                hooks.running(label("프레임 분석", "frame analysis"))
+                try {
+                    hooks.probeFrames(file)?.takeIf { it.size >= 2 }?.also {
+                        autoRun.frames.set(it)
+                        hooks.publishFrames(it)
+                    }
+                } finally {
+                    hooks.running(null)
+                }
+            }
         }
-        out[AiReportKind.GOP] = if (frames != null && frames.size >= 2) {
-            AiReportSource.OnRequest { renderGopReport(frames) }
-        } else {
-            AiReportSource.Unavailable(label("프레임 분석(GOP) 실행 필요", "needs frame analysis (GOP) first"))
+        fun framesReport(render: (List<FrameInfo>) -> String): AiReportSource {
+            val frames = inputs.frames
+            if (frames != null && frames.size >= 2) return AiReportSource.OnRequest { render(frames) }
+            return AiReportSource.OnRequest(AUTO_RUN_TIMEOUT_SECONDS, autoRunLabel) {
+                val f = framesOrRun()
+                if (f == null || f.size < 2) "frame analysis found fewer than 2 frames" else render(f)
+            }
         }
+        out[AiReportKind.INTERVAL] = framesReport(::renderIntervalReport)
+        out[AiReportKind.GOP] = framesReport(::renderGopReport)
         if (inputs.timed != null || has { it.type in TIMED_NODE_TYPES }) {
             out[AiReportKind.TIMED] = stored(inputs.timed, file, menu(I18n::menuTimedMetadataTimeline, label), label) { renderTimedReport(it) }
         }
@@ -216,7 +291,8 @@ fun renderReportSection(sources: Map<AiReportKind, AiReportSource>, label: (Stri
         AiReportKind.entries.forEach { kind ->
             val state = when (val s = sources[kind] ?: return@forEach) {
                 is AiReportSource.Ready -> label("실행됨", "available")
-                is AiReportSource.OnRequest -> label("요청 가능", "on request")
+                is AiReportSource.OnRequest -> s.autoRunLabel?.let { label("요청 가능 ($it)", "on request ($it)") }
+                    ?: label("요청 가능", "on request")
                 is AiReportSource.Unavailable -> s.reason
             }
             appendLine("- ${kind.key}: $state")

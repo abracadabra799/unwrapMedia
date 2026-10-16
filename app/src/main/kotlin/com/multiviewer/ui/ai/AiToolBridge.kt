@@ -43,7 +43,8 @@ data class AiToolContext(
     val root: BoxNode?,
     val identity: ContentFileIdentity?,
     val contentCheckText: String?,
-    val frames: List<FrameInfo>?,
+    /** Read per request: an auto-run report of the same send may have probed the frames meanwhile. */
+    val frames: () -> List<FrameInfo>?,
     /** Kinds that apply to this file, from [aiReportSources]; a missing kind does not apply. */
     val reports: Map<AiReportKind, AiReportSource>,
 )
@@ -177,10 +178,10 @@ fun executeToolRequest(request: AiToolRequest, ctx: AiToolContext): AiToolResult
         }
         AiToolRequest.Check -> ctx.contentCheckText?.let { AiToolResult(line, true, bounded(it)) }
             ?: fail("Content Check has not run for this file (or its results are stale). Ask the user to run it.")
-        is AiToolRequest.Frame -> ctx.frames?.getOrNull(request.index)?.let { f ->
+        is AiToolRequest.Frame -> ctx.frames()?.getOrNull(request.index)?.let { f ->
             AiToolResult(line, true, "#${f.index} ${f.type} · PTS ${String.format(Locale.US, "%.3f", f.ptsSeconds)} s · ${f.sizeBytes} B" +
                 (f.byteOffset?.let { " @ $it (${hex(it)})" } ?: ""))
-        } ?: fail("Frame ${request.index} is not available (frame analysis has ${ctx.frames?.size ?: 0} frames).")
+        } ?: fail("Frame ${request.index} is not available (frame analysis has ${ctx.frames()?.size ?: 0} frames).")
         is AiToolRequest.Report -> when (val source = AiReportKind.of(request.kind)?.let { ctx.reports[it] }) {
             null -> fail("The ${request.kind} report does not apply to this file.")
             is AiReportSource.Ready -> {
@@ -196,7 +197,7 @@ fun executeToolRequest(request: AiToolRequest, ctx: AiToolContext): AiToolResult
                     return fail("The file changed (or is missing) since it was opened; the ${request.kind} report is refused.")
                 }
                 // Blocking: the caller is already off the UI thread; interrupting it stops the analysis.
-                val (ok, text) = runReportWithTimeout(source.run, ctx.file)
+                val (ok, text) = runReportWithTimeout(source.run, ctx.file, source.timeoutSeconds)
                 AiToolResult(line, ok, if (ok) bounded(text) else text)
             }
         }
