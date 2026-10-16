@@ -86,6 +86,9 @@ data class AiReportInputs(
 class AiAutoRunState(initialFrames: List<FrameInfo>?) {
     val frames = java.util.concurrent.atomic.AtomicReference(initialFrames)
     val hdr = java.util.concurrent.atomic.AtomicReference<HdrScanResult?>(null)
+    /** Why the probe / scan produced nothing usable in this send; later requests return it without re-running. */
+    val framesFailure = java.util.concurrent.atomic.AtomicReference<String?>(null)
+    val hdrFailure = java.util.concurrent.atomic.AtomicReference<String?>(null)
 }
 
 /** Injected work for auto-runs (defaults = the real analyses; tests replace them). */
@@ -162,22 +165,36 @@ fun aiReportSources(
         // A current stored result is used as is (a renderer failure stays Unavailable); a missing or stale one
         // is scanned again on request.
         val hdrCurrent = inputs.hdr?.currentFor(file) != null
-        out[AiReportKind.HDR] = if (hdrCurrent || root == null) {
+        // Only an MP4/MOV-family tree (moov) can be scanned; anything else keeps the stored-or-menu behaviour.
+        val canScanHdr = root != null && has { it.type == "moov" }
+        out[AiReportKind.HDR] = if (hdrCurrent || !canScanHdr) {
             stored(inputs.hdr, file, menu(I18n::menuHdrSeiAnalysis, label), label) { renderHdr(it, file) }
         } else {
             AiReportSource.OnRequest(AUTO_RUN_TIMEOUT_SECONDS, autoRunLabel) {
+                autoRun.hdrFailure.get()?.let { return@OnRequest "HDR analysis already failed in this question: $it" }
                 val result = autoRun.hdr.get() ?: synchronized(autoRun.hdr) {
+                    autoRun.hdrFailure.get()?.let { return@OnRequest "HDR analysis already failed in this question: $it" }
                     autoRun.hdr.get() ?: run {
                         // Captured before the scan: a file changed mid-scan then never matches the stored result.
                         val id = hooks.captureIdentity(file)
                         hooks.running(label("HDR 분석", "HDR analysis"))
-                        val r = try {
-                            hooks.scanHdr(file, root) { Thread.currentThread().isInterrupted }
+                        var r: HdrScanResult? = null
+                        var failure = "interrupted or timed out"
+                        try {
+                            r = hooks.scanHdr(file, root!!) { Thread.currentThread().isInterrupted }
+                            if (r == null) failure = "no supported video sample table"
+                        } catch (e: Exception) {
+                            failure = e::class.simpleName ?: "error"
+                            throw e
                         } finally {
                             hooks.running(null)
+                            // A null scan is also what an interrupted scan returns: never cache or publish it.
+                            if (r == null || Thread.currentThread().isInterrupted) {
+                                r = null
+                                autoRun.hdrFailure.compareAndSet(null, failure)
+                            }
                         }
-                        // A null scan is also what an interrupted scan returns: never cache or publish it.
-                        if (r == null || Thread.currentThread().isInterrupted) return@OnRequest "HDR scan: no supported video sample table (MP4/MOV family only)"
+                        if (r == null) return@OnRequest "HDR scan: no supported video sample table (MP4/MOV family only)"
                         autoRun.hdr.set(r)
                         id?.let { hooks.publishHdr(StoredAnalysis(r, it)) }
                         r
@@ -187,26 +204,42 @@ fun aiReportSources(
             }
         }
         out[AiReportKind.HRD] = stored(inputs.hrd, file, menu(I18n::menuHrdBufferSimulation, label), label) { renderHrdReport(it) }
-        // One probe per send, shared by gop, interval and later frame requests.
-        fun framesOrRun(): List<FrameInfo>? = autoRun.frames.get()?.takeIf { it.size >= 2 } ?: synchronized(autoRun) {
-            autoRun.frames.get()?.takeIf { it.size >= 2 } ?: run {
+        // One probe per send, shared by gop, interval and later frame requests. A failed probe is remembered
+        // (framesFailure) so no later request of the same send spawns ffprobe again. Returns frames or a failure text.
+        fun failedText(reason: String) = "frame analysis already failed in this question: $reason"
+        fun framesOrRun(): Pair<List<FrameInfo>?, String?> {
+            autoRun.frames.get()?.takeIf { it.size >= 2 }?.let { return it to null }
+            autoRun.framesFailure.get()?.let { return null to failedText(it) }
+            synchronized(autoRun) {
+                autoRun.frames.get()?.takeIf { it.size >= 2 }?.let { return it to null }
+                autoRun.framesFailure.get()?.let { return null to failedText(it) }
                 hooks.running(label("프레임 분석", "frame analysis"))
+                var good: List<FrameInfo>? = null
+                var text = "frame analysis could not run (ffprobe failed or timed out)"
                 try {
-                    hooks.probeFrames(file)?.takeIf { it.size >= 2 }?.also {
-                        autoRun.frames.set(it)
-                        hooks.publishFrames(it)
+                    val probed = hooks.probeFrames(file)
+                    if (probed != null && probed.size < 2) text = "frame analysis found fewer than 2 frames"
+                    good = probed?.takeIf { it.size >= 2 && !Thread.currentThread().isInterrupted }
+                    if (good != null) {
+                        autoRun.frames.set(good)
+                        hooks.publishFrames(good)
                     }
+                } catch (e: Exception) {
+                    text = "frame analysis failed (${e::class.simpleName})"
+                    throw e
                 } finally {
                     hooks.running(null)
+                    if (good == null) autoRun.framesFailure.compareAndSet(null, text)
                 }
+                return if (good != null) good to null else null to text
             }
         }
         fun framesReport(render: (List<FrameInfo>) -> String): AiReportSource {
             val frames = inputs.frames
             if (frames != null && frames.size >= 2) return AiReportSource.OnRequest { render(frames) }
             return AiReportSource.OnRequest(AUTO_RUN_TIMEOUT_SECONDS, autoRunLabel) {
-                val f = framesOrRun()
-                if (f == null || f.size < 2) "frame analysis found fewer than 2 frames" else render(f)
+                val (f, failure) = framesOrRun()
+                if (f == null) failure ?: "frame analysis could not run" else render(f)
             }
         }
         out[AiReportKind.INTERVAL] = framesReport(::renderIntervalReport)

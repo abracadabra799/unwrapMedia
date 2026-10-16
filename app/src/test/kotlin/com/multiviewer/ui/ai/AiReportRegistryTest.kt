@@ -44,6 +44,8 @@ class AiReportRegistryTest {
         hdr = hdr, hrd = null, timed = null, frames = frames, gainmap = null, gainmapBase = null, audio = audio,
     )
 
+    private fun moovRoot() = root(BoxNode("ftyp", 0, 8, 100), BoxNode("moov", 100, 8, 400))
+
     private fun avSyncReport() = com.multiviewer.ui.AvSyncReport(
         file, true, true, 10.0, 9.5, 0.5, 20.0, 40.0, 10.0, 25.0, 1.5, emptyList(), emptyList(), com.multiviewer.ui.SyncSeverity.WARNING)
 
@@ -96,11 +98,11 @@ class AiReportRegistryTest {
         assertIs<AiReportSource.Ready>(aiReportSources(inputs(MediaType.VIDEO, hdr = stored), label)[AiReportKind.HDR])
 
         file.writeBytes(ByteArray(5_000))
-        val stale = aiReportSources(inputs(MediaType.VIDEO, hdr = stored), label)[AiReportKind.HDR]
+        val stale = aiReportSources(inputs(MediaType.VIDEO, root = moovRoot(), hdr = stored), label)[AiReportKind.HDR]
         assertIs<AiReportSource.OnRequest>(stale)
         assertEquals(AUTO_RUN_TIMEOUT_SECONDS, stale.timeoutSeconds)
 
-        val none = aiReportSources(inputs(MediaType.VIDEO), label)[AiReportKind.HDR]
+        val none = aiReportSources(inputs(MediaType.VIDEO, root = moovRoot()), label)[AiReportKind.HDR]
         assertIs<AiReportSource.OnRequest>(none)
         assertEquals("runs the analysis", none.autoRunLabel)
         // Without a tree nothing can be scanned: the menu hint stays.
@@ -359,16 +361,72 @@ class AiReportRegistryTest {
             val r = Recorder()
             val gop = aiReportSources(inputs(MediaType.VIDEO), label, hooks = hooks(r, frames = probed))[AiReportKind.GOP]
             assertIs<AiReportSource.OnRequest>(gop)
-            assertEquals("frame analysis found fewer than 2 frames", gop.run())
+            val expected = if (probed == null) "frame analysis could not run (ffprobe failed or timed out)"
+                else "frame analysis found fewer than 2 frames"
+            assertEquals(expected, gop.run())
             assertTrue(r.publishedFrames.isEmpty(), "$probed must not be published")
         }
+    }
+
+    @Test
+    fun `a failed probe runs once across gop, interval and gop again`() {
+        val r = Recorder()
+        val autoRun = AiAutoRunState(null)
+        val sources = aiReportSources(inputs(MediaType.VIDEO), label, autoRun = autoRun, hooks = hooks(r, frames = null))
+        val gop = sources[AiReportKind.GOP] as AiReportSource.OnRequest
+        val interval = sources[AiReportKind.INTERVAL] as AiReportSource.OnRequest
+        assertEquals("frame analysis could not run (ffprobe failed or timed out)", gop.run())
+        assertTrue(interval.run().startsWith("frame analysis already failed in this question"), "interval")
+        assertTrue(gop.run().startsWith("frame analysis already failed in this question"), "gop")
+        assertEquals(1, r.probes)
+    }
+
+    @Test
+    fun `a timed-out probe is not retried by a later request in the same send`() {
+        val started = java.util.concurrent.CountDownLatch(1)
+        var probes = 0
+        val hooks = AiAutoRunHooks(probeFrames = {
+            probes++
+            started.countDown()
+            Thread.sleep(30_000)
+            null
+        })
+        val autoRun = AiAutoRunState(null)
+        val sources = aiReportSources(inputs(MediaType.VIDEO), label, autoRun = autoRun, hooks = hooks)
+        val gop = sources[AiReportKind.GOP] as AiReportSource.OnRequest
+        val (ok, _) = runReportWithTimeout(gop.run, file, 1)
+        assertFalse(ok)
+        // The interrupted worker records the failure in its finally; give it a moment.
+        val deadline = System.nanoTime() + 5_000_000_000L
+        while (autoRun.framesFailure.get() == null && System.nanoTime() < deadline) Thread.sleep(10)
+        assertTrue(gop.run().startsWith("frame analysis already failed in this question"))
+        assertEquals(1, probes)
+        assertTrue(autoRun.frames.get() == null)
+    }
+
+    @Test
+    fun `a failed HDR scan runs once across two hdr requests`() {
+        val r = Recorder()
+        val hdr = aiReportSources(inputs(MediaType.VIDEO, root = moovRoot()), label, hooks = hooks(r, hdr = null))[AiReportKind.HDR]
+            as AiReportSource.OnRequest
+        assertTrue(hdr.run().startsWith("HDR scan: no supported"))
+        assertTrue(hdr.run().startsWith("HDR analysis already failed in this question"))
+        assertEquals(1, r.scans)
+        assertTrue(r.publishedHdr.isEmpty())
+    }
+
+    @Test
+    fun `hdr auto-run is only offered for an MP4 family tree with moov`() {
+        val noMoov = aiReportSources(inputs(MediaType.VIDEO), label, hooks = hooks(Recorder()))[AiReportKind.HDR]
+        assertIs<AiReportSource.Unavailable>(noMoov)
+        assertTrue(noMoov.reason.contains("HDR/SEI Metadata Analysis") || noMoov.reason.contains("HDR"), noMoov.reason)
     }
 
     @Test
     fun `a missing HDR result auto-runs the scan once, publishes it with the file identity, and reuses it`() {
         val r = Recorder()
         val autoRun = AiAutoRunState(null)
-        val hdr = aiReportSources(inputs(MediaType.VIDEO), label, renderHdr = { _, _ -> "HDR RENDERED" },
+        val hdr = aiReportSources(inputs(MediaType.VIDEO, root = moovRoot()), label, renderHdr = { _, _ -> "HDR RENDERED" },
             autoRun = autoRun, hooks = hooks(r, hdr = hdrResult))[AiReportKind.HDR]
         assertIs<AiReportSource.OnRequest>(hdr)
         assertEquals(AUTO_RUN_TIMEOUT_SECONDS, hdr.timeoutSeconds)
@@ -385,7 +443,7 @@ class AiReportRegistryTest {
     @Test
     fun `an unsupported HDR scan says so and publishes nothing`() {
         val r = Recorder()
-        val hdr = aiReportSources(inputs(MediaType.VIDEO), label, hooks = hooks(r, hdr = null))[AiReportKind.HDR]
+        val hdr = aiReportSources(inputs(MediaType.VIDEO, root = moovRoot()), label, hooks = hooks(r, hdr = null))[AiReportKind.HDR]
         assertIs<AiReportSource.OnRequest>(hdr)
         assertEquals("HDR scan: no supported video sample table (MP4/MOV family only)", hdr.run())
         assertTrue(r.publishedHdr.isEmpty())
@@ -403,7 +461,7 @@ class AiReportRegistryTest {
 
     @Test
     fun `the section tells the model which reports run their analysis on request`() {
-        val sources = aiReportSources(inputs(MediaType.VIDEO), label, hooks = hooks(Recorder()))
+        val sources = aiReportSources(inputs(MediaType.VIDEO, root = moovRoot()), label, hooks = hooks(Recorder()))
         val en = renderReportSection(sources, label)
         assertTrue(en.contains("- gop: on request (runs the analysis)"), en)
         assertTrue(en.contains("- hdr: on request (runs the analysis)"), en)

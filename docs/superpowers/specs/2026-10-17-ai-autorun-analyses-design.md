@@ -35,3 +35,12 @@ AI 리포트 레지스트리(`ui/ai/AiReportRegistry.kt`)에서 `gop`/`interval`
 - 타임아웃: OnRequest의 timeoutSeconds가 사용된다(짧은 값으로 테스트).
 - 퍼블리시: 콜백이 성공 결과로 호출되고, 실패/타임아웃에는 호출되지 않는다.
 - 실파일: `app/src/test/resources/video-frame/default.mp4`로 실제 probe/scan 경로(ffmpeg 있을 때).
+
+## 추가 결정 (최종 리뷰 반영)
+
+- 실패 기억: `AiAutoRunState.framesFailure`/`hdrFailure` — 프로브/스캔이 쓸 만한 결과를 못 내면(null·2프레임 미만·예외·인터럽트/타임아웃)
+  이유를 저장하고, 같은 전송의 이후 요청은 재실행 없이 "… already failed in this question: <이유>"를 즉시 반환.
+- 문구 구분: probe null → "frame analysis could not run (ffprobe failed or timed out)"; 2프레임 미만 → "frame analysis found fewer than 2 frames".
+- HDR 자동 실행은 트리에 `moov`가 있을 때만(MP4/MOV 계열); 아니면 기존처럼 보관 결과 또는 메뉴 안내(Unavailable).
+- HDR 창은 열 때 `tab.hdrScan?.currentFor(tab.file)`(IO 디스패처 안에서 stat)가 있으면 재스캔 없이 그 결과를 표시; 없을 때만 스캔하고 `tab.hdrScan`에 저장.
+- 진행 표시는 전송별 라벨 인스턴스(동일성 비교)로만 해제; 전송 시점 프레임은 `isAnalyzingFrames` 중이면 스냅샷하지 않음.

@@ -96,8 +96,11 @@ fun HdrMetadataWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -
             }
             val job = coroutineContext[Job]
             var identity: ContentFileIdentity? = null
+            var reused = false
             val scanned = withContext(Dispatchers.IO) {
                 try {
+                    // A stored result still valid for the file (stat off the UI thread) is shown as is, no rescan.
+                    tab.hdrScan?.currentFor(tab.file)?.let { reused = true; return@withContext it }
                     identity = ContentFileIdentity.capture(tab.file) // before the scan: a mid-scan change reads as stale
                     scanHdrMetadata(tab.file, root, isCancelled = { job?.isActive == false || cancelRequested.get() }) { done, total ->
                         progress = if (total > 0) done.toFloat() / total else 0f
@@ -108,7 +111,7 @@ fun HdrMetadataWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -
                 }
             }
             result = scanned
-            if (scanned != null) tab.hdrScan = StoredAnalysis(scanned, identity)
+            if (scanned != null && !reused) tab.hdrScan = StoredAnalysis(scanned, identity)
             if (scanned == null && error == null) {
                 if (cancelRequested.get()) cancelled = true else error = unsupportedMessage
             }

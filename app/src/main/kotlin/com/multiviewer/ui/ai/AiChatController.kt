@@ -3,6 +3,7 @@ package com.multiviewer.ui.ai
 import com.multiviewer.ui.AppLanguage
 import com.multiviewer.ui.TabState
 import com.multiviewer.ui.decodeSelectedFrame
+import com.multiviewer.ui.postIfOpen
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -115,7 +116,8 @@ class AiChatController(
         val parsed = tab.parsedIdentity
         val video = tab.embeddedVideo
         val visual = tab.aiVisualContext()
-        val frames = tab.gopFrames
+        // A list still being streamed by the user's own analysis is partial: not treated as complete.
+        val frames = tab.gopFrames?.takeIf { !tab.isAnalyzingFrames }
         val avSyncReport = tab.avSyncReport
         // Send-time snapshot of every analysis result the AI may ask for; validated (stat) off the UI thread.
         val reportInputs = AiReportInputs(
@@ -137,14 +139,21 @@ class AiChatController(
         // Auto-run analyses (frame probe, HDR scan) happen at most once per send and reach the tab when done,
         // on the UI thread; a frame list the user's own analysis is producing is never overwritten.
         val autoRun = AiAutoRunState(frames)
+        // The indicator is cleared only by the send that set it: identity of a per-send label instance.
+        val myLabel = java.util.concurrent.atomic.AtomicReference<String?>(null)
         val autoRunHooks = AiAutoRunHooks(
-            publishFrames = { f ->
-                java.awt.EventQueue.invokeLater {
-                    if (!tab.isClosed && tab.gopFrames == null && !tab.isAnalyzingFrames) tab.gopFrames = f
+            publishFrames = { f -> tab.postIfOpen { if (tab.gopFrames == null && !tab.isAnalyzingFrames) tab.gopFrames = f } },
+            publishHdr = { s -> tab.postIfOpen { tab.hdrScan = s } },
+            running = { l ->
+                if (l != null) {
+                    val mine = String(l.toCharArray())
+                    myLabel.set(mine)
+                    tab.postIfOpen { tab.aiAutoRunning = mine }
+                } else {
+                    val mine = myLabel.get()
+                    tab.postIfOpen { if (tab.aiAutoRunning === mine) tab.aiAutoRunning = null }
                 }
             },
-            publishHdr = { s -> java.awt.EventQueue.invokeLater { if (!tab.isClosed) tab.hdrScan = s } },
-            running = { l -> java.awt.EventQueue.invokeLater { tab.aiAutoRunning = l } },
         )
         tab.aiJob = scope.launch {
             // A capture failure must become a visible notice, never an exception that kills the scope.
