@@ -297,4 +297,147 @@ class MotionPhotoInspectorEngineTest {
         assertNotNull(primaryItem.remediation)
         assertTrue(primaryItem.remediation!!.contains("Item:Semantic=\"Primary\""))
     }
+
+    @Test
+    fun `test Google Motion Photo spec length and padding requirements for Primary, MotionPhoto, and GainMap`() {
+        val xmp = """
+            <x:xmpmeta xmlns:x="adobe:ns:meta/">
+              <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+                <rdf:Description
+                    xmlns:Container="http://ns.google.com/photos/1.0/container/"
+                    xmlns:Item="http://ns.google.com/photos/1.0/container/item/"
+                    xmlns:GCamera="http://ns.google.com/photos/1.0/camera/"
+                    GCamera:MotionPhoto="1"
+                    GCamera:MotionPhotoVersion="1">
+                  <Container:Directory>
+                    <rdf:Seq>
+                      <rdf:li rdf:parseType="Resource">
+                        <Container:Item Item:Semantic="Primary" Item:Mime="image/jpeg" Item:Padding="0"/>
+                      </rdf:li>
+                      <rdf:li rdf:parseType="Resource">
+                        <Container:Item Item:Semantic="MotionPhoto" Item:Mime="video/mp4" Item:Length="300" Item:Padding="0"/>
+                      </rdf:li>
+                      <rdf:li rdf:parseType="Resource">
+                        <Container:Item Item:Semantic="GainMap" Item:Mime="image/jpeg" Item:Length="100"/>
+                      </rdf:li>
+                    </rdf:Seq>
+                  </Container:Directory>
+                </rdf:Description>
+              </rdf:RDF>
+            </x:xmpmeta>
+        """.trimIndent()
+
+        val totalSize = 1000L
+        val file = tempFileWithFtypAt(700L, totalSize)
+        val root = rootWithXmp(xmp, totalSize)
+        val report = MotionPhotoInspectorEngine.inspect(file, root)
+        val items = report.formatXmpSection.items
+
+        // Primary: Length should not be present / omitted or 0 (PASS)
+        val primLength = items.find { it.id == "xmp.item.1.primary.length" }
+        assertNotNull(primLength)
+        assertEquals(CheckStatus.PASS, primLength.status)
+        assertTrue(primLength.expected?.contains("있으면 안 됨") == true)
+
+        // Primary: Padding is optional (PASS)
+        val primPadding = items.find { it.id == "xmp.item.1.primary.padding" }
+        assertNotNull(primPadding)
+        assertEquals(CheckStatus.PASS, primPadding.status)
+        assertTrue(primPadding.expected?.contains("선택") == true)
+
+        // MotionPhoto: Length is required (> 0) (PASS)
+        val mpLength = items.find { it.id == "xmp.item.2.motion_photo.length" }
+        assertNotNull(mpLength)
+        assertEquals(CheckStatus.PASS, mpLength.status)
+        assertTrue(mpLength.expected?.contains("필수") == true)
+
+        // MotionPhoto: Padding is optional (PASS)
+        val mpPadding = items.find { it.id == "xmp.item.2.motion_photo.padding" }
+        assertNotNull(mpPadding)
+        assertEquals(CheckStatus.PASS, mpPadding.status)
+        assertTrue(mpPadding.expected?.contains("선택") == true)
+
+        // GainMap: Length is required (> 0) (PASS)
+        val gmLength = items.find { it.id == "xmp.item.3.GainMap.length" }
+        assertNotNull(gmLength)
+        assertEquals(CheckStatus.PASS, gmLength.status)
+        assertTrue(gmLength.expected?.contains("필수") == true)
+
+        // GainMap: Padding is optional (PASS)
+        val gmPadding = items.find { it.id == "xmp.item.3.GainMap.padding" }
+        assertNotNull(gmPadding)
+        assertEquals(CheckStatus.PASS, gmPadding.status)
+        assertTrue(gmPadding.expected?.contains("선택") == true)
+    }
+
+    @Test
+    fun `test invalid primary length and missing motion photo length produces failures`() {
+        // Primary has positive length (forbidden in spec), MotionPhoto has no length (missing)
+        val badXmp = """
+            <x:xmpmeta xmlns:x="adobe:ns:meta/">
+              <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+                <rdf:Description
+                    xmlns:Container="http://ns.google.com/photos/1.0/container/"
+                    xmlns:Item="http://ns.google.com/photos/1.0/container/item/">
+                  <Container:Directory>
+                    <rdf:Seq>
+                      <rdf:li rdf:parseType="Resource">
+                        <Container:Item Item:Semantic="Primary" Item:Mime="image/jpeg" Item:Length="400"/>
+                      </rdf:li>
+                      <rdf:li rdf:parseType="Resource">
+                        <Container:Item Item:Semantic="MotionPhoto" Item:Mime="video/mp4"/>
+                      </rdf:li>
+                    </rdf:Seq>
+                  </Container:Directory>
+                </rdf:Description>
+              </rdf:RDF>
+            </x:xmpmeta>
+        """.trimIndent()
+
+        val totalSize = 1000L
+        val file = tempFileWithFtypAt(700L, totalSize)
+        val root = rootWithXmp(badXmp, totalSize)
+        val report = MotionPhotoInspectorEngine.inspect(file, root)
+        val items = report.formatXmpSection.items
+
+        // Primary length with positive value must produce WARN
+        val primLength = items.find { it.id == "xmp.item.1.primary.length" }
+        assertNotNull(primLength)
+        assertEquals(CheckStatus.WARN, primLength.status)
+        assertTrue(primLength.actual?.contains("400") == true)
+
+        // MotionPhoto missing length must produce FAIL
+        val mpLength = items.find { it.id == "xmp.item.2.motion_photo.length" }
+        assertNotNull(mpLength)
+        assertEquals(CheckStatus.FAIL, mpLength.status)
+    }
+
+    @Test
+    fun `test real Galaxy JPEG motion photo Primary and MotionPhoto spec items`() {
+        val file = File("/Users/dong.kim/Downloads/20260718_200439_motion.jpg")
+        if (!file.exists()) return
+        val root = parseFile(file)
+        val report = MotionPhotoInspectorEngine.inspect(file, root)
+        val items = report.formatXmpSection.items
+
+        // Primary: Length omitted (PASS)
+        val primLength = items.find { it.id == "xmp.item.1.primary.length" }
+        assertNotNull(primLength)
+        assertEquals(CheckStatus.PASS, primLength.status)
+        assertTrue(primLength.actual?.contains("생략") == true)
+
+        // Primary: Padding = 0 (PASS)
+        val primPadding = items.find { it.id == "xmp.item.1.primary.padding" }
+        assertNotNull(primPadding)
+        assertEquals(CheckStatus.PASS, primPadding.status)
+
+        // MotionPhoto: Length = 3961157 (PASS)
+        val mpLength = items.find { it.id == "xmp.item.2.motion_photo.length" }
+        assertNotNull(mpLength)
+        assertEquals(CheckStatus.PASS, mpLength.status)
+
+        // GainMap status check item
+        val gmStatus = items.find { it.id == "xmp.gainmap_spec_status" }
+        assertNotNull(gmStatus)
+    }
 }

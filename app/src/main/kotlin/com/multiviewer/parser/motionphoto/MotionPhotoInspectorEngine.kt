@@ -3,6 +3,7 @@ package com.multiviewer.parser.motionphoto
 import com.multiviewer.parser.BoxNode
 import com.multiviewer.parser.ByteReader
 import com.multiviewer.parser.EmbeddedVideo
+import com.multiviewer.parser.GainmapParser
 import com.multiviewer.parser.SefIntegrityAnalyzer
 import com.multiviewer.parser.SefIntegritySeverity
 import com.multiviewer.parser.buildVideoSampleTable
@@ -82,7 +83,7 @@ object MotionPhotoInspectorEngine {
             }
 
             try {
-                val formatXmpSection = inspectFormatAndXmp(root, reader, tempVideoFile)
+                val formatXmpSection = inspectFormatAndXmp(file, root, reader, tempVideoFile)
                 val sefSection = inspectSefIntegrity(file, root, reader)
                 val videoCodecSection = inspectVideoAndCodec(file, root, reader, embeddedVideo, tempVideoFile, videoRoot)
                 val avSyncSection = inspectAvSyncAndTiming(file, root, reader, embeddedVideo, tempVideoFile, videoRoot)
@@ -230,7 +231,7 @@ object MotionPhotoInspectorEngine {
     // -----------------------------------------------------------------------------------------------------------------
     // 2. Format & Primary XMP Check
     // -----------------------------------------------------------------------------------------------------------------
-    private fun inspectFormatAndXmp(root: BoxNode, reader: ByteReader, videoFile: File?): MotionPhotoInspectionSection {
+    private fun inspectFormatAndXmp(file: File, root: BoxNode, reader: ByteReader, videoFile: File?): MotionPhotoInspectionSection {
         val items = mutableListOf<MotionPhotoInspectionItem>()
         val xmpNode = findFirst(root) { it.fields.any { f -> f.name == "xmp" } }
         val xmpText = xmpNode?.fields?.find { f -> f.name == "xmp" }?.value
@@ -379,50 +380,241 @@ object MotionPhotoInspectorEngine {
             // Inspect each item in Container:Directory
             for (dItem in dirItems) {
                 val itemPrefix = "xmp.item.${dItem.index}"
-                if (dItem.index == 1) {
+                val isFirst = dItem.index == 1
+
+                if (isFirst || dItem.semantic == "Primary") {
                     val isPrimarySemantic = dItem.semantic == "Primary"
                     val isImageMime = dItem.mime?.startsWith("image/") == true
                     val lengthValid = dItem.length == null || dItem.length == 0L
-                    val primaryStatus = if (isPrimarySemantic && isImageMime && lengthValid) CheckStatus.PASS else CheckStatus.WARN
+                    val primaryStatus = if (isPrimarySemantic && isImageMime && isFirst && lengthValid) CheckStatus.PASS else CheckStatus.WARN
+
+                    // 1) Primary Item 기본 규격 (Semantic & MIME & 순서)
                     items.add(
                         MotionPhotoInspectionItem(
                             id = "$itemPrefix.primary",
                             status = primaryStatus,
-                            label = "Item #1 (Primary Still Image) 검증",
-                            expected = "Semantic=\"Primary\", Mime=\"image/*\", Length=0",
-                            actual = "Semantic=\"${dItem.semantic}\", Mime=\"${dItem.mime}\", Length=${dItem.length ?: 0}",
+                            label = "Item #${dItem.index} [Primary] 기본 규격 (Semantic & MIME)",
+                            expected = "첫 번째 엔트리, Semantic=\"Primary\", Mime=\"image/*\"",
+                            actual = "순서=#${dItem.index}, Semantic=\"${dItem.semantic}\", Mime=\"${dItem.mime}\"",
                             detail = if (primaryStatus == CheckStatus.PASS) "첫 번째 아이템이 메인 정지 이미지 규격을 완벽하게 만족합니다."
-                            else "첫 번째 아이템의 Semantic이 'Primary'가 아니거나, 이미지 MIME이 아니거나, 길이가 0이 아닙니다.",
-                            remediation = if (primaryStatus == CheckStatus.PASS) null else "구글 모션포토 스펙상 Directory 첫 번째 Item은 반드시 Item:Semantic=\"Primary\", Item:Mime=\"image/*\", Item:Length=0 (또는 미기입)이어야 합니다.",
+                            else "첫 번째 아이템의 Semantic이 'Primary'가 아니거나, 이미지 MIME이 아니거나, 순서가 1이 아닙니다.",
+                            remediation = if (primaryStatus == CheckStatus.PASS) null else "구글 모션포토 스펙상 Directory 첫 번째 Item은 반드시 Item:Semantic=\"Primary\", Item:Mime=\"image/*\" 이어야 합니다.",
                         )
                     )
+
+                    // 2) Primary Item Length 규격 (있으면 안 됨 / 생략 또는 0)
+                    val rawLength = dItem.rawLength
+                    val lengthStatus = if (lengthValid) CheckStatus.PASS else CheckStatus.WARN
+                    items.add(
+                        MotionPhotoInspectionItem(
+                            id = "$itemPrefix.primary.length",
+                            status = lengthStatus,
+                            label = "Item #${dItem.index} [Primary] Length 규격 [기입 불가 / 생략 또는 0]",
+                            expected = "있으면 안 됨 (생략 또는 0)",
+                            actual = if (rawLength == null) "생략됨 (정상 규격 준수)" else if (dItem.length == 0L) "0 (정상 규격 준수)" else "$rawLength (규격 위반 - 있으면 안 됨)",
+                            detail = if (lengthStatus == CheckStatus.PASS) "Primary 이미지는 파일 시작(오프셋 0)부터 포맷 자체 경계(EOI/Box)까지이므로 Length 속성이 없거나 0이어야 합니다 (있으면 안 됨)."
+                            else "Primary 이미지에 양수 Length($rawLength)가 기입되어 있습니다. 구글 컨테이너 규격상 Primary에는 Length가 있으면 안 되거나 0이어야 합니다.",
+                            remediation = if (lengthStatus == CheckStatus.PASS) null else "구글 스펙 준수를 위해 Primary Item의 Item:Length 속성을 제거하거나 0으로 설정하십시오.",
+                        )
+                    )
+
+                    // 3) Primary Item Padding 규격 (선택)
+                    val rawPadding = dItem.rawPadding
+                    val pad = dItem.padding
+                    val padValid = rawPadding == null || (pad != null && pad >= 0)
+                    val padStatus = if (padValid) CheckStatus.PASS else CheckStatus.WARN
+                    items.add(
+                        MotionPhotoInspectionItem(
+                            id = "$itemPrefix.primary.padding",
+                            status = padStatus,
+                            label = "Item #${dItem.index} [Primary] Padding 규격 [선택]",
+                            expected = "선택 (생략 시 기본값 0, 기입 시 >= 0 정수)",
+                            actual = if (rawPadding == null) "미기입 (기본값 0 간주 - 정상)" else "$rawPadding bytes",
+                            detail = if (padStatus == CheckStatus.PASS) {
+                                if (rawPadding == null) "선택 속성으로 생략되었습니다. 메인 이미지와 다음 아이템 사이 패딩은 0바이트로 처리됩니다."
+                                else "선택 속성이 올바르게 기입되었습니다 (${pad}바이트 정렬 패딩)."
+                            } else "선택 속성이지만 유효하지 않은 정수/음수 값($rawPadding)이 기입되었습니다.",
+                            remediation = if (padStatus == CheckStatus.PASS) null else "Item:Padding은 0 이상의 정수로 기입하거나 생략하십시오.",
+                        )
+                    )
+
                 } else if (dItem.semantic == "MotionPhoto") {
+                    val isVideoMime = dItem.mime?.startsWith("video/") == true
+                    items.add(
+                        MotionPhotoInspectionItem(
+                            id = "$itemPrefix.motion_photo",
+                            status = if (isVideoMime) CheckStatus.PASS else CheckStatus.WARN,
+                            label = "Item #${dItem.index} [MotionPhoto] 기본 규격 (Semantic & MIME)",
+                            expected = "Semantic=\"MotionPhoto\", Mime=\"video/*\"",
+                            actual = "Semantic=\"MotionPhoto\", Mime=\"${dItem.mime}\"",
+                            detail = if (isVideoMime) "모션포토 임베디드 동영상 항목이 올바르게 선언되었습니다."
+                            else "MotionPhoto 아이템의 MIME 타입이 비디오 형식(video/mp4 등)이 아닙니다: ${dItem.mime}",
+                            remediation = if (isVideoMime) null else "MotionPhoto Item의 Item:Mime을 'video/mp4'로 지정하십시오.",
+                        )
+                    )
+
+                    // Length check [필수]
                     val length = dItem.length ?: 0L
                     val lengthValid = length > 0 && length < root.size
                     items.add(
                         MotionPhotoInspectionItem(
-                            id = "$itemPrefix.motion_photo",
+                            id = "$itemPrefix.motion_photo.length",
                             status = if (lengthValid) CheckStatus.PASS else CheckStatus.FAIL,
-                            label = "Item #${dItem.index} (MotionPhoto Video) 검증",
-                            expected = "Semantic=\"MotionPhoto\", Mime=\"video/*\", Length > 0",
-                            actual = "Semantic=\"MotionPhoto\", Mime=\"${dItem.mime}\", Length=$length",
-                            detail = "모션포토 임베디드 동영상 항목이 올바르게 선언되었습니다 ($length bytes).",
+                            label = "Item #${dItem.index} [MotionPhoto] Length 규격 [필수]",
+                            expected = "필수 (> 0 양의 정수, 비디오 바이트 크기)",
+                            actual = if (lengthValid) "$length bytes (정상)" else (dItem.rawLength ?: "미기입 (누락 - FAIL)"),
+                            detail = if (lengthValid) "구글 모션포토 스펙상 필수 속성입니다. 비디오 시작 오프셋 역산(파일크기 - Length)을 위한 바이트 크기($length bytes)가 올바르게 기입되었습니다."
+                            else "구글 모션포토 스펙상 MotionPhoto 아이템은 비디오 시작 오프셋 역산을 위해 Item:Length가 필수입니다.",
                             remediation = if (lengthValid) null else "모션포토 동영상 아이템의 Item:Length는 0보다 크고 파일 전체 크기보다 작아야 합니다. (실제 비디오 스트림 바이트 크기를 기입하십시오.)",
                         )
                     )
-                } else {
-                    val length = dItem.length ?: 0L
-                    val itemValid = !dItem.semantic.isNullOrBlank() && !dItem.mime.isNullOrBlank() && length > 0
+
+                    // Padding check [선택]
+                    val rawPadding = dItem.rawPadding
+                    val pad = dItem.padding
+                    val padValid = rawPadding == null || (pad != null && pad >= 0)
+                    val padStatus = if (padValid) CheckStatus.PASS else CheckStatus.WARN
                     items.add(
                         MotionPhotoInspectionItem(
-                            id = "$itemPrefix.${dItem.semantic ?: "other"}",
+                            id = "$itemPrefix.motion_photo.padding",
+                            status = padStatus,
+                            label = "Item #${dItem.index} [MotionPhoto] Padding 규격 [선택]",
+                            expected = "선택 (생략 시 기본값 0, 기입 시 >= 0 정수)",
+                            actual = if (rawPadding == null) "미기입 (기본값 0 간주 - 정상)" else "$rawPadding bytes",
+                            detail = if (padStatus == CheckStatus.PASS) {
+                                if (rawPadding == null) "선택 속성으로 생략되었습니다. 비디오 뒤 기본값 0바이트 패딩이 적용됩니다."
+                                else "선택 속성이 올바르게 기입되었습니다 (${pad}바이트 패딩)."
+                            } else "선택 속성이지만 유효하지 않은 정수/음수 값($rawPadding)이 기입되었습니다.",
+                            remediation = if (padStatus == CheckStatus.PASS) null else "Item:Padding은 0 이상의 정수로 기입하거나 생략하십시오.",
+                        )
+                    )
+
+                } else if (dItem.semantic == "GainMap") {
+                    val isImageMime = dItem.mime?.startsWith("image/") == true
+                    items.add(
+                        MotionPhotoInspectionItem(
+                            id = "$itemPrefix.GainMap",
+                            status = if (isImageMime) CheckStatus.PASS else CheckStatus.WARN,
+                            label = "Item #${dItem.index} [GainMap] 기본 규격 (Semantic & MIME)",
+                            expected = "Semantic=\"GainMap\", Mime=\"image/*\"",
+                            actual = "Semantic=\"GainMap\", Mime=\"${dItem.mime}\"",
+                            detail = if (isImageMime) "Ultra HDR 게인맵 보조 아이템이 올바르게 선언되었습니다."
+                            else "GainMap 아이템의 MIME 타입이 이미지 형식이 아닙니다: ${dItem.mime}",
+                            remediation = if (isImageMime) null else "GainMap Item의 Item:Mime을 'image/jpeg'로 지정하십시오.",
+                        )
+                    )
+
+                    // Length check [필수]
+                    val length = dItem.length ?: 0L
+                    val lengthValid = length > 0 && length < root.size
+                    items.add(
+                        MotionPhotoInspectionItem(
+                            id = "$itemPrefix.GainMap.length",
+                            status = if (lengthValid) CheckStatus.PASS else CheckStatus.FAIL,
+                            label = "Item #${dItem.index} [GainMap] Length 규격 [필수]",
+                            expected = "필수 (> 0 양의 정수, 게인맵 바이트 크기)",
+                            actual = if (lengthValid) "$length bytes (정상)" else (dItem.rawLength ?: "미기입 (누락 - FAIL)"),
+                            detail = if (lengthValid) "Ultra HDR 컨테이너 규격상 필수 속성입니다. 게인맵 이미지 데이터 분리를 위한 크기($length bytes)가 올바르게 기입되었습니다."
+                            else "Ultra HDR GContainer 규격상 GainMap 아이템의 데이터 추출을 위해 Item:Length가 필수입니다.",
+                            remediation = if (lengthValid) null else "GainMap Item의 Item:Length에 실제 게인맵 이미지 바이트 크기를 기입하십시오.",
+                        )
+                    )
+
+                    // Padding check [선택]
+                    val rawPadding = dItem.rawPadding
+                    val pad = dItem.padding
+                    val padValid = rawPadding == null || (pad != null && pad >= 0)
+                    val padStatus = if (padValid) CheckStatus.PASS else CheckStatus.WARN
+                    items.add(
+                        MotionPhotoInspectionItem(
+                            id = "$itemPrefix.GainMap.padding",
+                            status = padStatus,
+                            label = "Item #${dItem.index} [GainMap] Padding 규격 [선택]",
+                            expected = "선택 (생략 시 기본값 0, 기입 시 >= 0 정수)",
+                            actual = if (rawPadding == null) "미기입 (기본값 0 간주 - 정상)" else "$rawPadding bytes",
+                            detail = if (padStatus == CheckStatus.PASS) {
+                                if (rawPadding == null) "선택 속성으로 생략되었습니다. 게인맵 데이터 뒤 기본값 0바이트 패딩이 적용됩니다."
+                                else "선택 속성이 올바르게 기입되었습니다 (${pad}바이트 패딩)."
+                            } else "선택 속성이지만 유효하지 않은 정수/음수 값($rawPadding)이 기입되었습니다.",
+                            remediation = if (padStatus == CheckStatus.PASS) null else "Item:Padding은 0 이상의 정수로 기입하거나 생략하십시오.",
+                        )
+                    )
+
+                } else {
+                    val semanticName = dItem.semantic ?: "other"
+                    val length = dItem.length ?: 0L
+                    val itemValid = !dItem.semantic.isNullOrBlank() && !dItem.mime.isNullOrBlank()
+                    items.add(
+                        MotionPhotoInspectionItem(
+                            id = "$itemPrefix.$semanticName",
                             status = if (itemValid) CheckStatus.PASS else CheckStatus.WARN,
-                            label = "Item #${dItem.index} (${dItem.semantic ?: "Unknown"}) 검증",
-                            expected = "Semantic 선언, Mime 선언, Length > 0",
-                            actual = "Semantic=\"${dItem.semantic}\", Mime=\"${dItem.mime}\", Length=$length",
-                            detail = if (itemValid) "보조 컨테이너 아이템(${dItem.semantic})의 정보가 올바르게 기입되었습니다 ($length bytes)."
-                            else "보조 컨테이너 아이템의 선언값(MIME 또는 Length)이 유효하지 않습니다.",
-                            remediation = if (itemValid) null else "보조 컨테이너 아이템(GainMap 등)의 Item:Semantic, Item:Mime, Item:Length 속성을 확인하고 유효한 값을 입력하십시오.",
+                            label = "Item #${dItem.index} [${dItem.semantic ?: "Unknown"}] 기본 규격 (Semantic & MIME)",
+                            expected = "Semantic 선언, Mime 선언",
+                            actual = "Semantic=\"${dItem.semantic}\", Mime=\"${dItem.mime}\"",
+                            detail = if (itemValid) "보조 컨테이너 아이템(${dItem.semantic})의 정보가 선언되었습니다."
+                            else "보조 컨테이너 아이템의 선언값(MIME 또는 Semantic)이 유효하지 않습니다.",
+                            remediation = if (itemValid) null else "보조 컨테이너 아이템의 Item:Semantic과 Item:Mime 속성을 확인하고 유효한 값을 입력하십시오.",
+                        )
+                    )
+
+                    // Length check [필수]
+                    val lengthValid = length > 0 && length < root.size
+                    items.add(
+                        MotionPhotoInspectionItem(
+                            id = "$itemPrefix.$semanticName.length",
+                            status = if (lengthValid) CheckStatus.PASS else CheckStatus.FAIL,
+                            label = "Item #${dItem.index} [${dItem.semantic ?: "Unknown"}] Length 규격 [필수]",
+                            expected = "필수 (> 0 양의 정수)",
+                            actual = if (lengthValid) "$length bytes (정상)" else (dItem.rawLength ?: "미기입 (누락 - FAIL)"),
+                            detail = if (lengthValid) "보조 아이템 데이터 크기($length bytes)가 올바르게 기입되었습니다."
+                            else "보조 컨테이너 아이템의 데이터 추출을 위해 Item:Length가 필수입니다.",
+                            remediation = if (lengthValid) null else "Item:Length에 실제 데이터 바이트 크기를 기입하십시오.",
+                        )
+                    )
+
+                    // Padding check [선택]
+                    val rawPadding = dItem.rawPadding
+                    val pad = dItem.padding
+                    val padValid = rawPadding == null || (pad != null && pad >= 0)
+                    items.add(
+                        MotionPhotoInspectionItem(
+                            id = "$itemPrefix.$semanticName.padding",
+                            status = if (padValid) CheckStatus.PASS else CheckStatus.WARN,
+                            label = "Item #${dItem.index} [${dItem.semantic ?: "Unknown"}] Padding 규격 [선택]",
+                            expected = "선택 (생략 시 기본값 0, 기입 시 >= 0 정수)",
+                            actual = if (rawPadding == null) "미기입 (기본값 0 간주 - 정상)" else "$rawPadding bytes",
+                            detail = if (padValid) "선택 속성이 올바르게 처리되었습니다." else "유효하지 않은 패딩 값입니다: $rawPadding",
+                        )
+                    )
+                }
+            }
+
+            // GainMap Item 미선언 시 스펙 안내 (GainMap이 Directory에 없는 경우)
+            val hasGainMapItem = dirItems.any { it.semantic == "GainMap" }
+            if (!hasGainMapItem) {
+                val gainmapInfo = try { GainmapParser.findGainmapInfo(file, root) } catch (_: Exception) { null }
+                val fileHasGainmap = gainmapInfo?.hasGainmap == true
+                if (fileHasGainmap) {
+                    items.add(
+                        MotionPhotoInspectionItem(
+                            id = "xmp.gainmap_spec_status",
+                            status = CheckStatus.INFO,
+                            label = "GainMap Item 규격 상태 [Ultra HDR]",
+                            expected = "Ultra HDR 시 선언 권장 (Length 필수, Padding 선택)",
+                            actual = "Directory 내 미선언 (${gainmapInfo?.formatType?.displayName ?: "MPF/ISO 메타데이터"} 사용 중)",
+                            detail = "파일 내에 Ultra HDR/GainMap 데이터가 존재하지만 Container:Directory에는 GainMap 항목이 선언되지 않았습니다 (단독 MPF/ISO 방식). 구글 Ultra HDR 모션포토 규격을 완벽 준수하려면 GainMap Item 선언(Length 필수, Padding 선택)을 권장합니다.",
+                            remediation = "구글 Ultra HDR GContainer 스펙 준수를 위해 Container:Directory에 GainMap Item을 추가하고 Item:Length=[게인맵크기]를 기입하십시오.",
+                        )
+                    )
+                } else {
+                    items.add(
+                        MotionPhotoInspectionItem(
+                            id = "xmp.gainmap_spec_status",
+                            status = CheckStatus.INFO,
+                            label = "GainMap Item 규격 상태 [SDR 모션포토]",
+                            expected = "선택 [SDR 모션포토는 미선언이 정상 규격]",
+                            actual = "미선언 (일반 SDR 파일 - 정상)",
+                            detail = "일반 SDR 모션포토이므로 GainMap Item이 포함되지 않는 것이 정상 규격입니다. (구글 스펙상 GainMap Item은 Ultra HDR 모션포토일 때만 선언되며, 선언 시 Length는 필수, Padding은 선택입니다.)",
                         )
                     )
                 }
@@ -442,6 +634,18 @@ object MotionPhotoInspectorEngine {
                     detail = if (totalSecondaryValid) "모든 보조 스트림(동영상 및 게인맵 등)의 데이터 총합이 파일 크기 범위 내에 위치합니다."
                     else "보조 스트림의 데이터 총합이 파일 크기를 초과하거나 0입니다.",
                     remediation = if (totalSecondaryValid) null else "보조 스트림들의 Item:Length 총합($totalSecondary bytes)이 파일 크기(${root.size} bytes)를 초과하거나 0입니다. 각 보조 스트림의 길이를 재계산하십시오.",
+                )
+            )
+        } else if (findMicroVideoOffset(doc) != null) {
+            items.add(
+                MotionPhotoInspectionItem(
+                    id = "xmp.directory_overview",
+                    status = CheckStatus.INFO,
+                    label = "Container:Directory 스펙 (V2 권장)",
+                    expected = "V2 Directory (Primary: Length 기입불가/Padding 선택, MotionPhoto: Length 필수/Padding 선택, GainMap: 상황별 필수)",
+                    actual = "V1 레거시 (단일 태그 GCamera:MicroVideoOffset)",
+                    detail = "구형 V1 스키마는 단일 태그로 비디오 길이만 지정하며, 다중 아이템(Primary/GainMap/MotionPhoto) 분리 및 개별 Length/Padding 속성을 지원하지 않습니다.",
+                    remediation = "최신 모션포토 및 Ultra HDR 호환성을 위해 Container:Directory V2 구조로 XMP 메타데이터를 전환하십시오.",
                 )
             )
         }
