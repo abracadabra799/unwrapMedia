@@ -83,4 +83,13 @@ class AiSeriesTest {
         assertEquals("T over s, 1 points:", out.lines().first())
         assertFalse(out.contains("()"), out)
     }
+
+    @Test
+    fun `absolute spike order labels and ranks by magnitude`() {
+        val pts = listOf(-80.0, 5.0, 10.0, 40.0).mapIndexed { i, y -> SeriesPoint(i.toDouble(), y) }
+        val abs = renderSeries("T", "ms", "s", pts, spikeOrder = SpikeOrder.ABSOLUTE)
+        assertTrue(abs.contains("  largest |value|: 0.000=-80.000, 3.000=40.000"), abs)
+        val hi = renderSeries("T", "ms", "s", pts)
+        assertTrue(hi.contains("  largest: 3.000=40.000"), hi)
+    }
 }

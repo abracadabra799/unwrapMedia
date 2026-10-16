@@ -37,13 +37,16 @@ class AiReportRegistryTest {
         root: BoxNode? = root(BoxNode("ftyp", 0, 8, 100)),
         hdr: StoredAnalysis<HdrScanResult>? = null,
         frames: List<FrameInfo>? = null,
-        avSync: String? = null,
+        avSync: com.multiviewer.ui.AvSyncReport? = null,
         bitstream: String? = null,
         audio: StoredAnalysis<AudioWaveformData>? = null,
     ) = AiReportInputs(
         file = file, root = root, type = type, avSync = avSync, bitstream = bitstream,
         hdr = hdr, hrd = null, timed = null, frames = frames, gainmap = null, gainmapBase = null, audio = audio,
     )
+
+    private fun avSyncReport() = com.multiviewer.ui.AvSyncReport(
+        file, true, true, 10.0, 9.5, 0.5, 20.0, 40.0, 10.0, 25.0, 1.5, emptyList(), emptyList(), com.multiviewer.ui.SyncSeverity.WARNING)
 
     private val hdrResult = HdrScanResult(VideoCodec.HEVC, emptyList(), ContainerHdrStatic(null, null), emptyList())
 
@@ -80,8 +83,9 @@ class AiReportRegistryTest {
 
     @Test
     fun `avsync keeps its rendered text and asks for the window when missing`() {
-        val ready = aiReportSources(inputs(MediaType.VIDEO, avSync = "skew 12 ms"), label)
-        assertEquals(AiReportSource.Ready("skew 12 ms"), ready[AiReportKind.AVSYNC])
+        val r = avSyncReport()
+        val ready = aiReportSources(inputs(MediaType.VIDEO, avSync = r), label)
+        assertEquals(AiReportSource.Ready(renderAvSyncReport(r)), ready[AiReportKind.AVSYNC])
         val missing = aiReportSources(inputs(MediaType.VIDEO), label)[AiReportKind.AVSYNC]
         assertIs<AiReportSource.Unavailable>(missing)
         assertTrue(missing.reason.contains("A/V Sync & Drift Analysis"), missing.reason)
@@ -128,7 +132,7 @@ class AiReportRegistryTest {
     @Test
     fun `a ready render that throws becomes unavailable and leaves other kinds`() {
         val sources = aiReportSources(
-            inputs(MediaType.VIDEO, hdr = StoredAnalysis(hdrResult, ContentFileIdentity.capture(file)), avSync = "ok"),
+            inputs(MediaType.VIDEO, hdr = StoredAnalysis(hdrResult, ContentFileIdentity.capture(file)), avSync = avSyncReport()),
             label, renderHdr = { _, _ -> throw IllegalStateException("secret Jane Doe") },
         )
         val hdr = sources[AiReportKind.HDR]

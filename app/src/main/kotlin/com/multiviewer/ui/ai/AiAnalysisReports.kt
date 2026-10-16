@@ -190,8 +190,9 @@ fun renderTimedReport(r: TimedMetadataReport): String {
             }
         }
     }
-    // Sample labels are free text and are not sent. GPS/GENERIC values never enter a trend either.
-    val trendTypes = SensorType.entries.filter { it != SensorType.GPS && it != SensorType.GENERIC && byType[it] != null }
+    // Sample labels are free text and are not sent. Only GYRO/ACCEL get a trend: GPS/GENERIC values never do, and an
+    // ORIENTATION (Euler angle) vector norm is not meaningful.
+    val trendTypes = SensorType.entries.filter { (it == SensorType.GYRO || it == SensorType.ACCEL) && byType[it] != null }
     val buckets = if (trendTypes.size > 1) 30 else 60
     val trends = trendTypes.mapNotNull { type ->
         byType[type]?.let { pts ->
@@ -208,7 +209,7 @@ fun renderAvSyncReport(r: com.multiviewer.ui.AvSyncReport): String {
     val head = "video ${r.videoDurationSec} s, audio ${r.audioDurationSec} s, initial skew ${r.initialSkewMs} ms, " +
         "max ${r.maxSkewMs} ms, avg ${r.avgSkewMs} ms, drift ${r.driftRateMsPerMin} ms/min; " +
         r.diagnoses.take(10).joinToString("; ") { "[${it.severity}] ${it.category}: ${it.summary}" }
-    val trend = renderSeriesOrNull("A/V skew", "ms", "s", r.syncPoints.map { SeriesPoint(it.timeSeconds, it.deltaMs) })
+    val trend = renderSeriesOrNull("A/V skew", "ms", "s", r.syncPoints.map { SeriesPoint(it.timeSeconds, it.deltaMs) }, spikeOrder = SpikeOrder.ABSOLUTE)
     return if (trend == null) head else "$head\ntrend:\n$trend"
 }
 
@@ -393,14 +394,11 @@ fun renderGopReport(frames: List<FrameInfo>): String {
         if (duration > 0.0) {
             val bytes = sorted.sumOf { it.sizeBytes.toLong() }
             out += f("average bitrate %.1f kbps over %.3f s", bytes * 8.0 / duration / 1000.0, duration)
-            val b = minOf(60, n)
-            val sums = DoubleArray(b)
-            sorted.forEach { fr ->
-                val i = (((fr.ptsSeconds - first) / duration) * b).toInt().coerceIn(0, b - 1)
-                sums[i] += fr.sizeBytes.toDouble()
+            // One point per frame (kbps over the frame's own duration) so the equal-count buckets give exact means.
+            val points = sorted.mapIndexed { i, fr ->
+                val dur = if (i + 1 < n) sorted[i + 1].ptsSeconds - fr.ptsSeconds else fr.ptsSeconds - sorted[i - 1].ptsSeconds
+                SeriesPoint(fr.ptsSeconds, if (dur > 0.0) fr.sizeBytes * 8.0 / dur / 1000.0 else Double.NaN)
             }
-            val bucketLen = duration / b
-            val points = List(b) { SeriesPoint(first + (it + 0.5) * bucketLen, sums[it] * 8.0 / bucketLen / 1000.0) }
             out += "trend:"
             out += renderSeries("bitrate", "kbps", "s", points, buckets = 60)
         }
@@ -420,6 +418,7 @@ private fun dbfs(amp: Float): Double = if (amp <= 0f) -120.0 else maxOf(-120.0, 
 
 fun renderAudioReport(data: AudioWaveformData): String {
     val peaks = data.peaks
+    val trendBuckets = maxOf(8, 60 / peaks.channelCount.coerceAtLeast(1))
     val buckets = peaks.bucketCount
     val dur = data.durationSeconds
     val bucketSec = if (buckets > 0) dur / buckets else 0.0
@@ -473,7 +472,7 @@ fun renderAudioReport(data: AudioWaveformData): String {
                 SeriesPoint(if (m == n) (from + 0.5) * bucketSec else from * bucketSec, dbfs(mx))
             }
         }
-        renderSeriesOrNull("channel $c peak", "dBFS", "s", pooled)?.let { trends += it }
+        renderSeriesOrNull("channel $c peak", "dBFS", "s", pooled, buckets = trendBuckets)?.let { trends += it }
     }
     if (trends.isNotEmpty()) {
         out += "trend:"

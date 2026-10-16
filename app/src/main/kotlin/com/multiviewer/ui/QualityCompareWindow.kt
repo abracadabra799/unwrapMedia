@@ -171,10 +171,11 @@ fun QualityCompareWindow(appState: AppState? = null, language: AppLanguage = App
             statusMessage = null
             cancelRequested.set(false)
 
-            val runFiles = listOfNotNull(
+            // Only what is actually queued counts as compared (a pair failing the resolution check is dropped).
+            val runPairs = queuedPairs
+            val runFiles = filesForPairs(runPairs, listOfNotNull(
                 rawFile?.let { "raw" to it }, encodedAFile?.let { "encodedA" to it }, encodedBFile?.let { "encodedB" to it },
-            ).toMap()
-            val runPairs = determineComparisonPairs(rawFile, encodedAFile, encodedBFile)
+            ).toMap())
 
             qualityCompareExecutor.execute {
                 // Blocking stat: captured here, before the passes, so a file edited during the run reads as changed.
@@ -213,7 +214,7 @@ fun QualityCompareWindow(appState: AppState? = null, language: AppLanguage = App
                         else -> null
                     }
                     if (collected.isNotEmpty()) results = collected
-                    // A cancelled run's partial results never replace the previous stored comparison.
+                    // The previous stored comparison was cleared when this run started; a cancelled run stores nothing.
                     if (collected.isNotEmpty() && !cancelled) {
                         appState?.lastQualityComparison = StoredComparison(runFiles, identities, collected.mapValues { it.value.toMap() }, runPairs, missing)
                     }

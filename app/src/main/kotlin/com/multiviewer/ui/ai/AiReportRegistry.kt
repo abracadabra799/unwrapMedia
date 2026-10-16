@@ -55,7 +55,8 @@ data class AiReportInputs(
     val file: File,
     val root: BoxNode?,
     val type: MediaType,
-    val avSync: String?,
+    /** Rendered by [aiReportSources] (off the UI thread), not at send time. */
+    val avSync: com.multiviewer.ui.AvSyncReport?,
     val bitstream: String?,
     val hdr: StoredAnalysis<HdrScanResult>?,
     val hrd: StoredAnalysis<HrdSimulationReport>?,
@@ -121,7 +122,7 @@ fun aiReportSources(
     val video = inputs.type == MediaType.VIDEO
     val out = linkedMapOf<AiReportKind, AiReportSource>()
     if (video) {
-        out[AiReportKind.AVSYNC] = inputs.avSync?.let { AiReportSource.Ready(it) }
+        out[AiReportKind.AVSYNC] = inputs.avSync?.let { AiReportSource.Ready(renderAvSyncReport(it)) }
             ?: notRun(menu(I18n::menuAvSyncAnalysis, label), label)
         // No menu opens the bitstream window yet; the kind is listed only when a result exists.
         inputs.bitstream?.let { out[AiReportKind.BITSTREAM] = AiReportSource.Ready(it) }

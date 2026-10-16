@@ -525,11 +525,12 @@ class AiAnalysisReportsTest {
     }
 
     @Test
-    fun `timed report with three sensor types uses at most 30 buckets each`() {
+    fun `timed report trends only gyro and accel at most 30 buckets each`() {
         val samples = SensorType.entries.filter { it == SensorType.GYRO || it == SensorType.ACCEL || it == SensorType.ORIENTATION }
             .flatMap { t -> (0 until 500).map { SensorSamplePoint(it, it / 100.0, t, it * 0.01, 0.2, 0.3) } }
         val out = renderTimedReport(TimedMetadataReport(3, "camm", samples.size, 5.0, 100.0, samples))
-        for (t in listOf("GYRO", "ACCEL", "ORIENTATION")) assertTrue(bucketLines(out, "$t magnitude") in 1..30, out)
+        for (t in listOf("GYRO", "ACCEL")) assertTrue(bucketLines(out, "$t magnitude") in 1..30, out)
+        assertFalse(out.contains("ORIENTATION magnitude"), out)
     }
 
     @Test
@@ -677,5 +678,50 @@ class AiAnalysisReportsTest {
         val pts = (0..20).map { SeriesPoint(it.toDouble(), it.toDouble()) }
         assertFalse(renderSeries("t", "", "x", pts, spikes = 0).contains("largest:"))
         assertTrue(renderSeries("t", "", "x", pts).contains("largest:"))
+    }
+
+    private fun gopTrendLines(out: String): List<String> =
+        out.lines().dropWhile { !it.startsWith("bitrate (kbps)") }.drop(1).filter { it.contains("–") && it.contains("min ") && it.contains("mean ") }
+
+    private fun bucketStats(line: String): Triple<Double, Double, Double> {
+        val m = Regex("min ([-0-9.]+) · mean ([-0-9.]+) · max ([-0-9.]+)").find(line)!!
+        return Triple(m.groupValues[1].toDouble(), m.groupValues[2].toDouble(), m.groupValues[3].toDouble())
+    }
+
+    @Test
+    fun `gop bitrate trend of constant-size frames is flat with no fake spikes or holes`() {
+        val frames = List(90) { FrameInfo(it, if (it % 15 == 0) 'I' else 'P', 1000, it / 30.0) }
+        val lines = gopTrendLines(renderGopReport(frames))
+        assertEquals(60, lines.size, lines.toString())
+        for (l in lines) {
+            val (mn, mean, mx) = bucketStats(l)
+            assertEquals(240.0, mn, 0.01, l); assertEquals(240.0, mean, 0.01, l); assertEquals(240.0, mx, 0.01, l)
+        }
+    }
+
+    @Test
+    fun `gop bitrate trend shows a single large frame as exactly one elevated bucket`() {
+        val frames = List(90) { FrameInfo(it, if (it % 15 == 0) 'I' else 'P', if (it == 44) 10_000 else 1000, it / 30.0) }
+        val lines = gopTrendLines(renderGopReport(frames))
+        val elevated = lines.count { bucketStats(it).third > 300.0 }
+        assertEquals(1, elevated, lines.toString())
+    }
+
+    @Test
+    fun `audio report stays within the 8000 char bridge limit for 2 and 6 channels`() {
+        val n = 1_800_000
+        for (channels in listOf(2, 6)) {
+            val chs = List(channels) { s -> ChannelPeaks(FloatArray(n) { -(0.1f + ((it + s) % 100) / 200f) }, FloatArray(n) { 0.1f + ((it + s) % 100) / 200f }) }
+            val out = renderAudioReport(AudioWaveformData(WaveformPeaks(channels, n, chs), 6000.0))
+            assertTrue(out.length <= 8000, "$channels channels: ${out.length}")
+        }
+    }
+
+    @Test
+    fun `avsync trend ranks the largest skew by absolute value`() {
+        val pts = listOf(-80.0, 5.0, 10.0, 40.0).mapIndexed { i, d -> SyncPoint(i.toDouble(), i.toDouble(), i.toDouble(), d, i, i) }
+        val r = AvSyncReport(file, true, true, 10.0, 9.5, 0.5, 20.0, 40.0, -80.0, 25.0, 1.5, pts, emptyList(), SyncSeverity.WARNING)
+        val line = renderAvSyncReport(r).lines().first { it.trim().startsWith("largest |value|:") }
+        assertTrue(line.trim().startsWith("largest |value|: 0.000=-80.000"), line)
     }
 }

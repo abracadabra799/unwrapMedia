@@ -72,6 +72,15 @@ fun determineComparisonPairs(raw: File?, encodedA: File?, encodedB: File?): List
     return pairs
 }
 
+/**
+ * The files (by slot role: "raw" / "encodedA" / "encodedB") that actually take part in [pairs], so a file that sits in
+ * a slot but failed the resolution check and was never queued is not recorded as compared.
+ */
+fun filesForPairs(pairs: List<ComparisonPair>, slots: Map<String, File>): Map<String, File> {
+    val used = pairs.flatMap { listOf(it.comparison, it.reference) }.toSet()
+    return slots.filterValues { it in used }
+}
+
 // Total video-stream frame count, used as the progress bar's denominator. Prefers the container's
 // stored frame count (nb_frames, fast); falls back to duration * frame rate when nb_frames is
 // unavailable ("N/A" on some containers/codecs that don't store it). Returns null if neither source

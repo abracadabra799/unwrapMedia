@@ -116,7 +116,7 @@ class AiChatController(
         val video = tab.embeddedVideo
         val visual = tab.aiVisualContext()
         val frames = tab.gopFrames
-        val avSyncText = tab.avSyncReport?.let(::renderAvSyncReport)
+        val avSyncReport = tab.avSyncReport
         val bitstreamText = tab.bitstreamCorruptionReport?.let { r ->
             com.multiviewer.cli.scrubPaths(
                 "${r.overallStatus}: ${r.corruptFrameCount}/${r.totalFramesScanned} corrupt frames, ${r.criticalErrorCount} critical, " +
@@ -124,7 +124,7 @@ class AiChatController(
         }
         // Send-time snapshot of every analysis result the AI may ask for; validated (stat) off the UI thread.
         val reportInputs = AiReportInputs(
-            file = file, root = root, type = type, avSync = avSyncText, bitstream = bitstreamText,
+            file = file, root = root, type = type, avSync = avSyncReport, bitstream = bitstreamText,
             hdr = tab.hdrScan, hrd = tab.hrdReport, timed = tab.timedMetadata, frames = frames,
             gainmap = tab.gainmapInfo, audio = tab.audioWaveform, quality = quality(),
             gainmapBase = tab.imageForensic?.let { f ->

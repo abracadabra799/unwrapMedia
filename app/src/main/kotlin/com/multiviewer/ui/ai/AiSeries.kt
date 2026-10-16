@@ -9,6 +9,9 @@ private fun num(v: Double): String = String.format(Locale.US, if (Math.abs(v) >=
 
 private fun xNum(v: Double): String = String.format(Locale.US, "%.3f", v)
 
+/** How the "largest" spike list ranks points: by signed value, or by magnitude (for signed series such as skew). */
+enum class SpikeOrder { HIGHEST, ABSOLUTE }
+
 /**
  * Summarises a series without sending every point: header, overall statistics and the [spikes] largest values first
  * (so truncation from the end drops detail before summary), then at most [buckets] min/mean/max lines (one line per
@@ -21,7 +24,8 @@ fun renderSeries(
     points: List<SeriesPoint>,
     buckets: Int = 60,
     spikes: Int = 10,
-): String = renderSeriesOrNull(title, unit, xLabel, points, buckets, spikes) ?: "$title: no data"
+    spikeOrder: SpikeOrder = SpikeOrder.HIGHEST,
+): String = renderSeriesOrNull(title, unit, xLabel, points, buckets, spikes, spikeOrder) ?: "$title: no data"
 
 /** Like [renderSeries] but null when no finite point remains, so callers can omit empty series. */
 fun renderSeriesOrNull(
@@ -31,6 +35,7 @@ fun renderSeriesOrNull(
     points: List<SeriesPoint>,
     buckets: Int = 60,
     spikes: Int = 10,
+    spikeOrder: SpikeOrder = SpikeOrder.HIGHEST,
 ): String? {
     val pts = points.filter { it.x.isFinite() && it.y.isFinite() }.sortedBy { it.x }
     if (pts.isEmpty()) return null
@@ -39,8 +44,10 @@ fun renderSeriesOrNull(
     val out = mutableListOf("$title$unitPart over $xLabel, $n points:")
     val all = pts.map { it.y }
     out += "  overall: min ${num(all.min())} · mean ${num(all.average())} · max ${num(all.max())}"
-    val top = pts.sortedByDescending { it.y }.take(spikes.coerceAtLeast(0))
-    if (spikes > 0 && top.isNotEmpty()) out += "  largest: " + top.joinToString(", ") { "${xNum(it.x)}=${num(it.y)}" }
+    val top = (if (spikeOrder == SpikeOrder.ABSOLUTE) pts.sortedByDescending { Math.abs(it.y) } else pts.sortedByDescending { it.y })
+        .take(spikes.coerceAtLeast(0))
+    val spikeLabel = if (spikeOrder == SpikeOrder.ABSOLUTE) "largest |value|" else "largest"
+    if (spikes > 0 && top.isNotEmpty()) out += "  $spikeLabel: " + top.joinToString(", ") { "${xNum(it.x)}=${num(it.y)}" }
     val b = buckets.coerceAtLeast(1)
     if (n <= b) {
         pts.forEach { out += "  ${xNum(it.x)}: ${num(it.y)}" }
