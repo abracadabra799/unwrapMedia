@@ -80,6 +80,7 @@ fun MotionPhotoInspectorWindow(
     var statusMessage by remember(tab) { mutableStateOf("") }
     val expandedSections = remember(tab) { mutableStateMapOf<String, Boolean>() }
     var motionVideoWindowOpen by remember(tab) { mutableStateOf(false) }
+    var structureDiagramWindowOpen by remember(tab) { mutableStateOf(false) }
     var extractedVideoFile by remember(tab) { mutableStateOf<File?>(null) }
     var isExtractingVideo by remember(tab) { mutableStateOf(false) }
 
@@ -215,6 +216,19 @@ fun MotionPhotoInspectorWindow(
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
                             color = AppColors.TextPrimary,
+                        )
+                    },
+                    modifier = Modifier.height(28.dp),
+                )
+
+                AssistChip(
+                    onClick = { structureDiagramWindowOpen = true },
+                    label = {
+                        Text(
+                            label("📊 파일 구조도", "📊 File Structure"),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = AppColors.NeonPurple,
                         )
                     },
                     modifier = Modifier.height(28.dp),
@@ -361,6 +375,14 @@ fun MotionPhotoInspectorWindow(
             file = extractedVideoFile!!,
             language = language,
             onCloseRequest = { motionVideoWindowOpen = false },
+        )
+    }
+
+    if (structureDiagramWindowOpen) {
+        StructureDiagramWindow(
+            tab = tab,
+            language = language,
+            onCloseRequest = { structureDiagramWindowOpen = false },
         )
     }
 }

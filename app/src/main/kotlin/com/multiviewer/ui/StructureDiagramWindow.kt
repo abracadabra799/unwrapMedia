@@ -77,9 +77,15 @@ import com.multiviewer.parser.diagram.spec.SpecDiagramDispatcher
 import com.multiviewer.ui.diagram.spec.SpecDiagramExporter
 import com.multiviewer.ui.diagram.spec.SpecDiagramLayoutEngine
 import com.multiviewer.ui.diagram.spec.SpecLayout
+import com.multiviewer.parser.diagram.hierarchical.HierarchicalDiagram
+import com.multiviewer.parser.diagram.hierarchical.HierarchicalDiagramBuilder
+import com.multiviewer.ui.diagram.hierarchical.HierarchicalDiagramExporter
+import com.multiviewer.ui.diagram.hierarchical.HierarchicalLayout
+import com.multiviewer.ui.diagram.hierarchical.HierarchicalLayoutEngine
 
 private class RenderedDiagram(val layout: DiagramLayout, val image: BufferedImage, val bitmap: ImageBitmap)
 private class RenderedSpec(val layout: SpecLayout, val image: BufferedImage, val bitmap: ImageBitmap)
+private class RenderedHierarchical(val diagram: HierarchicalDiagram, val layout: HierarchicalLayout, val image: BufferedImage, val bitmap: ImageBitmap)
 
 /**
  * Analyze → 파일 구조도 / File Structure Diagram: the opened file's actual byte layout as a
@@ -95,6 +101,7 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
     var depth by remember(tab) { mutableStateOf(1) }
     var showTable by remember(tab) { mutableStateOf(false) }
     var showSpec by remember(tab) { mutableStateOf(tab.file.name.endsWith(".bmp", ignoreCase = true)) }
+    var showHierarchical by remember(tab) { mutableStateOf(!tab.file.name.endsWith(".bmp", ignoreCase = true)) }
     var message by remember(tab) { mutableStateOf("") }
     var saving by remember(tab) { mutableStateOf(false) }
     // The diagram describes the tree parsed at open time: once the file differs, exports would be stale.
@@ -121,6 +128,24 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
         val fileSize = tab.parsedIdentity?.length ?: r.size
         try {
             value = withContext(Dispatchers.Default) { buildStructureDiagram(r, fileSize, video) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            failure = e.toString()
+        }
+    }
+    val renderedHier by produceState<RenderedHierarchical?>(null, root, tab.file.name, showHierarchical) {
+        if (!showHierarchical) return@produceState
+        value = null
+        val r = root ?: return@produceState
+        val fileSize = tab.parsedIdentity?.length ?: r.size
+        try {
+            value = withContext(Dispatchers.Default) {
+                val diag = HierarchicalDiagramBuilder.build(r, fileSize, tab.file.name)
+                val layout = HierarchicalLayoutEngine.layout(diag)
+                val image = HierarchicalDiagramExporter.renderPng(layout, scale = 2.0f)
+                RenderedHierarchical(diag, layout, image, image.toComposeImageBitmap())
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
@@ -186,9 +211,6 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
                 message = label("저장됨: ", "Saved: ") + output.name
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: java.nio.file.FileAlreadyExistsException) {
-                message = label("저장하지 않음: 같은 이름의 파일이 이미 있습니다 (덮어쓰지 않음). 다른 이름을 고르세요.",
-                    "Not saved: a file with that name already exists (never overwritten). Choose another name.")
             } catch (e: Exception) {
                 message = label("저장 실패: ", "Save failed: ") + (e.message ?: e.toString())
             } finally {
@@ -199,7 +221,7 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
 
     Window(
         onCloseRequest = onCloseRequest,
-        state = rememberWindowState(width = 1080.dp, height = 820.dp),
+        state = rememberWindowState(width = 1120.dp, height = 840.dp),
         title = label("파일 구조도", "File Structure Diagram") + " — ${tab.file.name}",
     ) {
         Column(
@@ -207,51 +229,110 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                for ((value, name) in listOf(0 to label("개요", "Overview"), 1 to label("상세", "Detail"), 2 to label("세부", "Deep"))) {
-                    if (depth == value && !showTable && !showSpec) Button(onClick = {}) { Text(name) }
-                    else OutlinedButton(onClick = { depth = value; showTable = false; showSpec = false }) { Text(name) }
-                }
+                if (showHierarchical) Button(onClick = {}) { Text(label("계층 구조도", "Hierarchical")) }
+                else OutlinedButton(onClick = { showHierarchical = true; showSpec = false; showTable = false }) { Text(label("계층 구조도", "Hierarchical")) }
+
                 if (showSpec) Button(onClick = {}) { Text(label("규격도", "Spec Diagram")) }
-                else OutlinedButton(onClick = { showSpec = true; showTable = false }) { Text(label("규격도", "Spec Diagram")) }
+                else OutlinedButton(onClick = { showSpec = true; showHierarchical = false; showTable = false }) { Text(label("규격도", "Spec Diagram")) }
+
+                for ((value, name) in listOf(0 to label("개요", "Overview"), 1 to label("상세", "Detail"), 2 to label("세부", "Deep"))) {
+                    if (depth == value && !showTable && !showSpec && !showHierarchical) Button(onClick = {}) { Text(name) }
+                    else OutlinedButton(onClick = { depth = value; showTable = false; showSpec = false; showHierarchical = false }) { Text(name) }
+                }
+
                 if (showTable) Button(onClick = {}) { Text(label("표", "Table")) }
-                else OutlinedButton(onClick = { showTable = true; showSpec = false }) { Text(label("표", "Table")) }
-                val hasImage = if (showSpec) renderedSpec != null else rendered != null
+                else OutlinedButton(onClick = { showTable = true; showSpec = false; showHierarchical = false }) { Text(label("표", "Table")) }
+
+                val hasImage = when {
+                    showHierarchical -> renderedHier != null
+                    showSpec -> renderedSpec != null
+                    else -> rendered != null
+                }
                 val d = diagram
+
                 OutlinedButton(enabled = hasImage && !fileChanged, onClick = {
-                    val image = if (showSpec) renderedSpec?.image else rendered?.image
-                    if (image == null) return@OutlinedButton
+                    val image = when {
+                        showHierarchical -> renderedHier?.image
+                        showSpec -> renderedSpec?.image
+                        else -> rendered?.image
+                    } ?: return@OutlinedButton
                     message = if (ClipboardUtil.copyImage(image)) label("이미지를 클립보드에 복사했습니다", "Image copied to the clipboard")
                     else label("클립보드에 복사하지 못했습니다 (다른 앱이 사용 중일 수 있음)", "Could not copy to the clipboard (another app may be using it)")
                 }) { Text(label("이미지 복사", "Copy image")) }
+
+                OutlinedButton(enabled = hasImage && !saving && !fileChanged, onClick = {
+                    val image = when {
+                        showHierarchical -> renderedHier?.image
+                        showSpec -> renderedSpec?.image
+                        else -> rendered?.image
+                    } ?: return@OutlinedButton
+
+                    val userHome = System.getProperty("user.home") ?: "."
+                    val downloadsDir = File(userHome, "Downloads")
+                    val targetDir = if (downloadsDir.exists() && downloadsDir.isDirectory) downloadsDir else File(userHome)
+                    val outFile = File(targetDir, "${tab.file.nameWithoutExtension}-structure.png")
+                    saving = true
+                    scope.launch {
+                        try {
+                            withContext(Dispatchers.IO) {
+                                Files.newOutputStream(outFile.toPath(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE).use { out ->
+                                    check(ImageIO.write(image, "png", out)) { "No PNG writer" }
+                                }
+                            }
+                            message = label("Downloads 폴더에 저장되었습니다: ${outFile.name}", "Saved to Downloads: ${outFile.name}")
+                        } catch (e: Exception) {
+                            message = label("다운로드 실패: ${e.message}", "Download failed: ${e.message}")
+                        } finally {
+                            saving = false
+                        }
+                    }
+                }) { Text(label("📥 빠른 다운로드", "📥 Quick Download")) }
+
+                OutlinedButton(enabled = hasImage && !saving && !fileChanged, onClick = {
+                    val image = when {
+                        showHierarchical -> renderedHier?.image
+                        showSpec -> renderedSpec?.image
+                        else -> rendered?.image
+                    } ?: return@OutlinedButton
+                    save("png") { file ->
+                        Files.newOutputStream(file.toPath(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE).use { out ->
+                            check(ImageIO.write(image, "png", out)) { "No PNG writer" }
+                        }
+                    }
+                }) { Text(label("PNG 저장", "Save PNG")) }
+
+                OutlinedButton(enabled = hasImage && !saving && !fileChanged, onClick = {
+                    val svg = when {
+                        showHierarchical -> renderedHier?.let { HierarchicalDiagramExporter.renderSvg(it.layout) }
+                        showSpec -> renderedSpec?.let { SpecDiagramExporter.renderSvg(it.layout) }
+                        else -> rendered?.let { renderStructureSvg(it.layout) }
+                    } ?: return@OutlinedButton
+                    save("svg") { file ->
+                        Files.writeString(file.toPath(), svg, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)
+                    }
+                }) { Text(label("SVG 저장", "Save SVG")) }
+
                 OutlinedButton(enabled = d != null && !fileChanged, onClick = {
                     val table = d?.let(::structureDiagramMarkdownTable) ?: return@OutlinedButton
                     message = if (ClipboardUtil.copyToClipboard(table)) label("Markdown 표를 복사했습니다", "Markdown table copied")
                     else label("클립보드에 복사하지 못했습니다 (다른 앱이 사용 중일 수 있음)", "Could not copy to the clipboard (another app may be using it)")
                 }) { Text(label("표 복사 (Markdown)", "Copy table (Markdown)")) }
-                OutlinedButton(enabled = hasImage && !saving && !fileChanged, onClick = {
-                    val svg = if (showSpec) renderedSpec?.let { SpecDiagramExporter.renderSvg(it.layout) } else rendered?.let { renderStructureSvg(it.layout) }
-                    if (svg == null) return@OutlinedButton
-                    // CREATE_NEW: never overwrite an existing file.
-                    save("svg") { Files.writeString(it.toPath(), svg, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE) }
-                }) { Text(label("SVG 저장", "Save SVG")) }
-                OutlinedButton(enabled = hasImage && !saving && !fileChanged, onClick = {
-                    val image = if (showSpec) renderedSpec?.image else rendered?.image
-                    if (image == null) return@OutlinedButton
-                    save("png") { file ->
-                        Files.newOutputStream(file.toPath(), StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE).use { out ->
-                            check(ImageIO.write(image, "png", out)) { "No PNG writer" }
-                        }
-                    }
-                }) { Text(label("PNG 저장", "Save PNG")) }
             }
             Text(
-                if (showSpec) label(
-                    "BMP/미디어 규격에 맞춘 4바이트 정렬 기술 다이어그램입니다. 헤더 배너, 오프셋 화살표, 2D 행/패딩 구조가 정확한 바이트로 시각화됩니다.",
-                    "Spec-grade 4-byte aligned diagram matching canonical format specifications, with header banners, offset arrows, and 2D row/padding layout.",
-                ) else label(
-                    "실제 파싱된 바이트 범위로 그린 비율 무관 구조도입니다. 점선은 어떤 노드도 설명하지 않는 바이트, 주황 테두리는 경고입니다. 행을 누르면 구조 트리에서 선택됩니다.",
-                    "Not-to-scale map of the actual parsed byte ranges. Dashed rows are bytes no node accounts for; orange borders are warnings. Click a row to select it in the structure tree.",
-                ),
+                when {
+                    showHierarchical -> label(
+                        "표준 규격서(JEITA Exif / ISO / ITU-T) 스타일의 다중 열 계층 구조도입니다. 컨테이너 세그먼트에서 하위 박스로의 프로젝션(확장)과 상세 메타데이터가 시각화됩니다.",
+                        "Multi-column hierarchical specification architecture diagram (JEITA / ISO / ITU-T spec style) with projection expansions from container segments to internal structures."
+                    )
+                    showSpec -> label(
+                        "BMP/미디어 규격에 맞춘 4바이트 정렬 기술 다이어그램입니다. 헤더 배너, 오프셋 화살표, 2D 행/패딩 구조가 정확한 바이트로 시각화됩니다.",
+                        "Spec-grade 4-byte aligned diagram matching canonical format specifications, with header banners, offset arrows, and 2D row/padding layout."
+                    )
+                    else -> label(
+                        "실제 파싱된 바이트 범위로 그린 비율 무관 구조도입니다. 점선은 어떤 노드도 설명하지 않는 바이트, 주황 테두리는 경고입니다. 행을 누르면 구조 트리에서 선택됩니다.",
+                        "Not-to-scale map of the actual parsed byte ranges. Dashed rows are bytes no node accounts for; orange borders are warnings. Click a row to select it in the structure tree."
+                    )
+                },
                 color = AppColors.TextSecondary, fontSize = 12.sp,
             )
             if (fileChanged) {
@@ -272,6 +353,8 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
                         color = AppColors.NeonRed, modifier = Modifier.padding(16.dp))
                     root == null -> Text(label("파일 구조가 아직 로드되지 않았습니다", "The file structure is not loaded yet"),
                         color = AppColors.TextMuted, modifier = Modifier.padding(16.dp))
+                    showHierarchical -> renderedHier?.let { HierarchicalDiagramImage(it, tab, ko) }
+                        ?: Text(label("계층 구조도 생성 중…", "Building hierarchical diagram…"), color = AppColors.TextMuted, modifier = Modifier.padding(16.dp))
                     showSpec -> renderedSpec?.let { SpecDiagramImage(it) }
                         ?: Text(label("규격도 생성 중…", "Building spec diagram…"), color = AppColors.TextMuted, modifier = Modifier.padding(16.dp))
                     showTable -> d?.let { DiagramTable(it, selectedRegionId, ko, ::select) }
@@ -580,4 +663,148 @@ private fun SpecDiagramImage(rendered: RenderedSpec) {
         }
     }
 }
+
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+@Composable
+private fun HierarchicalDiagramImage(
+    rendered: RenderedHierarchical,
+    tab: TabState,
+    ko: Boolean,
+) {
+    val layout = rendered.layout
+    val density = LocalDensity.current
+    val width = with(density) { layout.width.toDp() }
+    val height = with(density) { layout.height.toDp() }
+
+    var scale by remember(rendered) { mutableStateOf(1f) }
+    var offset by remember(rendered) { mutableStateOf(Offset.Zero) }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .clipToBounds()
+            .background(AppColors.Panel)
+            .onPointerEvent(PointerEventType.Scroll, pass = PointerEventPass.Initial) { event ->
+                val change = event.changes.firstOrNull() ?: return@onPointerEvent
+                val cursorPosition = change.position
+                val scrollDeltaY = change.scrollDelta.y
+                val factor = if (scrollDeltaY < 0) 1.15f else 0.85f
+                val newScale = (scale * factor).coerceIn(0.2f, 10f)
+                val newOffset = Offset(
+                    cursorPosition.x - (cursorPosition.x - offset.x) * (newScale / scale),
+                    cursorPosition.y - (cursorPosition.y - offset.y) * (newScale / scale),
+                )
+                scale = newScale
+                offset = newOffset
+                event.changes.forEach { it.consume() }
+            }
+            .pointerInput(rendered, scale) {
+                detectDragGestures { change, dragAmount ->
+                    change.consume()
+                    offset += dragAmount
+                }
+            }
+            .pointerInput(rendered, scale, offset) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        scale = 1f
+                        offset = Offset.Zero
+                    },
+                    onTap = { clickPos ->
+                        val layoutX = (clickPos.x - offset.x) / scale
+                        val layoutY = (clickPos.y - offset.y) / scale
+                        val r = tab.root ?: return@detectTapGestures
+                        for (col in layout.columns) {
+                            for (sec in col.rows) {
+                                if (layoutX >= sec.x && layoutX <= sec.x + sec.w &&
+                                    layoutY >= sec.y && layoutY <= sec.y + sec.h
+                                ) {
+                                    val match = findNodeByMarker(r, sec.marker)
+                                    if (match != null) {
+                                        tab.selected = match
+                                    }
+                                    return@detectTapGestures
+                                }
+                            }
+                        }
+                    },
+                )
+            },
+    ) {
+        Box(
+            Modifier
+                .requiredSize(width, height)
+                .graphicsLayer(
+                    scaleX = scale,
+                    scaleY = scale,
+                    translationX = offset.x,
+                    translationY = offset.y,
+                    transformOrigin = TransformOrigin(0f, 0f),
+                ),
+        ) {
+            Image(rendered.bitmap, contentDescription = null, modifier = Modifier.fillMaxSize())
+        }
+
+        // Floating zoom HUD (zoom in/out, percent, reset)
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = AppColors.Surface.copy(alpha = 0.92f),
+            border = BorderStroke(1.dp, AppColors.Border),
+            shadowElevation = 2.dp,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(14.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+            ) {
+                IconButton(
+                    onClick = { scale = (scale * 0.85f).coerceIn(0.2f, 10f) },
+                    modifier = Modifier.size(24.dp),
+                ) {
+                    Text("−", fontSize = 14.sp, color = AppColors.TextPrimary)
+                }
+                Text(
+                    "${(scale * 100).toInt()}%",
+                    fontSize = 11.sp,
+                    color = AppColors.TextSecondary,
+                    modifier = Modifier.clickable {
+                        scale = 1f
+                        offset = Offset.Zero
+                    }.padding(horizontal = 4.dp),
+                )
+                IconButton(
+                    onClick = { scale = (scale * 1.15f).coerceIn(0.2f, 10f) },
+                    modifier = Modifier.size(24.dp),
+                ) {
+                    Text("+", fontSize = 14.sp, color = AppColors.TextPrimary)
+                }
+                if (scale != 1f || offset != Offset.Zero) {
+                    Text(
+                        if (ko) "초기화" else "Reset",
+                        fontSize = 11.sp,
+                        color = AppColors.NeonPurple,
+                        modifier = Modifier.clickable {
+                            scale = 1f
+                            offset = Offset.Zero
+                        }.padding(start = 2.dp, end = 6.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun findNodeByMarker(root: com.multiviewer.parser.BoxNode, marker: String): com.multiviewer.parser.BoxNode? {
+    val clean = marker.trim('[', ']', '(', ')')
+    if (root.type.equals(clean, ignoreCase = true) || root.type.startsWith(clean, ignoreCase = true)) return root
+    for (child in root.children) {
+        val found = findNodeByMarker(child, clean)
+        if (found != null) return found
+    }
+    return null
+}
+
 
