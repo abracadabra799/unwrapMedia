@@ -308,9 +308,6 @@ class TabState(val file: File) {
     var timedMetadata: StoredAnalysis<com.multiviewer.parser.metadata.TimedMetadataReport>? by mutableStateOf(null)
     var audioWaveform: StoredAnalysis<AudioWaveformData>? by mutableStateOf(null)
 
-    // Cached Bitstream corruption scan report for this tab
-    var bitstreamCorruptionReport: BitstreamCorruptionReport? by mutableStateOf(null)
-
     // Latest Content Check results for this tab (published by ContentCheckWindow); fed into the AI prompt.
     var contentCheck: ContentCheckSnapshot? by mutableStateOf(null)
 

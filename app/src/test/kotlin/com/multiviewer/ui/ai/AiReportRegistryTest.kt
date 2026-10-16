@@ -38,10 +38,9 @@ class AiReportRegistryTest {
         hdr: StoredAnalysis<HdrScanResult>? = null,
         frames: List<FrameInfo>? = null,
         avSync: com.multiviewer.ui.AvSyncReport? = null,
-        bitstream: String? = null,
         audio: StoredAnalysis<AudioWaveformData>? = null,
     ) = AiReportInputs(
-        file = file, root = root, type = type, avSync = avSync, bitstream = bitstream,
+        file = file, root = root, type = type, avSync = avSync,
         hdr = hdr, hrd = null, timed = null, frames = frames, gainmap = null, gainmapBase = null, audio = audio,
     )
 
@@ -121,12 +120,11 @@ class AiReportRegistryTest {
     }
 
     @Test
-    fun `bitstream is listed only when a result exists`() {
-        val none = aiReportSources(inputs(MediaType.VIDEO), label)
-        assertFalse(AiReportKind.BITSTREAM in none)
-        assertFalse(renderReportSection(none, label).contains("bitstream", ignoreCase = true))
-        val some = aiReportSources(inputs(MediaType.VIDEO, bitstream = "corrupt frames: 0"), label)
-        assertIs<AiReportSource.Ready>(some[AiReportKind.BITSTREAM])
+    fun `bitstream is not a report kind - Content Check covers decode and packet integrity`() {
+        assertTrue(AiReportKind.entries.none { it.key == "bitstream" })
+        assertFalse(renderReportSection(aiReportSources(inputs(MediaType.VIDEO), label), label).contains("bitstream", ignoreCase = true))
+        val parsed = parseToolRequests("@@unwrapmedia report bitstream").single()
+        assertEquals(null, parsed.request)
     }
 
     @Test
@@ -254,7 +252,7 @@ class AiReportRegistryTest {
     fun `a real C2PA file gives an on-request report without the certificate subject`() {
         val c = fixture("C.jpg")
         val tree = parseFile(c)
-        val sources = aiReportSources(AiReportInputs(c, tree, MediaType.IMAGE, null, null, null, null, null, null, null, null), label)
+        val sources = aiReportSources(AiReportInputs(c, tree, MediaType.IMAGE, null, null, null, null, null, null, null), label)
         val source = sources[AiReportKind.C2PA]
         assertIs<AiReportSource.OnRequest>(source)
         val out = source.run()
@@ -266,7 +264,7 @@ class AiReportRegistryTest {
 
         val none = fixture("no_manifest.jpg")
         assertFalse(AiReportKind.C2PA in aiReportSources(
-            AiReportInputs(none, parseFile(none), MediaType.IMAGE, null, null, null, null, null, null, null, null), label))
+            AiReportInputs(none, parseFile(none), MediaType.IMAGE, null, null, null, null, null, null, null), label))
     }
 
     @Test

@@ -31,7 +31,7 @@ import java.util.concurrent.TimeoutException
 const val REPORT_TIMEOUT_SECONDS = 20L
 
 enum class AiReportKind(val key: String) {
-    AVSYNC("avsync"), BITSTREAM("bitstream"), HDR("hdr"), HRD("hrd"), INTERVAL("interval"),
+    AVSYNC("avsync"), HDR("hdr"), HRD("hrd"), INTERVAL("interval"),
     TIMED("timed"), SPATIAL("spatial"), C2PA("c2pa"), SEF("sef"), GAINMAP("gainmap"),
     GOP("gop"), AUDIO("audio"), QUALITY("quality");
 
@@ -57,7 +57,6 @@ data class AiReportInputs(
     val type: MediaType,
     /** Rendered by [aiReportSources] (off the UI thread), not at send time. */
     val avSync: com.multiviewer.ui.AvSyncReport?,
-    val bitstream: String?,
     val hdr: StoredAnalysis<HdrScanResult>?,
     val hrd: StoredAnalysis<HrdSimulationReport>?,
     val timed: StoredAnalysis<TimedMetadataReport>?,
@@ -124,8 +123,6 @@ fun aiReportSources(
     if (video) {
         out[AiReportKind.AVSYNC] = inputs.avSync?.let { AiReportSource.Ready(renderAvSyncReport(it)) }
             ?: notRun(menu(I18n::menuAvSyncAnalysis, label), label)
-        // No menu opens the bitstream window yet; the kind is listed only when a result exists.
-        inputs.bitstream?.let { out[AiReportKind.BITSTREAM] = AiReportSource.Ready(it) }
         out[AiReportKind.HDR] = stored(inputs.hdr, file, menu(I18n::menuHdrSeiAnalysis, label), label) { renderHdr(it, file) }
         out[AiReportKind.HRD] = stored(inputs.hrd, file, menu(I18n::menuHrdBufferSimulation, label), label) { renderHrdReport(it) }
         val frames = inputs.frames
