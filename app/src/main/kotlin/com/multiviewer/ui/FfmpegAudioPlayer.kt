@@ -136,7 +136,9 @@ fun FfmpegAudioPlayer(
         hasEnded = true
     }
 
-    LaunchedEffect(file) {
+    val currentOnWaveformComputed = rememberUpdatedState(onWaveformComputed)
+
+    LaunchedEffect(file, rawAudioParams) {
         probing = true
         val info = runInterruptible(Dispatchers.IO) {
             if (rawAudioParams != null) {
@@ -161,7 +163,7 @@ fun FfmpegAudioPlayer(
                 computeWaveformPeaks(file, info, bucketCount = waveformBucketCountFor(info.duration), rawAudioParams = rawAudioParams) to identity
             }
             waveformPeaks = peaks
-            if (peaks != null) onWaveformComputed(peaks, info.duration, identity)
+            if (peaks != null) currentOnWaveformComputed.value(peaks, info.duration, identity)
         }
     }
 

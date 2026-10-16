@@ -591,4 +591,30 @@ class AiAnalysisReportsTest {
         assertTrue(ch1.contains("silent spans ≥0.5 s below −60 dBFS: 1 (2.000–3.000 s)"), ch1)
         assertTrue(out.contains("channel 1 peak (dBFS) over s"), out)
     }
+
+    @Test
+    fun `audio report of a very long waveform is cheap and pooled`() {
+        val n = 1_800_000
+        fun ch(seed: Int) = ChannelPeaks(FloatArray(n) { -(0.1f + ((it + seed) % 100) / 200f) }, FloatArray(n) { 0.1f + ((it + seed) % 100) / 200f })
+        val data = AudioWaveformData(WaveformPeaks(2, n, listOf(ch(0), ch(7))), 6000.0)
+        val t0 = System.nanoTime()
+        val out = renderAudioReport(data)
+        val ms = (System.nanoTime() - t0) / 1_000_000
+        assertTrue(ms < 2000, "took $ms ms")
+        for (c in 0..1) {
+            val lines = out.lines().dropWhile { !it.startsWith("channel $c peak (dBFS)") }.drop(1)
+                .takeWhile { it.startsWith("  ") }
+                .filter { it.contains("–") && it.contains("min ") && it.contains("mean ") && !it.contains("overall") }
+            assertTrue(lines.size in 1..60, "channel $c lines ${lines.size}")
+        }
+    }
+
+    @Test
+    fun `audio report detects a silence span of exactly half a second`() {
+        val n = 100
+        val mn = FloatArray(n) { -0.5f }; val mx = FloatArray(n) { 0.5f }
+        for (i in 10..14) { mn[i] = 0f; mx[i] = 0f }
+        val out = renderAudioReport(AudioWaveformData(WaveformPeaks(1, n, listOf(ChannelPeaks(mn, mx))), 10.0))
+        assertTrue(out.contains("silent spans ≥0.5 s below −60 dBFS: 1 (1.000–1.500 s)"), out)
+    }
 }

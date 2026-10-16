@@ -300,11 +300,13 @@ class AiReportRegistryTest {
     }
 
     @Test
-    fun `audio is ready while the stored waveform is current, void when the file changes, unavailable when absent`() {
+    fun `audio is on request while the stored waveform is current, void when the file changes, unavailable when absent`() {
         val audioFile = File(dir, "a.wav").apply { writeBytes(ByteArray(100)) }
         fun audioInputs(a: StoredAnalysis<AudioWaveformData>?) = inputs(MediaType.AUDIO, audio = a).copy(file = audioFile)
         val stored = StoredAnalysis(waveData, ContentFileIdentity.capture(audioFile))
-        assertIs<AiReportSource.Ready>(aiReportSources(audioInputs(stored), label)[AiReportKind.AUDIO])
+        val onReq = aiReportSources(audioInputs(stored), label)[AiReportKind.AUDIO]
+        assertIs<AiReportSource.OnRequest>(onReq)
+        assertTrue(onReq.run().contains("channels 1"), onReq.run())
         assertIs<AiReportSource.Unavailable>(aiReportSources(audioInputs(null), label)[AiReportKind.AUDIO])
         audioFile.writeBytes(ByteArray(200))
         val void = aiReportSources(audioInputs(stored), label)[AiReportKind.AUDIO]

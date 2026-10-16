@@ -412,6 +412,7 @@ fun renderGopReport(frames: List<FrameInfo>): String {
 private const val CLIP_THRESHOLD = 0.999f
 private const val SILENCE_LINEAR = 0.001f
 private const val MIN_SILENCE_SECONDS = 0.5
+private const val MAX_AUDIO_SERIES_POINTS = 600
 private const val MAX_LISTED_SPANS = 10
 
 private fun dbfs(amp: Float): Double = if (amp <= 0f) -120.0 else maxOf(-120.0, 20.0 * Math.log10(amp.toDouble()))
@@ -425,31 +426,53 @@ fun renderAudioReport(data: AudioWaveformData): String {
         f("channels %d · duration %.3f s · buckets %d (%.1f ms each) · peak-only (min/max per bucket); RMS/loudness not available",
             peaks.channelCount, dur, buckets, bucketSec * 1000.0))
     val trends = mutableListOf<String>()
+    val minSilentBuckets = if (bucketSec > 0.0) Math.ceil(MIN_SILENCE_SECONDS / bucketSec - 1e-9).toInt().coerceAtLeast(1) else Int.MAX_VALUE
     peaks.channels.forEachIndexed { c, ch ->
         val n = minOf(buckets, ch.min.size, ch.max.size)
         val amp = FloatArray(n) { maxOf(Math.abs(ch.min[it]), Math.abs(ch.max[it])) }
-        val peak = if (n == 0) 0f else amp.max()
-        val clipped = amp.indices.filter { amp[it] >= CLIP_THRESHOLD }
-        val silent = mutableListOf<Pair<Double, Double>>()
+        var peak = 0f
+        var clippedCount = 0
+        val clippedFirst = ArrayList<Int>(MAX_LISTED_SPANS)
+        for (k in 0 until n) {
+            val a = amp[k]
+            if (a > peak) peak = a
+            if (a >= CLIP_THRESHOLD) {
+                clippedCount++
+                if (clippedFirst.size < MAX_LISTED_SPANS) clippedFirst += k
+            }
+        }
+        var silentCount = 0
+        val silent = ArrayList<Pair<Double, Double>>(MAX_LISTED_SPANS)
         var i = 0
         while (i < n) {
             if (amp[i] < SILENCE_LINEAR) {
                 var j = i
                 while (j + 1 < n && amp[j + 1] < SILENCE_LINEAR) j++
-                val start = i * bucketSec
-                val end = (j + 1) * bucketSec
-                if (end - start >= MIN_SILENCE_SECONDS) silent += start to end
+                if (j - i + 1 >= minSilentBuckets) {
+                    silentCount++
+                    if (silent.size < MAX_LISTED_SPANS) silent += (i * bucketSec) to ((j + 1) * bucketSec)
+                }
                 i = j + 1
             } else i++
         }
-        val clipText = if (clipped.isEmpty()) "clipped buckets 0"
-        else f("clipped buckets %d (first at %s s)", clipped.size,
-            clipped.take(MAX_LISTED_SPANS).joinToString(", ") { f("%.3f", it * bucketSec) })
-        val silentText = f("silent spans ≥0.5 s below −60 dBFS: %d", silent.size) +
-            if (silent.isEmpty()) "" else " (" + silent.take(MAX_LISTED_SPANS).joinToString(", ") { f("%.3f–%.3f", it.first, it.second) } + " s)"
+        val clipText = if (clippedCount == 0) "clipped buckets 0"
+        else f("clipped buckets %d (first at %s s)", clippedCount,
+            clippedFirst.joinToString(", ") { f("%.3f", it * bucketSec) })
+        val silentText = f("silent spans ≥0.5 s below −60 dBFS: %d", silentCount) +
+            if (silent.isEmpty()) "" else " (" + silent.joinToString(", ") { f("%.3f–%.3f", it.first, it.second) } + " s)"
         out += f("channel %d: peak %.1f dBFS · ", c, dbfs(peak)) + clipText + " · " + silentText
-        renderSeriesOrNull("channel $c peak", "dBFS", "s",
-            List(n) { SeriesPoint((it + 0.5) * bucketSec, dbfs(amp[it])) })?.let { trends += it }
+        // Max-pool to at most MAX_AUDIO_SERIES_POINTS so a multi-million-bucket file stays cheap.
+        val pooled = if (n == 0) emptyList() else {
+            val m = minOf(n, MAX_AUDIO_SERIES_POINTS)
+            List(m) { p ->
+                val from = (p.toLong() * n / m).toInt()
+                val to = (((p + 1).toLong() * n / m).toInt()).coerceAtLeast(from + 1)
+                var mx = 0f
+                for (k in from until minOf(to, n)) if (amp[k] > mx) mx = amp[k]
+                SeriesPoint(if (m == n) (from + 0.5) * bucketSec else from * bucketSec, dbfs(mx))
+            }
+        }
+        renderSeriesOrNull("channel $c peak", "dBFS", "s", pooled)?.let { trends += it }
     }
     if (trends.isNotEmpty()) {
         out += "trend:"

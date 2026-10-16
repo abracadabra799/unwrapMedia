@@ -100,13 +100,7 @@ private fun audioSource(s: StoredAnalysis<AudioWaveformData>?, file: File, label
         "오디오 파형이 그려지면 요청 가능", "available once the waveform has been drawn"))
     val current = s.currentFor(file) ?: return AiReportSource.Unavailable(label(
         "파일이 바뀌어 파형이 무효 — 파일을 다시 여세요", "the file changed, so the waveform is void — reopen the file"))
-    return try {
-        AiReportSource.Ready(renderAudioReport(current))
-    } catch (e: Exception) {
-        if (e is InterruptedException) throw e
-        if (e is java.util.concurrent.CancellationException) throw e
-        AiReportSource.Unavailable("report could not be rendered (${e::class.simpleName})")
-    }
+    return AiReportSource.OnRequest { renderAudioReport(current) }
 }
 
 /**
