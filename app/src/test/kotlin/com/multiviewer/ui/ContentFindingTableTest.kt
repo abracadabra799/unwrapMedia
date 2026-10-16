@@ -22,6 +22,15 @@ class ContentFindingTableTest {
         assertEquals(listOf("skip", "pass"), contentFindingTableRows(findings, showAll = true).map { it.id })
     }
 
+    @Test fun emptyTableDistinguishesMissingChecksFromResultsHiddenByFilter() {
+        val completed = listOf(finding("pass", CheckStatus.PASS), finding("skip", CheckStatus.SKIP))
+
+        assertEquals(ContentFindingEmptyState.NO_CHECKS, contentFindingEmptyState(emptyList(), showAll = true))
+        assertEquals(ContentFindingEmptyState.FILTERED, contentFindingEmptyState(completed, showAll = false))
+        assertEquals(null, contentFindingEmptyState(completed, showAll = true))
+        assertEquals(null, contentFindingEmptyState(listOf(finding("warning", CheckStatus.WARN)), showAll = false))
+    }
+
     @Test fun summaryUsesFindingCounts() {
         val summary = contentFindingTableSummary(listOf(
             finding("fail", CheckStatus.FAIL), finding("warn", CheckStatus.WARN),

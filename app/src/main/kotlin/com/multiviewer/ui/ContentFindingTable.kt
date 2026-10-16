@@ -30,6 +30,14 @@ import androidx.compose.ui.unit.sp
 internal fun contentFindingTableRows(findings: List<ContentFinding>, showAll: Boolean): List<ContentFinding> =
     orderedContentFindings(findings, showAll)
 
+internal enum class ContentFindingEmptyState { NO_CHECKS, FILTERED }
+
+internal fun contentFindingEmptyState(findings: List<ContentFinding>, showAll: Boolean): ContentFindingEmptyState? = when {
+    findings.isEmpty() -> ContentFindingEmptyState.NO_CHECKS
+    contentFindingTableRows(findings, showAll).isEmpty() -> ContentFindingEmptyState.FILTERED
+    else -> null
+}
+
 internal fun contentFindingTableSummary(findings: List<ContentFinding>): ContentFindingSummary =
     contentFindingSummary(findings)
 
@@ -70,7 +78,7 @@ internal fun ContentFindingSummaryBar(findings: List<ContentFinding>, ko: Boolea
         Text(if (ko) "검사 항목 ${counts.total}" else "Findings ${counts.total}", color = AppColors.TextPrimary, fontSize = 12.sp)
         Text((if (ko) "실패 " else "Fail ") + counts.failures, color = AppColors.NeonRed, fontSize = 12.sp)
         Text((if (ko) "경고 " else "Warn ") + counts.warnings, color = AppColors.NeonYellow, fontSize = 12.sp)
-        Text((if (ko) "정상 " else "Pass ") + counts.passed, color = AppColors.NeonGreen, fontSize = 12.sp)
+        Text((if (ko) "정상·정보 " else "Pass/info ") + counts.passed, color = AppColors.NeonGreen, fontSize = 12.sp)
         Text((if (ko) "미검증 " else "Unverified ") + counts.unverified, color = AppColors.TextMuted, fontSize = 12.sp)
     }
 }
@@ -83,7 +91,7 @@ internal fun ContentFindingTable(
     modifier: Modifier = Modifier,
     onSelectRange: ((Long, Long) -> Unit)? = null,
 ) {
-    var showAll by remember { mutableStateOf(false) }
+    var showAll by remember { mutableStateOf(true) }
     val expanded = remember { mutableStateMapOf<String, Boolean>() }
     val rows = contentFindingTableRows(findings, showAll)
     Column(modifier.fillMaxSize()) {
@@ -140,7 +148,17 @@ internal fun ContentFindingTable(
                 }
             }
             if (rows.isEmpty()) item {
-                Text(if (ko) "표시할 항목이 없습니다" else "No findings to display", color = AppColors.TextMuted, modifier = Modifier.padding(12.dp))
+                val counts = contentFindingTableSummary(findings)
+                val emptyText = when (contentFindingEmptyState(findings, showAll)) {
+                    ContentFindingEmptyState.NO_CHECKS -> if (ko)
+                        "검사 결과 항목이 없습니다. 이 결과만으로 정상 여부를 판단할 수 없습니다."
+                    else "No check results are available. This alone does not establish a pass."
+                    ContentFindingEmptyState.FILTERED -> if (ko)
+                        "표시 중인 실패·경고 없음 · 검사 ${counts.total}건 중 정상·정보 ${counts.passed}건, 미검증 ${counts.unverified}건"
+                    else "No failures or warnings in this filter · ${counts.total} checks: ${counts.passed} pass/info, ${counts.unverified} unverified"
+                    null -> ""
+                }
+                Text(emptyText, color = AppColors.TextMuted, modifier = Modifier.padding(12.dp))
             }
         }
     }
