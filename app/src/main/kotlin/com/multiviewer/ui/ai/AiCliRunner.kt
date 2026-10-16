@@ -53,6 +53,28 @@ private class BoundedCollector(private val input: InputStream, private val cap: 
     fun text(): String = synchronized(bytes) { bytes.toString(Charsets.UTF_8) }
 }
 
+private const val AI_WORK_DIR_PREFIX = "unwrapmedia-ai-"
+
+/**
+ * Removes AI work directories left behind when the app was killed mid-run (the runner deletes its own in a
+ * finally, but a crash or force-quit skips it, and a dir can hold a screen crop). Only directories with the
+ * runner's prefix and older than [olderThanMillis] are touched, so a run in another app instance survives.
+ * Blocking: call off the UI thread. Returns how many directories were removed.
+ */
+fun cleanStaleAiWorkDirs(
+    tempDir: File = File(System.getProperty("java.io.tmpdir")),
+    olderThanMillis: Long = 60 * 60 * 1000L,
+    now: Long = System.currentTimeMillis(),
+): Int {
+    val candidates = tempDir.listFiles { f -> f.isDirectory && f.name.startsWith(AI_WORK_DIR_PREFIX) } ?: return 0
+    var removed = 0
+    for (dir in candidates) {
+        val newest = dir.walkTopDown().maxOfOrNull { it.lastModified() } ?: dir.lastModified()
+        if (now - newest >= olderThanMillis && dir.deleteRecursively()) removed++
+    }
+    return removed
+}
+
 /**
  * Runs one request: [prompt] on stdin, in a fresh app-owned temp directory (deleted afterwards), with an
  * enforced wall-clock [timeoutMillis], bounded stdout/stderr, and process-tree termination on timeout or
@@ -69,7 +91,7 @@ suspend fun runAiCli(
     images: List<java.awt.image.BufferedImage> = emptyList(),
 ): AiCliResult = runInterruptible(Dispatchers.IO) {
     if (!fileStillCurrent()) return@runInterruptible AiCliResult.StaleFile
-    val workDir = Files.createTempDirectory("unwrapmedia-ai-").toFile()
+    val workDir = Files.createTempDirectory(AI_WORK_DIR_PREFIX).toFile()
     var process: Process? = null
     try {
         try {

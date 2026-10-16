@@ -28,6 +28,22 @@ data class AiMessage(
 
 data class AiActivity(val timestampMillis: Long, val text: String)
 
+/** Runs (questions) whose sent context and tool output are kept in full; older ones keep a short stub. */
+const val AI_FULL_DETAIL_RUNS = 10
+/** Activity log entries kept per tab. */
+const val AI_MAX_ACTIVITY = 200
+private const val MAX_STUB_OFFSETS = 40
+private val HEX_OFFSET = Regex("\\b0x[0-9A-Fa-f]{1,12}\\b")
+
+// A long session would otherwise hold every sent context (~24 k chars) and every tool round (up to 15 × 8 k)
+// for the life of the tab. Questions and answers are kept as they are (the transcript and the resent history
+// only use those); older contexts and tool output shrink to a stub that still lists the offsets the app sent,
+// so evidence chips on old answers keep resolving.
+private fun stub(kind: String, text: String): String {
+    val offsets = HEX_OFFSET.findAll(text).map { it.value }.distinct().take(MAX_STUB_OFFSETS).toList()
+    return "($kind compacted: ${text.length} chars" + (if (offsets.isEmpty()) "" else "; offsets ${offsets.joinToString(" ")}") + ")"
+}
+
 /**
  * One file tab's conversation. Immutable: every change returns a new state, and replies are accepted
  * only for the current [runId] while [status] is RUNNING, so a late answer from a cancelled or superseded
@@ -42,6 +58,22 @@ data class AiConversationState(
 ) {
     private fun nextId() = (messages.maxOfOrNull { it.id } ?: 0) + 1
 
+    /** Bounds what the tab holds: see [AI_FULL_DETAIL_RUNS] and [AI_MAX_ACTIVITY]. */
+    private fun bounded(): AiConversationState {
+        val userIds = messages.filter { it.role == AiRole.USER }.map { it.id }
+        val keepFrom = userIds.getOrNull(userIds.size - AI_FULL_DETAIL_RUNS) ?: Long.MIN_VALUE
+        val compacted = if (userIds.size <= AI_FULL_DETAIL_RUNS) messages else messages.map { m ->
+            when {
+                m.id >= keepFrom -> m
+                m.role == AiRole.USER && m.outgoingContext != null && !m.outgoingContext.startsWith("(context compacted") ->
+                    m.copy(outgoingContext = stub("context", m.outgoingContext))
+                m.role == AiRole.TOOL && !m.text.startsWith("(tool round compacted") -> m.copy(text = stub("tool round", m.text))
+                else -> m
+            }
+        }
+        return copy(messages = compacted, activity = activity.takeLast(AI_MAX_ACTIVITY))
+    }
+
     /** Starts a run; returns the new state and the run id the reply must carry. */
     fun withUserMessage(text: String, outgoingContext: String, provider: AiProviderId, now: Long): Pair<AiConversationState, Long> {
         val run = runId + 1
@@ -49,7 +81,7 @@ data class AiConversationState(
             messages = messages + AiMessage(nextId(), AiRole.USER, text, provider, now, outgoingContext),
             status = AiRunStatus.RUNNING, runId = run, provider = provider,
             activity = activity + AiActivity(now, "→ ${provider.displayName}: ${outgoingContext.length} chars of context"),
-        )
+        ).bounded()
         return state to run
     }
 
@@ -59,7 +91,7 @@ data class AiConversationState(
             messages = messages + AiMessage(nextId(), AiRole.ASSISTANT, text, provider, now),
             status = AiRunStatus.FINISHED,
             activity = activity + AiActivity(now, "← ${provider?.displayName ?: "AI"}: ${text.length} chars"),
-        )
+        ).bounded()
     }
 
     /** Ends the current run without an answer; [notice] becomes a visible app message. */
@@ -69,10 +101,10 @@ data class AiConversationState(
             messages = messages + AiMessage(nextId(), AiRole.NOTICE, notice, provider, now),
             status = status,
             activity = activity + AiActivity(now, "${status.name}: $notice"),
-        )
+        ).bounded()
     }
 
-    fun withActivity(text: String, now: Long) = copy(activity = activity + AiActivity(now, text))
+    fun withActivity(text: String, now: Long) = copy(activity = activity + AiActivity(now, text)).bounded()
 
     /** Records one bridge round (requests and bounded results) of the current run. */
     fun withToolRound(run: Long, text: String, requestCount: Int, now: Long): AiConversationState {
@@ -80,6 +112,6 @@ data class AiConversationState(
         return copy(
             messages = messages + AiMessage(nextId(), AiRole.TOOL, text, provider, now),
             activity = activity + AiActivity(now, "app bridge: $requestCount request(s) answered"),
-        )
+        ).bounded()
     }
 }

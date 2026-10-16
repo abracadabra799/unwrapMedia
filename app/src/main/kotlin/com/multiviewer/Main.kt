@@ -329,6 +329,10 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
     LaunchedEffect(Unit) {
         val cacheDir = File(System.getProperty("user.home"), ".unwrapMedia/cache")
         com.multiviewer.cache.MediaIndexCache.initialize(cacheDir)
+        // AI work dirs a crash or force-quit left behind (they can hold a screen crop).
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { com.multiviewer.ui.ai.cleanStaleAiWorkDirs() }
+        }
         println("Starting unwrapMedia...")
         println("OS: ${System.getProperty("os.name")} (${System.getProperty("os.arch")})")
         println("Java Home: ${System.getProperty("java.home")}")
