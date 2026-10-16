@@ -80,6 +80,8 @@ class AiChatController(
     },
     private val onCapabilityUpdate: (AiCapabilityUpdate) -> Unit = {},
     private val capabilities: (AiProviderId) -> AiProviderCapabilities? = { null },
+    /** The app-wide last Quality Compare result (read on the UI thread at send time). */
+    private val quality: () -> com.multiviewer.ui.StoredComparison? = { null },
     /** Test hook run inside context capture (e.g. to simulate a failure there). */
     private val contextCapture: () -> Any? = {},
     /** Decodes a video tab's selected frame for the AI (blocking; run off the UI thread). */
@@ -124,7 +126,7 @@ class AiChatController(
         val reportInputs = AiReportInputs(
             file = file, root = root, type = type, avSync = avSyncText, bitstream = bitstreamText,
             hdr = tab.hdrScan, hrd = tab.hrdReport, timed = tab.timedMetadata, frames = frames,
-            gainmap = tab.gainmapInfo, audio = tab.audioWaveform,
+            gainmap = tab.gainmapInfo, audio = tab.audioWaveform, quality = quality(),
             gainmapBase = tab.imageForensic?.let { f ->
                 f.bitmap?.let { com.multiviewer.ui.codedSize(it.width, it.height, f.orientationCode) }
             },

@@ -20,6 +20,7 @@ import com.multiviewer.ui.FrameInfo
 import com.multiviewer.ui.I18n
 import com.multiviewer.ui.MediaType
 import com.multiviewer.ui.StoredAnalysis
+import com.multiviewer.ui.StoredComparison
 import java.io.File
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
@@ -32,7 +33,7 @@ const val REPORT_TIMEOUT_SECONDS = 20L
 enum class AiReportKind(val key: String) {
     AVSYNC("avsync"), BITSTREAM("bitstream"), HDR("hdr"), HRD("hrd"), INTERVAL("interval"),
     TIMED("timed"), SPATIAL("spatial"), C2PA("c2pa"), SEF("sef"), GAINMAP("gainmap"),
-    GOP("gop"), AUDIO("audio");
+    GOP("gop"), AUDIO("audio"), QUALITY("quality");
 
     companion object {
         fun of(key: String): AiReportKind? = entries.firstOrNull { it.key == key }
@@ -64,6 +65,7 @@ data class AiReportInputs(
     /** Coded base-image size, as GainmapCheckPage computes it (EXIF rotation undone). */
     val gainmapBase: Pair<Int, Int>?,
     val audio: StoredAnalysis<AudioWaveformData>? = null,
+    val quality: StoredComparison? = null,
 )
 
 private val TIMED_NODE_TYPES = setOf("camm", "gpmd", "mebx")
@@ -147,6 +149,15 @@ fun aiReportSources(
     }
     if (inputs.type == MediaType.AUDIO) {
         out[AiReportKind.AUDIO] = audioSource(inputs.audio, file, label)
+    }
+    val quality = inputs.quality
+    if (quality != null && quality.files.values.any { it.absolutePath == file.absolutePath }) {
+        out[AiReportKind.QUALITY] = if (quality.currentFor(file)) {
+            AiReportSource.OnRequest { renderQualityReport(quality) }
+        } else {
+            AiReportSource.Unavailable(label(
+                "비교한 파일이 바뀌어 결과가 무효 — 다시 비교", "a compared file changed, so the result is void — compare again"))
+        }
     }
     if (root != null && hasC2paManifestStore(root)) {
         out[AiReportKind.C2PA] = AiReportSource.OnRequest {

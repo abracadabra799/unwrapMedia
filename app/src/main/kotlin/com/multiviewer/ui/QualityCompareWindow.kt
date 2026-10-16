@@ -170,7 +170,14 @@ fun QualityCompareWindow(appState: AppState? = null, language: AppLanguage = App
             statusMessage = null
             cancelRequested.set(false)
 
+            val runFiles = listOfNotNull(
+                rawFile?.let { "raw" to it }, encodedAFile?.let { "encodedA" to it }, encodedBFile?.let { "encodedB" to it },
+            ).toMap()
+            val runPairs = determineComparisonPairs(rawFile, encodedAFile, encodedBFile)
+
             qualityCompareExecutor.execute {
+                // Blocking stat: captured here, before the passes, so a file edited during the run reads as changed.
+                val identities = runFiles.mapValues { (_, f) -> runCatching { com.multiviewer.ui.ContentFileIdentity.capture(f) }.getOrNull() }
                 val collected = linkedMapOf<String, MutableMap<String, MetricRunResult>>()
                 for (item in queue) {
                     if (cancelRequested.get()) break
@@ -202,6 +209,10 @@ fun QualityCompareWindow(appState: AppState? = null, language: AppLanguage = App
                         else -> null
                     }
                     if (collected.isNotEmpty()) results = collected
+                    // A cancelled run's partial results never replace the previous stored comparison.
+                    if (collected.isNotEmpty() && !cancelRequested.get()) {
+                        appState?.lastQualityComparison = StoredComparison(runFiles, identities, collected.mapValues { it.value.toMap() }, runPairs)
+                    }
                 }
             }
         }

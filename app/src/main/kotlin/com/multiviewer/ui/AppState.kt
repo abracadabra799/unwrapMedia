@@ -365,6 +365,9 @@ class AppState {
     var selectedTabIndex by mutableStateOf(0)
     var statusMessage: String? by mutableStateOf(null)
 
+    /** The last finished Quality Compare run (null until one completes); offered to the AI as the `quality` report. */
+    var lastQualityComparison: StoredComparison? by mutableStateOf(null)
+
     var leftPanelMode: LeftPanelMode by mutableStateOf(LeftPanelMode.STRUCTURE_TREE)
     var selectedFolder: File? by mutableStateOf(null)
 
@@ -1019,4 +1022,18 @@ data class AudioWaveformData(val peaks: WaveformPeaks, val durationSeconds: Doub
 data class StoredAnalysis<T>(val value: T, val identity: ContentFileIdentity?) {
     /** Blocking stat: call off the UI thread. */
     fun currentFor(file: File): T? = value.takeIf { identity?.matches(file) == true }
+}
+
+/** A finished Quality Compare run with the identity of every compared file, so it goes void if any of them changes. */
+data class StoredComparison(
+    /** role ("raw", "encodedA", "encodedB") -> file. */
+    val files: Map<String, File>,
+    val identities: Map<String, ContentFileIdentity?>,
+    /** pair label -> metric -> result, as the window holds them. */
+    val results: Map<String, Map<String, MetricRunResult>>,
+    val pairs: List<ComparisonPair>,
+) {
+    /** Blocking stat: call off the UI thread. */
+    fun currentFor(file: File): Boolean = files.values.any { it.absolutePath == file.absolutePath } &&
+        files.all { (role, f) -> identities[role]?.matches(f) == true }
 }

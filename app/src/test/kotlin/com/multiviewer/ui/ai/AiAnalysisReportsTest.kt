@@ -617,4 +617,24 @@ class AiAnalysisReportsTest {
         val out = renderAudioReport(AudioWaveformData(WaveformPeaks(1, n, listOf(ChannelPeaks(mn, mx))), 10.0))
         assertTrue(out.contains("silent spans ≥0.5 s below −60 dBFS: 1 (1.000–1.500 s)"), out)
     }
+
+    @Test
+    fun `quality report lists metrics, ascending worst frames and file names only`() {
+        val ref = File("/secret/dir/raw.yuv")
+        val enc = File("/secret/dir/enc.mp4")
+        fun r(vararg v: Double) = com.multiviewer.ui.MetricRunResult(
+            v.mapIndexed { i, x -> com.multiviewer.ui.MetricFrameSample(i, x) },
+            com.multiviewer.ui.MetricStatistics(v.min(), v.max(), v.average(), v.sorted()[v.size / 2]))
+        val c = com.multiviewer.ui.StoredComparison(
+            mapOf("raw" to ref, "encodedA" to enc), emptyMap(),
+            mapOf("Raw vs A" to mapOf("PSNR" to r(40.0, 30.0, 35.0), "SSIM" to r(0.99, 0.90, 0.95))),
+            listOf(com.multiviewer.ui.ComparisonPair("rawA", "Raw vs A", enc, ref)))
+        val text = renderQualityReport(c)
+        assertTrue(text.contains("pair Raw vs A: reference raw \"raw.yuv\" · comparison encodedA \"enc.mp4\""), text)
+        assertTrue(text.contains("PSNR: min 30.000"), text)
+        assertTrue(text.contains("SSIM:"), text)
+        assertTrue(text.contains("worst frames: #1=30.000, #2=35.000, #0=40.000"), text)
+        assertTrue(text.contains("trend:"), text)
+        assertFalse(text.contains("/secret"), text)
+    }
 }

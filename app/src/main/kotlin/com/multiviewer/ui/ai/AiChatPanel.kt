@@ -96,6 +96,7 @@ fun aiChatController(appState: AppState, scope: kotlinx.coroutines.CoroutineScop
         }
     },
     capabilities = { appState.aiCapabilities[it] },
+    quality = { appState.lastQualityComparison },
 )
 
 /** Left edge of the AI panel: drag to resize (300–760 dp). */

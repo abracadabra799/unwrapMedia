@@ -25,6 +25,7 @@ import com.multiviewer.parser.metadata.TimedMetadataReport
 import com.multiviewer.parser.spatial.SpatialVideoReport
 import com.multiviewer.ui.AudioWaveformData
 import com.multiviewer.ui.FrameInfo
+import com.multiviewer.ui.StoredComparison
 import com.multiviewer.ui.computeFrameIntervals
 import java.io.File
 import java.util.Locale
@@ -477,6 +478,32 @@ fun renderAudioReport(data: AudioWaveformData): String {
     if (trends.isNotEmpty()) {
         out += "trend:"
         out += trends
+    }
+    return out.joinToString("\n")
+}
+
+private const val QUALITY_WORST_FRAMES = 10
+
+/** Per pair and metric: statistics, the worst frames (lowest values first) and the per-frame trend. File names only. */
+fun renderQualityReport(c: StoredComparison): String {
+    fun role(f: File) = c.files.entries.firstOrNull { it.value.absolutePath == f.absolutePath }?.key ?: "?"
+    fun name(f: File) = scrubPaths(f.name, f)
+    val out = mutableListOf<String>()
+    c.results.forEach { (pairLabel, metrics) ->
+        val pair = c.pairs.firstOrNull { it.label == pairLabel }
+        out += if (pair != null) {
+            "pair $pairLabel: reference ${role(pair.reference)} \"${name(pair.reference)}\" · comparison ${role(pair.comparison)} \"${name(pair.comparison)}\""
+        } else "pair $pairLabel"
+        metrics.forEach { (metric, r) ->
+            val st = r.statistics
+            val worst = r.perFrame.filter { it.value.isFinite() }.sortedBy { it.value }.take(QUALITY_WORST_FRAMES)
+                .joinToString(", ") { f("#%d=%.3f", it.frameIndex, it.value) }
+            out += f("  %s: min %.3f / mean %.3f / median %.3f / max %.3f · worst frames: %s", metric, st.min, st.mean, st.median, st.max,
+                worst.ifEmpty { "none" })
+            out += "  trend:"
+            out += renderSeries(metric, "", "frame", r.perFrame.map { SeriesPoint(it.frameIndex.toDouble(), it.value) }, buckets = 30)
+                .lines().joinToString("\n") { "  $it" }
+        }
     }
     return out.joinToString("\n")
 }

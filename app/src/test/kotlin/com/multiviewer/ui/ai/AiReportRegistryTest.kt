@@ -320,4 +320,31 @@ class AiReportRegistryTest {
         assertFalse(AiReportKind.GOP in sources)
         assertFalse(AiReportKind.AUDIO in sources)
     }
+
+    private fun comparison(a: File, b: File): com.multiviewer.ui.StoredComparison {
+        val res = com.multiviewer.ui.MetricRunResult(
+            listOf(com.multiviewer.ui.MetricFrameSample(0, 40.0), com.multiviewer.ui.MetricFrameSample(1, 30.0)),
+            com.multiviewer.ui.MetricStatistics(30.0, 40.0, 35.0, 35.0))
+        val pair = com.multiviewer.ui.ComparisonPair("rawA", "Raw vs A", b, a)
+        return com.multiviewer.ui.StoredComparison(
+            mapOf("raw" to a, "encodedA" to b),
+            mapOf("raw" to ContentFileIdentity.capture(a), "encodedA" to ContentFileIdentity.capture(b)),
+            mapOf("Raw vs A" to mapOf("PSNR" to res)), listOf(pair))
+    }
+
+    @Test
+    fun `quality is on request for a compared file, absent for others, void when a compared file changes`() {
+        val other = File(dir, "enc.mp4").apply { writeBytes(ByteArray(50)) }
+        val c = comparison(file, other)
+        val on = aiReportSources(inputs(MediaType.VIDEO).copy(quality = c), label)[AiReportKind.QUALITY]
+        assertIs<AiReportSource.OnRequest>(on)
+        assertTrue(on.run().contains("PSNR"))
+        val stranger = File(dir, "x.mp4").apply { writeBytes(ByteArray(5)) }
+        assertFalse(AiReportKind.QUALITY in aiReportSources(inputs(MediaType.VIDEO).copy(file = stranger, quality = c), label))
+        assertFalse(AiReportKind.QUALITY in aiReportSources(inputs(MediaType.VIDEO), label))
+        other.writeBytes(ByteArray(99))
+        val void = aiReportSources(inputs(MediaType.VIDEO).copy(quality = c), label)[AiReportKind.QUALITY]
+        assertIs<AiReportSource.Unavailable>(void)
+        assertTrue(void.reason.contains("changed"), void.reason)
+    }
 }
