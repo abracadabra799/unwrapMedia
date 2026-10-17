@@ -70,11 +70,11 @@
 
 **Interfaces:** Codec stage invokes `analyzeAacBitstream` when audio entry is `mp4a` with valid `esds`. Extend snapshot with `val aacBitstream: AacBitstreamReport? = null`; append AAC findings to conformance detail. Other tracks, fragments, encryption, mismatched tables, cap truncation, changed files, and cancelled scans expose named NOT_CHECKED coverage and cannot yield overall PASS.
 
-- [ ] **Step 1: Write failing tests.** `otherAudioTrackIsNotChecked`, fragment/encrypted/unreadable sample coverage, malformed `esds`, cap truncation, cancellation after sample 1, file changed before publish, and default `mp4a` availability in `MediaType.AUDIO`.
-- [ ] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.ui.AacContentCheckIntegrationTest'`; expect RED.
-- [ ] **Step 3: Implement** capability detection in `ContentCheckStage.kt`, dispatcher/cancellation, progress, and UI presentation in `ContentCheckWindow.kt`.
-- [ ] **Step 4: Run** focused integration tests, `./gradlew :app:compileKotlin`, then `./gradlew :app:test`; expect PASS.
-- [ ] **Step 5: Commit** `feat: expose AAC rule coverage in Content Check`.
+- [x] **Step 1: Write failing tests.** `otherAudioTrackIsNotChecked`, fragment/encrypted/unreadable sample coverage, malformed `esds`, cap truncation, cancellation after sample 1, file changed before publish, and default `mp4a` availability in `MediaType.AUDIO`.
+- [x] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.ui.AacContentCheckIntegrationTest'`; expect RED.
+- [x] **Step 3: Implement** capability detection in `ContentCheckStage.kt`, dispatcher/cancellation, progress, and UI presentation in `ContentCheckWindow.kt`.
+- [x] **Step 4: Run** focused integration tests, `./gradlew :app:compileKotlin`, then `./gradlew :app:test`; expect PASS.
+- [x] **Step 5: Commit** `feat: expose AAC rule coverage in Content Check`.
 
 ## Branch finish
 

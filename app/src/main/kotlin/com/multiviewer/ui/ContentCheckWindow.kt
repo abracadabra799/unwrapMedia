@@ -48,11 +48,13 @@ import com.multiviewer.parser.conformance.AvcBitstreamReport
 import com.multiviewer.parser.conformance.Av1BitstreamReport
 import com.multiviewer.parser.conformance.Vp9BitstreamReport
 import com.multiviewer.parser.conformance.ApvBitstreamReport
+import com.multiviewer.parser.conformance.AacBitstreamReport
 import com.multiviewer.parser.conformance.analyzeHevcBitstream
 import com.multiviewer.parser.conformance.analyzeAvcBitstream
 import com.multiviewer.parser.conformance.analyzeAv1Bitstream
 import com.multiviewer.parser.conformance.analyzeVp9Bitstream
 import com.multiviewer.parser.conformance.analyzeApvBitstream
+import com.multiviewer.parser.conformance.analyzeAacBitstream
 import com.multiviewer.parser.integrity.ImageStructureReport
 import com.multiviewer.parser.integrity.AudioStructureReport
 import com.multiviewer.parser.integrity.IntegrityCheckItem
@@ -104,6 +106,7 @@ fun ContentCheckWindow(
     var av1Bitstream by remember(tab) { mutableStateOf<Av1BitstreamReport?>(null) }
     var vp9Bitstream by remember(tab) { mutableStateOf<Vp9BitstreamReport?>(null) }
     var apvBitstream by remember(tab) { mutableStateOf<ApvBitstreamReport?>(null) }
+    var aacBitstream by remember(tab) { mutableStateOf<AacBitstreamReport?>(null) }
     var fileLength by remember(tab) { mutableStateOf(0L) }
     var structureError by remember(tab) { mutableStateOf<String?>(null) }
     var imageDecode by remember(tab) { mutableStateOf<ImageDecodeReport?>(null) }
@@ -138,16 +141,19 @@ fun ContentCheckWindow(
     val gainmapDetected = type == MediaType.IMAGE && tab.gainmapInfo?.hasGainmap == true
     var gainmapChecks by remember(tab) { mutableStateOf<List<IntegrityCheckItem>?>(null) }
     var stageStates by remember(tab) { mutableStateOf<Map<CheckStage, CheckStageState>>(emptyMap()) }
+    val aacAvail = aacCodecAvailability(type, tab.root)
+    val videoCodecAvail = videoCodecAvailability(type, tab.root)
     val stageSpecs = contentCheckStages(type, tab.root, motionDetected, gainmapDetected,
         type == MediaType.AUDIO || tab.mediaSummary?.sections?.any { it.title == "Audio" } == true,
-        codecRunnerAvailable = videoCodecAvailability(type, tab.root) == CheckAvailability.AVAILABLE)
+        codecRunnerAvailable = (videoCodecAvail == CheckAvailability.AVAILABLE || aacAvail == CheckAvailability.AVAILABLE),
+        aacCodecAvailable = (aacAvail == CheckAvailability.AVAILABLE))
     val targetJob = job
     DisposableEffect(tab, targetJob) { onDispose { targetJob?.cancel() } }
 
     // Publish the current run's results to the tab for the AI prompt. These states are only ever
     // written by the current run (every write is behind the runId/current() guard), so a stale or
     // cancelled run can never reach the tab through here.
-    LaunchedEffect(tab, structure, audioStructure, conformance, hevcBitstream, avcBitstream, av1Bitstream, vp9Bitstream, apvBitstream, structureError, imageDecode, imageDecodeError, motion, motionError, video, videoError, audio, audioError, running, motionDetected, type, checkedIdentity, stageStates) {
+    LaunchedEffect(tab, structure, audioStructure, conformance, hevcBitstream, avcBitstream, av1Bitstream, vp9Bitstream, apvBitstream, aacBitstream, structureError, imageDecode, imageDecodeError, motion, motionError, video, videoError, audio, audioError, running, motionDetected, type, checkedIdentity, stageStates) {
         tab.contentCheck = ContentCheckSnapshot(
             structure, imageDecode, motionDetected, motion, motionError, video, type,
             structureError = structureError, imageDecodeError = imageDecodeError, videoError = videoError, running = running,
@@ -161,6 +167,7 @@ fun ContentCheckWindow(
             av1Bitstream = av1Bitstream,
             vp9Bitstream = vp9Bitstream,
             apvBitstream = apvBitstream,
+            aacBitstream = aacBitstream,
         )
     }
 
@@ -197,6 +204,7 @@ fun ContentCheckWindow(
         av1Bitstream = null
         vp9Bitstream = null
         apvBitstream = null
+        aacBitstream = null
         message = fileChangedMessage()
     }
 
@@ -253,13 +261,23 @@ fun ContentCheckWindow(
                     when (stage) {
                         CheckStage.STRUCTURE -> runStructure(root, identity)
                         CheckStage.CODEC -> {
-                            if (type != MediaType.VIDEO) error("Video track unavailable")
+                            if (type != MediaType.VIDEO && type != MediaType.AUDIO) error("Video or audio track unavailable")
+                            val aacAvail = aacCodecAvailability(type, root)
                             val hevcAvail = hevcCodecAvailability(type, root)
                             val avcAvail = avcCodecAvailability(type, root)
                             val av1Avail = av1CodecAvailability(type, root)
                             val vp9Avail = vp9CodecAvailability(type, root)
                             val apvAvail = apvCodecAvailability(type, root)
                             when {
+                                aacAvail == CheckAvailability.AVAILABLE -> {
+                                    aacBitstream = analyzeAacBitstream(tab.file, root) { checked, total ->
+                                        if (checked % 20 == 0 || checked == total) scope.launch {
+                                            if (current() && stageStates[CheckStage.CODEC]?.status == CheckRunStatus.RUNNING) {
+                                                progress(CheckProgress(checked.toLong(), total?.toLong(), "samples"))
+                                            }
+                                        }
+                                    }
+                                }
                                 hevcAvail == CheckAvailability.AVAILABLE -> {
                                     hevcBitstream = analyzeHevcBitstream(tab.file, root) { checked, total ->
                                         if (checked % 20 == 0 || checked == total) scope.launch {
@@ -305,7 +323,7 @@ fun ContentCheckWindow(
                                         }
                                     }
                                 }
-                                else -> error("Supported HEVC, AVC, AV1, VP9, or APV configuration unavailable")
+                                else -> error("Supported HEVC, AVC, AV1, VP9, APV, or AAC configuration unavailable")
                             }
                         }
                         CheckStage.VISUAL_DECODE -> {
@@ -336,7 +354,7 @@ fun ContentCheckWindow(
                 }
                 runner.run(runStages) { stage, state ->
                     if (shouldPublishCheckState(myRun == runId, isActive, state.status)) {
-                        val codecComplete = hevcBitstream?.complete ?: avcBitstream?.complete ?: av1Bitstream?.complete ?: vp9Bitstream?.complete ?: apvBitstream?.complete
+                        val codecComplete = hevcBitstream?.complete ?: avcBitstream?.complete ?: av1Bitstream?.complete ?: vp9Bitstream?.complete ?: apvBitstream?.complete ?: aacBitstream?.complete
                         val shownState = if (stage == CheckStage.CODEC && state.status == CheckRunStatus.COMPLETED && codecComplete == false) {
                             state.copy(status = CheckRunStatus.PARTIAL, reason = "Only indexed, supported samples were checked / 일부 샘플만 검사")
                         } else state
@@ -385,6 +403,7 @@ fun ContentCheckWindow(
         av1Bitstream = av1Bitstream,
         vp9Bitstream = vp9Bitstream,
         apvBitstream = apvBitstream,
+        aacBitstream = aacBitstream,
     )
 
     Window(
@@ -551,6 +570,7 @@ fun ContentCheckWindow(
                                             ?: av1Bitstream?.let { it.findings to it.complete }
                                             ?: vp9Bitstream?.let { it.findings to it.complete }
                                             ?: apvBitstream?.let { it.findings to it.complete }
+                                            ?: aacBitstream?.let { it.findings to it.complete }
                                         pair?.let { (findings, complete) -> when {
                                             findings.any { it.status == ConformanceStatus.FAIL } -> label("오류 관측", "Issues observed")
                                             !complete -> label("일부 미검증", "Partly unchecked")
@@ -597,6 +617,7 @@ fun ContentCheckWindow(
                         av1Bitstream != null -> Triple(av1Bitstream!!.checkedTrack, "${av1Bitstream!!.checkedSamples}/${av1Bitstream!!.indexedSamples}", av1Bitstream!!.limitations) to av1BitstreamFindings(av1Bitstream!!)
                         vp9Bitstream != null -> Triple(vp9Bitstream!!.checkedTrack, "${vp9Bitstream!!.checkedSamples}/${vp9Bitstream!!.indexedSamples}", vp9Bitstream!!.limitations) to vp9BitstreamFindings(vp9Bitstream!!)
                         apvBitstream != null -> Triple(apvBitstream!!.checkedTrack, "${apvBitstream!!.checkedSamples}/${apvBitstream!!.indexedSamples}", apvBitstream!!.limitations) to apvBitstreamFindings(apvBitstream!!)
+                        aacBitstream != null -> Triple(aacBitstream!!.checkedTrack, "${aacBitstream!!.checkedSamples}/${aacBitstream!!.indexedSamples}", aacBitstream!!.limitations) to aacBitstreamFindings(aacBitstream!!)
                         else -> null
                     }
                     if (codecData == null) Text(label("코덱 검사 결과가 없습니다. 실행을 눌러 시작하세요.", "No codec result yet. Press Run to start."),
