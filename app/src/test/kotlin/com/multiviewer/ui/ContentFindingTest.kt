@@ -7,6 +7,20 @@ import kotlin.test.assertNull
 
 class ContentFindingTest {
     @Test
+    fun filtersKeepIssuesAndUnverifiedSeparate() {
+        val input = listOf(
+            finding("pass", CheckStatus.PASS, 4), finding("skip", CheckStatus.SKIP, 3),
+            finding("info", CheckStatus.INFO, 2), finding("warn", CheckStatus.WARN, 8),
+            finding("fail", CheckStatus.FAIL, 9),
+        )
+        assertEquals(listOf("fail", "warn", "info", "skip", "pass"),
+            filteredContentFindings(input, ContentFindingFilter.ALL).map { it.id })
+        assertEquals(listOf("fail", "warn"),
+            filteredContentFindings(input, ContentFindingFilter.ISSUES).map { it.id })
+        assertEquals(listOf("skip"),
+            filteredContentFindings(input, ContentFindingFilter.UNVERIFIED).map { it.id })
+    }
+    @Test
     fun mapsInspectionStatusesWithoutTreatingNotRunAsClean() {
         assertEquals(CheckStatus.SKIP, mapIntegrityStatus(IntegrityStatus.NOT_RUN))
         assertEquals(CheckStatus.PASS, mapIntegrityStatus(IntegrityStatus.CLEAN))

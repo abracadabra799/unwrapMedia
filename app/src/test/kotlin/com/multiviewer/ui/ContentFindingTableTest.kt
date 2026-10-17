@@ -7,6 +7,16 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ContentFindingTableTest {
+    @Test fun filterEmptyStatesDoNotClaimAFalsePass() {
+        for (filter in ContentFindingFilter.entries) {
+            assertEquals(ContentFindingEmptyState.NO_CHECKS, contentFindingEmptyState(emptyList(), filter))
+        }
+        val skip = listOf(finding("skip", CheckStatus.SKIP))
+        assertEquals(ContentFindingEmptyState.FILTERED, contentFindingEmptyState(skip, ContentFindingFilter.ISSUES))
+        assertEquals(null, contentFindingEmptyState(skip, ContentFindingFilter.UNVERIFIED))
+        assertEquals(ContentFindingEmptyState.FILTERED, contentFindingEmptyState(
+            listOf(finding("info", CheckStatus.INFO), finding("pass", CheckStatus.PASS)), ContentFindingFilter.ISSUES))
+    }
     @Test fun actionableModeShowsFailuresWarningsAndFailedSteps() {
         val findings = listOf(
             finding("pass", CheckStatus.PASS), finding("skip", CheckStatus.SKIP),

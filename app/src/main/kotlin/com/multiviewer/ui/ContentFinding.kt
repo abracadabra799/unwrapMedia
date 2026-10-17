@@ -45,9 +45,18 @@ fun contentFindingSummary(findings: List<ContentFinding>): ContentFindingSummary
     unverified = findings.count { it.status == CheckStatus.SKIP },
 )
 
+enum class ContentFindingFilter { ALL, ISSUES, UNVERIFIED }
+
 fun orderedContentFindings(findings: List<ContentFinding>, showAll: Boolean): List<ContentFinding> =
+    filteredContentFindings(findings, if (showAll) ContentFindingFilter.ALL else ContentFindingFilter.ISSUES)
+
+fun filteredContentFindings(findings: List<ContentFinding>, filter: ContentFindingFilter): List<ContentFinding> =
     findings.withIndex()
-        .filter { (_, finding) -> showAll || finding.status == CheckStatus.FAIL || finding.status == CheckStatus.WARN }
+        .filter { (_, finding) -> when (filter) {
+            ContentFindingFilter.ALL -> true
+            ContentFindingFilter.ISSUES -> finding.status == CheckStatus.FAIL || finding.status == CheckStatus.WARN
+            ContentFindingFilter.UNVERIFIED -> finding.status == CheckStatus.SKIP
+        } }
         .sortedWith(compareBy<IndexedValue<ContentFinding>>(
             { statusOrder(it.value.status) },
             { it.value.offset ?: Long.MAX_VALUE },

@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,11 +30,20 @@ import androidx.compose.ui.unit.sp
 internal fun contentFindingTableRows(findings: List<ContentFinding>, showAll: Boolean): List<ContentFinding> =
     orderedContentFindings(findings, showAll)
 
+internal fun contentFindingTableRows(findings: List<ContentFinding>, filter: ContentFindingFilter): List<ContentFinding> =
+    filteredContentFindings(findings, filter)
+
 internal enum class ContentFindingEmptyState { NO_CHECKS, FILTERED }
 
 internal fun contentFindingEmptyState(findings: List<ContentFinding>, showAll: Boolean): ContentFindingEmptyState? = when {
     findings.isEmpty() -> ContentFindingEmptyState.NO_CHECKS
     contentFindingTableRows(findings, showAll).isEmpty() -> ContentFindingEmptyState.FILTERED
+    else -> null
+}
+
+internal fun contentFindingEmptyState(findings: List<ContentFinding>, filter: ContentFindingFilter): ContentFindingEmptyState? = when {
+    findings.isEmpty() -> ContentFindingEmptyState.NO_CHECKS
+    contentFindingTableRows(findings, filter).isEmpty() -> ContentFindingEmptyState.FILTERED
     else -> null
 }
 
@@ -91,14 +100,23 @@ internal fun ContentFindingTable(
     modifier: Modifier = Modifier,
     onSelectRange: ((Long, Long) -> Unit)? = null,
 ) {
-    var showAll by remember { mutableStateOf(true) }
+    var filter by remember { mutableStateOf(ContentFindingFilter.ALL) }
     val expanded = remember { mutableStateMapOf<String, Boolean>() }
-    val rows = contentFindingTableRows(findings, showAll)
+    val rows = contentFindingTableRows(findings, filter)
     Column(modifier.fillMaxSize()) {
         ContentFindingSummaryBar(findings, ko, Modifier.padding(bottom = 3.dp))
-        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Checkbox(checked = showAll, onCheckedChange = { showAll = it })
-            Text(if (ko) "통과·미검증 항목 포함" else "Show pass and unverified checks", color = AppColors.TextSecondary, fontSize = 12.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (option in ContentFindingFilter.entries) {
+                FilterChip(
+                    selected = filter == option,
+                    onClick = { filter = option },
+                    label = { Text(when (option) {
+                        ContentFindingFilter.ALL -> if (ko) "전체" else "All"
+                        ContentFindingFilter.ISSUES -> if (ko) "문제만" else "Issues"
+                        ContentFindingFilter.UNVERIFIED -> if (ko) "미검증" else "Unverified"
+                    }) },
+                )
+            }
         }
         Row(Modifier.fillMaxWidth().background(AppColors.Panel).padding(vertical = 5.dp)) {
             Text(if (ko) "상태" else "Status", color = AppColors.TextSecondary, modifier = Modifier.width(72.dp), fontSize = 11.sp)
@@ -121,6 +139,7 @@ internal fun ContentFindingTable(
                     }
                     if (isExpanded) {
                         Column(Modifier.fillMaxWidth().padding(start = 72.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            DetailLine(if (ko) "검사 ID" else "Check ID", finding.id, monospace = true)
                             if (finding.summary.length > MAX_COLLAPSED_FINDING_SUMMARY_LENGTH) {
                                 DetailLine(if (ko) "전체 결과" else "Full result", contentFindingExpandedSummary(finding.summary))
                             }
@@ -149,13 +168,19 @@ internal fun ContentFindingTable(
             }
             if (rows.isEmpty()) item {
                 val counts = contentFindingTableSummary(findings)
-                val emptyText = when (contentFindingEmptyState(findings, showAll)) {
+                val emptyText = when (contentFindingEmptyState(findings, filter)) {
                     ContentFindingEmptyState.NO_CHECKS -> if (ko)
                         "검사 결과 항목이 없습니다. 이 결과만으로 정상 여부를 판단할 수 없습니다."
                     else "No check results are available. This alone does not establish a pass."
-                    ContentFindingEmptyState.FILTERED -> if (ko)
-                        "표시 중인 실패·경고 없음 · 검사 ${counts.total}건 중 정상·정보 ${counts.passed}건, 미검증 ${counts.unverified}건"
-                    else "No failures or warnings in this filter · ${counts.total} checks: ${counts.passed} pass/info, ${counts.unverified} unverified"
+                    ContentFindingEmptyState.FILTERED -> when (filter) {
+                        ContentFindingFilter.ISSUES -> if (ko)
+                            "실패·경고 항목 없음 · 전체 ${counts.total}건, 정상·정보 ${counts.passed}건, 미검증 ${counts.unverified}건"
+                        else "No failures or warnings · ${counts.total} checks: ${counts.passed} pass/info, ${counts.unverified} unverified"
+                        ContentFindingFilter.UNVERIFIED -> if (ko)
+                            "미검증 항목 없음 · 전체 ${counts.total}건"
+                        else "No unverified checks · ${counts.total} checks total"
+                        ContentFindingFilter.ALL -> ""
+                    }
                     null -> ""
                 }
                 Text(emptyText, color = AppColors.TextMuted, modifier = Modifier.padding(12.dp))
@@ -165,11 +190,12 @@ internal fun ContentFindingTable(
 }
 
 @Composable
-private fun DetailLine(label: String, value: String) {
+private fun DetailLine(label: String, value: String, monospace: Boolean = false) {
     Row(Modifier.fillMaxWidth()) {
         Text("$label: ", color = AppColors.TextPrimary, fontSize = 11.sp)
         androidx.compose.foundation.text.selection.SelectionContainer {
-            Text(value.take(4000), color = AppColors.TextSecondary, fontSize = 11.sp)
+            Text(value.take(4000), color = AppColors.TextSecondary, fontSize = 11.sp,
+                fontFamily = if (monospace) FontFamily.Monospace else FontFamily.Default)
         }
     }
 }
