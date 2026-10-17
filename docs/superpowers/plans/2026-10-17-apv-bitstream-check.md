@@ -37,11 +37,11 @@
 
 **Interfaces:** Produce `object ApvRuleCatalog` with `fun rule(id: String): ConformanceRule?` and stable IDs for signature (`apv.au.signature`), framing (`apv.pbu.framing`), PBU reserved byte (`apv.pbu.reserved_zero`), profile/band (`apv.frame.profile`), frame reserved byte (`apv.frame.reserved_zero`), and apvC (`apv.config.apvc`). Register `APV` in `VideoCodec` and `"apv1"` in `SAMPLE_ENTRY_CODECS`.
 
-- [ ] **Step 1: Generate fixtures.** Create Python generator creating valid `default-apv1.mp4` with verified `qp_D.apv` access unit prefix and valid `apvC` box, record byte offsets in README. Create mutations for `bad-signature.mp4`, `bad-pbu-reserved.mp4`, `bad-band-reserved.mp4`, `malformed-apvc.mp4`, `truncated-sample.mp4`, and `many-signature-failures.mp4`.
-- [ ] **Step 2: Write failing catalog and enum tests.** Assert stable IDs, APV source/edition, scope, structural observation labeling, and `VideoCodec.APV` sample entry resolution.
-- [ ] **Step 3: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.ApvRuleCatalogTest'`; expect RED.
-- [ ] **Step 4: Implement** `ApvRuleCatalog`, add `APV` to `VideoCodec`, and add `"apv1"` to `SAMPLE_ENTRY_CODECS`.
-- [ ] **Step 5: Run** focused tests; expect PASS. Commit `test: establish APV conformance byte fixtures and rule catalog`.
+- [x] **Step 1: Generate fixtures.** Create Python generator creating valid `default-apv1.mp4` with verified `qp_D.apv` access unit prefix and valid `apvC` box, record byte offsets in README. Create mutations for `bad-signature.mp4`, `bad-pbu-reserved.mp4`, `bad-band-reserved.mp4`, `malformed-apvc.mp4`, `truncated-sample.mp4`, and `many-signature-failures.mp4`.
+- [x] **Step 2: Write failing catalog and enum tests.** Assert stable IDs, APV source/edition, scope, structural observation labeling, and `VideoCodec.APV` sample entry resolution.
+- [x] **Step 3: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.ApvRuleCatalogTest'`; expect RED.
+- [x] **Step 4: Implement** `ApvRuleCatalog`, add `APV` to `VideoCodec`, and add `"apv1"` to `SAMPLE_ENTRY_CODECS`.
+- [x] **Step 5: Run** focused tests; expect PASS. Commit `test: establish APV conformance byte fixtures and rule catalog`.
 
 ### Task 2: Bounded APV access unit and frame scanner
 

@@ -121,16 +121,17 @@ internal val SAMPLE_ENTRY_CODECS = mapOf(
     "hvc1" to VideoCodec.HEVC, "hev1" to VideoCodec.HEVC,
     "av01" to VideoCodec.AV1,
     "vp09" to VideoCodec.VP9,
+    "apv1" to VideoCodec.APV,
 )
 
-// The first trak whose sample entry is H.264/HEVC/AV1/VP9, paired with that sample entry.
+// The first trak whose sample entry is H.264/HEVC/AV1/VP9/APV, paired with that sample entry.
 internal fun firstVideoSampleEntry(root: BoxNode): Pair<BoxNode, BoxNode>? =
     boxDescendants(root).filter { it.type == "trak" }.firstNotNullOfOrNull { trak ->
         boxDescendants(trak).firstOrNull { it.type in SAMPLE_ENTRY_CODECS }?.let { trak to it }
     }
 
-// Indexes the first trak whose sample entry is H.264/HEVC/AV1/VP9. nalLengthSize comes from
-// avcC (byte 4) / hvcC (byte 21), low two bits + 1; null for AV1 and VP9.
+// Indexes the first trak whose sample entry is H.264/HEVC/AV1/VP9/APV. nalLengthSize comes from
+// avcC (byte 4) / hvcC (byte 21), low two bits + 1; null for AV1, VP9, and APV.
 fun buildVideoSampleTable(reader: ByteReader, root: BoxNode, maxSamples: Int = MAX_VIDEO_INDEXED_SAMPLES): VideoSampleTable? {
     val (trak, entry) = firstVideoSampleEntry(root) ?: return null
     val codec = SAMPLE_ENTRY_CODECS.getValue(entry.type)
@@ -139,9 +140,9 @@ fun buildVideoSampleTable(reader: ByteReader, root: BoxNode, maxSamples: Int = M
             ?.let { (reader.readUInt8(it.offset + it.headerSize + 4) and 0x03) + 1 }
         VideoCodec.HEVC -> entry.children.firstOrNull { it.type == "hvcC" }?.takeIf { it.size - it.headerSize >= 23 }
             ?.let { (reader.readUInt8(it.offset + it.headerSize + 21) and 0x03) + 1 }
-        VideoCodec.AV1, VideoCodec.VP9 -> null
+        VideoCodec.AV1, VideoCodec.VP9, VideoCodec.APV -> null
     }
-    if (codec != VideoCodec.AV1 && codec != VideoCodec.VP9 && nalLengthSize == null) return null
+    if (codec != VideoCodec.AV1 && codec != VideoCodec.VP9 && codec != VideoCodec.APV && nalLengthSize == null) return null
     val mdia = trak.children.firstOrNull { it.type == "mdia" } ?: return null
     val stbl = boxDescendants(mdia).firstOrNull { it.type == "stbl" } ?: return null
     val warnings = mutableListOf<String>()
