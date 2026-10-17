@@ -36,11 +36,11 @@
 
 **Interfaces:** Produce `object FlacRuleCatalog` with `fun rule(id: String): ConformanceRule?` and stable IDs: `flac.config.dfla`, `flac.config.match`, `flac.frame.header`, `flac.frame.crc`, `flac.sample.framing`. `object DflaBoxDecoder : BoxDecoder`.
 
-- [ ] **Step 1: Generate fixtures.** Create Python generator creating valid `default-flac.mp4` with verified FLAC samples and valid `dfLa` box, record byte offsets in README. Create mutations for `bad-dfla-version.mp4`, `bad-streaminfo-size.mp4`, `bad-config-match.mp4`, `bad-frame-sync.mp4`, `bad-frame-crc8.mp4`, `bad-frame-crc16.mp4`, `truncated-sample.mp4`, and `many-sync-failures.mp4`.
-- [ ] **Step 2: Write failing catalog and table tests.** Assert stable IDs, FLAC-in-ISOBMFF and FLAC format sources, structural observation labeling, and `buildAudioSampleTable` resolution for `fLaC`.
-- [ ] **Step 3: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.FlacRuleCatalogTest'`; expect RED.
-- [ ] **Step 4: Implement** `DflaBoxDecoder`, `FlacRuleCatalog`, `AUDIO_SAMPLE_ENTRY_CODECS += "fLaC"` in `IsoSampleTable.kt`, and `Decoders.kt` registration.
-- [ ] **Step 5: Run** focused tests; expect PASS. Commit `test: establish FLAC conformance byte fixtures and rule catalog`.
+- [x] **Step 1: Generate fixtures.** Create Python generator creating valid `default-flac.mp4` with verified FLAC samples and valid `dfLa` box, record byte offsets in README. Create mutations for `bad-dfla-version.mp4`, `bad-streaminfo-size.mp4`, `bad-config-match.mp4`, `bad-frame-sync.mp4`, `bad-frame-crc8.mp4`, `bad-frame-crc16.mp4`, `truncated-sample.mp4`, and `many-sync-failures.mp4`.
+- [x] **Step 2: Write failing catalog and table tests.** Assert stable IDs, FLAC-in-ISOBMFF and FLAC format sources, structural observation labeling, and `buildAudioSampleTable` resolution for `fLaC`.
+- [x] **Step 3: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.FlacRuleCatalogTest'`; expect RED.
+- [x] **Step 4: Implement** `DflaBoxDecoder`, `FlacRuleCatalog`, `AUDIO_SAMPLE_ENTRY_CODECS += "fLaC"` in `IsoSampleTable.kt`, and `Decoders.kt` registration.
+- [x] **Step 5: Run** focused tests; expect PASS. Commit `test: establish FLAC conformance byte fixtures and rule catalog`.
 
 ### Task 2: Bounded FLAC sample and header scanner
 
@@ -48,10 +48,10 @@
 
 **Interfaces:** `data class FlacConfigObservation(val dflaOffset: Long, val version: Int, val minBlockSize: Int? = null, val maxBlockSize: Int? = null, val sampleRate: Long? = null, val channels: Int? = null, val bitsPerSample: Int? = null, val issue: String? = null)`; `fun parseFlacConfig(reader: ByteReader, dfLa: BoxNode): FlacConfigObservation`; `data class FlacSampleObservation(val sampleIndex: Int, val offset: Long, val size: Long, val syncValid: Boolean, val headerCrcValid: Boolean, val frameCrcValid: Boolean, val blockSize: Int? = null, val sampleRate: Long? = null, val channels: Int? = null, val issue: String? = null)`; `fun scanFlacSample(reader: ByteReader, sample: AudioSample, config: FlacConfigObservation): FlacSampleObservation`. Scanner reads bounded header prefix (up to 512 bytes), verifies 14-bit syncword `0x3FFE`, reserved 0 bits, code ranges, UTF-8 frame number, header CRC-8, and verifies trailing 16-bit frame CRC.
 
-- [ ] **Step 1: Write failing scanner tests.** Assert raw offsets and bit fields on real `fLaC` fixtures; `badDflaVersion`, `badFrameSync`, `badFrameCrc8`, `badFrameCrc16`, `truncatedSample`, and sample extent bounds have exact offsets/status and never PASS for unreadable data.
-- [ ] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.FlacSampleScannerTest'`; expect RED.
-- [ ] **Step 3: Implement** bounded scanner with checked addition and bounded buffer prefix; callers check coroutine cancellation between samples.
-- [ ] **Step 4: Run** scanner tests; expect PASS. Commit `feat: scan FLAC dfLa config and sample headers with bounded reads`.
+- [x] **Step 1: Write failing scanner tests.** Assert raw offsets and bit fields on real `fLaC` fixtures; `badDflaVersion`, `badFrameSync`, `badFrameCrc8`, `badFrameCrc16`, `truncatedSample`, and sample extent bounds have exact offsets/status and never PASS for unreadable data.
+- [x] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.FlacSampleScannerTest'`; expect RED.
+- [x] **Step 3: Implement** bounded scanner with checked addition and bounded buffer prefix; callers check coroutine cancellation between samples.
+- [x] **Step 4: Run** scanner tests; expect PASS. Commit `feat: scan FLAC dfLa config and sample headers with bounded reads`.
 
 ### Task 3: Parameter-set evidence and rule aggregation
 
@@ -59,10 +59,10 @@
 
 **Interfaces:** `data class FlacBitstreamReport(val findings: List<ConformanceFinding>, val checkedSamples: Int, val indexedSamples: Int, val totalOccurrences: Map<String, Long>, val limitations: List<String>, val checkedTrack: String, val complete: Boolean)`; `suspend fun analyzeFlacBitstream(file: File, root: BoxNode, onProgress: (Int, Int?) -> Unit): FlacBitstreamReport`. The analyzer calls `buildAudioSampleTable`, checks `dfLa` and AudioSampleEntry match, and runs the scanner from Task 2; it emits verified header findings and supported observations. Keep a fixed per-rule occurrence cap (100), reporting totals separately.
 
-- [ ] **Step 1: Write failing tests.** Valid `fLaC` reports checked/indexed counts and exact header ranges; corrupted sync/CRC bits have stable rule ID and observed bits; `malformedDfla` yields NOT_CHECKED; 101 repeated violations show bounded findings and full occurrence count.
-- [ ] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.FlacBitstreamAnalyzerTest'`; expect RED.
-- [ ] **Step 3: Implement** aggregation and config applicability with documented parser limits. Retain exact sample/track evidence in details and ranges.
-- [ ] **Step 4: Run** focused analyzer tests; expect PASS. Commit `feat: evaluate bounded FLAC bitstream rules`.
+- [x] **Step 1: Write failing tests.** Valid `fLaC` reports checked/indexed counts and exact header ranges; corrupted sync/CRC bits have stable rule ID and observed bits; `malformedDfla` yields NOT_CHECKED; 101 repeated violations show bounded findings and full occurrence count.
+- [x] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.FlacBitstreamAnalyzerTest'`; expect RED.
+- [x] **Step 3: Implement** aggregation and config applicability with documented parser limits. Retain exact sample/track evidence in details and ranges.
+- [x] **Step 4: Run** focused analyzer tests; expect PASS. Commit `feat: evaluate bounded FLAC bitstream rules`.
 
 ### Task 4: Scope/coverage and workflow integration
 
@@ -70,14 +70,14 @@
 
 **Interfaces:** Codec stage invokes `analyzeFlacBitstream` when audio entry is `fLaC` with valid `dfLa`. Extend snapshot with `val flacBitstream: FlacBitstreamReport? = null`; append FLAC findings to conformance detail. Other tracks, fragments, encryption, mismatched tables, cap truncation, changed files, and cancelled scans expose named NOT_CHECKED coverage and cannot yield overall PASS.
 
-- [ ] **Step 1: Write failing tests.** `otherAudioTrackIsNotChecked`, fragment/encrypted/unreadable sample coverage, malformed `dfLa`, cap truncation, cancellation after sample 1, file changed before publish, and default `fLaC` availability in `MediaType.AUDIO`.
-- [ ] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.ui.FlacContentCheckIntegrationTest'`; expect RED.
-- [ ] **Step 3: Implement** capability detection in `ContentCheckStage.kt`, dispatcher/cancellation, progress, and UI presentation in `ContentCheckWindow.kt`.
-- [ ] **Step 4: Run** focused integration tests, `./gradlew :app:compileKotlin`, then `./gradlew :app:test`; expect PASS.
-- [ ] **Step 5: Commit** `feat: expose FLAC rule coverage in Content Check`.
+- [x] **Step 1: Write failing tests.** `otherAudioTrackIsNotChecked`, fragment/encrypted/unreadable sample coverage, malformed `dfLa`, cap truncation, cancellation after sample 1, file changed before publish, and default `fLaC` availability in `MediaType.AUDIO`.
+- [x] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.ui.FlacContentCheckIntegrationTest'`; expect RED.
+- [x] **Step 3: Implement** capability detection in `ContentCheckStage.kt`, dispatcher/cancellation, progress, and UI presentation in `ContentCheckWindow.kt`.
+- [x] **Step 4: Run** focused integration tests, `./gradlew :app:compileKotlin`, then `./gradlew :app:test`; expect PASS.
+- [x] **Step 5: Commit** `feat: expose FLAC rule coverage in Content Check`.
 
 ## Branch finish
 
-- [ ] Review exact normative citations and real-byte dumps against source standards; downgrade any unverified rule to structural observation or NOT_CHECKED.
-- [ ] Run `./gradlew :app:test` and `git diff --check`; fix nonflaky failures, review whole branch, and commit fixes.
-- [ ] Fast-forward local `main` only after review; do not push without explicit user authorization.
+- [x] Review exact normative citations and real-byte dumps against source standards; downgrade any unverified rule to structural observation or NOT_CHECKED.
+- [x] Run `./gradlew :app:test` and `git diff --check`; fix nonflaky failures, review whole branch, and commit fixes.
+- [x] Fast-forward local `main` only after review; do not push without explicit user authorization.
