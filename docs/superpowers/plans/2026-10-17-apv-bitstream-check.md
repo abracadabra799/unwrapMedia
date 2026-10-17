@@ -60,10 +60,10 @@
 
 **Interfaces:** `data class ApvBitstreamReport(val findings: List<ConformanceFinding>, val checkedSamples: Int, val indexedSamples: Int, val totalOccurrences: Map<String, Long>, val limitations: List<String>, val checkedTrack: String, val complete: Boolean)`; `suspend fun analyzeApvBitstream(file: File, root: BoxNode, onProgress: (Int, Int?) -> Unit): ApvBitstreamReport`. The analyzer calls `buildVideoSampleTable`, checks `apvC` configuration box, and scanner from Task 2; it emits verified header findings and supported `apvC` observations. Keep a fixed per-rule occurrence cap (100), reporting totals separately.
 
-- [ ] **Step 1: Write failing tests.** Valid `apv1` reports checked/indexed counts and exact header ranges; corrupted signature/reserved bytes have stable rule ID and observed bits; `malformedApvc` yields NOT_CHECKED; 101 repeated violations show bounded findings and full occurrence count.
-- [ ] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.ApvBitstreamAnalyzerTest'`; expect RED.
-- [ ] **Step 3: Implement** aggregation and apvC applicability with documented parser limits. Retain exact sample/track evidence in details and ranges.
-- [ ] **Step 4: Run** focused analyzer tests; expect PASS. Commit `feat: evaluate bounded APV bitstream rules`.
+- [x] **Step 1: Write failing tests.** Valid `apv1` reports checked/indexed counts and exact header ranges; corrupted signature/reserved bytes have stable rule ID and observed bits; `malformedApvc` yields NOT_CHECKED; 101 repeated violations show bounded findings and full occurrence count.
+- [x] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.ApvBitstreamAnalyzerTest'`; expect RED.
+- [x] **Step 3: Implement** aggregation and apvC applicability with documented parser limits. Retain exact sample/track evidence in details and ranges.
+- [x] **Step 4: Run** focused analyzer tests; expect PASS. Commit `feat: evaluate bounded APV bitstream rules`.
 
 ### Task 4: Scope/coverage and workflow integration
 
