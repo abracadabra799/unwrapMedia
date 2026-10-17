@@ -84,6 +84,7 @@ fun buildAnalysisCaseJson(
     integrityReport: VideoIntegrityReport? = null,
     imageIntegrity: JsonValue? = null,
     audioIntegrity: AudioIntegrityReport? = null,
+    workflow: JsonValue? = null,
 ): String {
     val digest = MessageDigest.getInstance("SHA-256")
     file.inputStream().buffered().use { input ->
@@ -122,7 +123,8 @@ fun buildAnalysisCaseJson(
                         "decodeStatus" to JsonValue.JString("NOT_RUN"),
                         "packetStatus" to JsonValue.JString("NOT_RUN"),
                     ))),
-                ) + (if (imageIntegrity != null) listOf("imageIntegrity" to imageIntegrity) else emptyList()) + listOf(
+                ) + (if (imageIntegrity != null) listOf("imageIntegrity" to imageIntegrity) else emptyList()) +
+                    (if (workflow != null) listOf("workflow" to workflow) else emptyList()) + listOf(
                     "summary" to JsonValue.JArray(summary.sections.filterNot { section ->
                         section.title.equals("GPS Location", ignoreCase = true)
                     }.map { section ->
@@ -165,6 +167,7 @@ fun buildCheckJson(
     integrityReport: VideoIntegrityReport? = null,
     imageIntegrity: JsonValue? = null,
     audioIntegrity: AudioIntegrityReport? = null,
+    workflow: JsonValue? = null,
 ): String {
     val wrapper = JsonValue.JObject(
         listOf(
@@ -173,7 +176,8 @@ fun buildCheckJson(
             "warnings" to JsonValue.JArray(warnings.map { it.toJsonValue() }),
         ) + (if (integrityReport != null) listOf("videoIntegrity" to integrityReport.toJsonValue()) else emptyList()) +
             (if (imageIntegrity != null) listOf("imageIntegrity" to imageIntegrity) else emptyList()) +
-            (if (audioIntegrity != null) listOf("audioIntegrity" to audioIntegrity.toJsonValue()) else emptyList()),
+            (if (audioIntegrity != null) listOf("audioIntegrity" to audioIntegrity.toJsonValue()) else emptyList()) +
+            (if (workflow != null) listOf("workflow" to workflow) else emptyList()),
     )
     return wrapper.render()
 }

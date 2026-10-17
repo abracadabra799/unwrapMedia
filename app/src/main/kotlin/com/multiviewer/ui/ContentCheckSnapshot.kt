@@ -1,6 +1,7 @@
 package com.multiviewer.ui
 
 import com.multiviewer.cli.scrubPaths
+import com.multiviewer.cli.JsonValue
 import com.multiviewer.parser.SefCheckResult
 import com.multiviewer.parser.conformance.ConformanceReport
 import com.multiviewer.parser.conformance.ConformanceStatus
@@ -48,6 +49,33 @@ data class ContentFileIdentity(val length: Long, val lastModified: Long) {
 
 /** The file's size/mtime changed while it was being checked; the partial results must be discarded. */
 class ContentFileChangedException : Exception("File changed during inspection")
+
+/** Only evaluated, identity-bound rules may contribute a green summary. */
+fun effectiveConformanceStatus(snapshot: ContentCheckSnapshot): ConformanceStatus {
+    val report = snapshot.conformance ?: return ConformanceStatus.NOT_CHECKED
+    if (report.overall == ConformanceStatus.FAIL || report.overall == ConformanceStatus.WARN) return report.overall
+    if (snapshot.stages[CheckStage.STRUCTURE]?.status != CheckRunStatus.COMPLETED) return ConformanceStatus.NOT_CHECKED
+    if (snapshot.mediaType == MediaType.VIDEO && snapshot.stages[CheckStage.CODEC]?.status != CheckRunStatus.COMPLETED) {
+        return ConformanceStatus.NOT_CHECKED
+    }
+    return report.overall
+}
+
+/** Additive, versioned workflow metadata; evidence fields in the older JSON schema are untouched. */
+fun contentCheckWorkflowJson(snapshot: ContentCheckSnapshot, file: File): JsonValue = JsonValue.JObject(listOf(
+    "version" to JsonValue.JNumber(1),
+    "conformanceStatus" to JsonValue.JString(effectiveConformanceStatus(snapshot).name),
+    "stages" to JsonValue.JArray(snapshot.stages.entries.map { (stage, state) ->
+        JsonValue.JObject(listOf(
+            "stage" to JsonValue.JString(stage.name),
+            "status" to JsonValue.JString(state.status.name),
+        ) + (state.reason?.let { listOf("reason" to JsonValue.JString(scrubPaths(it, file).take(1_000))) } ?: emptyList()) +
+            (state.progress?.let { progress -> listOf(
+                "processed" to JsonValue.JNumber(progress.completed),
+                "unit" to JsonValue.JString(progress.unit),
+            ) + (progress.total?.let { listOf("total" to JsonValue.JNumber(it)) } ?: emptyList()) } ?: emptyList()))
+    }),
+))
 
 const val STALE_CONTENT_CHECK_NOTICE =
     "컨텐츠 검사 결과 제외: 검사 이후 파일이 변경되어 이전 판정과 바이트 근거를 사용하지 않습니다. 파일을 다시 열어 검사해야 합니다."
@@ -116,12 +144,15 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
 
     sb.appendLine("### [규격 적합성 — 구현된 검사와 범위]")
     sb.appendLine("전체 규격 준수나 디코딩 성공을 의미하지 않습니다. AI는 아래의 결정적 판정을 생성하거나 변경할 수 없습니다.")
+    snapshot.stages.forEach { (stage, state) ->
+        sb.appendLine("- ${stage.name}: ${state.status.name}" + (state.reason?.let { " — ${promptText(it)}" } ?: ""))
+    }
     val conformance = snapshot.conformance
     if (conformance == null) {
         if (snapshot.structureError != null) sb.appendLine("- 규격 검사: 검사 실패 · 미검증 — ${promptText(snapshot.structureError)}")
         else sb.appendLine("- 규격 검사: $pending")
     } else {
-        sb.appendLine("- 규격 검사 (${promptText(conformance.format)}): ${conformance.overall.name}; 프로필: ${promptText(conformance.profile)}")
+        sb.appendLine("- 규격 검사 (${promptText(conformance.format)}): ${effectiveConformanceStatus(snapshot).name}; 프로필: ${promptText(conformance.profile)}")
         sb.appendLine("- 범위: " + ConformanceStatus.entries.joinToString(", ") { status ->
             "${status.name} ${conformance.findings.count { it.status == status }}"
         })

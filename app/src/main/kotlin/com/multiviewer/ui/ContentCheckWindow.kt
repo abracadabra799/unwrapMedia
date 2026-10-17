@@ -290,6 +290,13 @@ fun ContentCheckWindow(
             null
         }
 
+    fun exportSnapshot() = ContentCheckSnapshot(
+        structure, imageDecode, motionDetected, motion, motionError, video, type,
+        structureError = structureError, imageDecodeError = imageDecodeError, videoError = videoError,
+        running = running, audio = audio, audioError = audioError, audioStructure = audioStructure,
+        conformance = conformance, fileIdentity = checkedIdentity, stages = stageStates,
+    )
+
     Window(
         onCloseRequest = { job?.cancel(); onCloseRequest() },
         state = rememberWindowState(width = 1080.dp, height = 780.dp),
@@ -312,6 +319,7 @@ fun ContentCheckWindow(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 val actions = contentCheckActionState(type, stageSpecs.any { it.availability == CheckAvailability.AVAILABLE }, true, tab.root != null,
                     fileChanged, running, saving)
+                val exportReady = actions.canExport && checkedIdentity != null
                 Button(enabled = actions.canRun && tab.root != null, onClick = {
                     startChecks(stageSpecs.filter { it.availability == CheckAvailability.AVAILABLE }.map { it.stage })
                 }) { Text(label("모든 검사 실행", "Run all checks")) }
@@ -321,7 +329,7 @@ fun ContentCheckWindow(
                     message = cancelledMessage()
                 }) { Text(label("취소", "Cancel")) }
                 Box {
-                    OutlinedButton(enabled = actions.canExport, onClick = { exportMenuExpanded = true }) {
+                    OutlinedButton(enabled = exportReady, onClick = { exportMenuExpanded = true }) {
                         Text(label("결과 내보내기", "Export results"))
                     }
                     DropdownMenu(expanded = exportMenuExpanded, onDismissRequest = { exportMenuExpanded = false }) {
@@ -334,14 +342,17 @@ fun ContentCheckWindow(
                             val motionErrorSnapshot = motionError
                             val videoSnapshot = video
                             val audioSnapshot = audio
+                            val workflowSnapshot = exportSnapshot()
                             scope.launch {
                                 val copiedText = label("복사됨", "Copied")
                                 message = try {
-                                    val json = withContext(Dispatchers.Default) {
+                                    val json = withContext(Dispatchers.IO) {
+                                        if (workflowSnapshot.fileIdentity?.matches(tab.file) != true) throw ContentFileChangedException()
                                         buildCheckJson(
                                             tab.file, collectWarnings(root), videoSnapshot,
                                             imageJson(structureSnapshot, decodeSnapshot, motionSnapshot, motionErrorSnapshot),
                                             audioSnapshot,
+                                            workflow = contentCheckWorkflowJson(workflowSnapshot, tab.file),
                                         )
                                     }
                                     if (ClipboardUtil.copyToClipboard(json)) copiedText else label("복사 실패", "Copy failed")
@@ -355,7 +366,7 @@ fun ContentCheckWindow(
                                     if (message == copiedText) message = ""
                                 }
                             }
-                        }, enabled = actions.canExport)
+                        }, enabled = exportReady)
                         DropdownMenuItem(text = { Text(label("분석 케이스 저장", "Save analysis case")) }, onClick = {
                             exportMenuExpanded = false
                             val root = tab.root ?: return@DropdownMenuItem
@@ -371,15 +382,18 @@ fun ContentCheckWindow(
                             val motionErrorSnapshot = motionError
                             val videoSnapshot = video
                             val audioSnapshot = audio
+                            val workflowSnapshot = exportSnapshot()
                             saving = true
                             scope.launch {
                                 try {
                                     withContext(Dispatchers.IO) {
+                                        if (workflowSnapshot.fileIdentity?.matches(tab.file) != true) throw ContentFileChangedException()
                                         val caseJson = buildAnalysisCaseJson(
                                             tab.file, collectWarnings(root), buildMediaSummary(root, tab.file),
                                             integrityReport = videoSnapshot,
                                             imageIntegrity = imageJson(structureSnapshot, decodeSnapshot, motionSnapshot, motionErrorSnapshot),
                                             audioIntegrity = audioSnapshot,
+                                            workflow = contentCheckWorkflowJson(workflowSnapshot, tab.file),
                                         )
                                         // CREATE_NEW: never overwrite an existing file.
                                         Files.writeString(output.toPath(), caseJson, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
@@ -394,7 +408,7 @@ fun ContentCheckWindow(
                                     saving = false
                                 }
                             }
-                        }, enabled = actions.canExport)
+                        }, enabled = exportReady)
                     }
                 }
                 OutlinedButton(enabled = actions.canDiagnose, onClick = onAiDiagnosis) { Text(label("AI 진단", "AI diagnosis")) }
@@ -474,7 +488,8 @@ fun ContentCheckWindow(
                     }
                     val shownTab = selectedTab
             when (shownTab) {
-                ContentTab.CONFORMANCE -> ConformancePanel(conformance, language) { offset, length ->
+                ContentTab.CONFORMANCE -> ConformancePanel(conformance, language,
+                    effectiveConformanceStatus(exportSnapshot())) { offset, length ->
                     if (offset >= 0 && length > 0 && offset < fileLength && length <= fileLength - offset) {
                         tab.parameterSetHighlightRange = offset..(offset + (length - 1))
                     }

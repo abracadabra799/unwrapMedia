@@ -37,7 +37,8 @@ internal fun conformanceStatusColor(status: ConformanceStatus): Color = when (st
 
 /** Presentation only: the report is produced by the window's cancellable IO workflow. */
 @Composable
-fun ConformancePanel(report: ConformanceReport?, language: AppLanguage, onSelectRange: (Long, Long) -> Unit) {
+fun ConformancePanel(report: ConformanceReport?, language: AppLanguage,
+                     coverageStatus: ConformanceStatus? = null, onSelectRange: (Long, Long) -> Unit) {
     val ko = language == AppLanguage.KO
     fun label(korean: String, english: String) = if (ko) korean else english
     if (report == null) {
@@ -45,7 +46,11 @@ fun ConformancePanel(report: ConformanceReport?, language: AppLanguage, onSelect
         return
     }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(conformanceStatusLabel(report.overall, ko), color = conformanceStatusColor(report.overall))
+        val shownStatus = coverageStatus ?: report.overall
+        Text(conformanceStatusLabel(shownStatus, ko), color = conformanceStatusColor(shownStatus))
+        if (shownStatus == ConformanceStatus.NOT_CHECKED && report.overall == ConformanceStatus.PASS) {
+            Text(label("검사 완료 · 일부 미검증", "Completed · some rules not checked"), color = AppColors.NeonYellow)
+        }
         Text("${report.format} · ${report.profile}", color = AppColors.TextSecondary)
         Text(
             label("전체 규격 준수를 의미하지 않습니다. 아래 구현된 검사와 범위만 평가합니다.",
