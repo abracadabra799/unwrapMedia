@@ -170,3 +170,61 @@ fun buildVideoSampleTable(reader: ByteReader, root: BoxNode, maxSamples: Int = M
     }
     return VideoSampleTable(codec, nalLengthSize, timescale, samples, warnings)
 }
+
+data class AudioSample(
+    val index: Int,
+    val offset: Long,
+    val size: Long,
+    val decodeTime: Long,
+)
+
+data class AudioSampleTable(
+    val format: String,
+    val timescale: Long,
+    val samples: List<AudioSample>,
+    val warnings: List<String>,
+)
+
+const val MAX_AUDIO_INDEXED_SAMPLES = 1_000_000
+
+internal val AUDIO_SAMPLE_ENTRY_CODECS = setOf("mp4a")
+
+// The first trak whose sample entry is mp4a, paired with that sample entry.
+internal fun firstAudioSampleEntry(root: BoxNode): Pair<BoxNode, BoxNode>? =
+    boxDescendants(root).filter { it.type == "trak" }.firstNotNullOfOrNull { trak ->
+        val isAudio = boxDescendants(trak).any { node ->
+            node.type == "hdlr" && node.fields.any { it.name == "handler_type" && it.value == "soun" }
+        }
+        if (!isAudio) null
+        else boxDescendants(trak).firstOrNull { it.type in AUDIO_SAMPLE_ENTRY_CODECS }?.let { trak to it }
+    }
+
+fun buildAudioSampleTable(reader: ByteReader, root: BoxNode, maxSamples: Int = MAX_AUDIO_INDEXED_SAMPLES): AudioSampleTable? {
+    val (trak, entry) = firstAudioSampleEntry(root) ?: return null
+    val mdia = trak.children.firstOrNull { it.type == "mdia" } ?: return null
+    val stbl = boxDescendants(mdia).firstOrNull { it.type == "stbl" } ?: return null
+    val warnings = mutableListOf<String>()
+    val label = entry.type
+    val timescale = boxDescendants(mdia).firstOrNull { it.type == "mdhd" }
+        ?.fields?.firstOrNull { it.name == "timescale" }?.value?.toLongOrNull()?.takeIf { it > 0 } ?: 44100L
+    fun child(type: String) = stbl.children.firstOrNull { it.type == type }
+    val timings = readSampleTimings(reader, child("stts"), warnings, label, maxSamples)
+    val sizes = readSampleSizes(reader, child("stsz"), warnings, label, maxSamples)
+    val offsets = readChunkSampleOffsets(reader, stbl, sizes, warnings, label, maxSamples)
+    val count = minOf(sizes.size, offsets.size)
+    if (count < maxOf(sizes.size, offsets.size)) {
+        warnings += "$label sample tables disagree: stsz=${sizes.size}, chunk offsets=${offsets.size}; indexed $count"
+    }
+    if (boxDescendants(root).any { it.type == "mvex" || it.type == "moof" }) {
+        warnings += "Fragmented MP4 (moof) is not supported; only samples in the moov sample tables were scanned"
+    }
+    val samples = (0 until count).map { i ->
+        AudioSample(
+            index = i,
+            offset = offsets[i],
+            size = sizes[i],
+            decodeTime = timings.getOrNull(i)?.first ?: (i * 1024L),
+        )
+    }
+    return AudioSampleTable(entry.type, timescale, samples, warnings)
+}

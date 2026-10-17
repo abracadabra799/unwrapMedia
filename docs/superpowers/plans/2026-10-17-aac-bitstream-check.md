@@ -36,11 +36,11 @@
 
 **Interfaces:** Produce `object AacRuleCatalog` with `fun rule(id: String): ConformanceRule?` and stable IDs: `aac.config.esds`, `aac.config.asc`, `aac.config.match`, `aac.frame.adts_guard`, `aac.frame.element`, `aac.frame.ics_reserved`, `aac.sample.framing`. `data class AudioSample(val index: Int, val offset: Long, val size: Long, val decodeTime: Long)`; `data class AudioSampleTable(val format: String, val timescale: Long, val samples: List<AudioSample>, val warnings: List<String>)`; `fun buildAudioSampleTable(reader: ByteReader, root: BoxNode, maxSamples: Int = 1_000_000): AudioSampleTable?`.
 
-- [ ] **Step 1: Generate fixtures.** Create Python generator creating valid `default-mp4a.m4a` with verified AAC LC raw access unit and valid `esds` box, record byte offsets in README. Create mutations for `bad-adts-leaked.m4a`, `bad-asc-sampling.m4a`, `bad-ics-reserved.m4a`, `malformed-esds.m4a`, `truncated-sample.m4a`, and `many-adts-failures.m4a`.
-- [ ] **Step 2: Write failing catalog and table tests.** Assert stable IDs, MPEG-4 Audio source/edition, scope, structural observation labeling, and `buildAudioSampleTable` resolution.
-- [ ] **Step 3: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.AacRuleCatalogTest'`; expect RED.
-- [ ] **Step 4: Implement** `AacRuleCatalog` and `buildAudioSampleTable` in `IsoSampleTable.kt`.
-- [ ] **Step 5: Run** focused tests; expect PASS. Commit `test: establish AAC conformance byte fixtures and rule catalog`.
+- [x] **Step 1: Generate fixtures.** Create Python generator creating valid `default-mp4a.m4a` with verified AAC LC raw access unit and valid `esds` box, record byte offsets in README. Create mutations for `bad-adts-leaked.m4a`, `bad-asc-sampling.m4a`, `bad-ics-reserved.m4a`, `malformed-esds.m4a`, `truncated-sample.m4a`, and `many-adts-failures.m4a`.
+- [x] **Step 2: Write failing catalog and table tests.** Assert stable IDs, MPEG-4 Audio source/edition, scope, structural observation labeling, and `buildAudioSampleTable` resolution.
+- [x] **Step 3: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.AacRuleCatalogTest'`; expect RED.
+- [x] **Step 4: Implement** `AacRuleCatalog` and `buildAudioSampleTable` in `IsoSampleTable.kt`.
+- [x] **Step 5: Run** focused tests; expect PASS. Commit `test: establish AAC conformance byte fixtures and rule catalog`.
 
 ### Task 2: Bounded AAC sample and header scanner
 
