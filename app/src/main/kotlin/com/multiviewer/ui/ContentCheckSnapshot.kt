@@ -33,6 +33,7 @@ data class ContentCheckSnapshot(
     val conformance: ConformanceReport? = null,
     /** The file state the results describe; evidence is only valid while [ContentFileIdentity.matches] holds. */
     val fileIdentity: ContentFileIdentity? = null,
+    val stages: Map<CheckStage, CheckStageState> = emptyMap(),
 )
 
 /** Size + modification time of the checked file, captured before reading it (same idea as the thumbnail cache). */

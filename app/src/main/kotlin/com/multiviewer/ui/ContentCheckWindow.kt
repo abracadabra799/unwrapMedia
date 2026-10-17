@@ -121,6 +121,10 @@ fun ContentCheckWindow(
     val gainmapDetected = type == MediaType.IMAGE && tab.gainmapInfo?.hasGainmap == true
     val tabs = contentTabs(type, motionDetected, gainmapDetected)
     var gainmapChecks by remember(tab) { mutableStateOf<List<IntegrityCheckItem>?>(null) }
+    var stageStates by remember(tab) { mutableStateOf<Map<CheckStage, CheckStageState>>(emptyMap()) }
+    val stageSpecs = contentCheckStages(type, tab.root, motionDetected, gainmapDetected,
+        type == MediaType.AUDIO || tab.mediaSummary?.sections?.any { it.title == "Audio" } == true,
+        codecRunnerAvailable = false)
     val steps = heavySteps(type, motionDetected)
     val targetJob = job
     DisposableEffect(tab, targetJob) { onDispose { targetJob?.cancel() } }
@@ -128,7 +132,7 @@ fun ContentCheckWindow(
     // Publish the current run's results to the tab for the AI prompt. These states are only ever
     // written by the current run (every write is behind the runId/current() guard), so a stale or
     // cancelled run can never reach the tab through here.
-    LaunchedEffect(tab, structure, audioStructure, conformance, structureError, imageDecode, imageDecodeError, motion, motionError, video, videoError, audio, audioError, running, motionDetected, type, checkedIdentity) {
+    LaunchedEffect(tab, structure, audioStructure, conformance, structureError, imageDecode, imageDecodeError, motion, motionError, video, videoError, audio, audioError, running, motionDetected, type, checkedIdentity, stageStates) {
         tab.contentCheck = ContentCheckSnapshot(
             structure, imageDecode, motionDetected, motion, motionError, video, type,
             structureError = structureError, imageDecodeError = imageDecodeError, videoError = videoError, running = running,
@@ -136,6 +140,7 @@ fun ContentCheckWindow(
             audioStructure = audioStructure,
             conformance = conformance,
             fileIdentity = checkedIdentity,
+            stages = stageStates,
         )
     }
 
@@ -162,6 +167,7 @@ fun ContentCheckWindow(
         audio = null
         audioError = null
         gainmapChecks = null
+        stageStates = emptyMap()
         expandedDiagnostic = null
         selectedPacket = null
         structureError = fileChangedMessage()
@@ -199,6 +205,64 @@ fun ContentCheckWindow(
         conformance = contentConformanceReport(type, structure = result.first, audioStructure = result.second)
         checkedIdentity = captured
         fileLength = captured.length
+    }
+
+    fun startChecks(requested: List<CheckStage>) {
+        if (running || fileChanged || tab.root == null || requested.isEmpty()) return
+        val runStages = requested.filter { stage -> stageSpecs.any { it.stage == stage && it.availability == CheckAvailability.AVAILABLE } }
+        if (runStages.isEmpty()) return
+        val myRun = ++runId
+        running = true
+        job = scope.launch {
+            fun current() = isActive && myRun == runId
+            try {
+                val root = tab.root ?: return@launch
+                val identity = withContext(Dispatchers.IO) { ContentFileIdentity.capture(tab.file) }
+                if (tab.parsedIdentity != null && tab.parsedIdentity != identity) throw ContentFileChangedException()
+                if (checkedIdentity != null && checkedIdentity != identity) throw ContentFileChangedException()
+                val runner = ContentCheckRunner { stage, progress ->
+                    when (stage) {
+                        CheckStage.STRUCTURE -> runStructure(root, identity)
+                        CheckStage.CODEC -> error("Codec checker unavailable")
+                        CheckStage.VISUAL_DECODE -> {
+                            if (type == MediaType.IMAGE) {
+                                if (structure == null) runStructure(root, identity)
+                                imageDecode = inspectImageDecode(tab.file, structure ?: error("Structure unavailable"))
+                            } else {
+                                video = inspectVideoIntegrity(tab.file) { phase, count ->
+                                    if (current() && count % 20 == 0L) progress(CheckProgress(count, null,
+                                        if (phase == "packets") "packets" else "frames"))
+                                }
+                            }
+                        }
+                        CheckStage.AUDIO_DECODE -> audio = inspectAudioIntegrity(tab.file)
+                        CheckStage.MOTION_PHOTO -> motion = runInterruptible(Dispatchers.IO) {
+                            MotionPhotoIntegrityAnalyzer.analyze(tab.file, root)
+                        }
+                        CheckStage.GAINMAP -> {
+                            val info = tab.gainmapInfo ?: error("Gain map metadata unavailable")
+                            val bitmap = tab.imageForensic?.bitmap
+                            val coded = bitmap?.let { codedSize(it.width, it.height, tab.imageForensic?.orientationCode) }
+                            gainmapChecks = runInterruptible(Dispatchers.IO) {
+                                GainmapValidator.validate(tab.file, root, info, coded?.first, coded?.second)
+                            }
+                        }
+                    }
+                    if (!withContext(Dispatchers.IO) { identity.matches(tab.file) }) throw ContentFileChangedException()
+                }
+                runner.run(runStages) { stage, state ->
+                    if (current()) stageStates = stageStates + (stage to state)
+                }
+                if (current()) message = label("검사 완료", "Checks complete")
+            } catch (e: ContentFileChangedException) {
+                if (myRun == runId) invalidateForFileChange()
+            } catch (e: CancellationException) {
+                if (myRun == runId) message = cancelledMessage()
+                throw e
+            } finally {
+                if (myRun == runId) running = false
+            }
+        }
     }
 
     /** The `imageIntegrity` JSON for images (same shape as `unwrapMedia check`), null for other types. */
@@ -315,145 +379,8 @@ fun ContentCheckWindow(
                     fileChanged, running, saving)
                 val runLabel = contentCheckRunLabel(type, motionDetected, ko)
                 if (runLabel != null) Button(enabled = actions.canRun && tab.root != null, onClick = {
-                    val runSteps = steps
-                    val myRun = ++runId
-                    running = true
-                    imageDecode = null
-                    imageDecodeError = null
-                    videoError = null
-                    audio = null
-                    audioError = null
-                    motion = null
-                    motionError = null
-                    video = null
-                    expandedDiagnostic = null
-                    selectedPacket = null
-                    message = when {
-                        HeavyStep.MOTION_PHOTO in runSteps -> label("디코딩·모션포토 검사 중…", "Decoding and checking motion photo…")
-                        HeavyStep.IMAGE_DECODE in runSteps -> label("디코딩 중…", "Decoding…")
-                        else -> label("검사 중…", "Inspecting…")
-                    }
-                    job = scope.launch {
-                        // A cancelled or superseded run must never write results/state for the current one.
-                        fun current() = isActive && myRun == runId
-                        try {
-                            val startIdentity = withContext(Dispatchers.IO) { ContentFileIdentity.capture(tab.file) }
-                            if (!current()) return@launch
-                            val bound = checkedIdentity ?: tab.parsedIdentity
-                            if (bound != null && startIdentity != bound) {
-                                invalidateForFileChange()
-                                return@launch
-                            }
-                            val root = tab.root ?: return@launch
-                            if (structure == null && audioStructure == null) runStructure(root, startIdentity)
-                            if (!current()) return@launch
-                            for (step in runSteps) {
-                                when (step) {
-                                    HeavyStep.IMAGE_DECODE -> {
-                                        try {
-                                            val decoded = inspectImageDecode(tab.file, structure ?: return@launch)
-                                            if (!current()) return@launch
-                                            imageDecode = decoded
-                                        } catch (e: CancellationException) {
-                                            throw e
-                                        } catch (e: Exception) {
-                                            // Motion analysis is independent of image decode: record and carry on.
-                                            if (!current()) return@launch
-                                            imageDecodeError = e.message ?: e.toString()
-                                            message = label("검사 실패: ", "Inspection failed: ") + imageDecodeError
-                                        }
-                                    }
-                                    HeavyStep.MOTION_PHOTO -> {
-                                        val root = tab.root ?: continue
-                                        try {
-                                            val result = runInterruptible(Dispatchers.IO) { MotionPhotoIntegrityAnalyzer.analyze(tab.file, root) }
-                                            if (current()) motion = result
-                                        } catch (e: CancellationException) {
-                                            throw e
-                                        } catch (e: Exception) {
-                                            if (current()) {
-                                                motionError = e.message ?: e.toString()
-                                                message = label("모션포토 분석 실패: ", "Motion photo analysis failed: ") + motionError +
-                                                    (imageDecodeError?.let { " / " + label("검사 실패: ", "Inspection failed: ") + it } ?: "")
-                                            }
-                                        }
-                                        if (!current()) return@launch
-                                    }
-                                    HeavyStep.VIDEO_INTEGRITY -> {
-                                        try {
-                                            val result = inspectVideoIntegrity(tab.file) { phase, count ->
-                                                scope.launch progress@{
-                                                    if (!running || myRun != runId || job?.isActive != true) return@progress
-                                                    message = if (phase == "packets") label("패킷 읽는 중: $count", "Reading packets: $count")
-                                                        else label("디코딩 중: $count 프레임", "Decoding: $count frames")
-                                                }
-                                            }
-                                            if (!current()) return@launch
-                                            video = result
-                                        } catch (e: CancellationException) {
-                                            throw e
-                                        } catch (e: Exception) {
-                                            if (!current()) return@launch
-                                            videoError = e.message ?: e.toString()
-                                            message = label("검사 실패: ", "Inspection failed: ") + videoError
-                                        }
-                                    }
-                                    HeavyStep.AUDIO_INTEGRITY -> {
-                                        message = label("모든 오디오 트랙 디코딩 중…", "Decoding all audio streams…")
-                                        try {
-                                            val result = inspectAudioIntegrity(tab.file)
-                                            if (!current()) return@launch
-                                            audio = result
-                                        } catch (e: CancellationException) {
-                                            throw e
-                                        } catch (e: Exception) {
-                                            if (!current()) return@launch
-                                            audioError = e.message ?: e.toString()
-                                            message = label("오디오 검사 실패: ", "Audio inspection failed: ") + audioError
-                                        }
-                                    }
-                                }
-                            }
-                            if (gainmapDetected && gainmapChecks == null) {
-                                val info = tab.gainmapInfo
-                                if (info != null) {
-                                    val bitmap = tab.imageForensic?.bitmap
-                                    val coded = bitmap?.let { codedSize(it.width, it.height, tab.imageForensic?.orientationCode) }
-                                    val checks = runInterruptible(Dispatchers.IO) {
-                                        GainmapValidator.validate(tab.file, root, info, coded?.first, coded?.second)
-                                    }
-                                    if (current()) gainmapChecks = checks
-                                }
-                            }
-                            if (!current()) return@launch
-                            if (!withContext(Dispatchers.IO) { startIdentity.matches(tab.file) }) {
-                                if (current()) invalidateForFileChange()
-                                return@launch
-                            }
-                            if (motionError == null && imageDecodeError == null && videoError == null && audioError == null) {
-                                message = if (HeavyStep.VIDEO_INTEGRITY in runSteps || HeavyStep.AUDIO_INTEGRITY in runSteps) {
-                                    label("검사 종료 — 아래 단계별 결과를 확인하세요", "Inspection finished — see results below")
-                                } else {
-                                    ""
-                                }
-                            }
-                            selectedTab = when (runSteps.first()) {
-                                HeavyStep.IMAGE_DECODE, HeavyStep.MOTION_PHOTO -> ContentTab.IMAGE_DECODE
-                                HeavyStep.VIDEO_INTEGRITY -> ContentTab.VIDEO_DECODE
-                                HeavyStep.AUDIO_INTEGRITY -> ContentTab.AUDIO
-                            }
-                        } catch (e: CancellationException) {
-                            if (myRun == runId) message = cancelledMessage()
-                            throw e
-                        } catch (e: ContentFileChangedException) {
-                            if (myRun == runId) invalidateForFileChange()
-                        } catch (e: Exception) {
-                            if (current()) message = label("검사 실패: ", "Inspection failed: ") + (e.message ?: e.toString())
-                        } finally {
-                            if (myRun == runId) running = false
-                        }
-                    }
-                }) { Text(runLabel) }
+                    startChecks(stageSpecs.filter { it.availability == CheckAvailability.AVAILABLE }.map { it.stage })
+                }) { Text(label("모든 검사 실행", "Run all checks")) }
                 if (actions.canCancel) OutlinedButton(onClick = {
                     job?.cancel()
                     running = false
