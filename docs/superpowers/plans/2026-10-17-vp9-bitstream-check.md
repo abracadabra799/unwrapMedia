@@ -49,10 +49,10 @@
 
 **Interfaces:** `data class Vp9FrameObservation(val sampleIndex: Int, val frameIndex: Int, val offset: Long, val size: Long, val frameMarker: Int, val profile: Int, val showExistingFrame: Boolean, val frameType: Int?, val showFrame: Boolean?, val errorResilientMode: Boolean?, val syncCode: Int?, val bitDepth: Int?, val colorSpace: Int?, val width: Int?, val height: Int?, val profileReservedBit: Int?, val issue: String?)`; `fun scanVp9Sample(reader: ByteReader, sample: VideoSample, onFrame: (Vp9FrameObservation) -> Unit): Vp9SampleScan`. `Vp9SampleScan` stores checked frame count, exact consumed bytes, and a coverage reason. Scanner checks superframe marker at end of sample or treats as single frame, reads uncompressed header, checks bounds before reads, and stops on malformed extent.
 
-- [ ] **Step 1: Write failing tests.** Assert raw offsets and bit fields on real `vp09` fixtures; `truncatedFrame`, `sampleExtentOverflow`, `badMarker`, `badSyncCode`, and `profileReservedBit` mutations have exact offsets/status and never PASS for unreadable data.
-- [ ] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.Vp9FrameScannerTest'`; expect RED.
-- [ ] **Step 3: Implement** bounded scanner with checked addition and no sample-sized buffer allocation; callers check coroutine cancellation between frames.
-- [ ] **Step 4: Run** scanner tests; expect PASS. Commit `feat: scan VP9 frame headers with bounded reads`.
+- [x] **Step 1: Write failing tests.** Assert raw offsets and bit fields on real `vp09` fixtures; `truncatedFrame`, `sampleExtentOverflow`, `badMarker`, `badSyncCode`, and `profileReservedBit` mutations have exact offsets/status and never PASS for unreadable data.
+- [x] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.Vp9FrameScannerTest'`; expect RED.
+- [x] **Step 3: Implement** bounded scanner with checked addition and no sample-sized buffer allocation; callers check coroutine cancellation between frames.
+- [x] **Step 4: Run** scanner tests; expect PASS. Commit `feat: scan VP9 frame headers with bounded reads`.
 
 ### Task 3: Parameter-set evidence and rule aggregation
 
