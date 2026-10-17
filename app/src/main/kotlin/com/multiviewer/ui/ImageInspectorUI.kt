@@ -732,7 +732,7 @@ private fun DetailPropertiesTabContent(appState: AppState, tab: TabState) {
             val nalLengthSize = when (metadataCodec) {
                 com.multiviewer.parser.VideoCodec.H264 -> tab.avcLengthSize
                 com.multiviewer.parser.VideoCodec.HEVC -> tab.hevcLengthSize
-                com.multiviewer.parser.VideoCodec.AV1, com.multiviewer.parser.VideoCodec.VP9, com.multiviewer.parser.VideoCodec.APV -> null
+                com.multiviewer.parser.VideoCodec.AV1, com.multiviewer.parser.VideoCodec.VP9, com.multiviewer.parser.VideoCodec.APV, com.multiviewer.parser.VideoCodec.VVC -> null
             }
             produceState<List<com.multiviewer.parser.MetadataUnit>?>(null, selectedFrame, metadataCodec, nalLengthSize) {
                 value = null

@@ -1,6 +1,6 @@
 package com.multiviewer.parser
 
-enum class VideoCodec { H264, HEVC, AV1, VP9, APV }
+enum class VideoCodec { H264, HEVC, AV1, VP9, APV, VVC }
 
 enum class MetadataSource(val label: String) {
     H264_SEI("SEI"),
