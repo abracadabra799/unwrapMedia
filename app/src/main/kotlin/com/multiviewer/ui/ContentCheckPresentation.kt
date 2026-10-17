@@ -27,3 +27,25 @@ fun contentCheckRunLabel(type: MediaType, motionDetected: Boolean, ko: Boolean):
     MediaType.AUDIO -> if (ko) "오디오 디코딩 검사 실행" else "Run audio decode check"
     MediaType.RAW_PIXEL, MediaType.UNKNOWN -> null
 }
+
+data class ContentCheckActionState(
+    val canRun: Boolean,
+    val canExport: Boolean,
+    val canDiagnose: Boolean,
+    val canCancel: Boolean,
+)
+
+fun contentCheckActionState(
+    type: MediaType,
+    hasSteps: Boolean,
+    structureReady: Boolean,
+    rootLoaded: Boolean,
+    fileChanged: Boolean,
+    running: Boolean,
+    saving: Boolean,
+): ContentCheckActionState = ContentCheckActionState(
+    canRun = !fileChanged && hasSteps && !running && !saving && (type != MediaType.IMAGE || structureReady),
+    canExport = !fileChanged && rootLoaded && !running && !saving && (type != MediaType.IMAGE || structureReady),
+    canDiagnose = rootLoaded,
+    canCancel = running,
+)

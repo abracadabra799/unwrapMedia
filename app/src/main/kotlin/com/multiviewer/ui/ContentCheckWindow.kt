@@ -3,6 +3,7 @@ package com.multiviewer.ui
 import com.multiviewer.parser.gainmapOverall
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -11,6 +12,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Tab
@@ -98,6 +101,7 @@ fun ContentCheckWindow(
     var job by remember(tab) { mutableStateOf<Job?>(null) }
     var running by remember(tab) { mutableStateOf(false) }
     var saving by remember(tab) { mutableStateOf(false) }
+    var exportMenuExpanded by remember(tab) { mutableStateOf(false) }
     var runId by remember(tab) { mutableStateOf(0) }
     var message by remember(tab) { mutableStateOf("") }
     var selectedTab by remember(tab, initialTab) { mutableStateOf(initialTab) }
@@ -279,64 +283,64 @@ fun ContentCheckWindow(
                         ContentCheckStageGroup.ON_REQUEST -> label("추가 검사", "On request")
                     }, color = AppColors.TextSecondary, fontSize = 12.sp)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                for (t in groupTabs) {
-                    when (t) {
-                        ContentTab.STRUCTURE -> {
-                            val status = if (type == MediaType.AUDIO) audioStructure?.overall else s?.overall
-                            Text(label("구조: ", "Structure: ") + contentCheckStructureStatusLabel(status, structureError, ko),
-                                color = when {
-                                    structureError != null -> AppColors.NeonRed
-                                    status != null -> checkStatusColor(status)
-                                    else -> AppColors.TextMuted
-                                })
+                        for (t in groupTabs) {
+                            when (t) {
+                                ContentTab.STRUCTURE -> {
+                                    val status = if (type == MediaType.AUDIO) audioStructure?.overall else s?.overall
+                                    Text(label("구조: ", "Structure: ") + contentCheckStructureStatusLabel(status, structureError, ko),
+                                        color = when {
+                                            structureError != null -> AppColors.NeonRed
+                                            status != null -> checkStatusColor(status)
+                                            else -> AppColors.TextMuted
+                                        })
+                                }
+                                ContentTab.CONFORMANCE -> {
+                                    val status = conformance?.overall ?: ConformanceStatus.NOT_CHECKED
+                                    Text(label("규격: ", "Conformance: ") + conformanceStatusLabel(status, ko),
+                                        color = conformanceStatusColor(status))
+                                }
+                                ContentTab.IMAGE_DECODE -> {
+                                    val ds = imageDecode?.status ?: ImageDecodeStatus.NOT_RUN
+                                    Text(label("디코딩: ", "Decode: ") + headerDecodeLabel(imageDecode != null, ds, ko), color = decodeStatusColor(ds))
+                                }
+                                ContentTab.MOTION_PHOTO -> {
+                                    val mStatus = motion?.verdictStatus()
+                                    Text(
+                                        label("모션포토: ", "Motion photo: ") + when {
+                                            mStatus != null -> checkStatusLabel(mStatus, ko)
+                                            motionError != null -> label("실패", "Failed")
+                                            else -> label("미검사", "Not run")
+                                        },
+                                        color = when {
+                                            mStatus != null -> checkStatusColor(mStatus)
+                                            motionError != null -> AppColors.NeonRed
+                                            else -> AppColors.TextMuted
+                                        },
+                                    )
+                                }
+                                ContentTab.GAINMAP -> {
+                                    val gStatus = gainmapChecks?.let(::gainmapOverall)
+                                    Text(
+                                        label("게인맵: ", "Gain map: ") + (gStatus?.let { checkStatusLabel(it, ko) } ?: label("검사 중", "Checking")),
+                                        color = gStatus?.let { checkStatusColor(it) } ?: AppColors.TextMuted,
+                                    )
+                                }
+                                ContentTab.VIDEO_DECODE -> {
+                                    val st = v?.decodeStatus ?: IntegrityStatus.NOT_RUN
+                                    Text(label("영상 디코딩: ", "Video decode: ") + videoStatusLabel(st, ko), color = integrityStatusColor(st))
+                                }
+                                ContentTab.VIDEO_PACKETS -> {
+                                    val st = v?.packetStatus ?: IntegrityStatus.NOT_RUN
+                                    Text(label("패킷: ", "Packets: ") + videoStatusLabel(st, ko), color = integrityStatusColor(st))
+                                }
+                                ContentTab.AUDIO -> {
+                                    val st = audio?.status ?: if (audioError != null) IntegrityStatus.FAILED else IntegrityStatus.NOT_RUN
+                                    Text(label("오디오: ", "Audio: ") +
+                                        if (audio?.noAudio == true) label("트랙 없음", "No tracks") else videoStatusLabel(st, ko),
+                                        color = integrityStatusColor(st))
+                                }
+                            }
                         }
-                        ContentTab.CONFORMANCE -> {
-                            val status = conformance?.overall ?: ConformanceStatus.NOT_CHECKED
-                            Text(label("규격: ", "Conformance: ") + conformanceStatusLabel(status, ko),
-                                color = conformanceStatusColor(status))
-                        }
-                        ContentTab.IMAGE_DECODE -> {
-                            val ds = imageDecode?.status ?: ImageDecodeStatus.NOT_RUN
-                            Text(label("디코딩: ", "Decode: ") + headerDecodeLabel(imageDecode != null, ds, ko), color = decodeStatusColor(ds))
-                        }
-                        ContentTab.MOTION_PHOTO -> {
-                            val mStatus = motion?.verdictStatus()
-                            Text(
-                                label("모션포토: ", "Motion photo: ") + when {
-                                    mStatus != null -> checkStatusLabel(mStatus, ko)
-                                    motionError != null -> label("실패", "Failed")
-                                    else -> label("미검사", "Not run")
-                                },
-                                color = when {
-                                    mStatus != null -> checkStatusColor(mStatus)
-                                    motionError != null -> AppColors.NeonRed
-                                    else -> AppColors.TextMuted
-                                },
-                            )
-                        }
-                        ContentTab.GAINMAP -> {
-                            val gStatus = gainmapChecks?.let(::gainmapOverall)
-                            Text(
-                                label("게인맵: ", "Gain map: ") + (gStatus?.let { checkStatusLabel(it, ko) } ?: label("검사 중", "Checking")),
-                                color = gStatus?.let { checkStatusColor(it) } ?: AppColors.TextMuted,
-                            )
-                        }
-                        ContentTab.VIDEO_DECODE -> {
-                            val st = v?.decodeStatus ?: IntegrityStatus.NOT_RUN
-                            Text(label("영상 디코딩: ", "Video decode: ") + videoStatusLabel(st, ko), color = integrityStatusColor(st))
-                        }
-                        ContentTab.VIDEO_PACKETS -> {
-                            val st = v?.packetStatus ?: IntegrityStatus.NOT_RUN
-                            Text(label("패킷: ", "Packets: ") + videoStatusLabel(st, ko), color = integrityStatusColor(st))
-                        }
-                        ContentTab.AUDIO -> {
-                            val st = audio?.status ?: if (audioError != null) IntegrityStatus.FAILED else IntegrityStatus.NOT_RUN
-                            Text(label("오디오: ", "Audio: ") +
-                                if (audio?.noAudio == true) label("트랙 없음", "No tracks") else videoStatusLabel(st, ko),
-                                color = integrityStatusColor(st))
-                        }
-                    }
-                }
                     }
                 }
             }
@@ -349,9 +353,10 @@ fun ContentCheckWindow(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 // Image decode needs the structure report as input; the video check does not.
-                val canStart = !fileChanged && steps.isNotEmpty() && (s != null || HeavyStep.IMAGE_DECODE !in steps)
+                val actions = contentCheckActionState(type, steps.isNotEmpty(), s != null, tab.root != null,
+                    fileChanged, running, saving)
                 val runLabel = contentCheckRunLabel(type, motionDetected, ko)
-                if (runLabel != null) Button(enabled = !running && !saving && canStart, onClick = {
+                if (runLabel != null) Button(enabled = actions.canRun, onClick = {
                     val snapshot = s
                     if (HeavyStep.IMAGE_DECODE in steps && snapshot == null) return@Button
                     val runSteps = steps
@@ -479,81 +484,89 @@ fun ContentCheckWindow(
                         }
                     }
                 }) { Text(runLabel) }
-                OutlinedButton(enabled = running, onClick = {
+                if (actions.canCancel) OutlinedButton(onClick = {
                     job?.cancel()
                     running = false
                     message = cancelledMessage()
                 }) { Text(label("취소", "Cancel")) }
-                val canExport = !fileChanged && tab.root != null && !running && !saving && (type != MediaType.IMAGE || s != null)
-                OutlinedButton(enabled = canExport, onClick = {
-                    val root = tab.root ?: return@OutlinedButton
-                    val dialog = FileDialog(null as Frame?, label("분석 케이스 저장", "Save analysis case"), FileDialog.SAVE)
-                    dialog.file = "${tab.file.nameWithoutExtension}-case.json"
-                    dialog.isVisible = true
-                    val output = dialog.file?.let { File(dialog.directory, it) }
-                    dialog.dispose()
-                    if (output == null) return@OutlinedButton
-                    val structureSnapshot = s
-                    val decodeSnapshot = imageDecode
-                    val motionSnapshot = motion
-                    val motionErrorSnapshot = motionError
-                    val videoSnapshot = video
-                    val audioSnapshot = audio
-                    saving = true
-                    scope.launch {
-                        try {
-                            withContext(Dispatchers.IO) {
-                                val caseJson = buildAnalysisCaseJson(
-                                    tab.file, collectWarnings(root), buildMediaSummary(root, tab.file),
-                                    integrityReport = videoSnapshot,
-                                    imageIntegrity = imageJson(structureSnapshot, decodeSnapshot, motionSnapshot, motionErrorSnapshot),
-                                    audioIntegrity = audioSnapshot,
-                                )
-                                // CREATE_NEW: never overwrite an existing file.
-                                Files.writeString(output.toPath(), caseJson, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
-                            }
-                            message = label("저장됨: ", "Saved: ") + output.name
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            message = label("저장 실패 (기존 파일 덮어쓰기 불가): ", "Save failed (existing files are not overwritten): ") +
-                                (e.message ?: e.toString())
-                        } finally {
-                            saving = false
-                        }
+                Box {
+                    OutlinedButton(enabled = actions.canExport, onClick = { exportMenuExpanded = true }) {
+                        Text(label("결과 내보내기", "Export results"))
                     }
-                }) { Text(label("분석 케이스 저장", "Save analysis case")) }
-                OutlinedButton(enabled = canExport, onClick = {
-                    val root = tab.root ?: return@OutlinedButton
-                    val structureSnapshot = s
-                    val decodeSnapshot = imageDecode
-                    val motionSnapshot = motion
-                    val motionErrorSnapshot = motionError
-                    val videoSnapshot = video
-                    val audioSnapshot = audio
-                    scope.launch {
-                        val copiedText = label("복사됨", "Copied")
-                        message = try {
-                            val json = withContext(Dispatchers.Default) {
-                                buildCheckJson(
-                                    tab.file, collectWarnings(root), videoSnapshot,
-                                    imageJson(structureSnapshot, decodeSnapshot, motionSnapshot, motionErrorSnapshot),
-                                    audioSnapshot,
-                                )
+                    DropdownMenu(expanded = exportMenuExpanded, onDismissRequest = { exportMenuExpanded = false }) {
+                        DropdownMenuItem(text = { Text(label("JSON 복사", "Copy JSON")) }, onClick = {
+                            exportMenuExpanded = false
+                            val root = tab.root ?: return@DropdownMenuItem
+                            val structureSnapshot = s
+                            val decodeSnapshot = imageDecode
+                            val motionSnapshot = motion
+                            val motionErrorSnapshot = motionError
+                            val videoSnapshot = video
+                            val audioSnapshot = audio
+                            scope.launch {
+                                val copiedText = label("복사됨", "Copied")
+                                message = try {
+                                    val json = withContext(Dispatchers.Default) {
+                                        buildCheckJson(
+                                            tab.file, collectWarnings(root), videoSnapshot,
+                                            imageJson(structureSnapshot, decodeSnapshot, motionSnapshot, motionErrorSnapshot),
+                                            audioSnapshot,
+                                        )
+                                    }
+                                    if (ClipboardUtil.copyToClipboard(json)) copiedText else label("복사 실패", "Copy failed")
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    label("복사 실패: ", "Copy failed: ") + (e.message ?: e.toString())
+                                }
+                                if (message == copiedText) {
+                                    delay(2000)
+                                    if (message == copiedText) message = ""
+                                }
                             }
-                            if (ClipboardUtil.copyToClipboard(json)) copiedText else label("복사 실패", "Copy failed")
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            label("복사 실패: ", "Copy failed: ") + (e.message ?: e.toString())
-                        }
-                        if (message == copiedText) {
-                            delay(2000)
-                            if (message == copiedText) message = ""
-                        }
+                        }, enabled = actions.canExport)
+                        DropdownMenuItem(text = { Text(label("분석 케이스 저장", "Save analysis case")) }, onClick = {
+                            exportMenuExpanded = false
+                            val root = tab.root ?: return@DropdownMenuItem
+                            val dialog = FileDialog(null as Frame?, label("분석 케이스 저장", "Save analysis case"), FileDialog.SAVE)
+                            dialog.file = "${tab.file.nameWithoutExtension}-case.json"
+                            dialog.isVisible = true
+                            val output = dialog.file?.let { File(dialog.directory, it) }
+                            dialog.dispose()
+                            if (output == null) return@DropdownMenuItem
+                            val structureSnapshot = s
+                            val decodeSnapshot = imageDecode
+                            val motionSnapshot = motion
+                            val motionErrorSnapshot = motionError
+                            val videoSnapshot = video
+                            val audioSnapshot = audio
+                            saving = true
+                            scope.launch {
+                                try {
+                                    withContext(Dispatchers.IO) {
+                                        val caseJson = buildAnalysisCaseJson(
+                                            tab.file, collectWarnings(root), buildMediaSummary(root, tab.file),
+                                            integrityReport = videoSnapshot,
+                                            imageIntegrity = imageJson(structureSnapshot, decodeSnapshot, motionSnapshot, motionErrorSnapshot),
+                                            audioIntegrity = audioSnapshot,
+                                        )
+                                        // CREATE_NEW: never overwrite an existing file.
+                                        Files.writeString(output.toPath(), caseJson, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
+                                    }
+                                    message = label("저장됨: ", "Saved: ") + output.name
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    message = label("저장 실패 (기존 파일 덮어쓰기 불가): ", "Save failed (existing files are not overwritten): ") +
+                                        (e.message ?: e.toString())
+                                } finally {
+                                    saving = false
+                                }
+                            }
+                        }, enabled = actions.canExport)
                     }
-                }) { Text(label("JSON 복사", "Copy JSON")) }
-                OutlinedButton(enabled = tab.root != null, onClick = onAiDiagnosis) { Text(label("AI 진단", "AI diagnosis")) }
+                }
+                OutlinedButton(enabled = actions.canDiagnose, onClick = onAiDiagnosis) { Text(label("AI 진단", "AI diagnosis")) }
             }
             if (steps.isEmpty()) {
                 Text(

@@ -3,8 +3,30 @@ package com.multiviewer.ui
 import com.multiviewer.parser.integrity.CheckStatus
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class ContentCheckPresentationTest {
+    @Test fun actionsPreserveTheExistingSafetyGates() {
+        val imageLoading = contentCheckActionState(MediaType.IMAGE, true, false, true, false, false, false)
+        assertFalse(imageLoading.canRun)
+        assertFalse(imageLoading.canExport)
+        val videoLoading = contentCheckActionState(MediaType.VIDEO, true, false, false, false, false, false)
+        assertTrue(videoLoading.canRun)
+        assertFalse(videoLoading.canExport)
+        val changed = contentCheckActionState(MediaType.VIDEO, true, false, true, true, false, false)
+        assertFalse(changed.canRun)
+        assertFalse(changed.canExport)
+        val running = contentCheckActionState(MediaType.VIDEO, true, false, true, false, true, false)
+        assertTrue(running.canCancel)
+        assertFalse(running.canRun)
+        assertFalse(running.canExport)
+        val saving = contentCheckActionState(MediaType.VIDEO, true, false, true, false, false, true)
+        assertFalse(saving.canRun)
+        assertFalse(saving.canExport)
+        assertTrue(saving.canDiagnose)
+        assertFalse(saving.canCancel)
+    }
     @Test fun stageGroupsFollowTheActualChecks() {
         val image = contentCheckStageGroups(contentTabs(MediaType.IMAGE, motionDetected = true, gainmapDetected = true))
         assertEquals(listOf(ContentTab.STRUCTURE, ContentTab.CONFORMANCE, ContentTab.GAINMAP),
