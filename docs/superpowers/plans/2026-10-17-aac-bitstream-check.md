@@ -80,4 +80,4 @@
 
 - [x] Review exact normative citations and real-byte dumps against source standards; downgrade any unverified rule to structural observation or NOT_CHECKED.
 - [x] Run `./gradlew :app:test` and `git diff --check`; fix nonflaky failures, review whole branch, and commit fixes.
-- [ ] Fast-forward local `main` only after review; do not push without explicit user authorization.
+- [x] Fast-forward local `main` only after review; do not push without explicit user authorization.
