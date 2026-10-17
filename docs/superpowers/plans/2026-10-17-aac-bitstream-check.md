@@ -48,10 +48,10 @@
 
 **Interfaces:** `data class AacConfigObservation(val esdsOffset: Long, val aot: Int, val samplingFrequencyIndex: Int, val sampleRate: Int, val channelConfig: Int, val issue: String?)`; `fun parseAacConfig(reader: ByteReader, esds: BoxNode): AacConfigObservation`; `data class AacSampleObservation(val sampleIndex: Int, val offset: Long, val size: Long, val hasAdtsSync: Boolean, val elementId: Int?, val elementInstanceTag: Int?, val icsReservedBit: Int?, val issue: String?)`; `fun scanAacSample(reader: ByteReader, sample: AudioSample, channelConfig: Int): AacSampleObservation`. Scanner reads only up to 512 bytes prefix per sample, checks bounds, checks ADTS sync guard, verifies raw data block element header and ics_reserved_bit.
 
-- [ ] **Step 1: Write failing scanner tests.** Assert raw offsets and bit fields on real `mp4a` fixtures; `badAdtsLeaked`, `badAscSampling`, `badIcsReserved`, `truncatedSample`, and `sampleExtentOverflow` have exact offsets/status and never PASS for unreadable data.
-- [ ] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.AacSampleScannerTest'`; expect RED.
-- [ ] **Step 3: Implement** bounded scanner with checked addition and bounded buffer prefix; callers check coroutine cancellation between samples.
-- [ ] **Step 4: Run** scanner tests; expect PASS. Commit `feat: scan AAC esds config and sample headers with bounded reads`.
+- [x] **Step 1: Write failing scanner tests.** Assert raw offsets and bit fields on real `mp4a` fixtures; `badAdtsLeaked`, `badAscSampling`, `badIcsReserved`, `truncatedSample`, and `sampleExtentOverflow` have exact offsets/status and never PASS for unreadable data.
+- [x] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.AacSampleScannerTest'`; expect RED.
+- [x] **Step 3: Implement** bounded scanner with checked addition and bounded buffer prefix; callers check coroutine cancellation between samples.
+- [x] **Step 4: Run** scanner tests; expect PASS. Commit `feat: scan AAC esds config and sample headers with bounded reads`.
 
 ### Task 3: Parameter-set evidence and rule aggregation
 
