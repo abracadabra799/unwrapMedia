@@ -211,9 +211,9 @@ fun buildAudioSampleTable(reader: ByteReader, root: BoxNode, maxSamples: Int = M
     val timings = readSampleTimings(reader, child("stts"), warnings, label, maxSamples)
     val sizes = readSampleSizes(reader, child("stsz"), warnings, label, maxSamples)
     val offsets = readChunkSampleOffsets(reader, stbl, sizes, warnings, label, maxSamples)
-    val count = minOf(sizes.size, offsets.size)
-    if (count < maxOf(sizes.size, offsets.size)) {
-        warnings += "$label sample tables disagree: stsz=${sizes.size}, chunk offsets=${offsets.size}; indexed $count"
+    val count = minOf(timings.size, sizes.size, offsets.size)
+    if (count < maxOf(timings.size, sizes.size, offsets.size)) {
+        warnings += "$label sample tables disagree: stts=${timings.size}, stsz=${sizes.size}, chunk offsets=${offsets.size}; indexed $count"
     }
     if (boxDescendants(root).any { it.type == "mvex" || it.type == "moof" }) {
         warnings += "Fragmented MP4 (moof) is not supported; only samples in the moov sample tables were scanned"

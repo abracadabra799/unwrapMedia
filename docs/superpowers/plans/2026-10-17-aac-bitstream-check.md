@@ -59,10 +59,10 @@
 
 **Interfaces:** `data class AacBitstreamReport(val findings: List<ConformanceFinding>, val checkedSamples: Int, val indexedSamples: Int, val totalOccurrences: Map<String, Long>, val limitations: List<String>, val checkedTrack: String, val complete: Boolean)`; `suspend fun analyzeAacBitstream(file: File, root: BoxNode, onProgress: (Int, Int?) -> Unit): AacBitstreamReport`. The analyzer calls `buildAudioSampleTable`, checks `esds` / `AudioSpecificConfig`, and scanner from Task 2; it emits verified header findings and supported observations. Keep a fixed per-rule occurrence cap (100), reporting totals separately.
 
-- [ ] **Step 1: Write failing tests.** Valid `mp4a` reports checked/indexed counts and exact header ranges; corrupted ADTS syncword/reserved bits have stable rule ID and observed bits; `malformedEsds` yields NOT_CHECKED; 101 repeated violations show bounded findings and full occurrence count.
-- [ ] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.AacBitstreamAnalyzerTest'`; expect RED.
-- [ ] **Step 3: Implement** aggregation and config applicability with documented parser limits. Retain exact sample/track evidence in details and ranges.
-- [ ] **Step 4: Run** focused analyzer tests; expect PASS. Commit `feat: evaluate bounded AAC bitstream rules`.
+- [x] **Step 1: Write failing tests.** Valid `mp4a` reports checked/indexed counts and exact header ranges; corrupted ADTS syncword/reserved bits have stable rule ID and observed bits; `malformedEsds` yields NOT_CHECKED; 101 repeated violations show bounded findings and full occurrence count.
+- [x] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.AacBitstreamAnalyzerTest'`; expect RED.
+- [x] **Step 3: Implement** aggregation and config applicability with documented parser limits. Retain exact sample/track evidence in details and ranges.
+- [x] **Step 4: Run** focused analyzer tests; expect PASS. Commit `feat: evaluate bounded AAC bitstream rules`.
 
 ### Task 4: Scope/coverage and workflow integration
 
