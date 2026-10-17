@@ -28,6 +28,7 @@ fun readFrameMetadataUnits(reader: ByteReader, codec: VideoCodec, nalLengthSize:
     return when (codec) {
         VideoCodec.AV1 -> readAv1MetadataUnits(reader, sampleOffset, end)
         VideoCodec.H264, VideoCodec.HEVC -> readNalMetadataUnits(reader, codec, nalLengthSize ?: return emptyList(), sampleOffset, end)
+        VideoCodec.VP9 -> emptyList()
     }
 }
 

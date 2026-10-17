@@ -37,11 +37,11 @@
 
 **Interfaces:** Produce `object Vp9RuleCatalog` with `fun rule(id: String): ConformanceRule?` and stable IDs for framing (`vp9.frame.framing`), marker (`vp9.frame.marker`), sync code (`vp9.frame.sync_code`), profile 3 reserved bit (`vp9.frame.profile_reserved_bit`), and vpcC (`vp9.config.vpcc`). Register `vpcC` in `BoxParser.kt`.
 
-- [ ] **Step 1: Generate and independently dump fixtures.** Pin ffmpeg/libvpx-vp9 version and commands, create a standard `vp09` MP4 file with multiple samples, record raw sample-entry bytes, `vpcC`, first packet offsets, and expected values in README. Create one-byte mutations for bad marker, bad sync code, truncated frame, malformed vpcC, and 101 malformed markers.
-- [ ] **Step 2: Write failing catalog and decoder tests.** Assert stable IDs, VP9 source/edition, scope, structural observation labeling, and `VpcCBoxDecoder` field parsing.
-- [ ] **Step 3: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.Vp9RuleCatalogTest'`; expect RED.
-- [ ] **Step 4: Implement** `VpcCBoxDecoder`, `Vp9RuleCatalog`, add `VP9` to `VideoCodec`, and add `vp09` to `SAMPLE_ENTRY_CODECS`.
-- [ ] **Step 5: Run** focused tests; expect PASS. Commit `test: establish VP9 conformance byte fixtures and rule catalog`.
+- [x] **Step 1: Generate and independently dump fixtures.** Pin ffmpeg/libvpx-vp9 version and commands, create a standard `vp09` MP4 file with multiple samples, record raw sample-entry bytes, `vpcC`, first packet offsets, and expected values in README. Create one-byte mutations for bad marker, bad sync code, truncated frame, malformed vpcC, and 101 malformed markers.
+- [x] **Step 2: Write failing catalog and decoder tests.** Assert stable IDs, VP9 source/edition, scope, structural observation labeling, and `VpcCBoxDecoder` field parsing.
+- [x] **Step 3: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.Vp9RuleCatalogTest'`; expect RED.
+- [x] **Step 4: Implement** `VpcCBoxDecoder`, `Vp9RuleCatalog`, add `VP9` to `VideoCodec`, and add `vp09` to `SAMPLE_ENTRY_CODECS`.
+- [x] **Step 5: Run** focused tests; expect PASS. Commit `test: establish VP9 conformance byte fixtures and rule catalog`.
 
 ### Task 2: Bounded VP9 frame and superframe scanner
 
