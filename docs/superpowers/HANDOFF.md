@@ -1,5 +1,13 @@
 # Handoff — 2026-10-13 (Claude Code → Codex)
 
+## 2026-10-17 update — Content Check Workflow & HEVC Bitstream Check merged
+
+- `feat/content-check-conformance` merged into `main`:
+  1. Content Check workflow redesign: sequential isolated stage execution (Structure → Codec → Visual Decode → Audio Decode → Motion Photo / Gain Map).
+  2. Bounded HEVC bitstream analyzer for non-fragmented `hvc1` and `hev1` MP4/MOV: NAL framing, `forbidden_zero_bit`, `nuh_temporal_id_plus1`, and parameter references.
+  3. Structural observations vs. normative rule separation (no false PASS, strict NOT_CHECKED isolation).
+  4. Specs/plans: `docs/superpowers/{specs,plans}/2026-10-17-content-check-workflow*`, `2026-10-17-hevc-bitstream-check*`.
+
 ## 2026-10-15 update — contextual media analysis merged (v1.23.0)
 
 - `feat/contextual-analysis` merged into `main`:
