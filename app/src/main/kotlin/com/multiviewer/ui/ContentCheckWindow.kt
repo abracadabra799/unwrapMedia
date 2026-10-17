@@ -266,20 +266,29 @@ fun ContentCheckWindow(
             val s = structure
             val v = video
             Text(tab.file.name, color = AppColors.TextPrimary)
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(20.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                 Text(label("유형: ", "Type: ") + type.name, color = AppColors.TextSecondary)
                 if (type == MediaType.IMAGE) {
                     Text(label("형식: ", "Format: ") + (s?.format ?: "…"), color = AppColors.TextSecondary)
                 }
-                for (t in tabs) {
+            }
+            for ((group, groupTabs) in contentCheckStageGroups(tabs)) {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(when (group) {
+                        ContentCheckStageGroup.ON_OPEN -> label("기본 검사", "On open")
+                        ContentCheckStageGroup.ON_REQUEST -> label("추가 검사", "On request")
+                    }, color = AppColors.TextSecondary, fontSize = 12.sp)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                for (t in groupTabs) {
                     when (t) {
                         ContentTab.STRUCTURE -> {
                             val status = if (type == MediaType.AUDIO) audioStructure?.overall else s?.overall
-                            Text(label("구조: ", "Structure: ") + (status?.let { checkStatusLabel(it, ko) } ?: "…"),
-                                color = status?.let { checkStatusColor(it) } ?: AppColors.TextMuted)
+                            Text(label("구조: ", "Structure: ") + contentCheckStructureStatusLabel(status, structureError, ko),
+                                color = when {
+                                    structureError != null -> AppColors.NeonRed
+                                    status != null -> checkStatusColor(status)
+                                    else -> AppColors.TextMuted
+                                })
                         }
                         ContentTab.CONFORMANCE -> {
                             val status = conformance?.overall ?: ConformanceStatus.NOT_CHECKED
@@ -308,7 +317,7 @@ fun ContentCheckWindow(
                         ContentTab.GAINMAP -> {
                             val gStatus = gainmapChecks?.let(::gainmapOverall)
                             Text(
-                                label("게인맵: ", "Gain map: ") + (gStatus?.let { checkStatusLabel(it, ko) } ?: "…"),
+                                label("게인맵: ", "Gain map: ") + (gStatus?.let { checkStatusLabel(it, ko) } ?: label("검사 중", "Checking")),
                                 color = gStatus?.let { checkStatusColor(it) } ?: AppColors.TextMuted,
                             )
                         }
@@ -328,6 +337,8 @@ fun ContentCheckWindow(
                         }
                     }
                 }
+                    }
+                }
             }
             if (type == MediaType.VIDEO) {
                 Text(
@@ -339,7 +350,8 @@ fun ContentCheckWindow(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 // Image decode needs the structure report as input; the video check does not.
                 val canStart = !fileChanged && steps.isNotEmpty() && (s != null || HeavyStep.IMAGE_DECODE !in steps)
-                Button(enabled = !running && !saving && canStart, onClick = {
+                val runLabel = contentCheckRunLabel(type, motionDetected, ko)
+                if (runLabel != null) Button(enabled = !running && !saving && canStart, onClick = {
                     val snapshot = s
                     if (HeavyStep.IMAGE_DECODE in steps && snapshot == null) return@Button
                     val runSteps = steps
@@ -466,7 +478,7 @@ fun ContentCheckWindow(
                             if (myRun == runId) running = false
                         }
                     }
-                }) { Text(label("검사 시작", "Start inspection")) }
+                }) { Text(runLabel) }
                 OutlinedButton(enabled = running, onClick = {
                     job?.cancel()
                     running = false
