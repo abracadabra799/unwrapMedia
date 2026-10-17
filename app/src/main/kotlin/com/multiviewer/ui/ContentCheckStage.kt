@@ -19,6 +19,31 @@ fun hevcCodecAvailability(type: MediaType, root: BoxNode?): CheckAvailability {
     return CheckAvailability.AVAILABLE
 }
 
+fun avcCodecAvailability(type: MediaType, root: BoxNode?): CheckAvailability {
+    if (type != MediaType.VIDEO) return CheckAvailability.NOT_APPLICABLE
+    if (root == null) return CheckAvailability.LOADING
+    val entry = firstVideoSampleEntry(root)?.second ?: return CheckAvailability.UNSUPPORTED
+    if (entry.type != "avc1") return CheckAvailability.UNSUPPORTED
+    if (boxDescendants(root).any { it.type == "moof" || it.type == "mvex" } ||
+        boxDescendants(entry).any { it.type == "sinf" || it.type == "encv" }) return CheckAvailability.UNSUPPORTED
+    val config = entry.children.firstOrNull { it.type == "avcC" } ?: return CheckAvailability.UNSUPPORTED
+    if (config.warnings.isNotEmpty() || config.size - config.headerSize < 7 ||
+        config.fields.firstOrNull { it.name == "configuration_version" }?.value != "1") {
+        return CheckAvailability.UNSUPPORTED
+    }
+    return CheckAvailability.AVAILABLE
+}
+
+fun videoCodecAvailability(type: MediaType, root: BoxNode?): CheckAvailability {
+    val hevc = hevcCodecAvailability(type, root)
+    if (hevc == CheckAvailability.AVAILABLE) return CheckAvailability.AVAILABLE
+    val avc = avcCodecAvailability(type, root)
+    if (avc == CheckAvailability.AVAILABLE) return CheckAvailability.AVAILABLE
+    if (hevc == CheckAvailability.LOADING || avc == CheckAvailability.LOADING) return CheckAvailability.LOADING
+    if (hevc == CheckAvailability.NOT_APPLICABLE && avc == CheckAvailability.NOT_APPLICABLE) return CheckAvailability.NOT_APPLICABLE
+    return CheckAvailability.UNSUPPORTED
+}
+
 enum class CheckStage { STRUCTURE, CODEC, VISUAL_DECODE, AUDIO_DECODE, MOTION_PHOTO, GAINMAP }
 
 enum class CheckAvailability { AVAILABLE, UNSUPPORTED, NOT_APPLICABLE, LOADING }
@@ -60,7 +85,7 @@ fun contentCheckStages(
         type != MediaType.VIDEO -> notApplicable(CheckStage.CODEC)
         loading -> available(CheckStage.CODEC)
         !codecRunnerAvailable -> CheckStageSpec(CheckStage.CODEC, CheckAvailability.UNSUPPORTED,
-            "지원되는 HEVC hvc1/hev1 구성 없음", "No supported HEVC hvc1/hev1 configuration")
+            "지원되는 H.264 avc1 또는 HEVC hvc1/hev1 구성 없음", "No supported H.264 avc1 or HEVC hvc1/hev1 configuration")
         else -> available(CheckStage.CODEC)
     }
     result += if (type == MediaType.IMAGE || type == MediaType.VIDEO) available(CheckStage.VISUAL_DECODE)

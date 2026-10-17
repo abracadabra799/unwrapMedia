@@ -37,6 +37,7 @@ data class ContentCheckSnapshot(
     val fileIdentity: ContentFileIdentity? = null,
     val stages: Map<CheckStage, CheckStageState> = emptyMap(),
     val hevcBitstream: HevcBitstreamReport? = null,
+    val avcBitstream: com.multiviewer.parser.conformance.AvcBitstreamReport? = null,
 )
 
 /** Size + modification time of the checked file, captured before reading it (same idea as the thumbnail cache). */
@@ -82,6 +83,23 @@ fun contentCheckWorkflowJson(snapshot: ContentCheckSnapshot, file: File): JsonVa
             ) + (progress.total?.let { listOf("total" to JsonValue.JNumber(it)) } ?: emptyList()) } ?: emptyList()))
     }),
 ) + (snapshot.hevcBitstream?.let { report -> listOf("codec" to JsonValue.JObject(listOf(
+    "checkedSamples" to JsonValue.JNumber(report.checkedSamples.toLong()),
+    "indexedSamples" to JsonValue.JNumber(report.indexedSamples.toLong()),
+    "complete" to JsonValue.JBoolean(report.complete),
+    "checkedTrack" to JsonValue.JString(report.checkedTrack),
+    "totalOccurrences" to JsonValue.JObject(report.totalOccurrences.entries.take(30).map { (id, count) ->
+        id to JsonValue.JNumber(count)
+    }),
+    "limitations" to JsonValue.JArray(report.limitations.take(30).map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
+    "findings" to JsonValue.JArray(report.findings.take(100).map { finding -> JsonValue.JObject(listOf(
+        "ruleId" to JsonValue.JString(finding.rule.id),
+        "status" to JsonValue.JString(finding.status.name),
+        "source" to JsonValue.JString(finding.rule.source),
+        "details" to JsonValue.JArray(finding.details.take(4).map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
+        "ranges" to JsonValue.JArray(finding.ranges.take(4).map { range -> JsonValue.JObject(listOf(
+            "start" to JsonValue.JNumber(range.first), "endInclusive" to JsonValue.JNumber(range.last))) }),
+    )) }),
+))) } ?: snapshot.avcBitstream?.let { report -> listOf("codec" to JsonValue.JObject(listOf(
     "checkedSamples" to JsonValue.JNumber(report.checkedSamples.toLong()),
     "indexedSamples" to JsonValue.JNumber(report.indexedSamples.toLong()),
     "complete" to JsonValue.JBoolean(report.complete),

@@ -44,7 +44,9 @@ import com.multiviewer.parser.GainmapValidator
 import com.multiviewer.parser.conformance.ConformanceReport
 import com.multiviewer.parser.conformance.ConformanceStatus
 import com.multiviewer.parser.conformance.HevcBitstreamReport
+import com.multiviewer.parser.conformance.AvcBitstreamReport
 import com.multiviewer.parser.conformance.analyzeHevcBitstream
+import com.multiviewer.parser.conformance.analyzeAvcBitstream
 import com.multiviewer.parser.integrity.ImageStructureReport
 import com.multiviewer.parser.integrity.AudioStructureReport
 import com.multiviewer.parser.integrity.IntegrityCheckItem
@@ -92,6 +94,7 @@ fun ContentCheckWindow(
     var audioStructure by remember(tab) { mutableStateOf<AudioStructureReport?>(null) }
     var conformance by remember(tab) { mutableStateOf<ConformanceReport?>(null) }
     var hevcBitstream by remember(tab) { mutableStateOf<HevcBitstreamReport?>(null) }
+    var avcBitstream by remember(tab) { mutableStateOf<AvcBitstreamReport?>(null) }
     var fileLength by remember(tab) { mutableStateOf(0L) }
     var structureError by remember(tab) { mutableStateOf<String?>(null) }
     var imageDecode by remember(tab) { mutableStateOf<ImageDecodeReport?>(null) }
@@ -128,14 +131,14 @@ fun ContentCheckWindow(
     var stageStates by remember(tab) { mutableStateOf<Map<CheckStage, CheckStageState>>(emptyMap()) }
     val stageSpecs = contentCheckStages(type, tab.root, motionDetected, gainmapDetected,
         type == MediaType.AUDIO || tab.mediaSummary?.sections?.any { it.title == "Audio" } == true,
-        codecRunnerAvailable = hevcCodecAvailability(type, tab.root) == CheckAvailability.AVAILABLE)
+        codecRunnerAvailable = videoCodecAvailability(type, tab.root) == CheckAvailability.AVAILABLE)
     val targetJob = job
     DisposableEffect(tab, targetJob) { onDispose { targetJob?.cancel() } }
 
     // Publish the current run's results to the tab for the AI prompt. These states are only ever
     // written by the current run (every write is behind the runId/current() guard), so a stale or
     // cancelled run can never reach the tab through here.
-    LaunchedEffect(tab, structure, audioStructure, conformance, hevcBitstream, structureError, imageDecode, imageDecodeError, motion, motionError, video, videoError, audio, audioError, running, motionDetected, type, checkedIdentity, stageStates) {
+    LaunchedEffect(tab, structure, audioStructure, conformance, hevcBitstream, avcBitstream, structureError, imageDecode, imageDecodeError, motion, motionError, video, videoError, audio, audioError, running, motionDetected, type, checkedIdentity, stageStates) {
         tab.contentCheck = ContentCheckSnapshot(
             structure, imageDecode, motionDetected, motion, motionError, video, type,
             structureError = structureError, imageDecodeError = imageDecodeError, videoError = videoError, running = running,
@@ -145,6 +148,7 @@ fun ContentCheckWindow(
             fileIdentity = checkedIdentity,
             stages = stageStates,
             hevcBitstream = hevcBitstream,
+            avcBitstream = avcBitstream,
         )
     }
 
@@ -233,15 +237,29 @@ fun ContentCheckWindow(
                     when (stage) {
                         CheckStage.STRUCTURE -> runStructure(root, identity)
                         CheckStage.CODEC -> {
-                            if (type != MediaType.VIDEO || hevcCodecAvailability(type, root) != CheckAvailability.AVAILABLE) {
-                                error("HEVC sample entry or hvcC unavailable")
-                            }
-                            hevcBitstream = analyzeHevcBitstream(tab.file, root) { checked, total ->
-                                if (checked % 20 == 0 || checked == total) scope.launch {
-                                    if (current() && stageStates[CheckStage.CODEC]?.status == CheckRunStatus.RUNNING) {
-                                        progress(CheckProgress(checked.toLong(), total?.toLong(), "samples"))
+                            if (type != MediaType.VIDEO) error("Video track unavailable")
+                            val hevcAvail = hevcCodecAvailability(type, root)
+                            val avcAvail = avcCodecAvailability(type, root)
+                            when {
+                                hevcAvail == CheckAvailability.AVAILABLE -> {
+                                    hevcBitstream = analyzeHevcBitstream(tab.file, root) { checked, total ->
+                                        if (checked % 20 == 0 || checked == total) scope.launch {
+                                            if (current() && stageStates[CheckStage.CODEC]?.status == CheckRunStatus.RUNNING) {
+                                                progress(CheckProgress(checked.toLong(), total?.toLong(), "samples"))
+                                            }
+                                        }
                                     }
                                 }
+                                avcAvail == CheckAvailability.AVAILABLE -> {
+                                    avcBitstream = analyzeAvcBitstream(tab.file, root) { checked, total ->
+                                        if (checked % 20 == 0 || checked == total) scope.launch {
+                                            if (current() && stageStates[CheckStage.CODEC]?.status == CheckRunStatus.RUNNING) {
+                                                progress(CheckProgress(checked.toLong(), total?.toLong(), "samples"))
+                                            }
+                                        }
+                                    }
+                                }
+                                else -> error("Supported HEVC or AVC configuration unavailable")
                             }
                         }
                         CheckStage.VISUAL_DECODE -> {
@@ -272,7 +290,8 @@ fun ContentCheckWindow(
                 }
                 runner.run(runStages) { stage, state ->
                     if (shouldPublishCheckState(myRun == runId, isActive, state.status)) {
-                        val shownState = if (stage == CheckStage.CODEC && state.status == CheckRunStatus.COMPLETED && hevcBitstream?.complete == false) {
+                        val codecComplete = hevcBitstream?.complete ?: avcBitstream?.complete
+                        val shownState = if (stage == CheckStage.CODEC && state.status == CheckRunStatus.COMPLETED && codecComplete == false) {
                             state.copy(status = CheckRunStatus.PARTIAL, reason = "Only indexed, supported samples were checked / 일부 샘플만 검사")
                         } else state
                         stageStates = stageStates + (stage to shownState)
@@ -316,6 +335,7 @@ fun ContentCheckWindow(
         running = running, audio = audio, audioError = audioError, audioStructure = audioStructure,
         conformance = conformance, fileIdentity = checkedIdentity, stages = stageStates,
         hevcBitstream = hevcBitstream,
+        avcBitstream = avcBitstream,
     )
 
     Window(
@@ -476,11 +496,15 @@ fun ContentCheckWindow(
                                 val verdict = when (spec.stage) {
                                     CheckStage.STRUCTURE -> if (type == MediaType.AUDIO) audioStructure?.overall?.let { checkStatusLabel(it, ko) }
                                         else structure?.overall?.let { checkStatusLabel(it, ko) }
-                                    CheckStage.CODEC -> hevcBitstream?.let { report -> when {
-                                        report.findings.any { it.status == ConformanceStatus.FAIL } -> label("오류 관측", "Issues observed")
-                                        !report.complete -> label("일부 미검증", "Partly unchecked")
-                                        else -> label("바이트 검사 완료 · 규격 미검증", "Byte check complete · conformance unchecked")
-                                    } }
+                                    CheckStage.CODEC -> {
+                                        val pair = hevcBitstream?.let { it.findings to it.complete }
+                                            ?: avcBitstream?.let { it.findings to it.complete }
+                                        pair?.let { (findings, complete) -> when {
+                                            findings.any { it.status == ConformanceStatus.FAIL } -> label("오류 관측", "Issues observed")
+                                            !complete -> label("일부 미검증", "Partly unchecked")
+                                            else -> label("바이트 검사 완료 · 규격 미검증", "Byte check complete · conformance unchecked")
+                                        } }
+                                    }
                                     CheckStage.VISUAL_DECODE -> if (type == MediaType.IMAGE) imageDecode?.status?.let { headerDecodeLabel(true, it, ko) }
                                         else video?.decodeStatus?.let { videoStatusLabel(it, ko) }
                                     CheckStage.AUDIO_DECODE -> audio?.status?.let { videoStatusLabel(it, ko) }
@@ -515,17 +539,22 @@ fun ContentCheckWindow(
                     val shownTab = selectedTab
             when (shownTab) {
                 ContentTab.CONFORMANCE -> if (showCodecDetail) {
-                    val report = hevcBitstream
-                    if (report == null) Text(label("코덱 검사 결과가 없습니다. 실행을 눌러 시작하세요.", "No codec result yet. Press Run to start."),
+                    val codecData = when {
+                        hevcBitstream != null -> Triple(hevcBitstream!!.checkedTrack, "${hevcBitstream!!.checkedSamples}/${hevcBitstream!!.indexedSamples}", hevcBitstream!!.limitations) to hevcBitstreamFindings(hevcBitstream!!)
+                        avcBitstream != null -> Triple(avcBitstream!!.checkedTrack, "${avcBitstream!!.checkedSamples}/${avcBitstream!!.indexedSamples}", avcBitstream!!.limitations) to avcBitstreamFindings(avcBitstream!!)
+                        else -> null
+                    }
+                    if (codecData == null) Text(label("코덱 검사 결과가 없습니다. 실행을 눌러 시작하세요.", "No codec result yet. Press Run to start."),
                         color = AppColors.TextSecondary)
                     else {
-                        Text("${report.checkedTrack} · ${report.checkedSamples}/${report.indexedSamples} samples",
-                            color = AppColors.TextSecondary)
-                        Text(label("구조 관측값입니다. HEVC 전체 규격 준수나 MediaCodec 동작을 증명하지 않습니다.",
-                            "Structural observations; these do not establish full HEVC conformance or MediaCodec behavior."),
+                        val (meta, findings) = codecData
+                        val (track, samples, limitations) = meta
+                        Text("$track · $samples samples", color = AppColors.TextSecondary)
+                        Text(label("구조 관측값입니다. 전체 규격 준수나 MediaCodec 동작을 증명하지 않습니다.",
+                            "Structural observations; these do not establish full conformance or MediaCodec behavior."),
                             color = AppColors.TextSecondary, fontSize = 12.sp)
-                        report.limitations.take(8).forEach { Text(it, color = AppColors.TextSecondary, fontSize = 11.sp) }
-                        ContentFindingTable(hevcBitstreamFindings(report), fileLength, ko, Modifier.weight(1f)) { offset, length ->
+                        limitations.take(8).forEach { Text(it, color = AppColors.TextSecondary, fontSize = 11.sp) }
+                        ContentFindingTable(findings, fileLength, ko, Modifier.weight(1f)) { offset, length ->
                             tab.parameterSetHighlightRange = offset until (offset + length)
                         }
                     }
