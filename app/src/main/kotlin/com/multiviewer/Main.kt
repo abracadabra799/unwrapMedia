@@ -613,14 +613,6 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val isImage = currentTab != null && !currentTab.isLoading && currentTab.type == MediaType.IMAGE
                 val isHeic = currentTab?.file?.extension?.lowercase(java.util.Locale.US) in setOf("heic", "heif")
-                val hasMotionPhoto = isImage && currentTab?.root?.let(::hasMotionPhotoData) == true
-                // Integrity, still<->video frame match, Live Photo pair and compatibility all live in
-                // Content Check's motion photo tab; this opens it there directly.
-                item(
-                    I18n.menuMotionPhotoCheck(language),
-                    enabled = hasMotionPhoto,
-                    onClick = { motionPhotoInspectorTab = currentTab },
-                )
                 item(
                     I18n.menuMotionFrameDropAnalysis(language),
                     enabled = currentTab?.embeddedVideo != null,
@@ -885,6 +877,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                             appState.aiPromptWindowOpen = true
                         }
                     },
+                    onOpenMotionPhotoInspector = { motionPhotoInspectorTab = targetTab },
                     initialTab = appState.contentCheckInitialTab,
                     onCloseRequest = { appState.contentCheckTab = null },
                 )

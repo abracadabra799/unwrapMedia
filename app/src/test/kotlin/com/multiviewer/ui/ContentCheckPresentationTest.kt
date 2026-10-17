@@ -8,6 +8,24 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ContentCheckPresentationTest {
+    @Test fun checklistLabelsSeparateExecutionFromVerdict() {
+        assertEquals("파일 구조", checkStageLabel(CheckStage.STRUCTURE, true))
+        assertEquals("Codec bitstream", checkStageLabel(CheckStage.CODEC, false))
+        assertEquals("미검사", checkRunStatusLabel(CheckRunStatus.NOT_RUN, true))
+        assertEquals("Running", checkRunStatusLabel(CheckRunStatus.RUNNING, false))
+        assertEquals("완료", checkRunStatusLabel(CheckRunStatus.COMPLETED, true))
+        assertEquals("실패", checkRunStatusLabel(CheckRunStatus.FAILED, true))
+        assertEquals("17 frames", checkProgressLabel(CheckProgress(17, null, "frames")))
+        assertEquals("17/20 frames", checkProgressLabel(CheckProgress(17, 20, "frames")))
+        assertEquals("다시 실행", checkStageActionLabel(CheckRunStatus.COMPLETED, true))
+        assertEquals(ContentTab.VIDEO_DECODE, checkStageDetailTab(CheckStage.VISUAL_DECODE, MediaType.VIDEO))
+        assertEquals(ContentTab.IMAGE_DECODE, checkStageDetailTab(CheckStage.VISUAL_DECODE, MediaType.IMAGE))
+    }
+
+    @Test fun manuallySelectedDetailIsNotReplacedWhenNextStageStarts() {
+        assertEquals(CheckStage.STRUCTURE, nextSelectedStage(CheckStage.STRUCTURE, true, CheckStage.CODEC))
+        assertEquals(CheckStage.CODEC, nextSelectedStage(CheckStage.STRUCTURE, false, CheckStage.CODEC))
+    }
     @Test fun actionsPreserveTheExistingSafetyGates() {
         val imageLoading = contentCheckActionState(MediaType.IMAGE, true, false, true, false, false, false)
         assertFalse(imageLoading.canRun)

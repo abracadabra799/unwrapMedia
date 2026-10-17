@@ -2,6 +2,8 @@ package com.multiviewer.ui
 
 import com.multiviewer.parser.gainmapOverall
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -80,6 +83,7 @@ fun ContentCheckWindow(
     tab: TabState,
     language: AppLanguage,
     onAiDiagnosis: () -> Unit,
+    onOpenMotionPhotoInspector: () -> Unit = {},
     onCloseRequest: () -> Unit,
     initialTab: ContentTab = ContentTab.STRUCTURE,
 ) {
@@ -107,6 +111,8 @@ fun ContentCheckWindow(
     var runId by remember(tab) { mutableStateOf(0) }
     var message by remember(tab) { mutableStateOf("") }
     var selectedTab by remember(tab, initialTab) { mutableStateOf(initialTab) }
+    var selectedStage by remember(tab) { mutableStateOf(CheckStage.STRUCTURE) }
+    var manuallySelectedStage by remember(tab) { mutableStateOf(false) }
     // Hoisted out of the video panels so they survive switching between the decode and packet tabs.
     var expandedDiagnostic by remember(tab) { mutableStateOf<Int?>(null) }
     var selectedPacket by remember(tab) { mutableStateOf<IntegrityPacket?>(null) }
@@ -251,7 +257,13 @@ fun ContentCheckWindow(
                     if (!withContext(Dispatchers.IO) { identity.matches(tab.file) }) throw ContentFileChangedException()
                 }
                 runner.run(runStages) { stage, state ->
-                    if (current()) stageStates = stageStates + (stage to state)
+                    if (current()) {
+                        stageStates = stageStates + (stage to state)
+                        if (state.status == CheckRunStatus.RUNNING && state.progress == null) {
+                            selectedStage = nextSelectedStage(selectedStage, manuallySelectedStage, stage)
+                            if (!manuallySelectedStage) selectedTab = checkStageDetailTab(selectedStage, type)
+                        }
+                    }
                 }
                 if (current()) message = label("검사 완료", "Checks complete")
             } catch (e: ContentFileChangedException) {
@@ -297,88 +309,10 @@ fun ContentCheckWindow(
                     Text(label("형식: ", "Format: ") + (s?.format ?: "…"), color = AppColors.TextSecondary)
                 }
             }
-            for ((group, groupTabs) in contentCheckStageGroups(tabs)) {
-                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(when (group) {
-                        ContentCheckStageGroup.ON_OPEN -> label("기본 검사", "On open")
-                        ContentCheckStageGroup.ON_REQUEST -> label("추가 검사", "On request")
-                    }, color = AppColors.TextSecondary, fontSize = 12.sp)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        for (t in groupTabs) {
-                            when (t) {
-                                ContentTab.STRUCTURE -> {
-                                    val status = if (type == MediaType.AUDIO) audioStructure?.overall else s?.overall
-                                    Text(label("구조: ", "Structure: ") + contentCheckStructureStatusLabel(status, structureError, ko, treePending),
-                                        color = when {
-                                            treePending -> AppColors.TextMuted
-                                            structureError != null -> AppColors.NeonRed
-                                            status != null -> checkStatusColor(status)
-                                            else -> AppColors.TextMuted
-                                        })
-                                }
-                                ContentTab.CONFORMANCE -> {
-                                    val status = conformance?.overall ?: ConformanceStatus.NOT_CHECKED
-                                    Text(label("규격: ", "Conformance: ") + contentCheckConformanceStatusLabel(status, ko, treePending),
-                                        color = if (treePending) AppColors.TextMuted else conformanceStatusColor(status))
-                                }
-                                ContentTab.IMAGE_DECODE -> {
-                                    val ds = imageDecode?.status ?: ImageDecodeStatus.NOT_RUN
-                                    Text(label("디코딩: ", "Decode: ") + headerDecodeLabel(imageDecode != null, ds, ko), color = decodeStatusColor(ds))
-                                }
-                                ContentTab.MOTION_PHOTO -> {
-                                    val mStatus = motion?.verdictStatus()
-                                    Text(
-                                        label("모션포토: ", "Motion photo: ") + when {
-                                            mStatus != null -> checkStatusLabel(mStatus, ko)
-                                            motionError != null -> label("실패", "Failed")
-                                            else -> label("미검사", "Not run")
-                                        },
-                                        color = when {
-                                            mStatus != null -> checkStatusColor(mStatus)
-                                            motionError != null -> AppColors.NeonRed
-                                            else -> AppColors.TextMuted
-                                        },
-                                    )
-                                }
-                                ContentTab.GAINMAP -> {
-                                    val gStatus = gainmapChecks?.let(::gainmapOverall)
-                                    Text(
-                                        label("게인맵: ", "Gain map: ") + (gStatus?.let { checkStatusLabel(it, ko) } ?: label("검사 중", "Checking")),
-                                        color = gStatus?.let { checkStatusColor(it) } ?: AppColors.TextMuted,
-                                    )
-                                }
-                                ContentTab.VIDEO_DECODE -> {
-                                    val st = v?.decodeStatus ?: IntegrityStatus.NOT_RUN
-                                    Text(label("영상 디코딩: ", "Video decode: ") + videoStatusLabel(st, ko), color = integrityStatusColor(st))
-                                }
-                                ContentTab.VIDEO_PACKETS -> {
-                                    val st = v?.packetStatus ?: IntegrityStatus.NOT_RUN
-                                    Text(label("패킷: ", "Packets: ") + videoStatusLabel(st, ko), color = integrityStatusColor(st))
-                                }
-                                ContentTab.AUDIO -> {
-                                    val st = audio?.status ?: if (audioError != null) IntegrityStatus.FAILED else IntegrityStatus.NOT_RUN
-                                    Text(label("오디오: ", "Audio: ") +
-                                        if (audio?.noAudio == true) label("트랙 없음", "No tracks") else videoStatusLabel(st, ko),
-                                        color = integrityStatusColor(st))
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            if (type == MediaType.VIDEO) {
-                Text(
-                    label("첫 번째 영상 트랙과 모든 오디오 트랙을 소프트웨어로 디코딩합니다.",
-                        "Software decoding of the first video track and all audio streams."),
-                    color = AppColors.TextSecondary,
-                )
-            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                // Image decode needs the structure report as input; the video check does not.
-                val actions = contentCheckActionState(type, steps.isNotEmpty(), true, tab.root != null,
+                val actions = contentCheckActionState(type, stageSpecs.any { it.availability == CheckAvailability.AVAILABLE }, true, tab.root != null,
                     fileChanged, running, saving)
-                val runLabel = contentCheckRunLabel(type, motionDetected, ko)
-                if (runLabel != null) Button(enabled = actions.canRun && tab.root != null, onClick = {
+                Button(enabled = actions.canRun && tab.root != null, onClick = {
                     startChecks(stageSpecs.filter { it.availability == CheckAvailability.AVAILABLE }.map { it.stage })
                 }) { Text(label("모든 검사 실행", "Run all checks")) }
                 if (actions.canCancel) OutlinedButton(onClick = {
@@ -465,31 +399,80 @@ fun ContentCheckWindow(
                 }
                 OutlinedButton(enabled = actions.canDiagnose, onClick = onAiDiagnosis) { Text(label("AI 진단", "AI diagnosis")) }
             }
-            if (steps.isEmpty()) {
-                Text(
-                    label("이 파일 형식은 1단계에서 구조 검사만 지원합니다", "Only structure checks are available for this type yet"),
-                    color = AppColors.TextSecondary,
-                    fontSize = 12.sp,
-                )
-            }
-            if (running) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             if (message.isNotEmpty()) Text(message, color = AppColors.TextSecondary, fontSize = 12.sp)
-            val shownTab = if (selectedTab in tabs) selectedTab else ContentTab.STRUCTURE
-            TabRow(selectedTabIndex = tabs.indexOf(shownTab).coerceAtLeast(0)) {
-                tabs.forEach { t ->
-                    val title = when (t) {
-                        ContentTab.STRUCTURE -> label("구조", "Structure")
-                        ContentTab.CONFORMANCE -> label("규격 적합성", "Spec conformance")
-                        ContentTab.IMAGE_DECODE -> label("디코딩", "Decode")
-                        ContentTab.MOTION_PHOTO -> label("모션포토", "Motion photo")
-                        ContentTab.GAINMAP -> label("게인맵", "Gain map")
-                        ContentTab.VIDEO_DECODE -> label("영상 디코딩", "Video decode")
-                        ContentTab.VIDEO_PACKETS -> label("패킷 매핑", "Packet mapping")
-                        ContentTab.AUDIO -> label("오디오", "Audio")
+            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.width(280.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(label("규격 검사", "Conformance checks"), color = AppColors.TextPrimary)
+                    stageSpecs.forEach { spec ->
+                        if (spec.stage == CheckStage.VISUAL_DECODE) {
+                            Text(label("동작 진단", "Operation checks"), color = AppColors.TextPrimary)
+                        }
+                        if (spec.stage == CheckStage.MOTION_PHOTO) {
+                            Text(label("확장 검사", "Additional checks"), color = AppColors.TextPrimary)
+                        }
+                        val state = stageStates[spec.stage] ?: CheckStageState(CheckRunStatus.NOT_RUN)
+                        Column(Modifier.fillMaxWidth().background(AppColors.Surface).padding(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                OutlinedButton(onClick = {
+                                    selectedStage = spec.stage
+                                    manuallySelectedStage = true
+                                    selectedTab = checkStageDetailTab(spec.stage, type)
+                                }, modifier = Modifier.weight(1f)) {
+                                    Text(checkStageLabel(spec.stage, ko), fontSize = 12.sp)
+                                }
+                                if (spec.availability == CheckAvailability.AVAILABLE) {
+                                    OutlinedButton(enabled = !running && !fileChanged, onClick = { startChecks(listOf(spec.stage)) }) {
+                                        Text(checkStageActionLabel(state.status, ko), fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                            Text(checkStageDescription(spec.stage, ko), color = AppColors.TextSecondary, fontSize = 11.sp)
+                            val status = when (spec.availability) {
+                                CheckAvailability.UNSUPPORTED -> label("미지원", "Unsupported")
+                                CheckAvailability.NOT_APPLICABLE -> label("해당 없음", "Not applicable")
+                                CheckAvailability.LOADING -> label("파일 구조 불러오는 중", "Loading file structure")
+                                CheckAvailability.AVAILABLE -> checkRunStatusLabel(state.status, ko)
+                            }
+                            Text(status + (state.reason?.let { " · $it" } ?: ""), color = AppColors.TextSecondary, fontSize = 11.sp)
+                            if (state.status == CheckRunStatus.COMPLETED || state.status == CheckRunStatus.PARTIAL) {
+                                val verdict = when (spec.stage) {
+                                    CheckStage.STRUCTURE -> if (type == MediaType.AUDIO) audioStructure?.overall?.let { checkStatusLabel(it, ko) }
+                                        else structure?.overall?.let { checkStatusLabel(it, ko) }
+                                    CheckStage.CODEC -> conformance?.overall?.let { conformanceStatusLabel(it, ko) }
+                                    CheckStage.VISUAL_DECODE -> if (type == MediaType.IMAGE) imageDecode?.status?.let { headerDecodeLabel(true, it, ko) }
+                                        else video?.decodeStatus?.let { videoStatusLabel(it, ko) }
+                                    CheckStage.AUDIO_DECODE -> audio?.status?.let { videoStatusLabel(it, ko) }
+                                    CheckStage.MOTION_PHOTO -> motion?.verdictStatus()?.let { checkStatusLabel(it, ko) }
+                                    CheckStage.GAINMAP -> gainmapChecks?.let { checkStatusLabel(gainmapOverall(it), ko) }
+                                }
+                                if (verdict != null) Text(verdict, color = AppColors.TextPrimary, fontSize = 11.sp)
+                            }
+                            if (state.status == CheckRunStatus.RUNNING) {
+                                val progress = state.progress
+                                if (progress?.total != null && progress.total > 0) {
+                                    LinearProgressIndicator(progress = { (progress.completed.toFloat() / progress.total).coerceIn(0f, 1f) },
+                                        modifier = Modifier.fillMaxWidth())
+                                } else LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                if (progress != null) Text(checkProgressLabel(progress), fontSize = 11.sp)
+                            }
+                        }
                     }
-                    Tab(selected = shownTab == t, onClick = { selectedTab = t }, text = { Text(title) })
                 }
-            }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(checkStageLabel(selectedStage, ko), color = AppColors.TextPrimary)
+                        OutlinedButton(onClick = { selectedTab = ContentTab.CONFORMANCE; manuallySelectedStage = true }) {
+                            Text(label("규격 결과", "Rule results"))
+                        }
+                        if (selectedTab == ContentTab.VIDEO_PACKETS) {
+                            OutlinedButton(onClick = { selectedTab = ContentTab.VIDEO_DECODE }) {
+                                Text(label("디코딩 결과", "Decode results"))
+                            }
+                        }
+                    }
+                    val shownTab = selectedTab
             when (shownTab) {
                 ContentTab.CONFORMANCE -> ConformancePanel(conformance, language) { offset, length ->
                     if (offset >= 0 && length > 0 && offset < fileLength && length <= fileLength - offset) {
@@ -506,6 +489,9 @@ fun ContentCheckWindow(
                 }
                 ContentTab.IMAGE_DECODE -> ImageDecodePanel(imageDecode, ko)
                 ContentTab.MOTION_PHOTO -> {
+                    OutlinedButton(onClick = onOpenMotionPhotoInspector) {
+                        Text(label("모션포토 상세 분석", "Open motion photo inspector"))
+                    }
                     val m = motion
                     if (m == null && motionError != null) {
                         Text(label("모션포토 분석 실패: ", "Motion photo analysis failed: ") + motionError, color = AppColors.NeonRed)
@@ -552,6 +538,8 @@ fun ContentCheckWindow(
                             modifier = Modifier.weight(1f),
                         )
                     }
+                }
+            }
                 }
             }
         }
