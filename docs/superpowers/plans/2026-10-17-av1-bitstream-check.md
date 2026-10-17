@@ -48,10 +48,10 @@
 
 **Interfaces:** `data class Av1ObuObservation(val sampleIndex: Int, val obuIndex: Int, val headerOffset: Long, val payloadOffset: Long, val obuType: Int, val forbiddenBit: Int, val reservedBit: Int, val extensionFlag: Boolean, val temporalId: Int?, val spatialId: Int?, val payloadSize: Long, val issue: String?)`; `fun scanAv1Sample(reader: ByteReader, sample: VideoSample, onObu: (Av1ObuObservation) -> Unit): Av1SampleScan`. `Av1SampleScan` stores scanned OBU count, exact consumed bytes, and a coverage reason. Scanner checks bounds and overflow before reads, reads OBU header + leb128 size, and stops on malformed extent.
 
-- [ ] **Step 1: Write failing tests.** Assert raw offsets and bit fields on real `av01` fixtures; `truncatedObu`, `sampleExtentOverflow`, forbidden bit, and reserved bit mutations have exact offsets/status and never PASS for unreadable data.
-- [ ] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.Av1ObuScannerTest'`; expect RED.
-- [ ] **Step 3: Implement** bounded scanner with checked addition and no sample-sized buffer allocation; callers check coroutine cancellation between OBUs.
-- [ ] **Step 4: Run** scanner tests; expect PASS. Commit `feat: scan AV1 OBU headers with bounded reads`.
+- [x] **Step 1: Write failing tests.** Assert raw offsets and bit fields on real `av01` fixtures; `truncatedObu`, `sampleExtentOverflow`, forbidden bit, and reserved bit mutations have exact offsets/status and never PASS for unreadable data.
+- [x] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.Av1ObuScannerTest'`; expect RED.
+- [x] **Step 3: Implement** bounded scanner with checked addition and no sample-sized buffer allocation; callers check coroutine cancellation between OBUs.
+- [x] **Step 4: Run** scanner tests; expect PASS. Commit `feat: scan AV1 OBU headers with bounded reads`.
 
 ### Task 3: Parameter-set evidence and rule aggregation
 
