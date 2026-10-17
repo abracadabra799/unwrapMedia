@@ -4,6 +4,7 @@ import com.multiviewer.parser.integrity.CheckStatus
 
 enum class FindingStage {
     STRUCTURE,
+    CODEC,
     PARSER,
     IMAGE_DECODE,
     MOTION_PHOTO,

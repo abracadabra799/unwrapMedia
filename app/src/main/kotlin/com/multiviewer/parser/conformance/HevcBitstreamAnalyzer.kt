@@ -30,16 +30,35 @@ suspend fun analyzeHevcBitstream(
     val pair = firstVideoSampleEntry(root)
     val entry = pair?.second
     val tag = entry?.type
+    val videoTracks = boxDescendants(root).filter { it.type == "trak" }.filter { trak ->
+        boxDescendants(trak).any { node -> node.type == "hdlr" && node.fields.any { it.name == "handler_type" && it.value == "vide" } }
+    }.toList()
+    val trackIndex = videoTracks.indexOf(pair?.first).takeIf { it >= 0 }?.plus(1) ?: 1
+    val otherVideoTracks = (videoTracks.size - 1).coerceAtLeast(0)
     fun report(complete: Boolean, checked: Int = 0, indexed: Int = 0): HevcBitstreamReport =
         HevcBitstreamReport(findings, checked, indexed, totals, limitations,
-            "first video track (${tag ?: "unknown"})", complete)
+            "video track #$trackIndex (${tag ?: "unknown"})", complete)
     if (tag !in setOf("hvc1", "hev1")) {
         limitations += "HEVC hvc1/hev1 video sample entry not found / HEVC 비디오 샘플 엔트리 없음"
+        return@withContext report(false)
+    }
+    if (otherVideoTracks > 0) limitations += "$otherVideoTracks other video track(s) not checked / 다른 영상 트랙 미검증"
+    if (boxDescendants(root).any { it.type == "moof" || it.type == "mvex" }) {
+        limitations += "Fragmented MP4 samples are not supported / 조각난 MP4 샘플 미지원"
+        return@withContext report(false)
+    }
+    if (entry?.children?.any { it.type == "sinf" } == true ||
+        pair?.first?.let { boxDescendants(it).any { node -> node.type == "encv" || node.type == "sinf" } } == true) {
+        limitations += "Encrypted video samples are not supported / 암호화 샘플 미지원"
         return@withContext report(false)
     }
     val hvcC = entry?.children?.firstOrNull { it.type == "hvcC" }
     if (hvcC == null || hvcC.size - hvcC.headerSize < 23 || hvcC.size > 1_000_000) {
         limitations += "hvcC missing, truncated, or too large / hvcC 없음·잘림·과대"
+        return@withContext report(false)
+    }
+    if (hvcC.warnings.isNotEmpty()) {
+        limitations += "hvcC array layout is malformed: ${hvcC.warnings.take(3).joinToString()} / hvcC 배열 손상"
         return@withContext report(false)
     }
     ByteReader.open(file).use { reader ->
@@ -112,9 +131,9 @@ suspend fun analyzeHevcBitstream(
                 malformed = true
                 limitations += "sample=${sample.index}: ${scan.coverageReason} / 샘플 범위 미검증"
             }
-            if (checked % 20 == 0 || checked == table.samples.size) onProgress(checked, table.samples.size)
+            onProgress(checked, if (table.warnings.isEmpty() && otherVideoTracks == 0) table.samples.size else null)
         }
-        val complete = !malformed && table.warnings.isEmpty() && table.samples.isNotEmpty()
+        val complete = !malformed && table.warnings.isEmpty() && table.samples.isNotEmpty() && otherVideoTracks == 0
         if (complete) add("hevc.nal.framing", ConformanceStatus.PASS,
             "checked=$checked indexed=${table.samples.size}; every NAL extent fits / NAL 범위 일치")
         else if (totals["hevc.nal.framing"] == null) add("hevc.nal.framing", ConformanceStatus.NOT_CHECKED,

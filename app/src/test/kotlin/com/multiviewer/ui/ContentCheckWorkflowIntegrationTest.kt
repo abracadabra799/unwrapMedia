@@ -3,6 +3,8 @@ package com.multiviewer.ui
 import com.multiviewer.cli.buildCheckJson
 import com.multiviewer.parser.conformance.ConformanceReport
 import com.multiviewer.parser.conformance.ConformanceStatus
+import com.multiviewer.parser.conformance.ConformanceRule
+import com.multiviewer.parser.conformance.ConformanceFinding
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -40,6 +42,18 @@ class ContentCheckWorkflowIntegrationTest {
         val snapshot = ContentCheckSnapshot(null, null, false, null, null, null,
             mediaType = MediaType.VIDEO,
             conformance = ConformanceReport("MP4", "unknown", emptyList()),
+            stages = mapOf(CheckStage.STRUCTURE to CheckStageState(CheckRunStatus.COMPLETED)))
+        assertEquals(ConformanceStatus.NOT_CHECKED, effectiveConformanceStatus(snapshot))
+    }
+
+    @Test
+    fun structuralObservationsCannotPromoteOverallConformance() {
+        val report = ConformanceReport("JPEG", "unknown", listOf(ConformanceFinding(
+            ConformanceRule("jpeg.soi", "SOI", "unwrapMedia structural check", null, "marker observed"),
+            ConformanceStatus.PASS, listOf("present"), emptyList(),
+        )))
+        val snapshot = ContentCheckSnapshot(null, null, false, null, null, null,
+            mediaType = MediaType.IMAGE, conformance = report,
             stages = mapOf(CheckStage.STRUCTURE to CheckStageState(CheckRunStatus.COMPLETED)))
         assertEquals(ConformanceStatus.NOT_CHECKED, effectiveConformanceStatus(snapshot))
     }

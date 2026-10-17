@@ -21,3 +21,14 @@ save("malformed-hvcc.mp4", hvc_type + 4, bytes([0]))  # configurationVersion 1 -
 stsz_type = original.index(b"stsz")
 assert int.from_bytes(original[stsz_type + 8:stsz_type + 12], "big") == 0
 save("truncated-prefix.mp4", stsz_type + 16, (2).to_bytes(4, "big"))
+
+# Stress-only fixture: 101 malformed headers in the first indexed sample, followed by one
+# bounded filler NAL. Sample size and all later packet offsets stay identical.
+many = bytearray(original)
+first_sample = bytes.fromhex("00000002a801") * 101
+remaining = 1275 - len(first_sample)
+assert remaining >= 6
+first_sample += (remaining - 4).to_bytes(4, "big") + bytes.fromhex("2801") + bytes(remaining - 6)
+assert len(first_sample) == 1275
+many[44:44 + 1275] = first_sample
+(out / "many-forbidden-headers.mp4").write_bytes(many)

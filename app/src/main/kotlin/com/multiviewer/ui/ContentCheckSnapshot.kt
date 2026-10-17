@@ -3,6 +3,7 @@ package com.multiviewer.ui
 import com.multiviewer.cli.scrubPaths
 import com.multiviewer.cli.JsonValue
 import com.multiviewer.parser.SefCheckResult
+import com.multiviewer.parser.conformance.HevcBitstreamReport
 import com.multiviewer.parser.conformance.ConformanceReport
 import com.multiviewer.parser.conformance.ConformanceStatus
 import com.multiviewer.parser.integrity.CheckStatus
@@ -35,6 +36,7 @@ data class ContentCheckSnapshot(
     /** The file state the results describe; evidence is only valid while [ContentFileIdentity.matches] holds. */
     val fileIdentity: ContentFileIdentity? = null,
     val stages: Map<CheckStage, CheckStageState> = emptyMap(),
+    val hevcBitstream: HevcBitstreamReport? = null,
 )
 
 /** Size + modification time of the checked file, captured before reading it (same idea as the thumbnail cache). */
@@ -53,12 +55,16 @@ class ContentFileChangedException : Exception("File changed during inspection")
 /** Only evaluated, identity-bound rules may contribute a green summary. */
 fun effectiveConformanceStatus(snapshot: ContentCheckSnapshot): ConformanceStatus {
     val report = snapshot.conformance ?: return ConformanceStatus.NOT_CHECKED
-    if (report.overall == ConformanceStatus.FAIL || report.overall == ConformanceStatus.WARN) return report.overall
+    val normative = report.findings.filterNot { it.rule.source.startsWith("unwrapMedia structural check") ||
+        it.rule.source.contains("structural observation") }
+    if (normative.any { it.status == ConformanceStatus.FAIL }) return ConformanceStatus.FAIL
+    if (normative.any { it.status == ConformanceStatus.WARN }) return ConformanceStatus.WARN
     if (snapshot.stages[CheckStage.STRUCTURE]?.status != CheckRunStatus.COMPLETED) return ConformanceStatus.NOT_CHECKED
     if (snapshot.mediaType == MediaType.VIDEO && snapshot.stages[CheckStage.CODEC]?.status != CheckRunStatus.COMPLETED) {
         return ConformanceStatus.NOT_CHECKED
     }
-    return report.overall
+    if (report.inspectionError != null || normative.any { it.status == ConformanceStatus.NOT_CHECKED }) return ConformanceStatus.NOT_CHECKED
+    return if (normative.any { it.status == ConformanceStatus.PASS }) ConformanceStatus.PASS else ConformanceStatus.NOT_CHECKED
 }
 
 /** Additive, versioned workflow metadata; evidence fields in the older JSON schema are untouched. */
@@ -75,7 +81,24 @@ fun contentCheckWorkflowJson(snapshot: ContentCheckSnapshot, file: File): JsonVa
                 "unit" to JsonValue.JString(progress.unit),
             ) + (progress.total?.let { listOf("total" to JsonValue.JNumber(it)) } ?: emptyList()) } ?: emptyList()))
     }),
-))
+) + (snapshot.hevcBitstream?.let { report -> listOf("codec" to JsonValue.JObject(listOf(
+    "checkedSamples" to JsonValue.JNumber(report.checkedSamples.toLong()),
+    "indexedSamples" to JsonValue.JNumber(report.indexedSamples.toLong()),
+    "complete" to JsonValue.JBoolean(report.complete),
+    "checkedTrack" to JsonValue.JString(report.checkedTrack),
+    "totalOccurrences" to JsonValue.JObject(report.totalOccurrences.entries.take(30).map { (id, count) ->
+        id to JsonValue.JNumber(count)
+    }),
+    "limitations" to JsonValue.JArray(report.limitations.take(30).map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
+    "findings" to JsonValue.JArray(report.findings.take(100).map { finding -> JsonValue.JObject(listOf(
+        "ruleId" to JsonValue.JString(finding.rule.id),
+        "status" to JsonValue.JString(finding.status.name),
+        "source" to JsonValue.JString(finding.rule.source),
+        "details" to JsonValue.JArray(finding.details.take(4).map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
+        "ranges" to JsonValue.JArray(finding.ranges.take(4).map { range -> JsonValue.JObject(listOf(
+            "start" to JsonValue.JNumber(range.first), "endInclusive" to JsonValue.JNumber(range.last))) }),
+    )) }),
+))) } ?: emptyList()))
 
 const val STALE_CONTENT_CHECK_NOTICE =
     "컨텐츠 검사 결과 제외: 검사 이후 파일이 변경되어 이전 판정과 바이트 근거를 사용하지 않습니다. 파일을 다시 열어 검사해야 합니다."
@@ -99,6 +122,7 @@ private fun <T> StringBuilder.appendCapped(items: List<T>, max: Int, indent: Str
 }
 
 private fun contentCheckFindings(snapshot: ContentCheckSnapshot): List<ContentFinding> = buildList {
+    snapshot.hevcBitstream?.let { addAll(hevcBitstreamFindings(it)) }
     snapshot.structure?.let { addAll(structureFindings(it, FindingStage.STRUCTURE)) }
     snapshot.audioStructure?.let { addAll(audioStructureFindings(it)) }
     snapshot.imageDecode?.let { addAll(imageDecodeFindings(it)) }
@@ -152,11 +176,14 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
         if (snapshot.structureError != null) sb.appendLine("- 규격 검사: 검사 실패 · 미검증 — ${promptText(snapshot.structureError)}")
         else sb.appendLine("- 규격 검사: $pending")
     } else {
+        val normative = conformance.findings.filterNot { it.rule.source.startsWith("unwrapMedia structural check") ||
+            it.rule.source.contains("structural observation") }
         sb.appendLine("- 규격 검사 (${promptText(conformance.format)}): ${effectiveConformanceStatus(snapshot).name}; 프로필: ${promptText(conformance.profile)}")
         sb.appendLine("- 범위: " + ConformanceStatus.entries.joinToString(", ") { status ->
-            "${status.name} ${conformance.findings.count { it.status == status }}"
+            "${status.name} ${normative.count { it.status == status }}"
         })
-        sb.appendCapped(conformance.findings, MAX_ITEMS, "  • ") { finding ->
+        sb.appendLine("- 별도 구조 관측: ${conformance.findings.size - normative.size}개")
+        sb.appendCapped(normative, MAX_ITEMS, "  • ") { finding ->
             // Use a representable inclusive length, including ranges ending at Long.MAX_VALUE.
             val locations = finding.ranges.take(MAX_PROMPT_FACTS_PER_FINDING).joinToString(", ") { range ->
                 val extent = range.last - range.first
@@ -171,6 +198,15 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
         }
         sb.appendLine("- 제한 및 파서 근거 (규격 판정과 별도):")
         sb.appendCapped(conformance.limitations, MAX_ITEMS, "  • ", ::promptText)
+    }
+
+    snapshot.hevcBitstream?.let { codec ->
+        sb.appendLine("- HEVC 바이트 검사: ${codec.checkedSamples}/${codec.indexedSamples} samples; complete=${codec.complete}; ${promptText(codec.checkedTrack)}")
+        sb.appendCapped(codec.limitations, MAX_ITEMS, "  • ") { promptText(it) }
+        sb.appendCapped(codec.findings, MAX_ITEMS, "  • ") { finding ->
+            "[${finding.status.name}] ${finding.rule.id}; 구조 관측값·규격 조항 미확인; " +
+                finding.details.take(4).joinToString("; ") { promptText(it) }
+        }
     }
 
     val normalizedFindings = contentCheckFindings(snapshot)

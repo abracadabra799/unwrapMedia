@@ -16,3 +16,6 @@ fun initialCheckStates(specs: List<CheckStageSpec>): Map<CheckStage, CheckStageS
 fun queueApplicableStages(specs: List<CheckStageSpec>): Map<CheckStage, CheckStageState> =
     specs.filter { it.availability == CheckAvailability.AVAILABLE }
         .associate { it.stage to CheckStageState(CheckRunStatus.QUEUED) }
+
+fun shouldPublishCheckState(runMatches: Boolean, jobActive: Boolean, status: CheckRunStatus): Boolean =
+    runMatches && (jobActive || status == CheckRunStatus.CANCELLED)

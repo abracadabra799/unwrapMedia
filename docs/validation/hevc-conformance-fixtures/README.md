@@ -14,4 +14,6 @@ Independent checks: `ffprobe -v error -select_streams v:0 -show_entries stream=c
 
 `mutate.py` changes one field per negative fixture: first NAL forbidden bit, temporal ID, length prefix (oversize or zero), configuration version, or first `stsz` sample size (2 bytes, leaving an incomplete 4-byte prefix). These files are intentionally damaged and are never used to infer a global conformance PASS. The script asserts source bytes before mutation so a changed encoder output fails instead of silently creating mislabeled fixtures.
 
+`many-forbidden-headers.mp4` is a separate stress fixture: the first sample is replaced with 101 short NALs whose forbidden bit is 1, then a filler NAL. The sample extent remains 1275 bytes. It verifies occurrence counting and the 100 finding display cap.
+
 The current ITU page lists H.265 (01/26) as in force: https://www.itu.int/rec/T-REC-H.265 . Its PDF download timed out during implementation, so these rules are labeled structural observations until the exact normative clauses and applicable sample-entry wording can be independently verified. `ffprobe` gives orientation only; all offsets and header values above came from direct file-byte reads.

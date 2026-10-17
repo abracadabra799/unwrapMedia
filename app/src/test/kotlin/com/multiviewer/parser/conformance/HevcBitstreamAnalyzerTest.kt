@@ -1,12 +1,15 @@
 package com.multiviewer.parser.conformance
 
 import com.multiviewer.parser.parseFile
+import com.multiviewer.parser.BoxNode
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.test.assertFailsWith
+import kotlinx.coroutines.CancellationException
 
 class HevcBitstreamAnalyzerTest {
     private fun fixture(name: String) = File(javaClass.getResource("/hevc-conformance/$name")!!.toURI())
@@ -58,5 +61,32 @@ class HevcBitstreamAnalyzerTest {
         assertFalse(report.complete)
         assertFalse(report.findings.any { it.rule.id == "hevc.nal.framing" && it.status == ConformanceStatus.PASS })
         assertTrue(report.limitations.any { it.contains("zero-length NAL") })
+    }
+
+    @Test fun repeatedHeaderFailuresAreBoundedButCounted() = runBlocking {
+        val file = fixture("many-forbidden-headers.mp4")
+        val report = analyzeHevcBitstream(file, parseFile(file)) { _, _ -> }
+        assertEquals(101L, report.totalOccurrences["hevc.nal.forbidden_zero_bit"])
+        assertEquals(100, report.findings.count { it.rule.id == "hevc.nal.forbidden_zero_bit" && it.status == ConformanceStatus.FAIL })
+    }
+
+    @Test fun cancellationAfterFirstSampleStopsInspection() = runBlocking {
+        val file = fixture("default-hev1.mp4")
+        assertFailsWith<CancellationException> {
+            analyzeHevcBitstream(file, parseFile(file)) { checked, _ -> if (checked == 1) throw CancellationException("stop") }
+        }
+    }
+
+    @Test fun incompleteSampleIndexHasIndeterminateProgressTotal() = runBlocking {
+        val file = fixture("default-hev1.mp4")
+        fun BoxNode.shortenSizes(): BoxNode = copy(children = children.map { child ->
+            if (child.type == "stsz") child.copy(table = child.table?.copy(entryCount = 4))
+            else child.shortenSizes()
+        })
+        val totals = mutableListOf<Int?>()
+        val report = analyzeHevcBitstream(file, parseFile(file).shortenSizes()) { _, total -> totals += total }
+        assertFalse(report.complete)
+        assertTrue(totals.isNotEmpty())
+        assertTrue(totals.all { it == null })
     }
 }

@@ -47,6 +47,8 @@ fun ConformancePanel(report: ConformanceReport?, language: AppLanguage,
     }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         val shownStatus = coverageStatus ?: report.overall
+        val normative = report.findings.filterNot { it.rule.source.startsWith("unwrapMedia structural check") ||
+            it.rule.source.contains("structural observation") }
         Text(conformanceStatusLabel(shownStatus, ko), color = conformanceStatusColor(shownStatus))
         if (shownStatus == ConformanceStatus.NOT_CHECKED && report.overall == ConformanceStatus.PASS) {
             Text(label("검사 완료 · 일부 미검증", "Completed · some rules not checked"), color = AppColors.NeonYellow)
@@ -58,8 +60,11 @@ fun ConformancePanel(report: ConformanceReport?, language: AppLanguage,
             color = AppColors.TextSecondary, fontSize = 12.sp,
         )
         Text(ConformanceStatus.entries.joinToString(" · ") { status ->
-            "${status.name}: ${report.findings.count { it.status == status }}"
+            "${status.name}: ${normative.count { it.status == status }}"
         }, color = AppColors.TextSecondary, fontSize = 12.sp)
+        Text(label("구조 관측 ${report.findings.size - normative.size}건 · 규격 판정과 별도",
+            "${report.findings.size - normative.size} structural observations · separate from rule verdicts"),
+            color = AppColors.TextSecondary, fontSize = 12.sp)
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
                 SelectionContainer {

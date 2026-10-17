@@ -31,4 +31,11 @@ class ContentCheckRunStateTest {
         val progress = CheckProgress(17, null, "frames")
         assertNull(progress.total)
     }
+
+    @Test
+    fun cancelledJobMayPublishItsFinalCancelledStateButNoStaleRunMayPublish() {
+        assertEquals(true, shouldPublishCheckState(true, false, CheckRunStatus.CANCELLED))
+        assertEquals(false, shouldPublishCheckState(true, false, CheckRunStatus.RUNNING))
+        assertEquals(false, shouldPublishCheckState(false, true, CheckRunStatus.CANCELLED))
+    }
 }

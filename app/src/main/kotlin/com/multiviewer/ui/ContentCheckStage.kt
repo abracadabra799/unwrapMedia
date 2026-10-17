@@ -1,6 +1,23 @@
 package com.multiviewer.ui
 
 import com.multiviewer.parser.BoxNode
+import com.multiviewer.parser.firstVideoSampleEntry
+import com.multiviewer.parser.boxDescendants
+
+fun hevcCodecAvailability(type: MediaType, root: BoxNode?): CheckAvailability {
+    if (type != MediaType.VIDEO) return CheckAvailability.NOT_APPLICABLE
+    if (root == null) return CheckAvailability.LOADING
+    val entry = firstVideoSampleEntry(root)?.second ?: return CheckAvailability.UNSUPPORTED
+    if (entry.type !in setOf("hvc1", "hev1")) return CheckAvailability.UNSUPPORTED
+    if (boxDescendants(root).any { it.type == "moof" || it.type == "mvex" } ||
+        boxDescendants(entry).any { it.type == "sinf" || it.type == "encv" }) return CheckAvailability.UNSUPPORTED
+    val config = entry.children.firstOrNull { it.type == "hvcC" } ?: return CheckAvailability.UNSUPPORTED
+    if (config.warnings.isNotEmpty() || config.size - config.headerSize < 23 ||
+        config.fields.firstOrNull { it.name == "configuration_version" }?.value != "1") {
+        return CheckAvailability.UNSUPPORTED
+    }
+    return CheckAvailability.AVAILABLE
+}
 
 enum class CheckStage { STRUCTURE, CODEC, VISUAL_DECODE, AUDIO_DECODE, MOTION_PHOTO, GAINMAP }
 
@@ -43,7 +60,7 @@ fun contentCheckStages(
         type != MediaType.VIDEO -> notApplicable(CheckStage.CODEC)
         loading -> available(CheckStage.CODEC)
         !codecRunnerAvailable -> CheckStageSpec(CheckStage.CODEC, CheckAvailability.UNSUPPORTED,
-            "설치된 코덱 규칙 검사가 없음", "No installed codec rule checker")
+            "지원되는 HEVC hvc1/hev1 구성 없음", "No supported HEVC hvc1/hev1 configuration")
         else -> available(CheckStage.CODEC)
     }
     result += if (type == MediaType.IMAGE || type == MediaType.VIDEO) available(CheckStage.VISUAL_DECODE)
