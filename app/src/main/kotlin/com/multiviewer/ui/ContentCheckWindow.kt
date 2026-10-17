@@ -269,6 +269,7 @@ fun ContentCheckWindow(
         ) {
             val s = structure
             val v = video
+            val treePending = tab.root == null && !fileChanged
             Text(tab.file.name, color = AppColors.TextPrimary)
             Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                 Text(label("유형: ", "Type: ") + type.name, color = AppColors.TextSecondary)
@@ -287,8 +288,9 @@ fun ContentCheckWindow(
                             when (t) {
                                 ContentTab.STRUCTURE -> {
                                     val status = if (type == MediaType.AUDIO) audioStructure?.overall else s?.overall
-                                    Text(label("구조: ", "Structure: ") + contentCheckStructureStatusLabel(status, structureError, ko),
+                                    Text(label("구조: ", "Structure: ") + contentCheckStructureStatusLabel(status, structureError, ko, treePending),
                                         color = when {
+                                            treePending -> AppColors.TextMuted
                                             structureError != null -> AppColors.NeonRed
                                             status != null -> checkStatusColor(status)
                                             else -> AppColors.TextMuted
@@ -296,8 +298,8 @@ fun ContentCheckWindow(
                                 }
                                 ContentTab.CONFORMANCE -> {
                                     val status = conformance?.overall ?: ConformanceStatus.NOT_CHECKED
-                                    Text(label("규격: ", "Conformance: ") + conformanceStatusLabel(status, ko),
-                                        color = conformanceStatusColor(status))
+                                    Text(label("규격: ", "Conformance: ") + contentCheckConformanceStatusLabel(status, ko, treePending),
+                                        color = if (treePending) AppColors.TextMuted else conformanceStatusColor(status))
                                 }
                                 ContentTab.IMAGE_DECODE -> {
                                     val ds = imageDecode?.status ?: ImageDecodeStatus.NOT_RUN
@@ -614,10 +616,7 @@ fun ContentCheckWindow(
                         Text(label("모션포토 분석 실패: ", "Motion photo analysis failed: ") + motionError, color = AppColors.NeonRed)
                     } else if (m == null) {
                         Text(
-                            label(
-                                "'검사 시작'을 눌러 모션포토 영상 검사를 실행하세요. (영상 전체를 디코딩하므로 시간이 걸릴 수 있습니다)",
-                                "Press 'Start inspection' to check the motion photo video. (It decodes the whole video, so it may take a while)",
-                            ),
+                            contentCheckStartHint(ContentTab.MOTION_PHOTO, ko),
                             color = AppColors.TextSecondary,
                         )
                     } else {
@@ -639,8 +638,7 @@ fun ContentCheckWindow(
                 ContentTab.VIDEO_DECODE, ContentTab.VIDEO_PACKETS -> {
                     if (v == null) {
                         Text(
-                            label("'검사 시작'을 눌러 영상 디코딩·패킷 검사를 실행하세요.",
-                                "Press 'Start inspection' to run the video decode and packet checks."),
+                            contentCheckStartHint(shownTab, ko),
                             color = AppColors.TextSecondary,
                         )
                     } else if (shownTab == ContentTab.VIDEO_DECODE) {

@@ -1,6 +1,7 @@
 package com.multiviewer.ui
 
 import com.multiviewer.parser.integrity.CheckStatus
+import com.multiviewer.parser.conformance.ConformanceStatus
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -50,7 +51,16 @@ class ContentCheckPresentationTest {
         assertEquals(null, contentCheckRunLabel(MediaType.UNKNOWN, false, true))
         assertEquals(null, contentCheckRunLabel(MediaType.RAW_PIXEL, false, false))
         assertEquals("검사 중", contentCheckStructureStatusLabel(null, null, true))
+        assertEquals("검사 중", contentCheckStructureStatusLabel(null, "The file structure is not loaded yet", true, treePending = true))
         assertEquals("실패", contentCheckStructureStatusLabel(null, "read failed", true))
         assertEquals("정상", contentCheckStructureStatusLabel(CheckStatus.PASS, null, true))
+        assertEquals("검사 중", contentCheckConformanceStatusLabel(ConformanceStatus.NOT_CHECKED, true, treePending = true))
+    }
+
+    @Test fun emptyStageHintsReferToTheCurrentRunAction() {
+        assertEquals("상단의 실행 버튼으로 모션포토 영상 검사를 시작하세요. 영상 전체를 디코딩하므로 시간이 걸릴 수 있습니다.",
+            contentCheckStartHint(ContentTab.MOTION_PHOTO, true))
+        assertEquals("Use the run button above for video decode and packet checks.",
+            contentCheckStartHint(ContentTab.VIDEO_DECODE, false))
     }
 }

@@ -1,6 +1,7 @@
 package com.multiviewer.ui
 
 import com.multiviewer.parser.integrity.CheckStatus
+import com.multiviewer.parser.conformance.ConformanceStatus
 
 enum class ContentCheckStageGroup { ON_OPEN, ON_REQUEST }
 
@@ -11,10 +12,24 @@ fun contentCheckStageGroups(tabs: List<ContentTab>): Map<ContentCheckStageGroup,
     if (onRequest.isNotEmpty()) put(ContentCheckStageGroup.ON_REQUEST, onRequest)
 }
 
-fun contentCheckStructureStatusLabel(status: CheckStatus?, error: String?, ko: Boolean): String = when {
+fun contentCheckStructureStatusLabel(status: CheckStatus?, error: String?, ko: Boolean, treePending: Boolean = false): String = when {
+    treePending -> if (ko) "검사 중" else "Checking"
     error != null -> if (ko) "실패" else "Failed"
     status == null -> if (ko) "검사 중" else "Checking"
     else -> checkStatusLabel(status, ko)
+}
+
+fun contentCheckConformanceStatusLabel(status: ConformanceStatus, ko: Boolean, treePending: Boolean): String =
+    if (treePending) { if (ko) "검사 중" else "Checking" } else conformanceStatusLabel(status, ko)
+
+fun contentCheckStartHint(tab: ContentTab, ko: Boolean): String = when (tab) {
+    ContentTab.MOTION_PHOTO -> if (ko)
+        "상단의 실행 버튼으로 모션포토 영상 검사를 시작하세요. 영상 전체를 디코딩하므로 시간이 걸릴 수 있습니다."
+    else "Use the run button above to check the motion photo video. Decoding the whole video may take a while."
+    ContentTab.VIDEO_DECODE, ContentTab.VIDEO_PACKETS -> if (ko)
+        "상단의 실행 버튼으로 영상 디코딩·패킷 검사를 시작하세요."
+    else "Use the run button above for video decode and packet checks."
+    else -> error("No start hint for $tab")
 }
 
 fun contentCheckRunLabel(type: MediaType, motionDetected: Boolean, ko: Boolean): String? = when (type) {
