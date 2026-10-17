@@ -95,6 +95,20 @@ fun aacCodecAvailability(type: MediaType, root: BoxNode?): CheckAvailability {
     return CheckAvailability.AVAILABLE
 }
 
+fun opusCodecAvailability(type: MediaType, root: BoxNode?): CheckAvailability {
+    if (type != MediaType.AUDIO && type != MediaType.VIDEO) return CheckAvailability.NOT_APPLICABLE
+    if (root == null) return CheckAvailability.LOADING
+    val entry = firstAudioSampleEntry(root)?.second ?: return CheckAvailability.UNSUPPORTED
+    if (entry.type != "Opus") return CheckAvailability.UNSUPPORTED
+    if (boxDescendants(root).any { it.type == "moof" || it.type == "mvex" } ||
+        boxDescendants(entry).any { it.type == "sinf" || it.type == "enca" }) return CheckAvailability.UNSUPPORTED
+    val config = entry.children.firstOrNull { it.type == "dOps" } ?: return CheckAvailability.UNSUPPORTED
+    if (config.warnings.isNotEmpty() || config.size - config.headerSize < 11) {
+        return CheckAvailability.UNSUPPORTED
+    }
+    return CheckAvailability.AVAILABLE
+}
+
 fun videoCodecAvailability(type: MediaType, root: BoxNode?): CheckAvailability {
     val hevc = hevcCodecAvailability(type, root)
     if (hevc == CheckAvailability.AVAILABLE) return CheckAvailability.AVAILABLE
@@ -139,6 +153,7 @@ fun contentCheckStages(
     hasAudioTrack: Boolean,
     codecRunnerAvailable: Boolean,
     aacCodecAvailable: Boolean = false,
+    opusCodecAvailable: Boolean = false,
 ): List<CheckStageSpec> {
     val loading = root == null
     fun available(stage: CheckStage) = CheckStageSpec(
@@ -152,9 +167,9 @@ fun contentCheckStages(
     result += when {
         type == MediaType.AUDIO -> when {
             loading -> available(CheckStage.CODEC)
-            aacCodecAvailable -> available(CheckStage.CODEC)
+            aacCodecAvailable || opusCodecAvailable -> available(CheckStage.CODEC)
             else -> CheckStageSpec(CheckStage.CODEC, CheckAvailability.UNSUPPORTED,
-                "지원되는 AAC mp4a 구성 없음", "No supported AAC mp4a configuration")
+                "지원되는 AAC mp4a 또는 Opus 구성 없음", "No supported AAC mp4a or Opus configuration")
         }
         type != MediaType.VIDEO -> notApplicable(CheckStage.CODEC)
         loading -> available(CheckStage.CODEC)
