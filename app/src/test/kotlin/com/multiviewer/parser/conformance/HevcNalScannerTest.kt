@@ -63,5 +63,10 @@ class HevcNalScannerTest {
         ByteReader.open(fixture("zero-length-nal.mp4")).use { scanHevcSample(it, sample(), 4, seen::add) }
         assertEquals("zero_length_nal", seen.first().issue)
         assertNull(seen.first().headerOffset)
+        val onlyZero = mutableListOf<HevcNalObservation>()
+        val result = ByteReader.open(fixture("zero-length-nal.mp4")).use {
+            scanHevcSample(it, sample(4), 4, onlyZero::add)
+        }
+        assertEquals("zero_length_nal", result.coverageReason)
     }
 }

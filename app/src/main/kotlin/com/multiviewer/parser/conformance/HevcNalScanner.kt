@@ -31,6 +31,7 @@ fun scanHevcSample(
     if (end > reader.length) return HevcSampleScan(0, 0, "sample_outside_file")
     var pos = sample.offset
     var nalIndex = 0
+    var zeroLengthSeen = false
     fun issue(reason: String, prefix: Long, header: Long? = null): HevcSampleScan {
         onNal(HevcNalObservation(sample.index, nalIndex, prefix, header, null, null, null, reason))
         return HevcSampleScan(nalIndex, pos - sample.offset, reason)
@@ -42,6 +43,7 @@ fun scanHevcSample(
         repeat(lengthSize) { index -> nalLength = (nalLength shl 8) or reader.readUInt8(pos + index).toLong() }
         pos += lengthSize
         if (nalLength == 0L) {
+            zeroLengthSeen = true
             onNal(HevcNalObservation(sample.index, nalIndex++, prefix, null, null, null, null, "zero_length_nal"))
             continue
         }
@@ -55,5 +57,5 @@ fun scanHevcSample(
         ))
         pos += nalLength
     }
-    return HevcSampleScan(nalIndex, pos - sample.offset, null)
+    return HevcSampleScan(nalIndex, pos - sample.offset, if (zeroLengthSeen) "zero_length_nal" else null)
 }
