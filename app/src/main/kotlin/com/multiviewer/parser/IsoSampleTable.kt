@@ -187,7 +187,7 @@ data class AudioSampleTable(
 
 const val MAX_AUDIO_INDEXED_SAMPLES = 1_000_000
 
-internal val AUDIO_SAMPLE_ENTRY_CODECS = setOf("mp4a", "Opus")
+internal val AUDIO_SAMPLE_ENTRY_CODECS = setOf("mp4a", "Opus", "fLaC")
 
 // The first trak whose sample entry is mp4a, paired with that sample entry.
 internal fun firstAudioSampleEntry(root: BoxNode): Pair<BoxNode, BoxNode>? =
