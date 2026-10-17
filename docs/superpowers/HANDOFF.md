@@ -1,13 +1,14 @@
 # Handoff — 2026-10-13 (Claude Code → Codex)
 
-## 2026-10-17 update — Content Check Workflow, HEVC & AVC Bitstream Checks merged
+## 2026-10-17 update — Content Check Workflow, HEVC, AVC & AV1 Bitstream Checks merged
 
-- `feat/content-check-conformance` & `feat/avc-bitstream-check` merged into `main`:
+- `feat/content-check-conformance`, `feat/avc-bitstream-check`, and `feat/av1-bitstream-check` merged into `main`:
   1. Content Check workflow redesign: sequential isolated stage execution (Structure → Codec → Visual Decode → Audio Decode → Motion Photo / Gain Map).
   2. Bounded HEVC bitstream analyzer for non-fragmented `hvc1` and `hev1` MP4/MOV: NAL framing, `forbidden_zero_bit`, `nuh_temporal_id_plus1`, and parameter references.
   3. Bounded H.264 / AVC bitstream analyzer for non-fragmented `avc1` MP4/MOV: NAL framing, `forbidden_zero_bit`, IDR `nal_ref_idc != 0`, and SPS/PPS references.
-  4. Structural observations vs. normative rule separation (no false PASS, strict NOT_CHECKED isolation).
-  5. Specs/plans: `docs/superpowers/{specs,plans}/2026-10-17-content-check-workflow*`, `2026-10-17-hevc-bitstream-check*`, `2026-10-17-avc-bitstream-check*`.
+  4. Bounded AV1 bitstream analyzer for non-fragmented `av01` MP4/MOV: OBU framing, `obu_forbidden_bit == 0`, `obu_reserved_1bit == 0`, `extension_header_reserved_3bits == 0`, and `av1C` Sequence Header validity.
+  5. Structural observations vs. normative rule separation (no false PASS, strict NOT_CHECKED isolation).
+  6. Specs/plans: `docs/superpowers/{specs,plans}/2026-10-17-content-check-workflow*`, `2026-10-17-hevc-bitstream-check*`, `2026-10-17-avc-bitstream-check*`, `2026-10-17-av1-bitstream-check*`.
 
 ## 2026-10-15 update — contextual media analysis merged (v1.23.0)
 
