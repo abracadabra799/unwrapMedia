@@ -41,10 +41,12 @@ import com.multiviewer.cli.imageIntegrityJson
 import com.multiviewer.cli.motionPhotoJson
 import com.multiviewer.parser.buildMediaSummary
 import com.multiviewer.parser.collectWarnings
+import com.multiviewer.parser.GainmapValidator
 import com.multiviewer.parser.conformance.ConformanceReport
 import com.multiviewer.parser.conformance.ConformanceStatus
 import com.multiviewer.parser.integrity.ImageStructureReport
 import com.multiviewer.parser.integrity.AudioStructureReport
+import com.multiviewer.parser.integrity.IntegrityCheckItem
 import com.multiviewer.util.ClipboardUtil
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -70,7 +72,7 @@ private fun integrityStatusColor(status: IntegrityStatus): Color = when (status)
 
 /**
  * Analysis → 컨텐츠 검사 / Content Check: one window per file that runs every applicable check
- * for its media type (structure on open; image decode / motion photo / video integrity on 검사 시작).
+ * for its media type only after an explicit run action.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -118,8 +120,7 @@ fun ContentCheckWindow(
     val motionDetected = remember(tab.root, type) { type == MediaType.IMAGE && tab.root?.let(::hasMotionPhotoData) == true }
     val gainmapDetected = type == MediaType.IMAGE && tab.gainmapInfo?.hasGainmap == true
     val tabs = contentTabs(type, motionDetected, gainmapDetected)
-    // Cheap (header reads only), so computed up front like the structure check rather than as a heavy step.
-    val gainmapChecks = if (gainmapDetected) rememberGainmapChecks(tab) else null
+    var gainmapChecks by remember(tab) { mutableStateOf<List<IntegrityCheckItem>?>(null) }
     val steps = heavySteps(type, motionDetected)
     val targetJob = job
     DisposableEffect(tab, targetJob) { onDispose { targetJob?.cancel() } }
@@ -160,6 +161,7 @@ fun ContentCheckWindow(
         videoError = null
         audio = null
         audioError = null
+        gainmapChecks = null
         expandedDiagnostic = null
         selectedPacket = null
         structureError = fileChangedMessage()
@@ -179,70 +181,24 @@ fun ContentCheckWindow(
         }
     }
 
-    // Keyed on tab.root too: the window can open before the file's structure tree finishes loading.
-    LaunchedEffect(tab, tab.root, type) {
-        val root = tab.root
-        structureError = null
-        structure = null
-        audioStructure = null
-        conformance = null
-        fileLength = 0L
-        checkedIdentity = null
-        if (fileChanged) {
-            structureError = fileChangedMessage()
-            conformance = contentConformanceReport(type, inspectionError = structureError)
-            return@LaunchedEffect
-        }
-        if (root == null) {
-            structureError = label("파일 구조가 아직 로드되지 않았습니다", "The file structure is not loaded yet")
-            conformance = contentConformanceReport(type, inspectionError = structureError)
-            return@LaunchedEffect
-        }
-        // Bind the results to the bytes actually read: capture before, and reject a change during the read.
-        var identity: ContentFileIdentity? = null
-        try {
-            val captured = runInterruptible(Dispatchers.IO) { ContentFileIdentity.capture(tab.file) }
-            identity = captured
-            fun requireUnchanged() { if (!captured.matches(tab.file)) throw ContentFileChangedException() }
-            // The tree was parsed from the bytes at open time; a later change makes it describe another file.
-            val parsed = tab.parsedIdentity
-            if (parsed != null && parsed != captured) throw ContentFileChangedException()
-            fileLength = captured.length
+    // The tree is ordinary viewer state; Content Check does not inspect it until Run is pressed.
+    suspend fun runStructure(root: com.multiviewer.parser.BoxNode, captured: ContentFileIdentity) {
+        if (tab.parsedIdentity != null && tab.parsedIdentity != captured) throw ContentFileChangedException()
+        val result = runInterruptible(Dispatchers.IO) {
             if (type == MediaType.AUDIO) {
-                val result = runInterruptible(Dispatchers.IO) {
-                    val checked = contentAudioStructureReport(tab.file, root)
-                    requireUnchanged()
-                    checked to contentConformanceReport(type, audioStructure = checked)
-                }
-                if (fileChanged) return@LaunchedEffect
-                audioStructure = result.first
-                conformance = result.second
+                val checked = contentAudioStructureReport(tab.file, root)
+                null to checked
             } else {
-                val result = runInterruptible(Dispatchers.IO) {
-                    val checked = contentStructureReport(tab.file, root, type)
-                    requireUnchanged()
-                    checked to contentConformanceReport(type, structure = checked)
-                }
-                if (fileChanged) return@LaunchedEffect
-                structure = result.first
-                conformance = result.second
+                val checked = contentStructureReport(tab.file, root, type)
+                checked to null
             }
-            // A heavy run may have bound (or a poll invalidated) the window while this check was reading.
-            if (fileChanged) return@LaunchedEffect
-            val prior = checkedIdentity
-            if (prior != null && prior != captured) throw ContentFileChangedException()
-            checkedIdentity = captured
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: ContentFileChangedException) {
-            invalidateForFileChange()
-        } catch (e: Exception) {
-            if (fileChanged) return@LaunchedEffect
-            structureError = e.message ?: e.toString()
-            conformance = contentConformanceReport(type, inspectionError = structureError)
-            // The failure still describes these bytes; later steps (e.g. video decode) stay bound to them.
-            checkedIdentity = identity
         }
+        if (!withContext(Dispatchers.IO) { captured.matches(tab.file) }) throw ContentFileChangedException()
+        structure = result.first
+        audioStructure = result.second
+        conformance = contentConformanceReport(type, structure = result.first, audioStructure = result.second)
+        checkedIdentity = captured
+        fileLength = captured.length
     }
 
     /** The `imageIntegrity` JSON for images (same shape as `unwrapMedia check`), null for other types. */
@@ -355,12 +311,10 @@ fun ContentCheckWindow(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 // Image decode needs the structure report as input; the video check does not.
-                val actions = contentCheckActionState(type, steps.isNotEmpty(), s != null, tab.root != null,
+                val actions = contentCheckActionState(type, steps.isNotEmpty(), true, tab.root != null,
                     fileChanged, running, saving)
                 val runLabel = contentCheckRunLabel(type, motionDetected, ko)
-                if (runLabel != null) Button(enabled = actions.canRun, onClick = {
-                    val snapshot = s
-                    if (HeavyStep.IMAGE_DECODE in steps && snapshot == null) return@Button
+                if (runLabel != null) Button(enabled = actions.canRun && tab.root != null, onClick = {
                     val runSteps = steps
                     val myRun = ++runId
                     running = true
@@ -390,13 +344,14 @@ fun ContentCheckWindow(
                                 invalidateForFileChange()
                                 return@launch
                             }
-                            // No structure result yet (tree still loading): bind this run to the bytes it reads.
-                            if (checkedIdentity == null) checkedIdentity = startIdentity
+                            val root = tab.root ?: return@launch
+                            if (structure == null && audioStructure == null) runStructure(root, startIdentity)
+                            if (!current()) return@launch
                             for (step in runSteps) {
                                 when (step) {
                                     HeavyStep.IMAGE_DECODE -> {
                                         try {
-                                            val decoded = inspectImageDecode(tab.file, snapshot!!)
+                                            val decoded = inspectImageDecode(tab.file, structure ?: return@launch)
                                             if (!current()) return@launch
                                             imageDecode = decoded
                                         } catch (e: CancellationException) {
@@ -459,6 +414,17 @@ fun ContentCheckWindow(
                                     }
                                 }
                             }
+                            if (gainmapDetected && gainmapChecks == null) {
+                                val info = tab.gainmapInfo
+                                if (info != null) {
+                                    val bitmap = tab.imageForensic?.bitmap
+                                    val coded = bitmap?.let { codedSize(it.width, it.height, tab.imageForensic?.orientationCode) }
+                                    val checks = runInterruptible(Dispatchers.IO) {
+                                        GainmapValidator.validate(tab.file, root, info, coded?.first, coded?.second)
+                                    }
+                                    if (current()) gainmapChecks = checks
+                                }
+                            }
                             if (!current()) return@launch
                             if (!withContext(Dispatchers.IO) { startIdentity.matches(tab.file) }) {
                                 if (current()) invalidateForFileChange()
@@ -479,6 +445,8 @@ fun ContentCheckWindow(
                         } catch (e: CancellationException) {
                             if (myRun == runId) message = cancelledMessage()
                             throw e
+                        } catch (e: ContentFileChangedException) {
+                            if (myRun == runId) invalidateForFileChange()
                         } catch (e: Exception) {
                             if (current()) message = label("검사 실패: ", "Inspection failed: ") + (e.message ?: e.toString())
                         } finally {
