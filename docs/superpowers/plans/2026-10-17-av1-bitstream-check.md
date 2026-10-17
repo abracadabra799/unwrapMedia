@@ -36,11 +36,11 @@
 
 **Interfaces:** Produce `object Av1RuleCatalog` with `fun rule(id: String): ConformanceRule?` and stable IDs for framing (`av1.obu.framing`), `forbidden_bit` (`av1.obu.forbidden_bit`), and `reserved_bit` (`av1.obu.reserved_bit`). Document AV1 spec version (v1.0.0 with errata) and exact clause used for header bits; treat framing as a structural observation.
 
-- [ ] **Step 1: Generate and independently dump fixtures.** Pin ffmpeg/libsvtav1 version and commands, create a standard `av01` MP4 file with multiple samples, record raw sample-entry bytes, `av1C`, first OBU offsets, and expected values in README. Create one-byte mutations for forbidden bit, reserved bit, truncated OBU, and malformed `av1C`. Record any fixture that cannot be generated.
-- [ ] **Step 2: Write failing catalog tests.** Assert stable IDs, AV1 source/edition on header rules, scope, and structural observation labeling.
-- [ ] **Step 3: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.Av1RuleCatalogTest'`; expect RED.
-- [ ] **Step 4: Implement** the catalog and fixture provenance; compare raw bytes to independent inspection, using raw bytes as test truth.
-- [ ] **Step 5: Run** focused tests; expect PASS. Commit `test: establish AV1 conformance byte fixtures and rule catalog`.
+- [x] **Step 1: Generate and independently dump fixtures.** Pin ffmpeg/libsvtav1 version and commands, create a standard `av01` MP4 file with multiple samples, record raw sample-entry bytes, `av1C`, first OBU offsets, and expected values in README. Create one-byte mutations for forbidden bit, reserved bit, truncated OBU, and malformed `av1C`. Record any fixture that cannot be generated.
+- [x] **Step 2: Write failing catalog tests.** Assert stable IDs, AV1 source/edition on header rules, scope, and structural observation labeling.
+- [x] **Step 3: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.Av1RuleCatalogTest'`; expect RED.
+- [x] **Step 4: Implement** the catalog and fixture provenance; compare raw bytes to independent inspection, using raw bytes as test truth.
+- [x] **Step 5: Run** focused tests; expect PASS. Commit `test: establish AV1 conformance byte fixtures and rule catalog`.
 
 ### Task 2: Bounded OBU framing and header scanner
 
