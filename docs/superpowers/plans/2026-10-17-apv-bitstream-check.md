@@ -49,10 +49,10 @@
 
 **Interfaces:** `data class ApvSampleObservation(val sampleIndex: Int, val offset: Long, val size: Long, val signature: Int, val primaryFrameOffset: Long?, val profileIdc: Int?, val levelIdc: Int?, val bandIdc: Int?, val reservedZero5bits: Int?, val pbuReservedZero: Int?, val frameReservedZero: Int?, val issue: String?)`; `fun scanApvSample(reader: ByteReader, sample: VideoSample): ApvSampleObservation`. Scanner reads only up to 4096 bytes prefix per sample, checks bounds, checks `'aPv1'` signature at offset 4, verifies PBU headers and primary frame header fields.
 
-- [ ] **Step 1: Write failing scanner tests.** Assert raw offsets and bit fields on real `apv1` fixtures; `badSignature`, `badPbuReserved`, `badBandReserved`, `truncatedSample`, and `sampleExtentOverflow` have exact offsets/status and never PASS for unreadable data.
-- [ ] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.ApvAccessUnitScannerTest'`; expect RED.
-- [ ] **Step 3: Implement** bounded scanner with checked addition and bounded buffer prefix; callers check coroutine cancellation between samples.
-- [ ] **Step 4: Run** scanner tests; expect PASS. Commit `feat: scan APV access unit headers with bounded reads`.
+- [x] **Step 1: Write failing scanner tests.** Assert raw offsets and bit fields on real `apv1` fixtures; `badSignature`, `badPbuReserved`, `badBandReserved`, `truncatedSample`, and `sampleExtentOverflow` have exact offsets/status and never PASS for unreadable data.
+- [x] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.ApvAccessUnitScannerTest'`; expect RED.
+- [x] **Step 3: Implement** bounded scanner with checked addition and bounded buffer prefix; callers check coroutine cancellation between samples.
+- [x] **Step 4: Run** scanner tests; expect PASS. Commit `feat: scan APV access unit headers with bounded reads`.
 
 ### Task 3: Parameter-set evidence and rule aggregation
 

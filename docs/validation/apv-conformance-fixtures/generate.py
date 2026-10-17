@@ -104,8 +104,7 @@ def main():
     # 6. truncated-sample.mp4: stsz sample 0 size set to 6 bytes (less than AU header + signature + PBU)
     trunc_bytes = bytearray(default_bytes)
     stsz_pos = trunc_bytes.find(b"stsz")
-    # stsz payload: version/flags (4), sample_size (4), sample_count (4), entry_sizes (4 each)
-    sample_sizes_start = stsz_pos + 8 + 12
+    sample_sizes_start = stsz_pos + 16
     struct.pack_into(">I", trunc_bytes, sample_sizes_start, 6) # truncate sample 0 to 6 bytes
     (out_dir / "truncated-sample.mp4").write_bytes(trunc_bytes)
 
