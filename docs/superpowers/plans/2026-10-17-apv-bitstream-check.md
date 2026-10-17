@@ -71,11 +71,11 @@
 
 **Interfaces:** Codec stage invokes `analyzeApvBitstream` when first video entry is `apv1` with valid `apvC`. Extend snapshot with `val apvBitstream: ApvBitstreamReport? = null`; append APV findings to conformance detail. Other tracks, fragments, encryption, mismatched tables, cap truncation, changed files, and cancelled scans expose named NOT_CHECKED coverage and cannot yield overall PASS.
 
-- [ ] **Step 1: Write failing tests.** `otherVideoTrackIsNotChecked`, `imageEmbeddedVideoIsExcluded`, fragment/encrypted/unreadable sample coverage, malformed `apvC`, cap truncation, cancellation after sample 1, file changed before publish, and default `apv1` availability.
-- [ ] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.ui.ApvContentCheckIntegrationTest'`; expect RED.
-- [ ] **Step 3: Implement** capability detection in `ContentCheckStage.kt`, dispatcher/cancellation, progress, and UI presentation in `ContentCheckWindow.kt`.
-- [ ] **Step 4: Run** focused integration tests, `./gradlew :app:compileKotlin`, then `./gradlew :app:test`; expect PASS.
-- [ ] **Step 5: Commit** `feat: expose APV rule coverage in Content Check`.
+- [x] **Step 1: Write failing tests.** `otherVideoTrackIsNotChecked`, `imageEmbeddedVideoIsExcluded`, fragment/encrypted/unreadable sample coverage, malformed `apvC`, cap truncation, cancellation after sample 1, file changed before publish, and default `apv1` availability.
+- [x] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.ui.ApvContentCheckIntegrationTest'`; expect RED.
+- [x] **Step 3: Implement** capability detection in `ContentCheckStage.kt`, dispatcher/cancellation, progress, and UI presentation in `ContentCheckWindow.kt`.
+- [x] **Step 4: Run** focused integration tests, `./gradlew :app:compileKotlin`, then `./gradlew :app:test`; expect PASS.
+- [x] **Step 5: Commit** `feat: expose APV rule coverage in Content Check`.
 
 ## Branch finish
 

@@ -66,6 +66,20 @@ fun vp9CodecAvailability(type: MediaType, root: BoxNode?): CheckAvailability {
     return CheckAvailability.AVAILABLE
 }
 
+fun apvCodecAvailability(type: MediaType, root: BoxNode?): CheckAvailability {
+    if (type != MediaType.VIDEO) return CheckAvailability.NOT_APPLICABLE
+    if (root == null) return CheckAvailability.LOADING
+    val entry = firstVideoSampleEntry(root)?.second ?: return CheckAvailability.UNSUPPORTED
+    if (entry.type != "apv1") return CheckAvailability.UNSUPPORTED
+    if (boxDescendants(root).any { it.type == "moof" || it.type == "mvex" } ||
+        boxDescendants(entry).any { it.type == "sinf" || it.type == "encv" }) return CheckAvailability.UNSUPPORTED
+    val config = entry.children.firstOrNull { it.type == "apvC" } ?: return CheckAvailability.UNSUPPORTED
+    if (config.warnings.isNotEmpty() || config.size - config.headerSize < 21) {
+        return CheckAvailability.UNSUPPORTED
+    }
+    return CheckAvailability.AVAILABLE
+}
+
 fun videoCodecAvailability(type: MediaType, root: BoxNode?): CheckAvailability {
     val hevc = hevcCodecAvailability(type, root)
     if (hevc == CheckAvailability.AVAILABLE) return CheckAvailability.AVAILABLE
@@ -75,8 +89,10 @@ fun videoCodecAvailability(type: MediaType, root: BoxNode?): CheckAvailability {
     if (av1 == CheckAvailability.AVAILABLE) return CheckAvailability.AVAILABLE
     val vp9 = vp9CodecAvailability(type, root)
     if (vp9 == CheckAvailability.AVAILABLE) return CheckAvailability.AVAILABLE
-    if (hevc == CheckAvailability.LOADING || avc == CheckAvailability.LOADING || av1 == CheckAvailability.LOADING || vp9 == CheckAvailability.LOADING) return CheckAvailability.LOADING
-    if (hevc == CheckAvailability.NOT_APPLICABLE && avc == CheckAvailability.NOT_APPLICABLE && av1 == CheckAvailability.NOT_APPLICABLE && vp9 == CheckAvailability.NOT_APPLICABLE) return CheckAvailability.NOT_APPLICABLE
+    val apv = apvCodecAvailability(type, root)
+    if (apv == CheckAvailability.AVAILABLE) return CheckAvailability.AVAILABLE
+    if (hevc == CheckAvailability.LOADING || avc == CheckAvailability.LOADING || av1 == CheckAvailability.LOADING || vp9 == CheckAvailability.LOADING || apv == CheckAvailability.LOADING) return CheckAvailability.LOADING
+    if (hevc == CheckAvailability.NOT_APPLICABLE && avc == CheckAvailability.NOT_APPLICABLE && av1 == CheckAvailability.NOT_APPLICABLE && vp9 == CheckAvailability.NOT_APPLICABLE && apv == CheckAvailability.NOT_APPLICABLE) return CheckAvailability.NOT_APPLICABLE
     return CheckAvailability.UNSUPPORTED
 }
 
@@ -121,7 +137,7 @@ fun contentCheckStages(
         type != MediaType.VIDEO -> notApplicable(CheckStage.CODEC)
         loading -> available(CheckStage.CODEC)
         !codecRunnerAvailable -> CheckStageSpec(CheckStage.CODEC, CheckAvailability.UNSUPPORTED,
-            "지원되는 H.264 avc1, HEVC hvc1/hev1, AV1 av01 또는 VP9 vp09 구성 없음", "No supported H.264 avc1, HEVC hvc1/hev1, AV1 av01, or VP9 vp09 configuration")
+            "지원되는 H.264 avc1, HEVC hvc1/hev1, AV1 av01, VP9 vp09 또는 APV apv1 구성 없음", "No supported H.264 avc1, HEVC hvc1/hev1, AV1 av01, VP9 vp09, or APV apv1 configuration")
         else -> available(CheckStage.CODEC)
     }
     result += if (type == MediaType.IMAGE || type == MediaType.VIDEO) available(CheckStage.VISUAL_DECODE)
