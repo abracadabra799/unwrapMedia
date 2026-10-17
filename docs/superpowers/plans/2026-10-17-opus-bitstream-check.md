@@ -36,11 +36,11 @@
 
 **Interfaces:** Produce `object OpusRuleCatalog` with `fun rule(id: String): ConformanceRule?` and stable IDs: `opus.config.dops`, `opus.config.match`, `opus.packet.toc`, `opus.packet.framing`, `opus.sample.framing`. `object DopsBoxDecoder : BoxDecoder`.
 
-- [ ] **Step 1: Generate fixtures.** Create Python generator creating valid `default-opus.mp4` with verified Opus samples and valid `dOps` box, record byte offsets in README. Create mutations for `bad-dops-version.mp4`, `bad-channel-count.mp4`, `bad-config-match.mp4`, `bad-mono-stereo-flag.mp4`, `bad-code3-zero-frames.mp4`, `truncated-sample.mp4`, and `many-toc-failures.mp4`.
-- [ ] **Step 2: Write failing catalog and table tests.** Assert stable IDs, RFC 6716 and RFC 7845 sources, structural observation labeling, and `buildAudioSampleTable` resolution for `Opus`.
-- [ ] **Step 3: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.OpusRuleCatalogTest'`; expect RED.
-- [ ] **Step 4: Implement** `DopsBoxDecoder`, `OpusRuleCatalog`, `AUDIO_SAMPLE_ENTRY_CODECS += "Opus"` in `IsoSampleTable.kt`, and `Decoders.kt` registration.
-- [ ] **Step 5: Run** focused tests; expect PASS. Commit `test: establish Opus conformance byte fixtures and rule catalog`.
+- [x] **Step 1: Generate fixtures.** Create Python generator creating valid `default-opus.mp4` with verified Opus samples and valid `dOps` box, record byte offsets in README. Create mutations for `bad-dops-version.mp4`, `bad-channel-count.mp4`, `bad-config-match.mp4`, `bad-mono-stereo-flag.mp4`, `bad-code3-zero-frames.mp4`, `truncated-sample.mp4`, and `many-toc-failures.mp4`.
+- [x] **Step 2: Write failing catalog and table tests.** Assert stable IDs, RFC 6716 and RFC 7845 sources, structural observation labeling, and `buildAudioSampleTable` resolution for `Opus`.
+- [x] **Step 3: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.OpusRuleCatalogTest'`; expect RED.
+- [x] **Step 4: Implement** `DopsBoxDecoder`, `OpusRuleCatalog`, `AUDIO_SAMPLE_ENTRY_CODECS += "Opus"` in `IsoSampleTable.kt`, and `Decoders.kt` registration.
+- [x] **Step 5: Run** focused tests; expect PASS. Commit `test: establish Opus conformance byte fixtures and rule catalog`.
 
 ### Task 2: Bounded Opus sample and header scanner
 
@@ -48,10 +48,10 @@
 
 **Interfaces:** `data class OpusConfigObservation(val dopsOffset: Long, val version: Int, val channelCount: Int, val preSkip: Int, val sampleRate: Long, val gain: Int, val mappingFamily: Int, val streamCount: Int? = null, val coupledCount: Int? = null, val issue: String?)`; `fun parseOpusConfig(reader: ByteReader, dOps: BoxNode): OpusConfigObservation`; `data class OpusSampleObservation(val sampleIndex: Int, val offset: Long, val size: Long, val tocConfig: Int?, val isStereo: Boolean?, val frameCountCode: Int?, val frameCount: Int?, val issue: String?)`; `fun scanOpusSample(reader: ByteReader, sample: AudioSample, channelCount: Int): OpusSampleObservation`. Scanner reads bounded prefix (up to 512 bytes), checks bounds, parses TOC byte, validates stereo flag against channel count, and validates Code 3 packet frame count `M != 0` and duration limits.
 
-- [ ] **Step 1: Write failing scanner tests.** Assert raw offsets and bit fields on real `Opus` fixtures; `badDopsVersion`, `badMonoStereoFlag`, `badCode3ZeroFrames`, `truncatedSample`, and sample extent bounds have exact offsets/status and never PASS for unreadable data.
-- [ ] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.OpusSampleScannerTest'`; expect RED.
-- [ ] **Step 3: Implement** bounded scanner with checked addition and bounded buffer prefix; callers check coroutine cancellation between samples.
-- [ ] **Step 4: Run** scanner tests; expect PASS. Commit `feat: scan Opus dOps config and sample headers with bounded reads`.
+- [x] **Step 1: Write failing scanner tests.** Assert raw offsets and bit fields on real `Opus` fixtures; `badDopsVersion`, `badMonoStereoFlag`, `badCode3ZeroFrames`, `truncatedSample`, and sample extent bounds have exact offsets/status and never PASS for unreadable data.
+- [x] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.OpusSampleScannerTest'`; expect RED.
+- [x] **Step 3: Implement** bounded scanner with checked addition and bounded buffer prefix; callers check coroutine cancellation between samples.
+- [x] **Step 4: Run** scanner tests; expect PASS. Commit `feat: scan Opus dOps config and sample headers with bounded reads`.
 
 ### Task 3: Parameter-set evidence and rule aggregation
 
@@ -59,10 +59,10 @@
 
 **Interfaces:** `data class OpusBitstreamReport(val findings: List<ConformanceFinding>, val checkedSamples: Int, val indexedSamples: Int, val totalOccurrences: Map<String, Long>, val limitations: List<String>, val checkedTrack: String, val complete: Boolean)`; `suspend fun analyzeOpusBitstream(file: File, root: BoxNode, onProgress: (Int, Int?) -> Unit): OpusBitstreamReport`. The analyzer calls `buildAudioSampleTable`, checks `dOps` and AudioSampleEntry match, and runs the scanner from Task 2; it emits verified header findings and supported observations. Keep a fixed per-rule occurrence cap (100), reporting totals separately.
 
-- [ ] **Step 1: Write failing tests.** Valid `Opus` reports checked/indexed counts and exact header ranges; corrupted TOC/framing bits have stable rule ID and observed bits; `malformedDops` yields NOT_CHECKED; 101 repeated violations show bounded findings and full occurrence count.
-- [ ] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.OpusBitstreamAnalyzerTest'`; expect RED.
-- [ ] **Step 3: Implement** aggregation and config applicability with documented parser limits. Retain exact sample/track evidence in details and ranges.
-- [ ] **Step 4: Run** focused analyzer tests; expect PASS. Commit `feat: evaluate bounded Opus bitstream rules`.
+- [x] **Step 1: Write failing tests.** Valid `Opus` reports checked/indexed counts and exact header ranges; corrupted TOC/framing bits have stable rule ID and observed bits; `malformedDops` yields NOT_CHECKED; 101 repeated violations show bounded findings and full occurrence count.
+- [x] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.OpusBitstreamAnalyzerTest'`; expect RED.
+- [x] **Step 3: Implement** aggregation and config applicability with documented parser limits. Retain exact sample/track evidence in details and ranges.
+- [x] **Step 4: Run** focused analyzer tests; expect PASS. Commit `feat: evaluate bounded Opus bitstream rules`.
 
 ### Task 4: Scope/coverage and workflow integration
 
@@ -70,14 +70,14 @@
 
 **Interfaces:** Codec stage invokes `analyzeOpusBitstream` when audio entry is `Opus` with valid `dOps`. Extend snapshot with `val opusBitstream: OpusBitstreamReport? = null`; append Opus findings to conformance detail. Other tracks, fragments, encryption, mismatched tables, cap truncation, changed files, and cancelled scans expose named NOT_CHECKED coverage and cannot yield overall PASS.
 
-- [ ] **Step 1: Write failing tests.** `otherAudioTrackIsNotChecked`, fragment/encrypted/unreadable sample coverage, malformed `dOps`, cap truncation, cancellation after sample 1, file changed before publish, and default `Opus` availability in `MediaType.AUDIO`.
-- [ ] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.ui.OpusContentCheckIntegrationTest'`; expect RED.
-- [ ] **Step 3: Implement** capability detection in `ContentCheckStage.kt`, dispatcher/cancellation, progress, and UI presentation in `ContentCheckWindow.kt`.
-- [ ] **Step 4: Run** focused integration tests, `./gradlew :app:compileKotlin`, then `./gradlew :app:test`; expect PASS.
-- [ ] **Step 5: Commit** `feat: expose Opus rule coverage in Content Check`.
+- [x] **Step 1: Write failing tests.** `otherAudioTrackIsNotChecked`, fragment/encrypted/unreadable sample coverage, malformed `dOps`, cap truncation, cancellation after sample 1, file changed before publish, and default `Opus` availability in `MediaType.AUDIO`.
+- [x] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.ui.OpusContentCheckIntegrationTest'`; expect RED.
+- [x] **Step 3: Implement** capability detection in `ContentCheckStage.kt`, dispatcher/cancellation, progress, and UI presentation in `ContentCheckWindow.kt`.
+- [x] **Step 4: Run** focused integration tests, `./gradlew :app:compileKotlin`, then `./gradlew :app:test`; expect PASS.
+- [x] **Step 5: Commit** `feat: expose Opus rule coverage in Content Check`.
 
 ## Branch finish
 
-- [ ] Review exact normative citations and real-byte dumps against source standards; downgrade any unverified rule to structural observation or NOT_CHECKED.
-- [ ] Run `./gradlew :app:test` and `git diff --check`; fix nonflaky failures, review whole branch, and commit fixes.
-- [ ] Fast-forward local `main` only after review; do not push without explicit user authorization.
+- [x] Review exact normative citations and real-byte dumps against source standards; downgrade any unverified rule to structural observation or NOT_CHECKED.
+- [x] Run `./gradlew :app:test` and `git diff --check`; fix nonflaky failures, review whole branch, and commit fixes.
+- [x] Fast-forward local `main` only after review; do not push without explicit user authorization.
