@@ -1,0 +1,56 @@
+package com.multiviewer.ui
+
+import com.multiviewer.parser.BoxNode
+
+enum class CheckStage { STRUCTURE, CODEC, VISUAL_DECODE, AUDIO_DECODE, MOTION_PHOTO, GAINMAP }
+
+enum class CheckAvailability { AVAILABLE, UNSUPPORTED, NOT_APPLICABLE, LOADING }
+
+data class CheckStageSpec(
+    val stage: CheckStage,
+    val availability: CheckAvailability,
+    val reasonKo: String? = null,
+    val reasonEn: String? = null,
+)
+
+fun checkStageDescription(stage: CheckStage, ko: Boolean): String = when (stage) {
+    CheckStage.STRUCTURE -> if (ko) "박스·청크 배치와 필수 데이터의 위치·범위를 검사합니다." else "Checks box and chunk layout and the location and extent of required data."
+    CheckStage.CODEC -> if (ko) "코덱 구문, 값 범위, 파라미터 간 참조를 검사합니다." else "Checks codec syntax, value ranges, and parameter references."
+    CheckStage.VISUAL_DECODE -> if (ko) "압축 데이터를 실제로 디코딩하고 오류를 확인합니다." else "Decodes compressed data and checks for errors."
+    CheckStage.AUDIO_DECODE -> if (ko) "오디오 트랙을 디코딩하고 오류를 확인합니다." else "Decodes audio tracks and checks for errors."
+    CheckStage.MOTION_PHOTO -> if (ko) "정지 이미지와 포함된 영상의 연결·시점을 확인합니다." else "Checks the link and timing between the still image and embedded video."
+    CheckStage.GAINMAP -> if (ko) "게인맵 데이터와 메타데이터의 구조·값을 확인합니다." else "Checks gain-map data and metadata structure and values."
+}
+
+fun contentCheckStages(
+    type: MediaType,
+    root: BoxNode?,
+    motionDetected: Boolean,
+    gainmapDetected: Boolean,
+    hasAudioTrack: Boolean,
+    codecRunnerAvailable: Boolean,
+): List<CheckStageSpec> {
+    val loading = root == null
+    fun available(stage: CheckStage) = CheckStageSpec(
+        stage, if (loading) CheckAvailability.LOADING else CheckAvailability.AVAILABLE,
+        if (loading) "파일 구조 불러오는 중" else null,
+        if (loading) "Loading file structure" else null,
+    )
+    fun notApplicable(stage: CheckStage) = CheckStageSpec(stage, CheckAvailability.NOT_APPLICABLE,
+        "해당 파일에 적용되지 않음", "Not applicable to this file")
+    val result = mutableListOf(available(CheckStage.STRUCTURE))
+    result += when {
+        type != MediaType.VIDEO -> notApplicable(CheckStage.CODEC)
+        loading -> available(CheckStage.CODEC)
+        !codecRunnerAvailable -> CheckStageSpec(CheckStage.CODEC, CheckAvailability.UNSUPPORTED,
+            "설치된 코덱 규칙 검사가 없음", "No installed codec rule checker")
+        else -> available(CheckStage.CODEC)
+    }
+    result += if (type == MediaType.IMAGE || type == MediaType.VIDEO) available(CheckStage.VISUAL_DECODE)
+        else notApplicable(CheckStage.VISUAL_DECODE)
+    result += if (type == MediaType.AUDIO || hasAudioTrack) available(CheckStage.AUDIO_DECODE)
+        else notApplicable(CheckStage.AUDIO_DECODE)
+    if (type == MediaType.IMAGE && motionDetected) result += available(CheckStage.MOTION_PHOTO)
+    if (type == MediaType.IMAGE && gainmapDetected) result += available(CheckStage.GAINMAP)
+    return result
+}

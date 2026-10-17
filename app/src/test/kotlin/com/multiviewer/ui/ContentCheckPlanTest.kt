@@ -16,6 +16,42 @@ import kotlin.test.assertFalse
 
 class ContentCheckPlanTest {
     @Test
+    fun stageDescriptionsExplainTheActualWorkInBothLanguages() {
+        assertEquals("박스·청크 배치와 필수 데이터의 위치·범위를 검사합니다.", checkStageDescription(CheckStage.STRUCTURE, true))
+        assertEquals("Checks box and chunk layout and the location and extent of required data.", checkStageDescription(CheckStage.STRUCTURE, false))
+        assertEquals("코덱 구문, 값 범위, 파라미터 간 참조를 검사합니다.", checkStageDescription(CheckStage.CODEC, true))
+        assertEquals("Checks codec syntax, value ranges, and parameter references.", checkStageDescription(CheckStage.CODEC, false))
+        assertEquals("압축 데이터를 실제로 디코딩하고 오류를 확인합니다.", checkStageDescription(CheckStage.VISUAL_DECODE, true))
+        assertEquals("Decodes compressed data and checks for errors.", checkStageDescription(CheckStage.VISUAL_DECODE, false))
+        assertEquals("오디오 트랙을 디코딩하고 오류를 확인합니다.", checkStageDescription(CheckStage.AUDIO_DECODE, true))
+        assertEquals("Decodes audio tracks and checks for errors.", checkStageDescription(CheckStage.AUDIO_DECODE, false))
+        assertEquals("정지 이미지와 포함된 영상의 연결·시점을 확인합니다.", checkStageDescription(CheckStage.MOTION_PHOTO, true))
+        assertEquals("Checks the link and timing between the still image and embedded video.", checkStageDescription(CheckStage.MOTION_PHOTO, false))
+        assertEquals("게인맵 데이터와 메타데이터의 구조·값을 확인합니다.", checkStageDescription(CheckStage.GAINMAP, true))
+        assertEquals("Checks gain-map data and metadata structure and values.", checkStageDescription(CheckStage.GAINMAP, false))
+    }
+
+    @Test
+    fun videoStageOrderAndUnsupportedCodecAreExplicit() {
+        val root = BoxNode("root", 0, 0, 100)
+        val rows = contentCheckStages(MediaType.VIDEO, root, false, false, true, false)
+        assertEquals(listOf(CheckStage.STRUCTURE, CheckStage.CODEC, CheckStage.VISUAL_DECODE, CheckStage.AUDIO_DECODE), rows.map { it.stage })
+        assertEquals(CheckAvailability.UNSUPPORTED, rows[1].availability)
+        assertEquals(CheckAvailability.AVAILABLE, rows[3].availability)
+        assertTrue(rows[1].reasonKo?.isNotBlank() == true)
+    }
+
+    @Test
+    fun heicMotionPhotoDoesNotOfferVideoCodec() {
+        val root = BoxNode("root", 0, 0, 100, children = listOf(BoxNode("moov", 0, 0, 100,
+            children = listOf(BoxNode("hvcC", 8, 8, 40)))))
+        val rows = contentCheckStages(MediaType.IMAGE, root, true, false, false, true)
+        assertEquals(CheckAvailability.NOT_APPLICABLE, rows.single { it.stage == CheckStage.CODEC }.availability)
+        assertEquals(CheckStage.MOTION_PHOTO, rows.last().stage)
+        assertFalse(rows.any { it.stage == CheckStage.GAINMAP })
+    }
+
+    @Test
     fun `every media type exposes conformance coverage including unsupported files`() {
         for (type in listOf(MediaType.IMAGE, MediaType.VIDEO, MediaType.AUDIO, MediaType.UNKNOWN, MediaType.RAW_PIXEL)) {
             assertTrue(contentTabs(type, motionDetected = false).any { it.name == "CONFORMANCE" }, "$type has no conformance tab")
