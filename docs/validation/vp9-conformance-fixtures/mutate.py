@@ -44,17 +44,17 @@ if stress_src.exists():
     sample_cnt = int.from_bytes(stress_bytes[s_stsz + 12:s_stsz + 16], "big")
     assert sample_cnt == 101, f"Expected 101 samples, got {sample_cnt}"
     sample_sizes = [int.from_bytes(stress_bytes[s_stsz + 16 + i * 4:s_stsz + 20 + i * 4], "big") for i in range(sample_cnt)]
-    
+
     s_stco = stress_bytes.find(b"stco")
     co_cnt = int.from_bytes(stress_bytes[s_stco + 8:s_stco + 12], "big")
     chunk_offsets = [int.from_bytes(stress_bytes[s_stco + 12 + i * 4:s_stco + 16 + i * 4], "big") for i in range(co_cnt)]
-    
+
     # Calculate sample offsets
     s_stsc = stress_bytes.find(b"stsc")
     stsc_entries = int.from_bytes(stress_bytes[s_stsc + 8:s_stsc + 12], "big")
     first_chunk = int.from_bytes(stress_bytes[s_stsc + 12:s_stsc + 16], "big")
     samples_per_chunk = int.from_bytes(stress_bytes[s_stsc + 16:s_stsc + 20], "big")
-    
+
     sample_offsets = []
     if co_cnt == 1:
         cur_offset = chunk_offsets[0]
@@ -72,9 +72,9 @@ if stress_src.exists():
                 sample_offsets.append(cur_offset)
                 cur_offset += sample_sizes[cur_s]
                 cur_s += 1
-    
+
     assert len(sample_offsets) == 101
     for off in sample_offsets:
         stress_bytes[off] = stress_bytes[off] & 0x3F # Clear marker bits 7..6
-    
+
     (out / "many-marker-failures.mp4").write_bytes(stress_bytes)
