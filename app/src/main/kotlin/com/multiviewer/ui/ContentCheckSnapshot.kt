@@ -4,6 +4,7 @@ import com.multiviewer.cli.scrubPaths
 import com.multiviewer.cli.JsonValue
 import com.multiviewer.parser.SefCheckResult
 import com.multiviewer.parser.conformance.HevcBitstreamReport
+import com.multiviewer.parser.conformance.ConformanceFinding
 import com.multiviewer.parser.conformance.ConformanceReport
 import com.multiviewer.parser.conformance.ConformanceStatus
 import com.multiviewer.parser.integrity.CheckStatus
@@ -317,6 +318,23 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
     val type = snapshot.mediaType
     val pending = if (snapshot.running) IN_PROGRESS else NOT_RUN
     val sb = StringBuilder()
+    // One codec byte check: coverage line, limitations, then the findings. Shared by all nine codecs.
+    fun StringBuilder.appendCodecByteCheck(
+        codec: String,
+        checkedSamples: Int,
+        indexedSamples: Int,
+        complete: Boolean,
+        checkedTrack: String,
+        limitations: List<String>,
+        findings: List<ConformanceFinding>,
+    ) {
+        appendLine("- $codec 바이트 검사: $checkedSamples/$indexedSamples samples; complete=$complete; ${promptText(checkedTrack)}")
+        appendCapped(limitations, MAX_ITEMS, "  • ") { promptText(it) }
+        appendCapped(findings, MAX_ITEMS, "  • ") { finding ->
+            "[${finding.status.name}] ${finding.rule.id}; 구조 관측값·규격 조항 미확인; " +
+                finding.details.take(4).joinToString("; ") { promptText(it) }
+        }
+    }
     sb.appendLine("### [컨텐츠 검사 결과 (앱이 직접 검증한 사실)]")
     sb.appendLine(
         "아래 검사 결과는 관측 사실과 가능한 해석을 분리해 제공합니다. 가능한 원인과 후속 확인은 확정 진단이 아닌 가설입니다.",
@@ -356,23 +374,17 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
         sb.appendCapped(conformance.limitations, MAX_ITEMS, "  • ", ::promptText)
     }
 
-    snapshot.hevcBitstream?.let { codec ->
-        sb.appendLine("- HEVC 바이트 검사: ${codec.checkedSamples}/${codec.indexedSamples} samples; complete=${codec.complete}; ${promptText(codec.checkedTrack)}")
-        sb.appendCapped(codec.limitations, MAX_ITEMS, "  • ") { promptText(it) }
-        sb.appendCapped(codec.findings, MAX_ITEMS, "  • ") { finding ->
-            "[${finding.status.name}] ${finding.rule.id}; 구조 관측값·규격 조항 미확인; " +
-                finding.details.take(4).joinToString("; ") { promptText(it) }
-        }
-    }
-
-    snapshot.vvcBitstream?.let { codec ->
-        sb.appendLine("- VVC 바이트 검사: ${codec.checkedSamples}/${codec.indexedSamples} samples; complete=${codec.complete}; ${promptText(codec.checkedTrack)}")
-        sb.appendCapped(codec.limitations, MAX_ITEMS, "  • ") { promptText(it) }
-        sb.appendCapped(codec.findings, MAX_ITEMS, "  • ") { finding ->
-            "[${finding.status.name}] ${finding.rule.id}; 구조 관측값·규격 조항 미확인; " +
-                finding.details.take(4).joinToString("; ") { promptText(it) }
-        }
-    }
+    // Every codec byte check gives the AI its coverage and limitations, so a partial check (complete=false)
+    // never reads as clean (rule 7).
+    snapshot.hevcBitstream?.let { sb.appendCodecByteCheck("HEVC", it.checkedSamples, it.indexedSamples, it.complete, it.checkedTrack, it.limitations, it.findings) }
+    snapshot.avcBitstream?.let { sb.appendCodecByteCheck("AVC", it.checkedSamples, it.indexedSamples, it.complete, it.checkedTrack, it.limitations, it.findings) }
+    snapshot.av1Bitstream?.let { sb.appendCodecByteCheck("AV1", it.checkedSamples, it.indexedSamples, it.complete, it.checkedTrack, it.limitations, it.findings) }
+    snapshot.vp9Bitstream?.let { sb.appendCodecByteCheck("VP9", it.checkedSamples, it.indexedSamples, it.complete, it.checkedTrack, it.limitations, it.findings) }
+    snapshot.apvBitstream?.let { sb.appendCodecByteCheck("APV", it.checkedSamples, it.indexedSamples, it.complete, it.checkedTrack, it.limitations, it.findings) }
+    snapshot.vvcBitstream?.let { sb.appendCodecByteCheck("VVC", it.checkedSamples, it.indexedSamples, it.complete, it.checkedTrack, it.limitations, it.findings) }
+    snapshot.aacBitstream?.let { sb.appendCodecByteCheck("AAC", it.checkedSamples, it.indexedSamples, it.complete, it.checkedTrack, it.limitations, it.findings) }
+    snapshot.opusBitstream?.let { sb.appendCodecByteCheck("Opus", it.checkedSamples, it.indexedSamples, it.complete, it.checkedTrack, it.limitations, it.findings) }
+    snapshot.flacBitstream?.let { sb.appendCodecByteCheck("FLAC", it.checkedSamples, it.indexedSamples, it.complete, it.checkedTrack, it.limitations, it.findings) }
 
     val normalizedFindings = contentCheckFindings(snapshot)
     sb.appendLine("### [검증된 사실]")

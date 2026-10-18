@@ -3,6 +3,13 @@ package com.multiviewer.ui
 import com.multiviewer.cli.AiDiagnosticPromptBuilder
 import com.multiviewer.parser.SefCheckResult
 import com.multiviewer.parser.SefIntegritySeverity
+import com.multiviewer.parser.conformance.AacBitstreamReport
+import com.multiviewer.parser.conformance.Av1BitstreamReport
+import com.multiviewer.parser.conformance.AvcBitstreamReport
+import com.multiviewer.parser.conformance.ApvBitstreamReport
+import com.multiviewer.parser.conformance.FlacBitstreamReport
+import com.multiviewer.parser.conformance.OpusBitstreamReport
+import com.multiviewer.parser.conformance.Vp9BitstreamReport
 import com.multiviewer.parser.integrity.CheckStatus
 import com.multiviewer.parser.integrity.AudioStructureReport
 import com.multiviewer.parser.integrity.ImageStructureReport
@@ -30,6 +37,28 @@ class ContentCheckSnapshotTest {
         assertTrue(text.contains("wave.data.missing"), text)
         assertTrue(text.contains("파서 경고"), text)
         assertTrue(text.contains("Chunk extends past file"), text)
+    }
+
+    // Rule 7: a partial codec byte check must never read as clean to the AI. Only HEVC and VVC used to
+    // give the prompt their coverage (complete=false) and limitations.
+    @Test
+    fun partialCodecByteChecksReachPromptWithCoverageAndLimitationsForEveryCodec() {
+        val base = ContentCheckSnapshot(null, null, false, null, null, null, MediaType.VIDEO)
+        val limitation = "stopped at sample cap"
+        val cases = listOf(
+            "AVC" to base.copy(avcBitstream = AvcBitstreamReport(emptyList(), 3, 10, emptyMap(), listOf(limitation), "track 1 (avc1)", false)),
+            "AV1" to base.copy(av1Bitstream = Av1BitstreamReport(emptyList(), 3, 10, emptyMap(), listOf(limitation), "track 1 (av01)", false)),
+            "VP9" to base.copy(vp9Bitstream = Vp9BitstreamReport(emptyList(), 3, 10, emptyMap(), listOf(limitation), "track 1 (vp09)", false)),
+            "APV" to base.copy(apvBitstream = ApvBitstreamReport(emptyList(), 3, 10, emptyMap(), listOf(limitation), "track 1 (apv1)", false)),
+            "AAC" to base.copy(mediaType = MediaType.AUDIO, aacBitstream = AacBitstreamReport(emptyList(), 3, 10, emptyMap(), listOf(limitation), "track 1 (mp4a)", false)),
+            "Opus" to base.copy(mediaType = MediaType.AUDIO, opusBitstream = OpusBitstreamReport(emptyList(), 3, 10, emptyMap(), listOf(limitation), "track 1 (Opus)", false)),
+            "FLAC" to base.copy(mediaType = MediaType.AUDIO, flacBitstream = FlacBitstreamReport(emptyList(), 3, 10, emptyMap(), listOf(limitation), "track 1 (fLaC)", false)),
+        )
+        for ((codec, snapshot) in cases) {
+            val text = contentCheckPromptSection(snapshot, file)
+            assertTrue(text.contains("- $codec 바이트 검사: 3/10 samples; complete=false; track 1"), "$codec:\n$text")
+            assertTrue(text.contains("  • $limitation"), "$codec:\n$text")
+        }
     }
 
     @Test
