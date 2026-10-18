@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -48,6 +49,7 @@ import androidx.compose.ui.window.rememberWindowState
 import com.multiviewer.parser.c2pa.C2paAssertionContent
 import com.multiviewer.parser.c2pa.C2paManifest
 import com.multiviewer.parser.c2pa.C2paManifestStore
+import com.multiviewer.parser.c2pa.C2paVerificationReport
 import com.multiviewer.parser.c2pa.readC2paManifestStore
 import com.multiviewer.parser.c2pa.toDiagnostic
 import kotlinx.coroutines.Dispatchers
@@ -90,8 +92,15 @@ fun C2paWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -> Unit)
                 )
                 else -> {
                     val m = s.manifests.getOrNull(selected) ?: s.manifests.last()
-                    val vReport = remember(m) { com.multiviewer.parser.c2pa.verifyC2paManifest(m) }
-                    val sigStatusLabel = when (vReport.state) {
+                    // Verified once per manifest, off the UI thread (certificates, signature and a SHA-256 of every
+                    // assertion, which may be several MB), and shared with the Overview tab. Tagged with its manifest
+                    // so another manifest's result is never shown while the new one is verified.
+                    val verified by produceState<Pair<C2paManifest, C2paVerificationReport>?>(null, m) {
+                        value = m to withContext(Dispatchers.Default) { com.multiviewer.parser.c2pa.verifyC2paManifest(m) }
+                    }
+                    val vReport = verified?.takeIf { it.first === m }?.second
+                    val sigStatusLabel = when (vReport?.state) {
+                        null -> label("서명 검증 중…", "verifying signature…")
                         com.multiviewer.parser.c2pa.VerificationState.VALID -> label("서명 검증 완료 (공식)", "signature valid (trusted)")
                         com.multiviewer.parser.c2pa.VerificationState.UNTRUSTED -> label("서명 검증 완료 (테스트/자체 서명)", "signature valid (test/self-signed)")
                         com.multiviewer.parser.c2pa.VerificationState.INVALID -> label("서명 검증 실패 (변조 의심)", "signature invalid (tampered)")
@@ -160,7 +169,7 @@ fun C2paWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -> Unit)
                             }
                             SelectionContainer {
                                 when (tabIndex) {
-                                    0 -> OverviewTab(m, ::label)
+                                    0 -> OverviewTab(m, vReport, ::label)
                                     1 -> ActionsTab(m, ::label)
                                     2 -> IngredientsTab(m, s, ::label) { selected = it; tabIndex = 0 }
                                     3 -> AssertionsTab(m, ::label)
@@ -387,8 +396,7 @@ private fun C2paVerificationTable(
 }
 
 @Composable
-private fun OverviewTab(m: C2paManifest, label: (String, String) -> String) {
-    val vReport = remember(m) { com.multiviewer.parser.c2pa.verifyC2paManifest(m) }
+private fun OverviewTab(m: C2paManifest, vReport: C2paVerificationReport?, label: (String, String) -> String) {
     val c = m.claim
     val sig = m.signature
 
@@ -435,7 +443,11 @@ private fun OverviewTab(m: C2paManifest, label: (String, String) -> String) {
         item {
             // Cryptographic Verification Table
             C2paSectionHeader(label("암호화 서명 검증 결과 (Cryptographic Verification)", "Cryptographic Verification Results"))
-            C2paVerificationTable(vReport = vReport, label = label)
+            if (vReport == null) {
+                Text(label("서명 검증 중…", "Verifying signature…"), color = AppColors.TextSecondary, fontSize = 12.sp)
+            } else {
+                C2paVerificationTable(vReport = vReport, label = label)
+            }
         }
 
         if (sig?.error != null || m.warnings.isNotEmpty()) {
@@ -447,7 +459,7 @@ private fun OverviewTab(m: C2paManifest, label: (String, String) -> String) {
                 ) {
                     sig?.error?.let { Text("⚠ " + label("서명 정보 오류: ", "Signature error: ") + it, color = AppColors.NeonRed, fontSize = 11.sp) }
                     m.warnings.forEach { Text("⚠ $it", color = AppColors.NeonYellow, fontSize = 11.sp) }
-                    vReport.errors.forEach { Text("⚠ $it", color = AppColors.NeonRed, fontSize = 11.sp) }
+                    vReport?.errors?.forEach { Text("⚠ $it", color = AppColors.NeonRed, fontSize = 11.sp) }
                 }
             }
         }
