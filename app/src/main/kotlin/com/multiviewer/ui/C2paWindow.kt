@@ -838,7 +838,7 @@ private fun ThumbnailImage(bytes: ByteArray, label: (String, String) -> String) 
     var loading by remember(bytes) { mutableStateOf(true) }
     LaunchedEffect(bytes) {
         bitmap = withContext(Dispatchers.Default) {
-            runCatching { SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap() }.getOrNull()
+            runCatching { SkiaImage.makeFromEncoded(bytes).use { it.toComposeImageBitmap() } }.getOrNull()
         }
         loading = false
     }
