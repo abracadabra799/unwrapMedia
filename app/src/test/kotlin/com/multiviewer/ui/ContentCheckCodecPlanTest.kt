@@ -87,4 +87,17 @@ class ContentCheckCodecPlanTest {
             codecGaps = codecCoverageGaps(MediaType.VIDEO, root, reports.map { it.codec }, reports.take(1))), file)
         assertTrue(gapText.contains("- 코덱 바이트 검사 범위 밖: AAC check did not run / AAC 검사 미실행"), gapText)
     }
+
+    @Test fun quickTimeMovAacIsByteChecked() = runBlocking {
+        for (name in listOf("avc-aac-qt-v1.mov", "avc-aac-qt-v2.mov")) {
+            val file = fixture("content-check-codecs/$name")
+            val root = parseFile(file)
+            val plan = codecBitstreamPlan(MediaType.VIDEO, root)
+            assertEquals(listOf(BitstreamCodec.AVC, BitstreamCodec.AAC), plan, name)
+            val reports = plan.map { analyzeCodecBitstream(it, file, root) { _, _ -> } }
+            assertEquals(emptyList(), codecCoverageGaps(MediaType.VIDEO, root, plan, reports), name)
+            assertTrue(reports.all { r -> r.findings.none { it.status == com.multiviewer.parser.conformance.ConformanceStatus.FAIL } },
+                "$name: " + reports.flatMap { r -> r.findings.filter { it.status == com.multiviewer.parser.conformance.ConformanceStatus.FAIL } })
+        }
+    }
 }

@@ -105,7 +105,10 @@ fun aacCodecAvailability(type: MediaType, root: BoxNode?): CheckAvailability {
     if (entry.type != "mp4a") return CheckAvailability.UNSUPPORTED
     if (boxDescendants(root).any { it.type == "moof" || it.type == "mvex" } ||
         boxDescendants(entry).any { it.type == "sinf" || it.type == "enca" }) return CheckAvailability.UNSUPPORTED
-    val config = entry.children.firstOrNull { it.type == "esds" } ?: return CheckAvailability.UNSUPPORTED
+    // ISO MP4 puts esds directly in the entry; a QuickTime V1/V2 sound description puts it inside 'wave'.
+    val config = (entry.children.firstOrNull { it.type == "esds" }
+        ?: entry.children.firstOrNull { it.type == "wave" }?.children?.firstOrNull { it.type == "esds" })
+        ?: return CheckAvailability.UNSUPPORTED
     if (config.warnings.isNotEmpty() || config.size - config.headerSize < 4) {
         return CheckAvailability.UNSUPPORTED
     }

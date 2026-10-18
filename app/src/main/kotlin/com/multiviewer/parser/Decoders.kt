@@ -29,6 +29,7 @@ fun registerAllDecoders() {
     BoxRegistry.register("dOps", DopsBoxDecoder)
     BoxRegistry.register("fLaC", AudioSampleEntryDecoder)
     BoxRegistry.register("dfLa", DflaBoxDecoder)
+    BoxRegistry.register("wave", QuickTimeWaveBoxDecoder)
     BoxRegistry.register("avcC", AvcCBoxDecoder)
     BoxRegistry.register("hvcC", HvcCBoxDecoder)
     BoxRegistry.register("lhvC", com.multiviewer.parser.spatial.LhvcBoxDecoder)

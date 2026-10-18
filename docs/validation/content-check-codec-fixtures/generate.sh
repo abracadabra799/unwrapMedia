@@ -17,3 +17,9 @@ ffmpeg -hide_banner -loglevel error -y "${src[@]}" -frames:v 8 -pix_fmt yuv420p 
 # AC-3 audio has no byte checker: only the video track can be checked.
 ffmpeg -hide_banner -loglevel error -y "${src[@]}" -frames:v 8 -pix_fmt yuv420p \
   -c:v libx265 -x265-params 'pools=1:frame-threads=1:log-level=error' -c:a ac3 -shortest "$out/hevc-ac3.mp4"
+# QuickTime MOV: ffmpeg writes SoundDescription V1 (16 extra bytes, esds inside a 'wave' atom) for AAC, and V2
+# (36 extra bytes, float64 rate) when the rate exceeds 65535 Hz.
+ffmpeg -hide_banner -loglevel error -y "${src[@]}" -frames:v 8 -pix_fmt yuv420p -c:v libx264 -c:a aac -shortest "$out/avc-aac-qt-v1.mov"
+ffmpeg -hide_banner -loglevel error -y -f lavfi -i 'testsrc2=size=64x64:rate=4:duration=2' \
+  -f lavfi -i 'sine=frequency=440:sample_rate=96000:duration=2' -frames:v 8 -pix_fmt yuv420p \
+  -c:v libx264 -c:a aac -shortest "$out/avc-aac-qt-v2.mov"
