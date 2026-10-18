@@ -130,22 +130,24 @@ fun parseAacConfig(reader: ByteReader, esds: BoxNode): AacConfigObservation {
         return AacConfigObservation(esds.offset, issue = "AudioSpecificConfig payload too short ($dsiLen bytes)")
     }
 
-    val b0 = buf[dsiStart].toInt() and 0xFF
-    val b1 = buf[dsiStart + 1].toInt() and 0xFF
-
-    val aot = (b0 shr 3) and 0x1F
-    val freqIdx = ((b0 and 0x07) shl 1) or ((b1 and 0x80) shr 7)
-    val channelConfig = (b1 shr 3) and 0x0F
+    // Bit-level: an escaped audioObjectType (31) or an explicit 24-bit rate (index 15) shifts every later field.
+    val bits = AscBits(buf, dsiStart, dsiLen)
+    val aot = bits.aot()
+    val freqIdx = bits.read(4)
+    val sampleRate = when (freqIdx) {
+        null -> null
+        15 -> bits.read(24)
+        else -> AAC_SAMPLING_FREQUENCIES.getOrNull(freqIdx)
+    }
+    val channelConfig = bits.read(4)
+    if (aot == null || freqIdx == null || channelConfig == null || (freqIdx == 15 && sampleRate == null)) {
+        return AacConfigObservation(esds.offset, issue = "AudioSpecificConfig is truncated")
+    }
     val extension = parseAscExtensions(buf, dsiStart, dsiLen)
-
-    val sampleRate = if (freqIdx in AAC_SAMPLING_FREQUENCIES.indices) {
-        AAC_SAMPLING_FREQUENCIES[freqIdx]
-    } else null
 
     val issue = when {
         aot !in 1..4 && aot != 5 && aot != 29 -> "Unsupported audioObjectType $aot"
         freqIdx in 13..14 -> "Reserved samplingFrequencyIndex $freqIdx"
-        freqIdx > 15 -> "Invalid samplingFrequencyIndex $freqIdx"
         channelConfig !in 1..7 -> "Unsupported channelConfiguration $channelConfig"
         else -> null
     }

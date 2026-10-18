@@ -35,12 +35,15 @@ object AudioSampleEntryDecoder : BoxDecoder {
         // AudioSampleEntryV1 also has version 1 but no extra bytes, so only take the QuickTime layout when a box
         // header actually starts there.
         val extra = when (version) { 1 -> QT_V1_EXTRA; 2 -> QT_V2_EXTRA; else -> 0 }
-        val quickTime = extra > 0 && looksLikeBox(reader, payloadStart + FIXED_HEADER_SIZE + extra, payloadEnd)
+        val extensionEnd = payloadStart + FIXED_HEADER_SIZE + extra
+        // ...or when the extension ends the entry exactly (e.g. a V1 'ima4' or V2 'lpcm' without child atoms).
+        val quickTime = extra > 0 && (extensionEnd == payloadEnd || looksLikeBox(reader, extensionEnd, payloadEnd))
         var channelCountOffset = payloadStart + 16
         var channelCountLength = 2L
         var channelCount = reader.readUInt16(channelCountOffset).toLong()
-        val sampleSizeOffset = payloadStart + 18
-        val sampleSize = reader.readUInt16(sampleSizeOffset)
+        var sampleSizeOffset = payloadStart + 18
+        var sampleSizeLength = 2L
+        var sampleSize = reader.readUInt16(sampleSizeOffset).toLong()
         var sampleRateOffset = payloadStart + 24
         var sampleRateLength = 4L
         var sampleRate = reader.readUInt32(sampleRateOffset) / 65536.0
@@ -52,12 +55,20 @@ object AudioSampleEntryDecoder : BoxDecoder {
             channelCountOffset = payloadStart + FIXED_HEADER_SIZE + 12
             channelCountLength = 4L
             channelCount = reader.readUInt32(channelCountOffset)
+            // constBitsPerChannel is 0 for compressed formats (AAC); then the header's samplesize is all there is.
+            val constBitsOffset = payloadStart + FIXED_HEADER_SIZE + 20
+            val constBits = reader.readUInt32(constBitsOffset)
+            if (constBits != 0L) {
+                sampleSizeOffset = constBitsOffset
+                sampleSizeLength = 4L
+                sampleSize = constBits
+            }
         }
         val fields = listOfNotNull(
             BoxField("data_reference_index", dataReferenceIndex.toString(), dataReferenceIndexOffset, 2),
             if (quickTime) BoxField("qt_sound_description_version", version.toString(), versionOffset, 2) else null,
             BoxField("channelcount", channelCount.toString(), channelCountOffset, channelCountLength),
-            BoxField("samplesize", sampleSize.toString(), sampleSizeOffset, 2),
+            BoxField("samplesize", sampleSize.toString(), sampleSizeOffset, sampleSizeLength),
             BoxField("samplerate", sampleRate.toString(), sampleRateOffset, sampleRateLength),
         )
         val children = parseBoxes(reader, payloadStart + FIXED_HEADER_SIZE + (if (quickTime) extra else 0), payloadEnd)

@@ -35,3 +35,7 @@ Provenance and byte structure for synthetic FLAC (`fLaC`) MP4 test vectors.
 - `ffmpeg-96k.mp4` (not from `generate.py`): `ffmpeg -f lavfi -i 'sine=frequency=440:sample_rate=96000:duration=1' -c:a flac -strict -2 ffmpeg-96k.mp4`.
   STREAMINFO rate 96000 Hz, `fLaC` entry samplerate 48000 (a 16.16 field cannot hold > 65535; ffmpeg writes an integer
   divisor — 44100 for 88200/176400, 48000 for 96000/192000). Expected: `flac.config.match` PASS.
+- Rule (xiph `doc/isoflac.txt`): when the native rate exceeds 65535 Hz "the samplerate field shall hold the greatest
+  expressible regular division of that rate" ("48000.0 for native sample rates of 96 and 192 kHz"); with no
+  expressible regular division "the maximum value of 65535.0 Hz should be used". Implemented as `flacEntrySampleRate`
+  (halve until ≤ 65535); any other entry value is a mismatch.

@@ -121,4 +121,14 @@ class FlacBitstreamAnalyzerTest {
         assertFalse(report.findings.any { it.status == ConformanceStatus.FAIL }, report.findings.filter { it.status == ConformanceStatus.FAIL }.toString())
         assertTrue(report.complete)
     }
+
+    @Test
+    fun entryRateAboveSixtyFiveKIsTheGreatestRegularDivision() {
+        assertEquals(44100, flacEntrySampleRate(44100))
+        assertEquals(48000, flacEntrySampleRate(96000))
+        assertEquals(48000, flacEntrySampleRate(192000)) // not 64000
+        assertEquals(44100, flacEntrySampleRate(88200))
+        assertEquals(44100, flacEntrySampleRate(176400))
+        assertEquals(65535, flacEntrySampleRate(65537)) // odd: no regular division
+    }
 }

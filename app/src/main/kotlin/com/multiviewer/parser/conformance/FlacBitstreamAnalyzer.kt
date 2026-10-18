@@ -117,11 +117,8 @@ suspend fun analyzeFlacBitstream(
 
         val matchChannels = entryChannelCount == config.channels
         val matchBits = entrySampleSize == config.bitsPerSample
-        // The 16.16 samplerate field cannot hold a rate above 65535 Hz; the entry then carries an integer divisor
-        // of it (FLAC-in-ISOBMFF; ffmpeg writes 48000 for 96000 and 192000).
         val streamRate = config.sampleRate?.toInt()
-        val matchRate = streamRate != null && entrySampleRate != null && (entrySampleRate == streamRate ||
-            (streamRate > 65535 && entrySampleRate in 1..65535 && streamRate % entrySampleRate == 0))
+        val matchRate = streamRate != null && entrySampleRate == flacEntrySampleRate(streamRate)
 
         if (config.issue == null && matchChannels && matchBits && matchRate) {
             add(
@@ -212,4 +209,15 @@ suspend fun analyzeFlacBitstream(
 
         report(complete, checked, table.samples.size)
     }
+}
+
+/**
+ * The samplerate a FLACSampleEntry must carry for [streamRate] (xiph isoflac.txt): the rate itself when it fits the
+ * 16.16 field, otherwise "the greatest expressible regular division of that rate" (48000 for 96 and 192 kHz), and
+ * 65535 when there is none.
+ */
+internal fun flacEntrySampleRate(streamRate: Int): Int {
+    var rate = streamRate
+    while (rate > 65535 && rate % 2 == 0) rate /= 2
+    return if (rate > 65535) 65535 else rate
 }

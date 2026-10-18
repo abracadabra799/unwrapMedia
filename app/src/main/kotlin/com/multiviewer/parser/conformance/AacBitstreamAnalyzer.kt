@@ -119,7 +119,7 @@ suspend fun analyzeAacBitstream(
             // With SBR the entry may carry the output rate, and with PS a mono core decodes to stereo.
             val channelsMatch = entryChannelCount == config.channelConfig ||
                 (config.psPresent && config.channelConfig == 1 && entryChannelCount == 2)
-            val rateMatches = config.sampleRate == null || entrySampleRate == config.sampleRate ||
+            val rateMatches = entrySampleRate == config.sampleRate ||
                 (config.extensionSampleRate != null && entrySampleRate == config.extensionSampleRate)
             if (channelsMatch && rateMatches) {
                 add(

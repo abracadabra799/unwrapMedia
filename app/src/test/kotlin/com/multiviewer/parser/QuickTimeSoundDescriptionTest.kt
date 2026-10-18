@@ -41,4 +41,9 @@ class QuickTimeSoundDescriptionTest {
         assertTrue(entry.fields.none { it.name == "qt_sound_description_version" })
         assertTrue(entry.children.any { it.type == "esds" })
     }
+
+    @Test fun version2CompressedKeepsTheHeaderSampleSize() {
+        // constBitsPerChannel is 0 for AAC; the decoder must not report a 0-bit sample size.
+        assertEquals("16", field(audioEntry("avc-aac-qt-v2.mov"), "samplesize"))
+    }
 }
