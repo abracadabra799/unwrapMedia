@@ -95,11 +95,11 @@ fun renderStructureSvg(layout: DiagramLayout): String = buildString {
 }
 
 /**
- * Pixel budget for a rendered structure diagram (64 MP = 256 MB as TYPE_INT_RGB). A file with thousands of
+ * Pixel budget for a rendered structure diagram (32 MP = 128 MB as TYPE_INT_RGB). A file with thousands of
  * top-level chunks (every IDAT of a PNG, every moof/mdat of a fragmented MP4) lays out tens of thousands of
  * pixels tall; past the budget the diagram is rendered at a lower scale instead of allocating gigabytes.
  */
-const val MAX_DIAGRAM_PIXELS: Long = 64_000_000L
+const val MAX_DIAGRAM_PIXELS: Long = 32_000_000L
 
 /** [desired] lowered just enough that a [width] x [height] layout fits [maxPixels] once scaled. */
 fun cappedDiagramScale(width: Int, height: Int, desired: Float, maxPixels: Long = MAX_DIAGRAM_PIXELS): Float {

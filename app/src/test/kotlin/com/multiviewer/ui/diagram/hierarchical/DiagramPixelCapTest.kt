@@ -15,9 +15,10 @@ class DiagramPixelCapTest {
     @Test
     fun `scale is kept when the canvas fits and lowered to the pixel budget otherwise`() {
         assertEquals(2.0f, cappedDiagramScale(1000, 1000, 2.0f, MAX_DIAGRAM_PIXELS))
-        val s = cappedDiagramScale(1100, 41_000, 2.0f, 64_000_000L)
+        assertEquals(32_000_000L, MAX_DIAGRAM_PIXELS)
+        val s = cappedDiagramScale(1100, 41_000, 2.0f, 32_000_000L)
         assertTrue(s < 2.0f)
-        assertTrue((1100 * s).toLong() * (41_000 * s).toLong() <= 64_000_000L)
+        assertTrue((1100 * s).toLong() * (41_000 * s).toLong() <= 32_000_000L)
     }
 
     @Test

@@ -242,15 +242,16 @@ fun MotionPhotoInspectorWindow(
                 if (hasVideo) {
                     AssistChip(
                         onClick = {
+                            if (isExtractingVideo) return@AssistChip
+                            isExtractingVideo = true // synchronously, so a double-click cannot start two extractions
                             scope.launch {
                                 // Reuse an already extracted video; the stat runs off the UI thread.
                                 val existing = extractedVideoFile
-                                if (existing != null && withContext(Dispatchers.IO) { existing.exists() }) {
-                                    motionVideoWindowOpen = true
-                                    return@launch
-                                }
-                                run {
-                                    isExtractingVideo = true
+                                try {
+                                    if (existing != null && withContext(Dispatchers.IO) { existing.exists() }) {
+                                        motionVideoWindowOpen = true
+                                        return@launch
+                                    }
                                     statusMessage = label("동영상 추출 중...", "Extracting video...")
                                     try {
                                         val video = tab.embeddedVideo ?: withContext(Dispatchers.IO) {
@@ -269,8 +270,12 @@ fun MotionPhotoInspectorWindow(
                                                     pending = dest
                                                     extractEmbeddedVideo(tab.file, video, dest)
                                                 }
+                                                val old = extractedVideoFile
                                                 extractedVideoFile = pending
                                                 pending = null
+                                                if (old != null && old != extractedVideoFile) {
+                                                    withContext(Dispatchers.IO) { runCatching { old.delete() } }
+                                                }
                                             } finally {
                                                 deleteWhenReleased(pending)
                                             }
@@ -283,9 +288,9 @@ fun MotionPhotoInspectorWindow(
                                         throw e
                                     } catch (e: Exception) {
                                         statusMessage = label("동영상 추출 실패: ${e.message}", "Failed to extract video: ${e.message}")
-                                    } finally {
-                                        isExtractingVideo = false
                                     }
+                                } finally {
+                                    isExtractingVideo = false
                                 }
                             }
                         },

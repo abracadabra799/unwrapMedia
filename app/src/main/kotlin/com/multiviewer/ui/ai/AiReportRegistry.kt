@@ -124,15 +124,18 @@ private fun <T : Any> stored(
         else label(
             "파일이 바뀌어 결과가 무효 — '$menuName'을(를) 다시 실행",
             "the file changed, so the result is void — run '$menuName' again"))
-    // A renderer bug must degrade to one unavailable kind, never block the whole send.
-    return try {
+    return storedValue(current, label, render)
+}
+
+// A renderer bug must degrade to one unavailable kind, never block the whole send.
+private fun <T : Any> storedValue(current: T, label: (String, String) -> String, render: (T) -> String): AiReportSource =
+    try {
         AiReportSource.Ready(render(current))
     } catch (e: Exception) {
         if (e is InterruptedException) throw e
         if (e is java.util.concurrent.CancellationException) throw e
         AiReportSource.Unavailable("report could not be rendered (${e::class.simpleName})")
     }
-}
 
 private fun notRun(menuName: String, label: (String, String) -> String) = AiReportSource.Unavailable(label(
     "아직 실행되지 않음 — '$menuName' 실행 필요", "not run for this file — run '$menuName' first"))
@@ -174,11 +177,14 @@ fun aiReportSources(
         val autoRunLabel = label("분석 자동 실행", "runs the analysis")
         // A current stored result is used as is (a renderer failure stays Unavailable); a missing or stale one
         // is scanned again on request.
-        val hdrCurrent = inputs.hdr?.currentFor(file) != null
+        // Read once: a reclaim between two reads must not turn "rescan" into "released".
+        val hdrNow = inputs.hdr?.currentFor(file)
+        val hdrCurrent = hdrNow != null
         // Only an MP4/MOV-family tree (moov) can be scanned; anything else keeps the stored-or-menu behaviour.
         val canScanHdr = root != null && has { it.type == "moov" }
         out[AiReportKind.HDR] = if (hdrCurrent || !canScanHdr) {
-            stored(inputs.hdr, file, menu(I18n::menuHdrSeiAnalysis, label), label) { renderHdr(it, file) }
+            if (hdrNow != null) storedValue(hdrNow, label) { renderHdr(it, file) }
+            else stored(inputs.hdr, file, menu(I18n::menuHdrSeiAnalysis, label), label) { renderHdr(it, file) }
         } else {
             AiReportSource.OnRequest(AUTO_RUN_TIMEOUT_SECONDS, autoRunLabel) {
                 autoRun.hdrFailure.get()?.let { return@OnRequest "HDR analysis already failed in this question: $it" }

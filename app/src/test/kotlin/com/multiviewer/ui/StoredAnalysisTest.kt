@@ -34,9 +34,19 @@ class StoredAnalysisTest {
         kotlin.test.assertTrue(s.isReclaimed)
     }
 
-    @Test fun holdsItsValueSoftly() {
-        val s = StoredAnalysis("v", null)
+    @Test fun aSoftOneIsDroppedByAReclaim() {
+        val f = tmp()
+        val s = StoredAnalysis("v", ContentFileIdentity.capture(f))
         kotlin.test.assertFalse(s.isReclaimed)
-        kotlin.test.assertTrue(s.holdsSoftlyForTest())
+        s.simulateReclaimForTest()
+        assertNull(s.currentFor(f))
+    }
+
+    @Test fun aStrongOneSurvivesAReclaim() {
+        val f = tmp()
+        val s = StoredAnalysis.strong("v", ContentFileIdentity.capture(f))
+        s.simulateReclaimForTest()
+        assertEquals("v", s.currentFor(f))
+        kotlin.test.assertFalse(s.isReclaimed)
     }
 }

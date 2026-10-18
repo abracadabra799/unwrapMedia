@@ -1048,24 +1048,31 @@ data class AudioWaveformData(val peaks: WaveformPeaks, val durationSeconds: Doub
  * of MB and outlive their window for the AI bridge, so the JVM may reclaim them under memory pressure. A reclaimed
  * result reads as "not available" ([currentFor] returns null) and is rescanned or rerun on demand.
  */
-class StoredAnalysis<T : Any>(value: T, val identity: ContentFileIdentity?) {
+class StoredAnalysis<T : Any>(value: T, val identity: ContentFileIdentity?, soft: Boolean = true) {
+    private val strongValue: T? = if (soft) null else value
     private val ref = java.lang.ref.SoftReference(value)
 
     /** The result, or null once the JVM reclaimed it. */
-    val value: T? get() = ref.get()
+    val value: T? get() = strongValue ?: ref.get()
 
-    val isReclaimed: Boolean get() = ref.get() == null
+    val isReclaimed: Boolean get() = value == null
 
     /** Blocking stat: call off the UI thread. */
     fun currentFor(file: File): T? {
-        val v = ref.get() ?: return null
+        val v = value ?: return null
         return v.takeIf { identity?.matches(file) == true }
     }
 
-    /** Test seam: what a GC under memory pressure does to the result. */
+    /** Test seam: what a GC under memory pressure does to the result (a strong one is unaffected). */
     internal fun simulateReclaimForTest() = ref.clear()
 
-    internal fun holdsSoftlyForTest(): Boolean = ref is java.lang.ref.SoftReference<*>
+    companion object {
+        /**
+         * A result that is on screen while it is stored (e.g. the audio waveform, whose player holds only part of
+         * it): never reclaimed, so the AI cannot report it as released while the user is looking at it.
+         */
+        fun <T : Any> strong(value: T, identity: ContentFileIdentity?) = StoredAnalysis(value, identity, soft = false)
+    }
 }
 
 /** A finished Quality Compare run with the identity of every compared file, so it goes void if any of them changes. */

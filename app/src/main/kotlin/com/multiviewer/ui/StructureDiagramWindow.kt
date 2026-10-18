@@ -108,6 +108,7 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
     var showHierarchical by remember(tab) { mutableStateOf(!tab.file.name.endsWith(".bmp", ignoreCase = true)) }
     var message by remember(tab) { mutableStateOf("") }
     var saving by remember(tab) { mutableStateOf(false) }
+    var copying by remember(tab) { mutableStateOf(false) }
     // The diagram describes the tree parsed at open time: once the file differs, exports would be stale.
     var fileChanged by remember(tab) { mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(tab, tab.parsedIdentity) {
@@ -223,7 +224,7 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
                 message = label("저장됨: ", "Saved: ") + output.name
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 message = label("저장 실패: ", "Save failed: ") + (e.message ?: e.toString())
             } finally {
                 saving = false
@@ -262,19 +263,24 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
                 }
                 val d = diagram
 
-                OutlinedButton(enabled = hasImage && !fileChanged, onClick = {
+                OutlinedButton(enabled = hasImage && !fileChanged && !copying, onClick = {
                     val render = currentPngRenderer() ?: return@OutlinedButton
+                    copying = true
                     scope.launch {
-                        val image = try {
-                            withContext(Dispatchers.Default) { render() }
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Throwable) {
-                            message = label("이미지를 만들지 못했습니다: ", "Could not render the image: ") + e
-                            return@launch
+                        try {
+                            val image = try {
+                                withContext(Dispatchers.Default) { render() }
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Throwable) {
+                                message = label("이미지를 만들지 못했습니다: ", "Could not render the image: ") + e
+                                return@launch
+                            }
+                            message = if (ClipboardUtil.copyImage(image)) label("이미지를 클립보드에 복사했습니다", "Image copied to the clipboard")
+                            else label("클립보드에 복사하지 못했습니다 (다른 앱이 사용 중일 수 있음)", "Could not copy to the clipboard (another app may be using it)")
+                        } finally {
+                            copying = false
                         }
-                        message = if (ClipboardUtil.copyImage(image)) label("이미지를 클립보드에 복사했습니다", "Image copied to the clipboard")
-                        else label("클립보드에 복사하지 못했습니다 (다른 앱이 사용 중일 수 있음)", "Could not copy to the clipboard (another app may be using it)")
                     }
                 }) { Text(label("이미지 복사", "Copy image")) }
 
@@ -295,7 +301,9 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
                                 }
                             }
                             message = label("Downloads 폴더에 저장되었습니다: ${outFile.name}", "Saved to Downloads: ${outFile.name}")
-                        } catch (e: Exception) {
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Throwable) {
                             message = label("다운로드 실패: ${e.message}", "Download failed: ${e.message}")
                         } finally {
                             saving = false

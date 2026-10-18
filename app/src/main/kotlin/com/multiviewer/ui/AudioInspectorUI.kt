@@ -42,7 +42,7 @@ fun AudioInspectorUI(
                         }
                     },
                     onWaveformComputed = { p, d, id ->
-                        tab.audioWaveform = id?.let { StoredAnalysis(AudioWaveformData(p, d), it) }
+                        tab.audioWaveform = id?.let { StoredAnalysis.strong(AudioWaveformData(p, d), it) }
                     },
                     modifier = Modifier.fillMaxSize(),
                 )
