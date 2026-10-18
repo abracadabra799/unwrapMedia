@@ -13,6 +13,7 @@ enum class FindingStage {
     AUDIO_STRUCTURE,
     AUDIO_DECODE,
     GAINMAP,
+    CONFORMANCE,
 }
 
 /** UI-only normalized finding. Source reports remain authoritative and unmodified. */

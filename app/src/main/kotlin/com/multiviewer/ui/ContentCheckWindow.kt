@@ -29,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
@@ -133,9 +134,8 @@ fun ContentCheckWindow(
     var runId by remember(tab) { mutableStateOf(0) }
     var message by remember(tab) { mutableStateOf("") }
     var selectedTab by remember(tab, initialTab) { mutableStateOf(initialTab) }
-    var selectedStage by remember(tab) { mutableStateOf(CheckStage.STRUCTURE) }
+    var selectedStage by remember(tab) { mutableStateOf(CheckStage.CONTAINER_CONFORMANCE) }
     var manuallySelectedStage by remember(tab) { mutableStateOf(false) }
-    var showCodecDetail by remember(tab) { mutableStateOf(false) }
     // Hoisted out of the video panels so they survive switching between the decode and packet tabs.
     var expandedDiagnostic by remember(tab) { mutableStateOf<Int?>(null) }
     var selectedPacket by remember(tab) { mutableStateOf<IntegrityPacket?>(null) }
@@ -419,7 +419,6 @@ fun ContentCheckWindow(
                             selectedStage = nextSelectedStage(selectedStage, manuallySelectedStage, stage)
                             if (!manuallySelectedStage) {
                                 selectedTab = checkStageDetailTab(selectedStage, type)
-                                showCodecDetail = selectedStage == CheckStage.CODEC
                             }
                         }
                     }
@@ -601,7 +600,6 @@ fun ContentCheckWindow(
                                     selectedStage = spec.stage
                                     manuallySelectedStage = true
                                     selectedTab = checkStageDetailTab(spec.stage, type)
-                                    showCodecDetail = spec.stage == CheckStage.CODEC
                                 }, modifier = Modifier.weight(1f)) {
                                     Text(checkStageLabel(spec.stage, ko), fontSize = 12.sp)
                                 }
@@ -668,80 +666,100 @@ fun ContentCheckWindow(
                     }
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(checkStageLabel(selectedStage, ko), color = AppColors.TextPrimary)
-                        OutlinedButton(onClick = { selectedTab = ContentTab.CONFORMANCE; showCodecDetail = false; manuallySelectedStage = true }) {
-                            Text(label("규격 결과", "Rule results"))
-                        }
-                        if (selectedTab == ContentTab.VIDEO_PACKETS) {
-                            OutlinedButton(onClick = { selectedTab = ContentTab.VIDEO_DECODE }) {
-                                Text(label("디코딩 결과", "Decode results"))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            checkStageLabel(selectedStage, ko),
+                            color = AppColors.TextPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        if (selectedStage == CheckStage.VISUAL_DECODE && type == MediaType.VIDEO) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                OutlinedButton(
+                                    onClick = { selectedTab = ContentTab.VIDEO_DECODE },
+                                ) {
+                                    Text(
+                                        label("프레임 디코딩 결과", "Frame decode results"),
+                                        fontSize = 11.sp,
+                                        fontWeight = if (selectedTab == ContentTab.VIDEO_DECODE) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (selectedTab == ContentTab.VIDEO_DECODE) AppColors.NeonBlue else AppColors.TextPrimary,
+                                    )
+                                }
+                                OutlinedButton(
+                                    onClick = { selectedTab = ContentTab.VIDEO_PACKETS },
+                                ) {
+                                    Text(
+                                        label("비디오 패킷 목록", "Video packet list"),
+                                        fontSize = 11.sp,
+                                        fontWeight = if (selectedTab == ContentTab.VIDEO_PACKETS) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (selectedTab == ContentTab.VIDEO_PACKETS) AppColors.NeonBlue else AppColors.TextPrimary,
+                                    )
+                                }
                             }
                         }
                     }
                     val shownTab = selectedTab
                     when (shownTab) {
                         ContentTab.CODEC -> {
-                    val codecData = when {
-                        hevcBitstream != null -> Triple(hevcBitstream!!.checkedTrack, "${hevcBitstream!!.checkedSamples}/${hevcBitstream!!.indexedSamples}", hevcBitstream!!.limitations) to hevcBitstreamFindings(hevcBitstream!!)
-                        avcBitstream != null -> Triple(avcBitstream!!.checkedTrack, "${avcBitstream!!.checkedSamples}/${avcBitstream!!.indexedSamples}", avcBitstream!!.limitations) to avcBitstreamFindings(avcBitstream!!)
-                        av1Bitstream != null -> Triple(av1Bitstream!!.checkedTrack, "${av1Bitstream!!.checkedSamples}/${av1Bitstream!!.indexedSamples}", av1Bitstream!!.limitations) to av1BitstreamFindings(av1Bitstream!!)
-                        vp9Bitstream != null -> Triple(vp9Bitstream!!.checkedTrack, "${vp9Bitstream!!.checkedSamples}/${vp9Bitstream!!.indexedSamples}", vp9Bitstream!!.limitations) to vp9BitstreamFindings(vp9Bitstream!!)
-                        apvBitstream != null -> Triple(apvBitstream!!.checkedTrack, "${apvBitstream!!.checkedSamples}/${apvBitstream!!.indexedSamples}", apvBitstream!!.limitations) to apvBitstreamFindings(apvBitstream!!)
-                        vvcBitstream != null -> Triple(vvcBitstream!!.checkedTrack, "${vvcBitstream!!.checkedSamples}/${vvcBitstream!!.indexedSamples}", vvcBitstream!!.limitations) to vvcBitstreamFindings(vvcBitstream!!)
-                        aacBitstream != null -> Triple(aacBitstream!!.checkedTrack, "${aacBitstream!!.checkedSamples}/${aacBitstream!!.indexedSamples}", aacBitstream!!.limitations) to aacBitstreamFindings(aacBitstream!!)
-                        opusBitstream != null -> Triple(opusBitstream!!.checkedTrack, "${opusBitstream!!.checkedSamples}/${opusBitstream!!.indexedSamples}", opusBitstream!!.limitations) to opusBitstreamFindings(opusBitstream!!)
-                        flacBitstream != null -> Triple(flacBitstream!!.checkedTrack, "${flacBitstream!!.checkedSamples}/${flacBitstream!!.indexedSamples}", flacBitstream!!.limitations) to flacBitstreamFindings(flacBitstream!!)
-                        else -> null
-                    }
-                    if (codecData == null) Text(label("코덱 검사 결과가 없습니다. 실행을 눌러 시작하세요.", "No codec result yet. Press Run to start."),
-                        color = AppColors.TextSecondary)
-                    else {
-                        val (meta, findings) = codecData
-                        val (track, samples, limitations) = meta
-                        Text("$track · $samples samples", color = AppColors.TextSecondary)
-                        Text(label("구조 관측값입니다. 전체 규격 준수나 MediaCodec 동작을 증명하지 않습니다.",
-                            "Structural observations; these do not establish full conformance or MediaCodec behavior."),
-                            color = AppColors.TextSecondary, fontSize = 12.sp)
-                        limitations.take(8).forEach { Text(it, color = AppColors.TextSecondary, fontSize = 11.sp) }
-                        ContentFindingTable(findings, fileLength, ko, Modifier.weight(1f)) { offset, length ->
-                            tab.parameterSetHighlightRange = offset until (offset + length)
+                            val codecData = when {
+                                hevcBitstream != null -> Triple(hevcBitstream!!.checkedTrack, "${hevcBitstream!!.checkedSamples}/${hevcBitstream!!.indexedSamples}", hevcBitstream!!.limitations) to hevcBitstreamFindings(hevcBitstream!!)
+                                avcBitstream != null -> Triple(avcBitstream!!.checkedTrack, "${avcBitstream!!.checkedSamples}/${avcBitstream!!.indexedSamples}", avcBitstream!!.limitations) to avcBitstreamFindings(avcBitstream!!)
+                                av1Bitstream != null -> Triple(av1Bitstream!!.checkedTrack, "${av1Bitstream!!.checkedSamples}/${av1Bitstream!!.indexedSamples}", av1Bitstream!!.limitations) to av1BitstreamFindings(av1Bitstream!!)
+                                vp9Bitstream != null -> Triple(vp9Bitstream!!.checkedTrack, "${vp9Bitstream!!.checkedSamples}/${vp9Bitstream!!.indexedSamples}", vp9Bitstream!!.limitations) to vp9BitstreamFindings(vp9Bitstream!!)
+                                apvBitstream != null -> Triple(apvBitstream!!.checkedTrack, "${apvBitstream!!.checkedSamples}/${apvBitstream!!.indexedSamples}", apvBitstream!!.limitations) to apvBitstreamFindings(apvBitstream!!)
+                                vvcBitstream != null -> Triple(vvcBitstream!!.checkedTrack, "${vvcBitstream!!.checkedSamples}/${vvcBitstream!!.indexedSamples}", vvcBitstream!!.limitations) to vvcBitstreamFindings(vvcBitstream!!)
+                                aacBitstream != null -> Triple(aacBitstream!!.checkedTrack, "${aacBitstream!!.checkedSamples}/${aacBitstream!!.indexedSamples}", aacBitstream!!.limitations) to aacBitstreamFindings(aacBitstream!!)
+                                opusBitstream != null -> Triple(opusBitstream!!.checkedTrack, "${opusBitstream!!.checkedSamples}/${opusBitstream!!.indexedSamples}", opusBitstream!!.limitations) to opusBitstreamFindings(opusBitstream!!)
+                                flacBitstream != null -> Triple(flacBitstream!!.checkedTrack, "${flacBitstream!!.checkedSamples}/${flacBitstream!!.indexedSamples}", flacBitstream!!.limitations) to flacBitstreamFindings(flacBitstream!!)
+                                else -> null
+                            }
+                            if (codecData == null) Text(label("코덱 검사 결과가 없습니다. 실행을 눌러 시작하세요.", "No codec result yet. Press Run to start."),
+                                color = AppColors.TextSecondary)
+                            else {
+                                val (meta, findings) = codecData
+                                val (track, samples, limitations) = meta
+                                Text("$track · $samples samples", color = AppColors.TextSecondary)
+                                Text(label("구조 관측값입니다. 전체 규격 준수나 MediaCodec 동작을 증명하지 않습니다.",
+                                    "Structural observations; these do not establish full conformance or MediaCodec behavior."),
+                                    color = AppColors.TextSecondary, fontSize = 12.sp)
+                                limitations.take(8).forEach { Text(it, color = AppColors.TextSecondary, fontSize = 11.sp) }
+                                ContentFindingTable(findings, fileLength, ko, Modifier.weight(1f)) { offset, length ->
+                                    tab.parameterSetHighlightRange = offset until (offset + length)
+                                }
+                            }
                         }
-                    }
-                }
-                ContentTab.CONFORMANCE -> if (showCodecDetail) {
-                    val codecData = when {
-                        hevcBitstream != null -> Triple(hevcBitstream!!.checkedTrack, "${hevcBitstream!!.checkedSamples}/${hevcBitstream!!.indexedSamples}", hevcBitstream!!.limitations) to hevcBitstreamFindings(hevcBitstream!!)
-                        avcBitstream != null -> Triple(avcBitstream!!.checkedTrack, "${avcBitstream!!.checkedSamples}/${avcBitstream!!.indexedSamples}", avcBitstream!!.limitations) to avcBitstreamFindings(avcBitstream!!)
-                        av1Bitstream != null -> Triple(av1Bitstream!!.checkedTrack, "${av1Bitstream!!.checkedSamples}/${av1Bitstream!!.indexedSamples}", av1Bitstream!!.limitations) to av1BitstreamFindings(av1Bitstream!!)
-                        vp9Bitstream != null -> Triple(vp9Bitstream!!.checkedTrack, "${vp9Bitstream!!.checkedSamples}/${vp9Bitstream!!.indexedSamples}", vp9Bitstream!!.limitations) to vp9BitstreamFindings(vp9Bitstream!!)
-                        apvBitstream != null -> Triple(apvBitstream!!.checkedTrack, "${apvBitstream!!.checkedSamples}/${apvBitstream!!.indexedSamples}", apvBitstream!!.limitations) to apvBitstreamFindings(apvBitstream!!)
-                        vvcBitstream != null -> Triple(vvcBitstream!!.checkedTrack, "${vvcBitstream!!.checkedSamples}/${vvcBitstream!!.indexedSamples}", vvcBitstream!!.limitations) to vvcBitstreamFindings(vvcBitstream!!)
-                        aacBitstream != null -> Triple(aacBitstream!!.checkedTrack, "${aacBitstream!!.checkedSamples}/${aacBitstream!!.indexedSamples}", aacBitstream!!.limitations) to aacBitstreamFindings(aacBitstream!!)
-                        opusBitstream != null -> Triple(opusBitstream!!.checkedTrack, "${opusBitstream!!.checkedSamples}/${opusBitstream!!.indexedSamples}", opusBitstream!!.limitations) to opusBitstreamFindings(opusBitstream!!)
-                        flacBitstream != null -> Triple(flacBitstream!!.checkedTrack, "${flacBitstream!!.checkedSamples}/${flacBitstream!!.indexedSamples}", flacBitstream!!.limitations) to flacBitstreamFindings(flacBitstream!!)
-                        else -> null
-                    }
-                    if (codecData == null) Text(label("코덱 검사 결과가 없습니다. 실행을 눌러 시작하세요.", "No codec result yet. Press Run to start."),
-                        color = AppColors.TextSecondary)
-                    else {
-                        val (meta, findings) = codecData
-                        val (track, samples, limitations) = meta
-                        Text("$track · $samples samples", color = AppColors.TextSecondary)
-                        Text(label("구조 관측값입니다. 전체 규격 준수나 MediaCodec 동작을 증명하지 않습니다.",
-                            "Structural observations; these do not establish full conformance or MediaCodec behavior."),
-                            color = AppColors.TextSecondary, fontSize = 12.sp)
-                        limitations.take(8).forEach { Text(it, color = AppColors.TextSecondary, fontSize = 11.sp) }
-                        ContentFindingTable(findings, fileLength, ko, Modifier.weight(1f)) { offset, length ->
-                            tab.parameterSetHighlightRange = offset until (offset + length)
+                        ContentTab.CONFORMANCE -> {
+                            val report = conformance
+                            if (report == null) {
+                                Text(label("규격 검사 준비 중 · 미검증", "Preparing conformance checks · not checked"), color = AppColors.TextMuted)
+                            } else {
+                                Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Text("${report.format} · ${report.profile}", color = AppColors.TextSecondary, fontSize = 12.sp)
+                                        val effStatus = effectiveConformanceStatus(exportSnapshot()) ?: report.overall
+                                        val statusText = conformanceStatusLabel(effStatus, ko)
+                                        val statusColor = conformanceStatusColor(effStatus)
+                                        Text(statusText, color = statusColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    }
+                                    Text(
+                                        label("전체 규격 준수를 의미하지 않습니다. 아래 구현된 검사와 범위만 평가합니다.",
+                                            "This does not establish full specification compliance. Only the implemented checks and scopes below are evaluated."),
+                                        color = AppColors.TextSecondary, fontSize = 11.sp,
+                                    )
+                                    report.limitations.take(4).forEach { Text(it, color = AppColors.TextSecondary, fontSize = 11.sp) }
+                                    val findings = conformanceFindings(report)
+                                    ContentFindingTable(findings, fileLength, ko, Modifier.weight(1f)) { offset, length ->
+                                        if (offset >= 0 && length > 0 && offset < fileLength && length <= fileLength - offset) {
+                                            tab.parameterSetHighlightRange = offset..(offset + (length - 1))
+                                        }
+                                    }
+                                }
+                            }
                         }
-                    }
-                } else ConformancePanel(conformance, language,
-                    effectiveConformanceStatus(exportSnapshot())) { offset, length ->
-                    if (offset >= 0 && length > 0 && offset < fileLength && length <= fileLength - offset) {
-                        tab.parameterSetHighlightRange = offset..(offset + (length - 1))
-                    }
-                }
                 ContentTab.AUDIO -> AudioCheckPanel(audio, audioError, ko, Modifier.weight(1f))
                 ContentTab.STRUCTURE -> if (type == MediaType.AUDIO) {
                     AudioStructurePanel(audioStructure, structureError, ko, fileLength) { offset, length ->

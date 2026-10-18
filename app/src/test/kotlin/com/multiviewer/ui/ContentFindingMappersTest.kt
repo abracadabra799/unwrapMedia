@@ -152,4 +152,39 @@ class ContentFindingMappersTest {
         assertFalse(finding.verifiedFacts.any { "/Users/private-user" in it })
         assertFalse(finding.hypothesis.orEmpty().contains("/Users/private-user"))
     }
+
+    @Test fun mapsConformanceFindingsToNormalizedTabularItems() {
+        val rule = com.multiviewer.parser.conformance.ConformanceRule(
+            id = "isobmff.ftyp.major_brand",
+            title = "Major brand presence",
+            source = "ISO/IEC 14496-12:2022",
+            reference = "Clause 4.3.1",
+            scope = "ftyp box",
+        )
+        val finding = com.multiviewer.parser.conformance.ConformanceFinding(
+            rule = rule,
+            status = com.multiviewer.parser.conformance.ConformanceStatus.PASS,
+            details = listOf("ftyp major_brand 'mp42' found at offset 8"),
+            ranges = listOf(8L..11L),
+        )
+        val report = com.multiviewer.parser.conformance.ConformanceReport(
+            format = "MP4",
+            profile = "ISO-BMFF",
+            findings = listOf(finding),
+        )
+
+        val results = conformanceFindings(report)
+        assertEquals(1, results.size)
+        val item = results.single()
+        assertEquals("isobmff.ftyp.major_brand", item.id)
+        assertEquals(FindingStage.CONFORMANCE, item.stage)
+        assertEquals(CheckStatus.PASS, item.status)
+        assertEquals("Major brand presence", item.title)
+        assertEquals("ftyp box", item.location)
+        assertEquals(8L, item.offset)
+        assertEquals(4L, item.length)
+        assertTrue(item.verifiedFacts.any { it.contains("ISO/IEC 14496-12:2022") })
+        assertTrue(item.verifiedFacts.any { it.contains("Clause 4.3.1") })
+        assertTrue(item.nextChecks.any { it.contains("0x8–0xB") })
+    }
 }

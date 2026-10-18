@@ -1,6 +1,8 @@
 package com.multiviewer.ui
 
 import com.multiviewer.parser.SefCheckResult
+import com.multiviewer.parser.conformance.ConformanceReport
+import com.multiviewer.parser.conformance.ConformanceStatus
 import com.multiviewer.parser.integrity.AudioStructureReport
 import com.multiviewer.parser.integrity.CheckStatus
 import com.multiviewer.parser.integrity.ImageStructureReport
@@ -31,6 +33,36 @@ data class AudioFindingPresentation(
     val trackFindings: List<ContentFinding>,
     val trackRows: List<AudioTrackMeasurementRow>,
 )
+
+fun conformanceFindings(report: ConformanceReport): List<ContentFinding> = report.findings.map { finding ->
+    val range = finding.ranges.firstOrNull()
+    val extent = if (range != null && range.first >= 0 && range.last >= range.first) {
+        range.last - range.first + 1
+    } else null
+
+    ContentFinding(
+        id = finding.rule.id,
+        stage = FindingStage.CONFORMANCE,
+        status = when (finding.status) {
+            ConformanceStatus.PASS -> CheckStatus.PASS
+            ConformanceStatus.FAIL -> CheckStatus.FAIL
+            ConformanceStatus.WARN -> CheckStatus.WARN
+            ConformanceStatus.NOT_CHECKED, ConformanceStatus.NOT_APPLICABLE -> CheckStatus.SKIP
+        },
+        title = finding.rule.title,
+        location = finding.rule.scope,
+        offset = range?.first,
+        length = extent,
+        summary = finding.details.firstOrNull() ?: finding.rule.source,
+        verifiedFacts = buildList {
+            add("Source: ${finding.rule.source}")
+            finding.rule.reference?.let { add("Reference: $it") }
+            add("Scope: ${finding.rule.scope}")
+            addAll(finding.details)
+        },
+        nextChecks = finding.ranges.map { "Hex evidence: 0x${it.first.toString(16).uppercase()}–0x${it.last.toString(16).uppercase()}" },
+    ).sanitizeFindingPaths()
+}
 
 fun structureFindings(report: ImageStructureReport, stage: FindingStage): List<ContentFinding> =
     report.items.map { it.toFinding(stage).sanitizeFindingPaths() }
