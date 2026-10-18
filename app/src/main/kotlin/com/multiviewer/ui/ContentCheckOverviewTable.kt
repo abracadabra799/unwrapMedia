@@ -127,6 +127,17 @@ fun ContentCheckOverviewTable(
     ko: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val maxTargetLen = rows.maxOfOrNull { it.targetLabel.length } ?: 10
+    val targetWidth = when {
+        maxTargetLen > 24 -> 200.dp
+        maxTargetLen > 16 -> 175.dp
+        else -> 150.dp
+    }
+    val catWidth = 145.dp
+    val stageWidth = 150.dp
+    val statusWidth = 72.dp
+    val actionWidth = 72.dp
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -141,7 +152,7 @@ fun ContentCheckOverviewTable(
                 .height(IntrinsicSize.Min),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.width(175.dp).padding(horizontal = 8.dp, vertical = 7.dp)) {
+            Box(Modifier.width(catWidth).padding(horizontal = 8.dp, vertical = 7.dp)) {
                 Text(
                     if (ko) "구분" else "Category",
                     color = AppColors.TextSecondary,
@@ -150,7 +161,7 @@ fun ContentCheckOverviewTable(
                 )
             }
             TableVerticalDivider(AppColors.Border.copy(alpha = 0.6f))
-            Box(Modifier.width(160.dp).padding(horizontal = 8.dp, vertical = 7.dp)) {
+            Box(Modifier.width(stageWidth).padding(horizontal = 8.dp, vertical = 7.dp)) {
                 Text(
                     if (ko) "검사 항목" else "Check Item",
                     color = AppColors.TextSecondary,
@@ -159,7 +170,7 @@ fun ContentCheckOverviewTable(
                 )
             }
             TableVerticalDivider(AppColors.Border.copy(alpha = 0.6f))
-            Box(Modifier.width(180.dp).padding(horizontal = 8.dp, vertical = 7.dp)) {
+            Box(Modifier.width(targetWidth).padding(horizontal = 8.dp, vertical = 7.dp)) {
                 Text(
                     if (ko) "대상 / 규격" else "Target / Format",
                     color = AppColors.TextSecondary,
@@ -168,7 +179,7 @@ fun ContentCheckOverviewTable(
                 )
             }
             TableVerticalDivider(AppColors.Border.copy(alpha = 0.6f))
-            Box(Modifier.width(85.dp).padding(horizontal = 8.dp, vertical = 7.dp)) {
+            Box(Modifier.width(statusWidth).padding(horizontal = 8.dp, vertical = 7.dp)) {
                 Text(
                     if (ko) "상태" else "Status",
                     color = AppColors.TextSecondary,
@@ -186,7 +197,7 @@ fun ContentCheckOverviewTable(
                 )
             }
             TableVerticalDivider(AppColors.Border.copy(alpha = 0.6f))
-            Box(Modifier.width(80.dp).padding(horizontal = 8.dp, vertical = 7.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.width(actionWidth).padding(horizontal = 8.dp, vertical = 7.dp), contentAlignment = Alignment.Center) {
                 Text(
                     if (ko) "실행" else "Action",
                     color = AppColors.TextSecondary,
@@ -223,7 +234,7 @@ fun ContentCheckOverviewTable(
                 ) {
                     // Category Column (with left accent stripe if selected)
                     Row(
-                        modifier = Modifier.width(175.dp).padding(horizontal = 8.dp, vertical = 5.dp),
+                        modifier = Modifier.width(catWidth).padding(horizontal = 8.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         if (isSelected) {
@@ -252,7 +263,7 @@ fun ContentCheckOverviewTable(
 
                     // Check Item Column
                     Box(
-                        modifier = Modifier.width(160.dp).padding(horizontal = 8.dp, vertical = 5.dp),
+                        modifier = Modifier.width(stageWidth).padding(horizontal = 8.dp, vertical = 5.dp),
                         contentAlignment = Alignment.CenterStart,
                     ) {
                         val stageFontSize = if (row.stageLabel.length > 16) 10.5.sp else 11.5.sp
@@ -269,7 +280,7 @@ fun ContentCheckOverviewTable(
 
                     // Target / Format Column
                     Box(
-                        modifier = Modifier.width(180.dp).padding(horizontal = 8.dp, vertical = 5.dp),
+                        modifier = Modifier.width(targetWidth).padding(horizontal = 8.dp, vertical = 5.dp),
                         contentAlignment = Alignment.CenterStart,
                     ) {
                         val targetFontSize = if (row.targetLabel.length > 20) 10.sp else 11.sp
@@ -286,7 +297,7 @@ fun ContentCheckOverviewTable(
                     // Status Column
                     val toneColor = overviewStatusToneColor(row.statusTone)
                     Box(
-                        modifier = Modifier.width(85.dp).padding(horizontal = 8.dp, vertical = 5.dp),
+                        modifier = Modifier.width(statusWidth).padding(horizontal = 8.dp, vertical = 5.dp),
                         contentAlignment = Alignment.CenterStart,
                     ) {
                         Surface(
@@ -346,7 +357,7 @@ fun ContentCheckOverviewTable(
 
                     // Action Column
                     Box(
-                        modifier = Modifier.width(80.dp).padding(horizontal = 6.dp, vertical = 4.dp),
+                        modifier = Modifier.width(actionWidth).padding(horizontal = 6.dp, vertical = 4.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         if (row.isAvailable) {

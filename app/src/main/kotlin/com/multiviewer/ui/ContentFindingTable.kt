@@ -98,7 +98,6 @@ internal fun ContentFindingSummaryBar(findings: List<ContentFinding>, ko: Boolea
         Text((if (ko) "실패 " else "Fail ") + counts.failures, color = AppColors.NeonRed, fontSize = 12.sp)
         Text((if (ko) "경고 " else "Warn ") + counts.warnings, color = AppColors.NeonYellow, fontSize = 12.sp)
         Text((if (ko) "정상·정보 " else "Pass/info ") + counts.passed, color = AppColors.NeonGreen, fontSize = 12.sp)
-        Text((if (ko) "미검증 " else "Unverified ") + counts.unverified, color = AppColors.TextMuted, fontSize = 12.sp)
     }
 }
 
@@ -110,24 +109,28 @@ internal fun ContentFindingTable(
     modifier: Modifier = Modifier,
     onSelectRange: ((Long, Long) -> Unit)? = null,
 ) {
-    var filter by remember { mutableStateOf(ContentFindingFilter.ALL) }
     val expanded = remember { mutableStateMapOf<String, Boolean>() }
-    val rows = contentFindingTableRows(findings, filter)
+    val rows = findings
+
+    val maxCheckLen = rows.maxOfOrNull { it.title.length } ?: 10
+    val checkWidth = when {
+        maxCheckLen > 40 -> 360.dp
+        maxCheckLen > 25 -> 310.dp
+        maxCheckLen > 15 -> 260.dp
+        else -> 200.dp
+    }
+
+    val maxLocLen = rows.maxOfOrNull { contentFindingLocationLabel(it, ko).length } ?: 10
+    val locWidth = when {
+        maxLocLen > 35 -> 260.dp
+        maxLocLen > 25 -> 220.dp
+        maxLocLen > 15 -> 170.dp
+        else -> 120.dp
+    }
+    val statusWidth = 65.dp
+
     Column(modifier.fillMaxSize()) {
-        ContentFindingSummaryBar(findings, ko, Modifier.padding(bottom = 3.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 6.dp)) {
-            for (option in ContentFindingFilter.entries) {
-                FilterChip(
-                    selected = filter == option,
-                    onClick = { filter = option },
-                    label = { Text(when (option) {
-                        ContentFindingFilter.ALL -> if (ko) "전체" else "All"
-                        ContentFindingFilter.ISSUES -> if (ko) "문제만" else "Issues"
-                        ContentFindingFilter.UNVERIFIED -> if (ko) "미검증" else "Unverified"
-                    }) },
-                )
-            }
-        }
+        ContentFindingSummaryBar(findings, ko, Modifier.padding(bottom = 6.dp))
 
         // Table Grid Container with rounded border
         Column(
@@ -145,15 +148,15 @@ internal fun ContentFindingTable(
                     .height(IntrinsicSize.Min),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(Modifier.width(75.dp).padding(horizontal = 8.dp, vertical = 7.dp)) {
+                Box(Modifier.width(statusWidth).padding(horizontal = 8.dp, vertical = 7.dp)) {
                     Text(if (ko) "상태" else "Status", color = AppColors.TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
                 TableVerticalDivider(AppColors.Border.copy(alpha = 0.6f))
-                Box(Modifier.width(280.dp).padding(horizontal = 8.dp, vertical = 7.dp)) {
+                Box(Modifier.width(checkWidth).padding(horizontal = 8.dp, vertical = 7.dp)) {
                     Text(if (ko) "검사" else "Check", color = AppColors.TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
                 TableVerticalDivider(AppColors.Border.copy(alpha = 0.6f))
-                Box(Modifier.width(180.dp).padding(horizontal = 8.dp, vertical = 7.dp)) {
+                Box(Modifier.width(locWidth).padding(horizontal = 8.dp, vertical = 7.dp)) {
                     Text(if (ko) "위치" else "Location", color = AppColors.TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
                 TableVerticalDivider(AppColors.Border.copy(alpha = 0.6f))
@@ -187,7 +190,7 @@ internal fun ContentFindingTable(
                         ) {
                             // Column 1: Status
                             Box(
-                                Modifier.width(75.dp).padding(horizontal = 8.dp, vertical = 5.dp),
+                                Modifier.width(statusWidth).padding(horizontal = 8.dp, vertical = 5.dp),
                                 contentAlignment = Alignment.CenterStart,
                             ) {
                                 Text(
@@ -202,10 +205,14 @@ internal fun ContentFindingTable(
 
                             // Column 2: Check (Title)
                             Box(
-                                Modifier.width(280.dp).padding(horizontal = 8.dp, vertical = 5.dp),
+                                Modifier.width(checkWidth).padding(horizontal = 8.dp, vertical = 5.dp),
                                 contentAlignment = Alignment.CenterStart,
                             ) {
-                                val titleFontSize = if (finding.title.length > 25) 10.sp else 11.5.sp
+                                val titleFontSize = when {
+                                    finding.title.length > 35 -> 10.sp
+                                    finding.title.length > 20 -> 10.5.sp
+                                    else -> 11.5.sp
+                                }
                                 Text(
                                     finding.title,
                                     color = AppColors.TextPrimary,
@@ -218,11 +225,15 @@ internal fun ContentFindingTable(
 
                             // Column 3: Location
                             Box(
-                                Modifier.width(180.dp).padding(horizontal = 8.dp, vertical = 5.dp),
+                                Modifier.width(locWidth).padding(horizontal = 8.dp, vertical = 5.dp),
                                 contentAlignment = Alignment.CenterStart,
                             ) {
                                 val loc = contentFindingLocationLabel(finding, ko)
-                                val locFontSize = if (loc.length > 20) 10.sp else 11.sp
+                                val locFontSize = when {
+                                    loc.length > 30 -> 9.5.sp
+                                    loc.length > 18 -> 10.5.sp
+                                    else -> 11.sp
+                                }
                                 Text(
                                     loc,
                                     color = AppColors.TextSecondary,
@@ -290,25 +301,10 @@ internal fun ContentFindingTable(
                 }
 
                 if (rows.isEmpty()) item {
-                    val counts = contentFindingTableSummary(findings)
-                    val emptyText = when (contentFindingEmptyState(findings, filter)) {
-                        ContentFindingEmptyState.NO_CHECKS -> if (ko)
-                            "검사 결과 항목이 없습니다. 이 결과만으로 정상 여부를 판단할 수 없습니다."
-                        else "No check results are available. This alone does not establish a pass."
-                        ContentFindingEmptyState.FILTERED -> when (filter) {
-                            ContentFindingFilter.ISSUES -> if (ko)
-                                "실패·경고 항목 없음 · 전체 ${counts.total}건, 정상·정보 ${counts.passed}건, 미검증 ${counts.unverified}건"
-                            else "No failures or warnings · ${counts.total} checks: ${counts.passed} pass/info, ${counts.unverified} unverified"
-                            ContentFindingFilter.UNVERIFIED -> if (ko)
-                                "미검증 항목 없음 · 전체 ${counts.total}건"
-                            else "No unverified checks · ${counts.total} checks total"
-                            ContentFindingFilter.ALL -> ""
-                        }
-                        null -> ""
-                    }
-                    if (emptyText.isNotEmpty()) {
-                        Text(emptyText, color = AppColors.TextMuted, modifier = Modifier.padding(12.dp))
-                    }
+                    val emptyText = if (ko)
+                        "검사 결과 항목이 없습니다. 이 결과만으로 정상 여부를 판단할 수 없습니다."
+                    else "No check results are available. This alone does not establish a pass."
+                    Text(emptyText, color = AppColors.TextMuted, modifier = Modifier.padding(12.dp))
                 }
             }
         }
