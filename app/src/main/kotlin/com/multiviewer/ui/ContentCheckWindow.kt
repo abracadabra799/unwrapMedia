@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
@@ -581,91 +582,70 @@ fun ContentCheckWindow(
                 OutlinedButton(enabled = actions.canDiagnose, onClick = onAiDiagnosis) { Text(label("AI 진단", "AI diagnosis")) }
             }
             if (message.isNotEmpty()) Text(message, color = AppColors.TextSecondary, fontSize = 12.sp)
-            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Column(Modifier.width(280.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(label("규격 검사", "Conformance checks"), color = AppColors.TextPrimary)
-                    stageSpecs.forEach { spec ->
-                        if (spec.stage == CheckStage.VISUAL_DECODE) {
-                            Text(label("동작 진단", "Operation checks"), color = AppColors.TextPrimary)
-                        }
-                        if (spec.stage == CheckStage.MOTION_PHOTO) {
-                            Text(label("확장 검사", "Additional checks"), color = AppColors.TextPrimary)
-                        }
-                        val state = stageStates[spec.stage] ?: CheckStageState(CheckRunStatus.NOT_RUN)
-                        Column(Modifier.fillMaxWidth().background(AppColors.Surface).padding(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                OutlinedButton(onClick = {
-                                    selectedStage = spec.stage
-                                    manuallySelectedStage = true
-                                    selectedTab = checkStageDetailTab(spec.stage, type)
-                                }, modifier = Modifier.weight(1f)) {
-                                    Text(checkStageLabel(spec.stage, ko), fontSize = 12.sp)
-                                }
-                                if (spec.availability == CheckAvailability.AVAILABLE) {
-                                    OutlinedButton(enabled = !running && !fileChanged, onClick = { startChecks(listOf(spec.stage)) }) {
-                                        Text(checkStageActionLabel(state.status, ko), fontSize = 11.sp)
-                                    }
-                                }
-                            }
-                            Text(checkStageDescription(spec.stage, ko), color = AppColors.TextSecondary, fontSize = 11.sp)
-                            val status = when (spec.availability) {
-                                CheckAvailability.UNSUPPORTED -> label("미지원", "Unsupported")
-                                CheckAvailability.NOT_APPLICABLE -> label("해당 없음", "Not applicable")
-                                CheckAvailability.LOADING -> label("파일 구조 불러오는 중", "Loading file structure")
-                                CheckAvailability.AVAILABLE -> checkRunStatusLabel(state.status, ko)
-                            }
-                            Text(status + (state.reason?.let { " · $it" } ?: ""), color = AppColors.TextSecondary, fontSize = 11.sp)
-                            if (state.status == CheckRunStatus.COMPLETED || state.status == CheckRunStatus.PARTIAL) {
-                                val verdict = when (spec.stage) {
-                                    CheckStage.CONTAINER_CONFORMANCE -> conformance?.let { report ->
-                                        when (report.overall) {
-                                            ConformanceStatus.PASS -> label("규격 통과", "Conformance pass")
-                                            ConformanceStatus.FAIL -> label("오류 ${report.findings.count { it.status == ConformanceStatus.FAIL }}건", "${report.findings.count { it.status == ConformanceStatus.FAIL }} issues")
-                                            ConformanceStatus.WARN -> label("경고 ${report.findings.count { it.status == ConformanceStatus.WARN }}건", "${report.findings.count { it.status == ConformanceStatus.WARN }} warnings")
-                                            ConformanceStatus.NOT_CHECKED -> label("미검사", "Not checked")
-                                            ConformanceStatus.NOT_APPLICABLE -> label("해당 없음", "Not applicable")
-                                        }
-                                    }
-                                    CheckStage.STRUCTURE -> if (type == MediaType.AUDIO) audioStructure?.overall?.let { checkStatusLabel(it, ko) }
-                                        else structure?.overall?.let { checkStatusLabel(it, ko) }
-                                    CheckStage.CODEC -> {
-                                        val pair = hevcBitstream?.let { it.findings to it.complete }
-                                            ?: avcBitstream?.let { it.findings to it.complete }
-                                            ?: av1Bitstream?.let { it.findings to it.complete }
-                                            ?: vp9Bitstream?.let { it.findings to it.complete }
-                                            ?: apvBitstream?.let { it.findings to it.complete }
-                                            ?: vvcBitstream?.let { it.findings to it.complete }
-                                            ?: aacBitstream?.let { it.findings to it.complete }
-                                            ?: opusBitstream?.let { it.findings to it.complete }
-                                            ?: flacBitstream?.let { it.findings to it.complete }
-                                        pair?.let { (findings, complete) -> when {
-                                            findings.any { it.status == ConformanceStatus.FAIL } -> label("오류 관측", "Issues observed")
-                                            !complete -> label("일부 미검증", "Partly unchecked")
-                                            else -> label("바이트 검사 완료 · 규격 미검증", "Byte check complete · conformance unchecked")
-                                        } }
-                                    }
-                                    CheckStage.VISUAL_DECODE -> if (type == MediaType.IMAGE) imageDecode?.status?.let { headerDecodeLabel(true, it, ko) }
-                                        else video?.decodeStatus?.let { videoStatusLabel(it, ko) }
-                                    CheckStage.AUDIO_DECODE -> audio?.status?.let { videoStatusLabel(it, ko) }
-                                    CheckStage.MOTION_PHOTO -> motion?.verdictStatus()?.let { checkStatusLabel(it, ko) }
-                                    CheckStage.GAINMAP -> gainmapChecks?.let { checkStatusLabel(gainmapOverall(it), ko) }
-                                }
-                                if (verdict != null) Text(verdict, color = AppColors.TextPrimary, fontSize = 11.sp)
-                            }
-                            if (state.status == CheckRunStatus.RUNNING) {
-                                val progress = state.progress
-                                if (progress?.total != null && progress.total > 0) {
-                                    LinearProgressIndicator(progress = { (progress.completed.toFloat() / progress.total).coerceIn(0f, 1f) },
-                                        modifier = Modifier.fillMaxWidth())
-                                } else LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                                if (progress != null) Text(checkProgressLabel(progress), fontSize = 11.sp)
+            val overviewRows = remember(stageSpecs, stageStates, tab.root, tab.mediaSummary, ko, running, fileChanged, conformance, structure, audioStructure, hevcBitstream, avcBitstream, av1Bitstream, vp9Bitstream, apvBitstream, vvcBitstream, aacBitstream, opusBitstream, flacBitstream, imageDecode, video, audio, motion, gainmapChecks) {
+                buildContentCheckOverviewRows(
+                    specs = stageSpecs,
+                    states = stageStates,
+                    type = type,
+                    root = tab.root,
+                    summary = tab.mediaSummary,
+                    ko = ko,
+                    running = running,
+                    fileChanged = fileChanged,
+                ) { stage ->
+                    when (stage) {
+                        CheckStage.CONTAINER_CONFORMANCE -> conformance?.let { report ->
+                            when (report.overall) {
+                                ConformanceStatus.PASS -> label("규격 통과", "Conformance pass")
+                                ConformanceStatus.FAIL -> label("오류 ${report.findings.count { it.status == ConformanceStatus.FAIL }}건", "${report.findings.count { it.status == ConformanceStatus.FAIL }} issues")
+                                ConformanceStatus.WARN -> label("경고 ${report.findings.count { it.status == ConformanceStatus.WARN }}건", "${report.findings.count { it.status == ConformanceStatus.WARN }} warnings")
+                                ConformanceStatus.NOT_CHECKED -> label("미검사", "Not checked")
+                                ConformanceStatus.NOT_APPLICABLE -> label("해당 없음", "Not applicable")
                             }
                         }
+                        CheckStage.STRUCTURE -> if (type == MediaType.AUDIO) audioStructure?.overall?.let { checkStatusLabel(it, ko) }
+                            else structure?.overall?.let { checkStatusLabel(it, ko) }
+                        CheckStage.CODEC -> {
+                            val pair = hevcBitstream?.let { it.findings to it.complete }
+                                ?: avcBitstream?.let { it.findings to it.complete }
+                                ?: av1Bitstream?.let { it.findings to it.complete }
+                                ?: vp9Bitstream?.let { it.findings to it.complete }
+                                ?: apvBitstream?.let { it.findings to it.complete }
+                                ?: vvcBitstream?.let { it.findings to it.complete }
+                                ?: aacBitstream?.let { it.findings to it.complete }
+                                ?: opusBitstream?.let { it.findings to it.complete }
+                                ?: flacBitstream?.let { it.findings to it.complete }
+                            pair?.let { (findings, complete) -> when {
+                                findings.any { it.status == ConformanceStatus.FAIL } -> label("오류 관측", "Issues observed")
+                                !complete -> label("일부 미검증", "Partly unchecked")
+                                else -> label("바이트 검사 완료 · 규격 미검증", "Byte check complete · conformance unchecked")
+                            } }
+                        }
+                        CheckStage.VISUAL_DECODE -> if (type == MediaType.IMAGE) imageDecode?.status?.let { headerDecodeLabel(true, it, ko) }
+                            else video?.decodeStatus?.let { videoStatusLabel(it, ko) }
+                        CheckStage.AUDIO_DECODE -> audio?.status?.let { videoStatusLabel(it, ko) }
+                        CheckStage.MOTION_PHOTO -> motion?.verdictStatus()?.let { checkStatusLabel(it, ko) }
+                        CheckStage.GAINMAP -> gainmapChecks?.let { checkStatusLabel(gainmapOverall(it), ko) }
                     }
                 }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            }
+
+            ContentCheckOverviewTable(
+                rows = overviewRows,
+                selectedStage = selectedStage,
+                onSelectStage = { stage ->
+                    selectedStage = stage
+                    manuallySelectedStage = true
+                    selectedTab = checkStageDetailTab(stage, type)
+                },
+                onRunStage = { stage ->
+                    startChecks(listOf(stage))
+                },
+                ko = ko,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp, max = 220.dp),
+            )
+
+            Column(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -821,8 +801,7 @@ fun ContentCheckWindow(
                     }
                 }
             }
-                }
-            }
         }
     }
+}
 }
