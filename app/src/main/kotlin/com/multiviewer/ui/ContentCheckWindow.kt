@@ -725,12 +725,6 @@ fun ContentCheckWindow(
                                         val statusColor = conformanceStatusColor(effStatus)
                                         Text(statusText, color = statusColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                     }
-                                    Text(
-                                        label("전체 규격 준수를 의미하지 않습니다. 아래 구현된 검사와 범위만 평가합니다.",
-                                            "This does not establish full specification compliance. Only the implemented checks and scopes below are evaluated."),
-                                        color = AppColors.TextSecondary, fontSize = 11.sp,
-                                    )
-                                    report.limitations.take(4).forEach { Text(it, color = AppColors.TextSecondary, fontSize = 11.sp) }
                                     val findings = conformanceFindings(report)
                                     ContentFindingTable(findings, fileLength, ko, Modifier.weight(1f)) { offset, length ->
                                         if (offset >= 0 && length > 0 && offset < fileLength && length <= fileLength - offset) {
