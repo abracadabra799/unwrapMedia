@@ -431,6 +431,20 @@ internal fun promptSaveRangeBytesWithDialog(
     }
 }
 
+/** Rows kept beyond each edge of the visible window, so a prefetched or just-scrolled row keeps its layout. */
+internal const val ROW_LAYOUT_CACHE_MARGIN = 32
+
+/**
+ * Evicts the per-row text layouts of rows outside [visibleRows] ± [margin]. They are read only to hit-test the
+ * visible rows, and each one holds a native Skia paragraph, so a scroll sweep through a large file must not keep
+ * one per row ever shown. A row that scrolls back in is laid out (and cached) again. An empty window keeps all.
+ */
+internal fun <V> pruneRowLayoutCache(cache: MutableMap<Int, V>, visibleRows: IntRange, margin: Int = ROW_LAYOUT_CACHE_MARGIN) {
+    if (visibleRows.isEmpty()) return
+    val keep = (visibleRows.first - margin)..(visibleRows.last + margin)
+    cache.keys.retainAll { it in keep }
+}
+
 private fun resolveByteAt(
     position: Offset,
     listState: LazyListState,
@@ -478,6 +492,12 @@ fun HexView(
     var selectionEnd by remember(file) { mutableStateOf<Long?>(null) }
     var fontSizeSp by remember(file) { mutableStateOf(12f) }
     val layoutResults = remember(file) { mutableStateMapOf<Int, TextLayoutResult>() }
+    LaunchedEffect(layoutResults, listState) {
+        snapshotFlow {
+            val visible = listState.layoutInfo.visibleItemsInfo
+            if (visible.isEmpty()) IntRange.EMPTY else visible.first().index..visible.last().index
+        }.collect { pruneRowLayoutCache(layoutResults, it) }
+    }
     val focusRequester = remember { FocusRequester() }
 
     // 010 Editor / UltraEdit Features State
