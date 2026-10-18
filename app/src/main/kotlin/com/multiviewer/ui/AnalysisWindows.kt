@@ -143,7 +143,7 @@ fun StructureDumpWindow(
                                 }
                                 Spacer(Modifier.height(2.dp))
                                 Text(
-                                    "${tab.file.name} · ${formatBytes(tab.root?.size ?: 0L)}",
+                                    "${tab.file.name} · ${tab.root?.let { formatBytes(it.size) } ?: "—"}",
                                     style = AppTypography.bodyMedium.copy(fontSize = 12.sp, color = AppColors.TextSecondary),
                                 )
                             }
