@@ -154,16 +154,21 @@ fun ContentCheckWindow(
     val gainmapDetected = type == MediaType.IMAGE && tab.gainmapInfo?.hasGainmap == true
     var gainmapChecks by remember(tab) { mutableStateOf<List<IntegrityCheckItem>?>(null) }
     var stageStates by remember(tab) { mutableStateOf<Map<CheckStage, CheckStageState>>(emptyMap()) }
-    val aacAvail = aacCodecAvailability(type, tab.root)
-    val opusAvail = opusCodecAvailability(type, tab.root)
-    val flacAvail = flacCodecAvailability(type, tab.root)
-    val videoCodecAvail = videoCodecAvailability(type, tab.root)
-    val stageSpecs = contentCheckStages(type, tab.root, motionDetected, gainmapDetected,
-        type == MediaType.AUDIO || tab.mediaSummary?.sections?.any { it.title == "Audio" } == true,
-        codecRunnerAvailable = (videoCodecAvail == CheckAvailability.AVAILABLE || aacAvail == CheckAvailability.AVAILABLE || opusAvail == CheckAvailability.AVAILABLE || flacAvail == CheckAvailability.AVAILABLE),
-        aacCodecAvailable = (aacAvail == CheckAvailability.AVAILABLE),
-        opusCodecAvailable = (opusAvail == CheckAvailability.AVAILABLE),
-        flacCodecAvailable = (flacAvail == CheckAvailability.AVAILABLE))
+    val hasAudio = type == MediaType.AUDIO || tab.mediaSummary?.sections?.any { it.title == "Audio" } == true
+    // The codec-availability checks walk the box tree; they are pure functions of (type, root), so they
+    // run once per tree instead of on every recomposition (progress ticks recompose this window).
+    val stageSpecs = remember(type, tab.root, motionDetected, gainmapDetected, hasAudio) {
+        val root = tab.root
+        val aacAvail = aacCodecAvailability(type, root)
+        val opusAvail = opusCodecAvailability(type, root)
+        val flacAvail = flacCodecAvailability(type, root)
+        val videoCodecAvail = videoCodecAvailability(type, root)
+        contentCheckStages(type, root, motionDetected, gainmapDetected, hasAudio,
+            codecRunnerAvailable = (videoCodecAvail == CheckAvailability.AVAILABLE || aacAvail == CheckAvailability.AVAILABLE || opusAvail == CheckAvailability.AVAILABLE || flacAvail == CheckAvailability.AVAILABLE),
+            aacCodecAvailable = (aacAvail == CheckAvailability.AVAILABLE),
+            opusCodecAvailable = (opusAvail == CheckAvailability.AVAILABLE),
+            flacCodecAvailable = (flacAvail == CheckAvailability.AVAILABLE))
+    }
     val targetJob = job
     DisposableEffect(tab, targetJob) { onDispose { targetJob?.cancel() } }
 
