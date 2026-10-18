@@ -108,7 +108,7 @@ private val TIMED_NODE_TYPES = setOf("camm", "gpmd", "mebx")
 private fun menu(name: (AppLanguage) -> String, label: (String, String) -> String) =
     label(name(AppLanguage.KO), name(AppLanguage.EN))
 
-private fun <T> stored(
+private fun <T : Any> stored(
     s: StoredAnalysis<T>?,
     file: File,
     menuName: String,
@@ -117,8 +117,13 @@ private fun <T> stored(
 ): AiReportSource {
     if (s == null) return AiReportSource.Unavailable(label(
         "'$menuName'에서 실행하면 요청 가능", "available after running '$menuName'"))
-    val current = s.currentFor(file) ?: return AiReportSource.Unavailable(label(
-        "파일이 바뀌어 결과가 무효 — '$menuName'을(를) 다시 실행", "the file changed, so the result is void — run '$menuName' again"))
+    val current = s.currentFor(file) ?: return AiReportSource.Unavailable(
+        if (s.isReclaimed) label(
+            "메모리 확보를 위해 결과가 해제됨 — '$menuName'을(를) 다시 실행",
+            "the result was released to free memory — run '$menuName' again")
+        else label(
+            "파일이 바뀌어 결과가 무효 — '$menuName'을(를) 다시 실행",
+            "the file changed, so the result is void — run '$menuName' again"))
     // A renderer bug must degrade to one unavailable kind, never block the whole send.
     return try {
         AiReportSource.Ready(render(current))
@@ -135,8 +140,13 @@ private fun notRun(menuName: String, label: (String, String) -> String) = AiRepo
 private fun audioSource(s: StoredAnalysis<AudioWaveformData>?, file: File, label: (String, String) -> String): AiReportSource {
     if (s == null) return AiReportSource.Unavailable(label(
         "오디오 파형이 그려지면 요청 가능", "available once the waveform has been drawn"))
-    val current = s.currentFor(file) ?: return AiReportSource.Unavailable(label(
-        "파일이 바뀌어 파형이 무효 — 파일을 다시 여세요", "the file changed, so the waveform is void — reopen the file"))
+    val current = s.currentFor(file) ?: return AiReportSource.Unavailable(
+        if (s.isReclaimed) label(
+            "메모리 확보를 위해 파형이 해제됨 — 파일을 다시 여세요",
+            "the waveform was released to free memory — reopen the file")
+        else label(
+            "파일이 바뀌어 파형이 무효 — 파일을 다시 여세요",
+            "the file changed, so the waveform is void — reopen the file"))
     return AiReportSource.OnRequest { renderAudioReport(current) }
 }
 

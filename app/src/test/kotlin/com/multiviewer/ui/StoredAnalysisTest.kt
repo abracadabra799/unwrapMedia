@@ -23,4 +23,20 @@ class StoredAnalysisTest {
     @Test fun nullWithoutIdentity() {
         assertNull(StoredAnalysis("v", null).currentFor(tmp()))
     }
+
+    @Test fun nullOnceTheValueIsReclaimed() {
+        val f = tmp()
+        val s = StoredAnalysis("v", ContentFileIdentity.capture(f))
+        assertEquals("v", s.value)
+        s.simulateReclaimForTest()
+        assertNull(s.currentFor(f))
+        assertNull(s.value)
+        kotlin.test.assertTrue(s.isReclaimed)
+    }
+
+    @Test fun holdsItsValueSoftly() {
+        val s = StoredAnalysis("v", null)
+        kotlin.test.assertFalse(s.isReclaimed)
+        kotlin.test.assertTrue(s.holdsSoftlyForTest())
+    }
 }
