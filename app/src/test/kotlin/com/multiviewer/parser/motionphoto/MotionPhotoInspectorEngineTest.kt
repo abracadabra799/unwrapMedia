@@ -9,6 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlin.test.fail
 
 class MotionPhotoInspectorEngineTest {
 
@@ -439,5 +440,96 @@ class MotionPhotoInspectorEngineTest {
         // GainMap status check item
         val gmStatus = items.find { it.id == "xmp.gainmap_spec_status" }
         assertNotNull(gmStatus)
+    }
+
+    // --- Cancellation: closing the inspector window must stop its ffmpeg/ffprobe work -----------------------
+
+    private fun makeFifo(suffix: String): File {
+        val fifo = File.createTempFile("mp-inspector-$suffix-", ".fifo")
+        fifo.delete()
+        ProcessBuilder("mkfifo", fifo.absolutePath).start().waitFor()
+        fifo.deleteOnExit()
+        return fifo
+    }
+
+    private fun awaitNewDescendant(before: Set<Long>, what: String): ProcessHandle {
+        val deadline = System.currentTimeMillis() + 10_000
+        while (System.currentTimeMillis() < deadline) {
+            val candidate = ProcessHandle.current().descendants()
+                .filter { it.pid() !in before && it.info().command().orElse("").contains(what) }
+                .findFirst()
+            if (candidate.isPresent) return candidate.get()
+            Thread.sleep(50)
+        }
+        fail("No new $what process appeared within 10s")
+    }
+
+    // Runs [work] on a thread blocked on a FIFO-fed ffmpeg/ffprobe, interrupts it once the process exists,
+    // and returns how the work ended. The FIFO keeps the process blocked forever, so the outcome is
+    // deterministic: either the interrupt propagates, or the work swallows it and returns normally.
+    private fun interruptMidProcess(what: String, work: (File) -> Unit): String {
+        val fifo = makeFifo(what)
+        val before = ProcessHandle.current().descendants().map { it.pid() }.toList().toSet()
+        var outcome = "unfinished"
+        val worker = Thread {
+            outcome = try { work(fifo); "returned normally" } catch (_: InterruptedException) { "interrupted" }
+        }.apply { isDaemon = true; start() }
+        val process = awaitNewDescendant(before, what)
+        worker.interrupt()
+        worker.join(5_000)
+        val deadline = System.currentTimeMillis() + 3_000
+        while (process.isAlive && System.currentTimeMillis() < deadline) Thread.sleep(50)
+        val survived = process.isAlive
+        if (survived) process.destroyForcibly()
+        fifo.delete()
+        assertTrue(!survived, "$what outlived the interrupted inspection")
+        return outcome
+    }
+
+    @Test
+    fun `decode check propagates the interrupt instead of swallowing it`() {
+        val outcome = interruptMidProcess("ffmpeg") { MotionPhotoInspectorEngine.runDecodeCheck(it) }
+        assertEquals("interrupted", outcome)
+    }
+
+    @Test
+    fun `stream duration probe propagates the interrupt instead of swallowing it`() {
+        val outcome = interruptMidProcess("ffprobe") { MotionPhotoInspectorEngine.probeStreamDurations(it) }
+        assertEquals("interrupted", outcome)
+    }
+
+    // A real JPEG-shaped container (zero prefix) with a real ffmpeg-made MP4 appended and a Google XMP
+    // directory pointing at it, so findEmbeddedVideo/extractEmbeddedVideo take their real paths.
+    private fun googleMotionPhotoWithRealVideo(): Pair<File, BoxNode> {
+        val mp4 = File.createTempFile("mp-inspector-clip-", ".mp4")
+        mp4.deleteOnExit()
+        ProcessBuilder(
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=size=64x48:rate=10:duration=1",
+            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", mp4.absolutePath,
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start().waitFor()
+        val video = mp4.readBytes()
+        mp4.delete()
+        val prefix = ByteArray(1000)
+        val file = File.createTempFile("mp-inspector-photo-", ".jpg")
+        file.deleteOnExit()
+        file.writeBytes(prefix + video)
+        val total = file.length()
+        return file to rootWithXmp(googleDirectoryXmp(video.size.toLong()), total)
+    }
+
+    @Test
+    fun `inspect stops with InterruptedException when its thread is interrupted`() {
+        val (file, root) = googleMotionPhotoWithRealVideo()
+        assertNotNull(com.multiviewer.parser.ByteReader.open(file).use { com.multiviewer.parser.findEmbeddedVideo(root, it) })
+        Thread.currentThread().interrupt()
+        val outcome = try {
+            MotionPhotoInspectorEngine.inspect(file, root)
+            "returned normally"
+        } catch (_: InterruptedException) {
+            "interrupted"
+        } finally {
+            Thread.interrupted()
+        }
+        assertEquals("interrupted", outcome)
     }
 }

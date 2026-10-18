@@ -62,9 +62,16 @@ data class MotionPhotoInspectionReport(
 
 object MotionPhotoInspectorEngine {
 
+    // The inspector runs under runInterruptible: closing its window interrupts this thread. The sections
+    // swallow most exceptions to degrade gracefully, so check between them that nobody asked us to stop.
+    private fun throwIfInterrupted() {
+        if (Thread.currentThread().isInterrupted) throw InterruptedException("Motion photo inspection cancelled")
+    }
+
     fun inspect(file: File, root: BoxNode): MotionPhotoInspectionReport {
         return ByteReader.open(file).use { reader ->
             val stillSection = inspectStillImage(file, root, reader)
+            throwIfInterrupted()
             val embeddedVideo = try { findEmbeddedVideo(root, reader) } catch (_: Exception) { null }
 
             // Extract embedded video once if available for video and av-sync analysis
@@ -77,16 +84,23 @@ object MotionPhotoInspectorEngine {
                     extractEmbeddedVideo(file, embeddedVideo, temp)
                     tempVideoFile = temp
                     videoRoot = try { parseFile(temp) } catch (_: Exception) { null }
+                } catch (e: InterruptedException) {
+                    throw e
                 } catch (_: Exception) {
                     // Extraction failed
                 }
             }
+            throwIfInterrupted()
 
             try {
                 val formatXmpSection = inspectFormatAndXmp(file, root, reader, tempVideoFile)
+                throwIfInterrupted()
                 val sefSection = inspectSefIntegrity(file, root, reader)
+                throwIfInterrupted()
                 val videoCodecSection = inspectVideoAndCodec(file, root, reader, embeddedVideo, tempVideoFile, videoRoot)
+                throwIfInterrupted()
                 val avSyncSection = inspectAvSyncAndTiming(file, root, reader, embeddedVideo, tempVideoFile, videoRoot)
+                throwIfInterrupted()
 
                 val detectedFormats = mutableListOf<String>()
                 if (sefSection.status != CheckStatus.SKIP) detectedFormats.add("Samsung SEF")
@@ -115,6 +129,67 @@ object MotionPhotoInspectorEngine {
                 tempVideoFile?.delete()
             }
         }
+    }
+
+    // Full software decode of the extracted video: (exit code, ffmpeg's error output). (-1, "") when ffmpeg
+    // could not be run or timed out. An interrupt (the inspector's window/tab closed) propagates as
+    // InterruptedException -- readProcessOutputWithTimeout has already killed ffmpeg by then.
+    internal fun runDecodeCheck(videoFile: File): Pair<Int, String> {
+        val processBuilder = ProcessBuilder(
+            FfmpegLocator.ffmpegPath(), "-v", "error",
+            "-i", videoFile.absolutePath,
+            "-f", "null", "-",
+        ).redirectErrorStream(true)
+        FfmpegLocator.configureEnvironment(processBuilder)
+
+        var decodeExit = -1
+        var decodeOutput = ""
+        try {
+            val process = processBuilder.start()
+            val output = readProcessOutputWithTimeout(process, 30) { process.inputStream.bufferedReader().readText().trim() }
+            if (output != null) {
+                decodeExit = process.waitFor()
+                decodeOutput = output
+            }
+        } catch (e: InterruptedException) {
+            throw e
+        } catch (_: Exception) {}
+        return decodeExit to decodeOutput
+    }
+
+    // ffprobe stream durations of the extracted video: (video ms, audio ms), null where not reported.
+    internal fun probeStreamDurations(videoFile: File): Pair<Long?, Long?> {
+        var videoDurationMs: Long? = null
+        var audioDurationMs: Long? = null
+        try {
+            val processBuilder = ProcessBuilder(
+                FfmpegLocator.ffprobePath(), "-v", "error",
+                "-show_entries", "stream=codec_type,duration",
+                "-of", "csv=p=0",
+                videoFile.absolutePath,
+            ).redirectError(ProcessBuilder.Redirect.DISCARD)
+            FfmpegLocator.configureEnvironment(processBuilder)
+            val process = processBuilder.start()
+            val output = readProcessOutputWithTimeout(process, 15) { process.inputStream.bufferedReader().readText().trim() }
+            if (output != null) {
+                // Format: audio,2.500000 \n video,2.520000
+                output.lines().forEach { line ->
+                    val parts = line.split(",")
+                    if (parts.size >= 2) {
+                        val type = parts[0].trim()
+                        val durSec = parts[1].trim().toDoubleOrNull()
+                        if (durSec != null) {
+                            val durMs = (durSec * 1000).toLong()
+                            if (type == "video" && videoDurationMs == null) videoDurationMs = durMs
+                            if (type == "audio" && audioDurationMs == null) audioDurationMs = durMs
+                        }
+                    }
+                }
+            }
+        } catch (e: InterruptedException) {
+            throw e
+        } catch (_: Exception) {}
+        return videoDurationMs to audioDurationMs
     }
 
     // -----------------------------------------------------------------------------------------------------------------
@@ -1051,23 +1126,7 @@ object MotionPhotoInspectorEngine {
         }
 
         // 4. Software decoding test via ffmpeg
-        val processBuilder = ProcessBuilder(
-            FfmpegLocator.ffmpegPath(), "-v", "error",
-            "-i", tempVideoFile.absolutePath,
-            "-f", "null", "-",
-        ).redirectErrorStream(true)
-        FfmpegLocator.configureEnvironment(processBuilder)
-
-        var decodeExit = -1
-        var decodeOutput = ""
-        try {
-            val process = processBuilder.start()
-            val output = readProcessOutputWithTimeout(process, 30) { process.inputStream.bufferedReader().readText().trim() }
-            if (output != null) {
-                decodeExit = process.waitFor()
-                decodeOutput = output
-            }
-        } catch (_: Exception) {}
+        val (decodeExit, decodeOutput) = runDecodeCheck(tempVideoFile)
 
         val decodeSuccess = decodeExit == 0 && decodeOutput.isEmpty()
         items.add(
@@ -1119,35 +1178,9 @@ object MotionPhotoInspectorEngine {
         }
 
         // Probing streams via ffprobe
-        var videoDurationMs: Long? = null
-        var audioDurationMs: Long? = null
-
-        try {
-            val processBuilder = ProcessBuilder(
-                FfmpegLocator.ffprobePath(), "-v", "error",
-                "-show_entries", "stream=codec_type,duration",
-                "-of", "csv=p=0",
-                tempVideoFile.absolutePath,
-            ).redirectError(ProcessBuilder.Redirect.DISCARD)
-            FfmpegLocator.configureEnvironment(processBuilder)
-            val process = processBuilder.start()
-            val output = readProcessOutputWithTimeout(process, 15) { process.inputStream.bufferedReader().readText().trim() }
-            if (output != null) {
-                // Format: audio,2.500000 \n video,2.520000
-                output.lines().forEach { line ->
-                    val parts = line.split(",")
-                    if (parts.size >= 2) {
-                        val type = parts[0].trim()
-                        val durSec = parts[1].trim().toDoubleOrNull()
-                        if (durSec != null) {
-                            val durMs = (durSec * 1000).toLong()
-                            if (type == "video" && videoDurationMs == null) videoDurationMs = durMs
-                            if (type == "audio" && audioDurationMs == null) audioDurationMs = durMs
-                        }
-                    }
-                }
-            }
-        } catch (_: Exception) {}
+        val probed = probeStreamDurations(tempVideoFile)
+        var videoDurationMs: Long? = probed.first
+        val audioDurationMs: Long? = probed.second
 
         // Fallback to sample table duration if ffprobe didn't report stream duration
         if (videoDurationMs == null) {

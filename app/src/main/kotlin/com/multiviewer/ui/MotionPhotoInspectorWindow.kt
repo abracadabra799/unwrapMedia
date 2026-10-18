@@ -61,6 +61,7 @@ import com.multiviewer.util.deleteWhenReleased
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -94,7 +95,9 @@ fun MotionPhotoInspectorWindow(
         isRunning = true
         statusMessage = label("모션포토 종합 검사 중...", "Analyzing motion photo...")
         scope.launch {
-            val res = withContext(Dispatchers.IO) {
+            // runInterruptible, not withContext: closing the window (or its tab) cancels this scope, and only
+            // an interrupt stops the engine's ffmpeg decode / ffprobe instead of letting them run to their timeouts.
+            val res = runInterruptible(Dispatchers.IO) {
                 val root = tab.root ?: try { parseFile(tab.file) } catch (_: Exception) { null }
                 if (root != null) {
                     MotionPhotoInspectorEngine.inspect(tab.file, root)
