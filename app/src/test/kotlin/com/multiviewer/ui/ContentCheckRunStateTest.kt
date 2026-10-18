@@ -19,8 +19,8 @@ class ContentCheckRunStateTest {
     fun queueIncludesOnlyAvailableRowsInDisplayedOrder() {
         val specs = contentCheckStages(MediaType.VIDEO, BoxNode("root", 0, 0, 100), false, false, false, false)
         val queued = queueApplicableStages(specs)
-        assertEquals(listOf(CheckStage.STRUCTURE, CheckStage.VISUAL_DECODE), queued.keys.toList())
-        assertEquals(listOf(CheckRunStatus.QUEUED, CheckRunStatus.QUEUED), queued.values.map { it.status })
+        assertEquals(listOf(CheckStage.CONTAINER_CONFORMANCE, CheckStage.STRUCTURE, CheckStage.VISUAL_DECODE), queued.keys.toList())
+        assertEquals(listOf(CheckRunStatus.QUEUED, CheckRunStatus.QUEUED, CheckRunStatus.QUEUED), queued.values.map { it.status })
     }
 
     @Test

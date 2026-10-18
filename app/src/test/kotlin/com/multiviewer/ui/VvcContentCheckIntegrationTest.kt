@@ -30,7 +30,7 @@ class VvcContentCheckIntegrationTest {
             codecRunnerAvailable = vvcCodecAvailability(MediaType.VIDEO, root) == CheckAvailability.AVAILABLE,
         )
         assertEquals(
-            listOf(CheckStage.STRUCTURE, CheckStage.CODEC, CheckStage.VISUAL_DECODE),
+            listOf(CheckStage.CONTAINER_CONFORMANCE, CheckStage.STRUCTURE, CheckStage.CODEC, CheckStage.VISUAL_DECODE),
             rows.filter { it.availability == CheckAvailability.AVAILABLE }.map { it.stage },
         )
     }

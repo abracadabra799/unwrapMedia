@@ -9,7 +9,7 @@ import com.multiviewer.parser.integrity.ImageIntegrityChecker
 import com.multiviewer.parser.integrity.ImageStructureReport
 import java.io.File
 
-enum class ContentTab { STRUCTURE, CONFORMANCE, IMAGE_DECODE, MOTION_PHOTO, GAINMAP, VIDEO_DECODE, VIDEO_PACKETS, AUDIO }
+enum class ContentTab { STRUCTURE, CONFORMANCE, CODEC, IMAGE_DECODE, MOTION_PHOTO, GAINMAP, VIDEO_DECODE, VIDEO_PACKETS, AUDIO }
 
 enum class HeavyStep { IMAGE_DECODE, MOTION_PHOTO, VIDEO_INTEGRITY, AUDIO_INTEGRITY }
 

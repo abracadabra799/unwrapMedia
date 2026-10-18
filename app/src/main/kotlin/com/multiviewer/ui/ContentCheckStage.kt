@@ -156,7 +156,7 @@ fun videoCodecAvailability(type: MediaType, root: BoxNode?): CheckAvailability {
     return CheckAvailability.UNSUPPORTED
 }
 
-enum class CheckStage { STRUCTURE, CODEC, VISUAL_DECODE, AUDIO_DECODE, MOTION_PHOTO, GAINMAP }
+enum class CheckStage { CONTAINER_CONFORMANCE, STRUCTURE, CODEC, VISUAL_DECODE, AUDIO_DECODE, MOTION_PHOTO, GAINMAP }
 
 enum class CheckAvailability { AVAILABLE, UNSUPPORTED, NOT_APPLICABLE, LOADING }
 
@@ -168,8 +168,9 @@ data class CheckStageSpec(
 )
 
 fun checkStageDescription(stage: CheckStage, ko: Boolean): String = when (stage) {
-    CheckStage.STRUCTURE -> if (ko) "박스·청크 배치와 필수 데이터의 위치·범위를 검사합니다." else "Checks box and chunk layout and the location and extent of required data."
-    CheckStage.CODEC -> if (ko) "코덱 구문, 값 범위, 파라미터 간 참조를 검사합니다." else "Checks codec syntax, value ranges, and parameter references."
+    CheckStage.CONTAINER_CONFORMANCE -> if (ko) "컨테이너 포맷 규격(ISO-BMFF, EXIF 등) 필수 박스 및 구조 제약 조건을 검증합니다." else "Validates container format specification requirements (ISO-BMFF, EXIF, etc.)."
+    CheckStage.STRUCTURE -> if (ko) "박스·청크 배치, 오프셋 무결성 및 파서 경고를 검사합니다." else "Checks box and chunk layout, offset integrity, and parser warnings."
+    CheckStage.CODEC -> if (ko) "코덱 구문, 값 범위, NAL 헤더 및 파라미터 간 참조를 검사합니다." else "Checks codec syntax, value ranges, NAL headers, and parameter references."
     CheckStage.VISUAL_DECODE -> if (ko) "압축 데이터를 실제로 디코딩하고 오류를 확인합니다." else "Decodes compressed data and checks for errors."
     CheckStage.AUDIO_DECODE -> if (ko) "오디오 트랙을 디코딩하고 오류를 확인합니다." else "Decodes audio tracks and checks for errors."
     CheckStage.MOTION_PHOTO -> if (ko) "정지 이미지와 포함된 영상의 연결·시점을 확인합니다." else "Checks the link and timing between the still image and embedded video."
@@ -195,7 +196,7 @@ fun contentCheckStages(
     )
     fun notApplicable(stage: CheckStage) = CheckStageSpec(stage, CheckAvailability.NOT_APPLICABLE,
         "해당 파일에 적용되지 않음", "Not applicable to this file")
-    val result = mutableListOf(available(CheckStage.STRUCTURE))
+    val result = mutableListOf(available(CheckStage.CONTAINER_CONFORMANCE), available(CheckStage.STRUCTURE))
     result += when {
         type == MediaType.AUDIO -> when {
             loading -> available(CheckStage.CODEC)

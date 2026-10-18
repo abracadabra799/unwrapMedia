@@ -22,7 +22,7 @@ class HevcContentCheckIntegrationTest {
             assertEquals(CheckAvailability.AVAILABLE, hevcCodecAvailability(MediaType.VIDEO, root))
             val rows = contentCheckStages(MediaType.VIDEO, root, false, false, false,
                 hevcCodecAvailability(MediaType.VIDEO, root) == CheckAvailability.AVAILABLE)
-            assertEquals(listOf(CheckStage.STRUCTURE, CheckStage.CODEC, CheckStage.VISUAL_DECODE),
+            assertEquals(listOf(CheckStage.CONTAINER_CONFORMANCE, CheckStage.STRUCTURE, CheckStage.CODEC, CheckStage.VISUAL_DECODE),
                 rows.filter { it.availability == CheckAvailability.AVAILABLE }.map { it.stage })
         }
     }

@@ -17,10 +17,12 @@ import kotlin.test.assertFalse
 class ContentCheckPlanTest {
     @Test
     fun stageDescriptionsExplainTheActualWorkInBothLanguages() {
-        assertEquals("박스·청크 배치와 필수 데이터의 위치·범위를 검사합니다.", checkStageDescription(CheckStage.STRUCTURE, true))
-        assertEquals("Checks box and chunk layout and the location and extent of required data.", checkStageDescription(CheckStage.STRUCTURE, false))
-        assertEquals("코덱 구문, 값 범위, 파라미터 간 참조를 검사합니다.", checkStageDescription(CheckStage.CODEC, true))
-        assertEquals("Checks codec syntax, value ranges, and parameter references.", checkStageDescription(CheckStage.CODEC, false))
+        assertEquals("컨테이너 포맷 규격(ISO-BMFF, EXIF 등) 필수 박스 및 구조 제약 조건을 검증합니다.", checkStageDescription(CheckStage.CONTAINER_CONFORMANCE, true))
+        assertEquals("Validates container format specification requirements (ISO-BMFF, EXIF, etc.).", checkStageDescription(CheckStage.CONTAINER_CONFORMANCE, false))
+        assertEquals("박스·청크 배치, 오프셋 무결성 및 파서 경고를 검사합니다.", checkStageDescription(CheckStage.STRUCTURE, true))
+        assertEquals("Checks box and chunk layout, offset integrity, and parser warnings.", checkStageDescription(CheckStage.STRUCTURE, false))
+        assertEquals("코덱 구문, 값 범위, NAL 헤더 및 파라미터 간 참조를 검사합니다.", checkStageDescription(CheckStage.CODEC, true))
+        assertEquals("Checks codec syntax, value ranges, NAL headers, and parameter references.", checkStageDescription(CheckStage.CODEC, false))
         assertEquals("압축 데이터를 실제로 디코딩하고 오류를 확인합니다.", checkStageDescription(CheckStage.VISUAL_DECODE, true))
         assertEquals("Decodes compressed data and checks for errors.", checkStageDescription(CheckStage.VISUAL_DECODE, false))
         assertEquals("오디오 트랙을 디코딩하고 오류를 확인합니다.", checkStageDescription(CheckStage.AUDIO_DECODE, true))
@@ -35,10 +37,10 @@ class ContentCheckPlanTest {
     fun videoStageOrderAndUnsupportedCodecAreExplicit() {
         val root = BoxNode("root", 0, 0, 100)
         val rows = contentCheckStages(MediaType.VIDEO, root, false, false, true, false)
-        assertEquals(listOf(CheckStage.STRUCTURE, CheckStage.CODEC, CheckStage.VISUAL_DECODE, CheckStage.AUDIO_DECODE), rows.map { it.stage })
-        assertEquals(CheckAvailability.UNSUPPORTED, rows[1].availability)
-        assertEquals(CheckAvailability.AVAILABLE, rows[3].availability)
-        assertTrue(rows[1].reasonKo?.isNotBlank() == true)
+        assertEquals(listOf(CheckStage.CONTAINER_CONFORMANCE, CheckStage.STRUCTURE, CheckStage.CODEC, CheckStage.VISUAL_DECODE, CheckStage.AUDIO_DECODE), rows.map { it.stage })
+        assertEquals(CheckAvailability.UNSUPPORTED, rows[2].availability)
+        assertEquals(CheckAvailability.AVAILABLE, rows[4].availability)
+        assertTrue(rows[2].reasonKo?.isNotBlank() == true)
     }
 
     @Test

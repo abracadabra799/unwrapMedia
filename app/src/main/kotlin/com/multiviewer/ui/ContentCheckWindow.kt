@@ -278,6 +278,13 @@ fun ContentCheckWindow(
                 }
                 val runner = ContentCheckRunner { stage, progress ->
                     when (stage) {
+                        CheckStage.CONTAINER_CONFORMANCE -> {
+                            if (structure == null && audioStructure == null) {
+                                runStructure(root, identity)
+                            } else {
+                                conformance = contentConformanceReport(type, structure = structure, audioStructure = audioStructure)
+                            }
+                        }
                         CheckStage.STRUCTURE -> runStructure(root, identity)
                         CheckStage.CODEC -> {
                             if (type != MediaType.VIDEO && type != MediaType.AUDIO) error("Video or audio track unavailable")
@@ -614,6 +621,15 @@ fun ContentCheckWindow(
                             Text(status + (state.reason?.let { " · $it" } ?: ""), color = AppColors.TextSecondary, fontSize = 11.sp)
                             if (state.status == CheckRunStatus.COMPLETED || state.status == CheckRunStatus.PARTIAL) {
                                 val verdict = when (spec.stage) {
+                                    CheckStage.CONTAINER_CONFORMANCE -> conformance?.let { report ->
+                                        when (report.overall) {
+                                            ConformanceStatus.PASS -> label("규격 통과", "Conformance pass")
+                                            ConformanceStatus.FAIL -> label("오류 ${report.findings.count { it.status == ConformanceStatus.FAIL }}건", "${report.findings.count { it.status == ConformanceStatus.FAIL }} issues")
+                                            ConformanceStatus.WARN -> label("경고 ${report.findings.count { it.status == ConformanceStatus.WARN }}건", "${report.findings.count { it.status == ConformanceStatus.WARN }} warnings")
+                                            ConformanceStatus.NOT_CHECKED -> label("미검사", "Not checked")
+                                            ConformanceStatus.NOT_APPLICABLE -> label("해당 없음", "Not applicable")
+                                        }
+                                    }
                                     CheckStage.STRUCTURE -> if (type == MediaType.AUDIO) audioStructure?.overall?.let { checkStatusLabel(it, ko) }
                                         else structure?.overall?.let { checkStatusLabel(it, ko) }
                                     CheckStage.CODEC -> {
@@ -664,7 +680,35 @@ fun ContentCheckWindow(
                         }
                     }
                     val shownTab = selectedTab
-            when (shownTab) {
+                    when (shownTab) {
+                        ContentTab.CODEC -> {
+                    val codecData = when {
+                        hevcBitstream != null -> Triple(hevcBitstream!!.checkedTrack, "${hevcBitstream!!.checkedSamples}/${hevcBitstream!!.indexedSamples}", hevcBitstream!!.limitations) to hevcBitstreamFindings(hevcBitstream!!)
+                        avcBitstream != null -> Triple(avcBitstream!!.checkedTrack, "${avcBitstream!!.checkedSamples}/${avcBitstream!!.indexedSamples}", avcBitstream!!.limitations) to avcBitstreamFindings(avcBitstream!!)
+                        av1Bitstream != null -> Triple(av1Bitstream!!.checkedTrack, "${av1Bitstream!!.checkedSamples}/${av1Bitstream!!.indexedSamples}", av1Bitstream!!.limitations) to av1BitstreamFindings(av1Bitstream!!)
+                        vp9Bitstream != null -> Triple(vp9Bitstream!!.checkedTrack, "${vp9Bitstream!!.checkedSamples}/${vp9Bitstream!!.indexedSamples}", vp9Bitstream!!.limitations) to vp9BitstreamFindings(vp9Bitstream!!)
+                        apvBitstream != null -> Triple(apvBitstream!!.checkedTrack, "${apvBitstream!!.checkedSamples}/${apvBitstream!!.indexedSamples}", apvBitstream!!.limitations) to apvBitstreamFindings(apvBitstream!!)
+                        vvcBitstream != null -> Triple(vvcBitstream!!.checkedTrack, "${vvcBitstream!!.checkedSamples}/${vvcBitstream!!.indexedSamples}", vvcBitstream!!.limitations) to vvcBitstreamFindings(vvcBitstream!!)
+                        aacBitstream != null -> Triple(aacBitstream!!.checkedTrack, "${aacBitstream!!.checkedSamples}/${aacBitstream!!.indexedSamples}", aacBitstream!!.limitations) to aacBitstreamFindings(aacBitstream!!)
+                        opusBitstream != null -> Triple(opusBitstream!!.checkedTrack, "${opusBitstream!!.checkedSamples}/${opusBitstream!!.indexedSamples}", opusBitstream!!.limitations) to opusBitstreamFindings(opusBitstream!!)
+                        flacBitstream != null -> Triple(flacBitstream!!.checkedTrack, "${flacBitstream!!.checkedSamples}/${flacBitstream!!.indexedSamples}", flacBitstream!!.limitations) to flacBitstreamFindings(flacBitstream!!)
+                        else -> null
+                    }
+                    if (codecData == null) Text(label("코덱 검사 결과가 없습니다. 실행을 눌러 시작하세요.", "No codec result yet. Press Run to start."),
+                        color = AppColors.TextSecondary)
+                    else {
+                        val (meta, findings) = codecData
+                        val (track, samples, limitations) = meta
+                        Text("$track · $samples samples", color = AppColors.TextSecondary)
+                        Text(label("구조 관측값입니다. 전체 규격 준수나 MediaCodec 동작을 증명하지 않습니다.",
+                            "Structural observations; these do not establish full conformance or MediaCodec behavior."),
+                            color = AppColors.TextSecondary, fontSize = 12.sp)
+                        limitations.take(8).forEach { Text(it, color = AppColors.TextSecondary, fontSize = 11.sp) }
+                        ContentFindingTable(findings, fileLength, ko, Modifier.weight(1f)) { offset, length ->
+                            tab.parameterSetHighlightRange = offset until (offset + length)
+                        }
+                    }
+                }
                 ContentTab.CONFORMANCE -> if (showCodecDetail) {
                     val codecData = when {
                         hevcBitstream != null -> Triple(hevcBitstream!!.checkedTrack, "${hevcBitstream!!.checkedSamples}/${hevcBitstream!!.indexedSamples}", hevcBitstream!!.limitations) to hevcBitstreamFindings(hevcBitstream!!)
