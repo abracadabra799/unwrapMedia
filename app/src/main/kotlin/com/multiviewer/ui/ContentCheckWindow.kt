@@ -496,36 +496,50 @@ fun ContentCheckWindow(
             )
             val exportReady = actions.canExport && checkedIdentity != null
 
-            // Compact Header: Title · Type · Format on the left, buttons on the right
+            // Compact Header: Title · Type · Format & Description on the left, buttons on the right
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                Column(
                     modifier = Modifier.weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            tab.file.name,
+                            color = AppColors.TextPrimary,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text("·", color = AppColors.TextMuted, fontSize = 12.sp)
+                        Text(
+                            label("유형: ", "Type: ") + type.name,
+                            color = AppColors.TextSecondary,
+                            fontSize = 12.sp,
+                        )
+                        Text("·", color = AppColors.TextMuted, fontSize = 12.sp)
+                        Text(
+                            label("형식: ", "Format: ") + formatText,
+                            color = AppColors.TextSecondary,
+                            fontSize = 12.sp,
+                        )
+                    }
                     Text(
-                        tab.file.name,
-                        color = AppColors.TextPrimary,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        label(
+                            "미디어 파일이 컨테이너 구조와 코덱 비트스트림의 국제 표준 규격을 준수하는지 검증하고, 파일 손상 및 디코딩·재생 무결성을 종합 진단하는 검사입니다.",
+                            "Validates compliance with international standard specifications for container and bitstream syntax, while diagnosing file integrity and decode/playback reliability.",
+                        ),
+                        color = AppColors.TextSecondary,
+                        fontSize = 11.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                    )
-                    Text("·", color = AppColors.TextMuted, fontSize = 12.sp)
-                    Text(
-                        label("유형: ", "Type: ") + type.name,
-                        color = AppColors.TextSecondary,
-                        fontSize = 12.sp,
-                    )
-                    Text("·", color = AppColors.TextMuted, fontSize = 12.sp)
-                    Text(
-                        label("형식: ", "Format: ") + formatText,
-                        color = AppColors.TextSecondary,
-                        fontSize = 12.sp,
                     )
                 }
 
