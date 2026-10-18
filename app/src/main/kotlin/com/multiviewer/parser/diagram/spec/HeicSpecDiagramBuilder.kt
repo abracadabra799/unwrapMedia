@@ -98,6 +98,22 @@ object HeicSpecDiagramBuilder {
             blocks += SpecBlock("block_mdat", "Media Data Box (${mdat.type})", "Payload: ${mdat.size} Bytes", mdat.offset, mdat.size, RegionRole.MEDIA_DATA, mdatRows)
         }
 
+        // 4. sefd Trailer Block (Samsung Extension Format, if present)
+        val sefd = children.find { it.type == "sefd" || it.type == "SEFD" }
+        if (sefd != null) {
+            val sefRows = listOf(
+                SpecRow(listOf(
+                    SpecCell("sef_marker", "SEF Trailer", "Samsung Extension Format (${sefd.size} B)", sefd.size, colSpan = 12, role = RegionRole.TRAILER),
+                ), sefd.offset),
+            )
+            val subStreamCount = sefd.children.size
+            val subText = if (subStreamCount > 0) "$subStreamCount Sub-streams (Motion Photo / Depth)" else "${sefd.size} Bytes"
+            blocks += SpecBlock("block_sefd", "Samsung Extension Format (SEF)", subText, sefd.offset, sefd.size, RegionRole.TRAILER, sefRows)
+        }
+
+        // Sort blocks by physical file offset
+        blocks.sortBy { it.offset }
+
         return SpecDiagram(
             title = title,
             fileSize = fileSize,

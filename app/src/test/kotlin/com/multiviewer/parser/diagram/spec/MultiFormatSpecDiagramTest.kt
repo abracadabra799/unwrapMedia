@@ -6,6 +6,7 @@ import com.multiviewer.ui.diagram.spec.SpecDiagramExporter
 import com.multiviewer.ui.diagram.spec.SpecDiagramLayoutEngine
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
+import java.io.File
 
 class MultiFormatSpecDiagramTest {
 
@@ -65,10 +66,100 @@ class MultiFormatSpecDiagramTest {
         )
 
         val diagram = SpecDiagramDispatcher.build(root, 5000L, "image.heic")
+        assertEquals(listOf("block_ftyp", "block_meta", "block_mdat"), diagram.blocks.map { it.id })
         assertTrue(diagram.blocks.any { it.title.contains("ftyp") })
         assertTrue(diagram.blocks.any { it.title.contains("meta") })
         assertTrue(diagram.blocks.any { it.title.contains("mdat") })
         assertTrue(diagram.arrows.isNotEmpty(), "Expected iloc to mdat pointer arrow")
+
+        val layout = SpecDiagramLayoutEngine.layout(diagram)
+        assertNotNull(SpecDiagramExporter.renderPng(layout))
+    }
+
+    @Test
+    fun `verifies HEIC spec diagram builder orders mdat before meta when mdat comes first in file`() {
+        // Typical Samsung Galaxy HEIC layout: ftyp -> mdat -> meta -> sefd
+        val root = BoxNode(
+            type = "root", offset = 0L, headerSize = 0, size = 8000L,
+            children = listOf(
+                BoxNode("ftyp", 0L, 8, 28L, fields = listOf(BoxField("major_brand", "heic", 8L, 4L))),
+                BoxNode("mdat", 28L, 8, 4000L),
+                BoxNode("meta", 4028L, 8, 500L, children = listOf(
+                    BoxNode("hdlr", 4036L, 8, 33L),
+                    BoxNode("pitm", 4069L, 8, 14L, fields = listOf(BoxField("item_ID", "1", 4077L, 2L))),
+                    BoxNode("iloc", 4083L, 8, 100L),
+                    BoxNode("iinf", 4183L, 8, 100L),
+                )),
+                BoxNode("sefd", 4528L, 0, 3472L),
+            ),
+        )
+
+        val diagram = SpecDiagramDispatcher.build(root, 8000L, "galaxy_camera.heic")
+        // Blocks must follow physical file offset order: ftyp (0) -> mdat (28) -> meta (4028) -> sefd (4528)
+        assertEquals(listOf("block_ftyp", "block_mdat", "block_meta", "block_sefd"), diagram.blocks.map { it.id })
+
+        // Arrow from iloc (in meta) should point up to mdat
+        val arrow = diagram.arrows.single { it.fromCellId == "meta_iloc" }
+        assertEquals("block_mdat", arrow.toBlockId)
+
+        val layout = SpecDiagramLayoutEngine.layout(diagram)
+        val lArrow = layout.arrows.single()
+        // midX = 106, endX = 116 (pointing right into mdat header)
+        assertEquals(106, lArrow.points[1].first)
+        assertEquals(116, lArrow.points[3].first)
+        // startY > endY because meta is below mdat
+        assertTrue(lArrow.points[0].second > lArrow.points[3].second, "Arrow should route upward from meta to mdat")
+
+        val png = SpecDiagramExporter.renderPng(layout)
+        assertNotNull(png)
+    }
+
+    @Test
+    fun `verifies real Galaxy camera HEIC fixture orders mdat before meta in spec diagram`() {
+        val file = File("src/test/resources/c2pa/s26-motion-photo.heic")
+        assertTrue(file.exists(), "Test fixture s26-motion-photo.heic must exist")
+        val root = com.multiviewer.parser.parseFile(file)
+        val diagram = SpecDiagramDispatcher.build(root, file.length(), file.name)
+
+        val blockIds = diagram.blocks.map { it.id }
+        assertTrue(blockIds.contains("block_ftyp"))
+        assertTrue(blockIds.contains("block_mdat"))
+        assertTrue(blockIds.contains("block_meta"))
+        val mdatIdx = blockIds.indexOf("block_mdat")
+        val metaIdx = blockIds.indexOf("block_meta")
+        assertTrue(mdatIdx < metaIdx, "mdat must appear before meta in spec diagram for real Galaxy HEIC (mdatIdx=$mdatIdx, metaIdx=$metaIdx)")
+
+        val layout = SpecDiagramLayoutEngine.layout(diagram)
+        assertNotNull(SpecDiagramExporter.renderPng(layout))
+    }
+
+    @Test
+    fun `verifies MP4 spec diagram builder orders mdat before moov when mdat comes first in file`() {
+        val root = BoxNode(
+            type = "root", offset = 0L, headerSize = 0, size = 10000L,
+            children = listOf(
+                BoxNode("ftyp", 0L, 8, 32L, fields = listOf(BoxField("major_brand", "mp42", 8L, 4L))),
+                BoxNode("mdat", 32L, 8, 8000L),
+                BoxNode("moov", 8032L, 8, 1968L, children = listOf(
+                    BoxNode("mvhd", 8040L, 8, 108L),
+                    BoxNode("trak", 8148L, 8, 1852L, children = listOf(
+                        BoxNode("tkhd", 8156L, 8, 92L),
+                        BoxNode("mdia", 8248L, 8, 1752L, children = listOf(
+                            BoxNode("hdlr", 8256L, 8, 33L, fields = listOf(BoxField("handler_type", "vide", 8265L, 4L))),
+                            BoxNode("minf", 8289L, 8, 1711L, children = listOf(
+                                BoxNode("stbl", 8297L, 8, 1703L, children = listOf(
+                                    BoxNode("stsd", 8305L, 8, 100L),
+                                    BoxNode("stco", 8405L, 8, 500L),
+                                ))
+                            ))
+                        ))
+                    ))
+                ))
+            ),
+        )
+
+        val diagram = SpecDiagramDispatcher.build(root, 10000L, "recorded_video.mp4")
+        assertEquals(listOf("block_ftyp", "block_mdat", "block_moov"), diagram.blocks.map { it.id })
 
         val layout = SpecDiagramLayoutEngine.layout(diagram)
         assertNotNull(SpecDiagramExporter.renderPng(layout))
