@@ -221,11 +221,13 @@ fun audioFindings(report: AudioIntegrityReport): AudioFindingPresentation {
     )
 }
 
-private val ABSOLUTE_PATH = Regex("""(?<![\w])(?:[A-Za-z]:[\\/]|/)(?:[^\s"'<>|]+[\\/])*[^\s"'<>|]*""")
+private val ABSOLUTE_PATH = Regex("""(?<![\w])(?:[A-Za-z]:[\\/][^\s"'<>|]*|/(?:[^\s"'<>|/]+[\\/])*[^\s"'<>|/]+)""")
 
 internal fun safeFindingText(value: String): String = ABSOLUTE_PATH.replace(value) { match ->
-    val path = match.value.trimEnd(',', '.', ':', ';', ')', ']', '}')
-    path.substringAfterLast('/').substringAfterLast('\\').ifBlank { "[path]" }
+    val trimmed = match.value.trimEnd(',', '.', ':', ';', ')', ']', '}')
+    val suffix = match.value.substring(trimmed.length)
+    val sanitized = trimmed.trimEnd('/', '\\').substringAfterLast('/').substringAfterLast('\\')
+    if (sanitized.isBlank()) "[path]$suffix" else "$sanitized$suffix"
 }
 
 internal fun ContentFinding.sanitizeFindingPaths(): ContentFinding = copy(

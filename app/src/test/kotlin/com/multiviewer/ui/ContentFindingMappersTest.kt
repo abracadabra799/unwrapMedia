@@ -187,4 +187,12 @@ class ContentFindingMappersTest {
         assertTrue(item.verifiedFacts.any { it.contains("Clause 4.3.1") })
         assertTrue(item.nextChecks.any { it.contains("0x8–0xB") })
     }
+
+    @Test fun safeFindingTextPreservesBilingualSeparatorsAndSanitizesPaths() {
+        assertEquals("프레임·스캔 헤더 / Frame and scan headers", safeFindingText("프레임·스캔 헤더 / Frame and scan headers"))
+        assertEquals("기존 바이트·구조 검사 / Existing byte/structure checks", safeFindingText("기존 바이트·구조 검사 / Existing byte/structure checks"))
+        assertEquals("ISO/IEC 14496-12 Clause 4.3 (16/9)", safeFindingText("ISO/IEC 14496-12 Clause 4.3 (16/9)"))
+        assertEquals("Failed to read sample.mp4.", safeFindingText("Failed to read /Users/private-user/secret/sample.mp4."))
+        assertEquals("Failed to read sample.mp4,", safeFindingText("Failed to read C:\\Users\\private-user\\secret\\sample.mp4,"))
+    }
 }
