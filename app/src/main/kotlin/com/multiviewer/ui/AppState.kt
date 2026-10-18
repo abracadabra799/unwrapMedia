@@ -109,6 +109,8 @@ data class ImageForensicData(
 
 class TabState(val file: File) {
     internal val backgroundTasks = TabBackgroundTasks()
+    // Long-running scans (frame analysis) -- a separate pool so they never hold up file opens.
+    internal val longScanTasks = TabBackgroundTasks(longScanExecutor)
     // Set by AppState.closeTab. Polled (not observed) from background threads, so it's a plain
     // @Volatile field rather than Compose state -- nothing recomposes on it; it exists so in-flight
     // background scans can notice their tab is gone and stop instead of finishing work nobody will
@@ -782,6 +784,7 @@ class AppState {
                         tab.isClosed = true
                         tab.aiJob?.cancel()
                         tab.backgroundTasks.close()
+                        tab.longScanTasks.close()
                         if (selectedTabIndex >= tabs.size) selectedTabIndex = (tabs.size - 1).coerceAtLeast(0)
                         openFileError = hardBlockMessage
                     }
@@ -911,6 +914,7 @@ class AppState {
         tab.isClosed = true
         tab.aiJob?.cancel()
         tab.backgroundTasks.close()
+        tab.longScanTasks.close()
         tab.filmstripThumbnails.clear()
         tab.thumbnailCache = emptyMap()
         tab.gifAnimation = null
@@ -929,7 +933,7 @@ class AppState {
         tab.isAnalyzingFrames = true
         tab.frameAnalysisLoadedCount = 0
         tab.frameAnalysisProgress = null
-        tab.backgroundTasks.submit {
+        tab.longScanTasks.submit {
             kotlinx.coroutines.runBlocking {
                 probeFrameTypesStreaming(tab.file, isCancelled = { tab.isClosed }).collect { progress ->
                     tab.postIfOpen {
@@ -981,7 +985,7 @@ class AppState {
         val video = tab.embeddedVideo ?: return
         if (tab.isAnalyzingMotionPhotoFrames || tab.motionPhotoGopFrames != null) return
         tab.isAnalyzingMotionPhotoFrames = true
-        tab.backgroundTasks.submit {
+        tab.longScanTasks.submit {
             // Same contract as analyzeMotionPhotoCodecDetails above: the extracted video goes away
             // on every path, including the ones that throw.
             val scanned = withTempFile("motion-photo-frame-interval-", ".${video.extension}") { temp ->

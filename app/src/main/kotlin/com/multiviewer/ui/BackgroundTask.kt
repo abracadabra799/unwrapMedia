@@ -20,11 +20,22 @@ import java.util.concurrent.ThreadFactory
 // files makes the whole app stutter" actually was: not two tabs coexisting, but their one-time
 // open-time decode work all fighting for the CPU at once. Routing through a small fixed pool
 // instead serializes the overflow instead of letting it pile on -- a task queues briefly rather
-// than racing every other task for CPU/IO. Sized at 2 (matching MAX_OPEN_FILES): each open tab
-// gets a slot; a third task just waits its turn instead of adding a third contender.
+// than racing every other task for CPU/IO. Sized at 2: a third task just waits its turn instead of
+// adding a third contender. Everything here must be short (file-open parse/decode, snapshot decodes);
+// anything that can run for minutes belongs on [longScanExecutor] instead.
 internal val backgroundExecutor = Executors.newFixedThreadPool(
     2,
     ThreadFactory { runnable -> Thread(runnable).apply { isDaemon = true } },
+)
+
+// Multi-minute scans (GOP / frame-interval ffprobe -show_frames over a long recording) used to share
+// backgroundExecutor, so two of them held both slots and every file open -- and the Compare window's
+// HEIC fallback decode -- queued behind them until a scan finished. They get their own small pool so
+// they can only delay each other. Per-tab ownership (and cancellation on tab close) still goes through
+// TabState.longScanTasks.
+internal val longScanExecutor = Executors.newFixedThreadPool(
+    2,
+    ThreadFactory { runnable -> Thread(runnable, "long-scan").apply { isDaemon = true } },
 )
 
 fun runInBackground(block: () -> Unit) {

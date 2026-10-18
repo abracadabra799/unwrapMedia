@@ -106,4 +106,45 @@ class ResourceLifecycleStressTest {
             directory.delete()
         }
     }
+
+    // GOP / frame-interval scans of long recordings hold their thread for minutes. On the shared 2-slot
+    // backgroundExecutor, two such scans stalled every file open (and the Compare window's HEIC fallback
+    // decode) behind them. Long scans now run on their own pool; short work must still get a slot.
+    @Test
+    fun `long frame analysis scans do not starve the short background pool`() {
+        val directory = Files.createTempDirectory("lifecycle-starve-").toFile()
+        val fifos = List(2) { directory.resolve("blocked-$it.mp4") }
+        val state = onEdt { AppState() }
+        val handles = mutableListOf<ProcessHandle>()
+        try {
+            fifos.forEach { assertEquals(0, ProcessBuilder("mkfifo", it.absolutePath).start().waitFor()) }
+            // Two scans fill the old 2-slot pool; their ffprobes block on the unfed FIFOs forever.
+            fifos.forEach { fifo ->
+                onEdt {
+                    val tab = TabState(fifo)
+                    state.tabs.add(tab)
+                    state.analyzeFrames(tab)
+                }
+                await("ffprobe startup on ${fifo.name}") {
+                    ProcessHandle.current().descendants().use { processes ->
+                        processes.filter { it.info().arguments().orElse(emptyArray()).contains(fifo.absolutePath) }
+                            .findFirst().orElse(null)
+                    }?.also { handles.add(it) } != null
+                }
+            }
+            val shortRan = java.util.concurrent.CountDownLatch(1)
+            runInBackground { shortRan.countDown() }
+            assertTrue(
+                shortRan.await(3, java.util.concurrent.TimeUnit.SECONDS),
+                "A short background task (file open / snapshot decode) waited behind long frame scans",
+            )
+            onEdt { while (state.tabs.isNotEmpty()) state.closeTab(0) }
+            await("long-scan ffprobe termination on tab close") { handles.none { it.isAlive } }
+        } finally {
+            onEdt { while (state.tabs.isNotEmpty()) state.closeTab(0) }
+            handles.filter { it.isAlive }.forEach { it.destroyForcibly() }
+            fifos.forEach { it.delete() }
+            directory.delete()
+        }
+    }
 }
