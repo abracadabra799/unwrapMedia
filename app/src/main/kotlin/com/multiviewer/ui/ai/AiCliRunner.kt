@@ -125,6 +125,12 @@ suspend fun runAiCli(
     if (!fileStillCurrent()) return@runInterruptible AiCliResult.StaleFile
     val workDir = Files.createTempDirectory(AI_WORK_DIR_PREFIX).toFile()
     var process: Process? = null
+    // Descendants seen while the CLI ran. Once it exits they are reparented and can no longer be found
+    // through its PID, so a helper it left behind (an MCP/extension server, the node child of an npm shim)
+    // is only reachable through this snapshot.
+    val seenDescendants = LinkedHashMap<Long, ProcessHandle>()
+    var stdoutReader: BoundedCollector? = null
+    var stderrReader: BoundedCollector? = null
     try {
         try {
             adapter.prepareWorkDirectory(workDir)
@@ -159,8 +165,8 @@ suspend fun runAiCli(
         }
         process = started
         ProcessManager.register(started)
-        val out = BoundedCollector(started.inputStream, maxOutputBytes).also { it.start() }
-        val err = BoundedCollector(started.errorStream, MAX_STDERR_BYTES).also { it.start() }
+        val out = BoundedCollector(started.inputStream, maxOutputBytes).also { it.start(); stdoutReader = it }
+        val err = BoundedCollector(started.errorStream, MAX_STDERR_BYTES).also { it.start(); stderrReader = it }
         Thread({
             try {
                 started.outputStream.use { it.write(invocation.stdin.toByteArray(Charsets.UTF_8)) }
@@ -170,7 +176,15 @@ suspend fun runAiCli(
         }, "ai-cli-writer").apply { isDaemon = true }.start()
 
         val finished = try {
-            started.waitFor(timeoutMillis, TimeUnit.MILLISECONDS)
+            val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
+            var exited = false
+            while (!exited) {
+                ProcessManager.descendantsOf(started).forEach { seenDescendants[it.pid()] = it }
+                val remaining = deadline - System.nanoTime()
+                if (remaining <= 0) break
+                exited = started.waitFor(minOf(remaining, TimeUnit.MILLISECONDS.toNanos(100)), TimeUnit.NANOSECONDS)
+            }
+            exited
         } catch (e: InterruptedException) {
             ProcessManager.terminate(started)
             throw e
@@ -179,6 +193,9 @@ suspend fun runAiCli(
             ProcessManager.terminate(started)
             return@runInterruptible AiCliResult.TimedOut
         }
+        // Normal exit: stop whatever it left running first, so a helper holding the stdout/stderr pipe
+        // releases it and the readers below reach EOF instead of blocking forever.
+        ProcessManager.terminateOrphans(seenDescendants.values)
         out.join(2_000)
         err.join(2_000)
         // A cap can split a multi-byte character; drop the replacement char it leaves at the cut.
@@ -207,10 +224,15 @@ suspend fun runAiCli(
         }
     } finally {
         process?.let { if (it.isAlive) ProcessManager.terminate(it) else ProcessManager.unregister(it) }
+        ProcessManager.terminateOrphans(seenDescendants.values)
+        // Closing our pipe ends releases them and lets a reader still parked on one finish.
+        process?.let { p -> runCatching { p.inputStream.close() }; runCatching { p.errorStream.close() } }
         // Windows may hold a just-killed process's handles briefly.
-        // Cancellation leaves this thread interrupted; clear it while retrying, then restore it.
+        // Cancellation leaves this thread interrupted; clear it while joining/retrying, then restore it.
         val interrupted = Thread.interrupted()
         try {
+            stdoutReader?.join(500)
+            stderrReader?.join(500)
             var attempt = 0
             while (!deleteTreeNoFollow(workDir) && attempt < 5) Thread.sleep(100L * ++attempt)
         } catch (_: InterruptedException) {

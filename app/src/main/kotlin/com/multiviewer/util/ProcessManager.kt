@@ -86,6 +86,27 @@ object ProcessManager {
         }
     }
 
+    /**
+     * Stops processes that are no longer reachable through a live parent -- descendants snapshotted while
+     * their parent ran (see [descendants]), which it left behind when it exited normally. Same staged
+     * shutdown as [terminate]: polite destroy, a short grace period, then a forced kill. Blocking.
+     */
+    fun terminateOrphans(handles: Collection<ProcessHandle>) {
+        val alive = handles.filter { it.isAlive }.distinctBy { it.pid() }
+        if (alive.isEmpty()) return
+        alive.asReversed().forEach { runCatching { it.destroy() } }
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(200)
+        try {
+            while (System.nanoTime() < deadline && alive.any { it.isAlive }) Thread.sleep(10)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+        alive.asReversed().forEach { runCatching { if (it.isAlive) it.destroyForcibly() } }
+    }
+
+    /** The current descendants of [process] (empty once it has exited: its children are reparented). */
+    fun descendantsOf(process: Process): List<ProcessHandle> = descendants(process)
+
     private fun descendants(process: Process): List<ProcessHandle> = runCatching {
         ProcessHandle.of(process.pid()).orElse(null)?.descendants()?.use { it.toList() }.orEmpty()
     }.getOrDefault(emptyList())

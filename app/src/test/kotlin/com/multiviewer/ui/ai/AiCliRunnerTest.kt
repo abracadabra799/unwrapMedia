@@ -130,6 +130,28 @@ class AiCliRunnerTest {
         assertFalse(ProcessHandle.of(child).map { it.isAlive }.orElse(false), "child sleep must be killed")
     }
 
+    // A CLI (codex MCP server, a gemini extension, an npm shim exiting before node) may exit normally while a
+    // helper it spawned keeps running. The helper must not be orphaned, and since it inherited stdout the
+    // reader thread draining that pipe must not stay blocked forever either.
+    @Test
+    fun `helpers left running by a normally exiting cli are killed and the readers end`() {
+        val pidFile = File(dir, "helper")
+        val exe = script("claude", """sleep 30 & echo $! > "${pidFile.absolutePath}"; sleep 0.5; echo answer""")
+        fun readers() = Thread.getAllStackTraces().keys.filter { it.name == "ai-cli-reader" && it.isAlive }.toSet()
+        val readersBefore = readers()
+        val result = assertIs<AiCliResult.Answer>(run(exe))
+        assertTrue(result.text.contains("answer"), result.text)
+        val helper = pidFile.readText().trim().toLong()
+        val deadline = System.nanoTime() + 3_000_000_000L
+        while (System.nanoTime() < deadline &&
+            (ProcessHandle.of(helper).map { it.isAlive }.orElse(false) || (readers() - readersBefore).isNotEmpty())
+        ) Thread.sleep(50)
+        val helperAlive = ProcessHandle.of(helper).map { it.isAlive }.orElse(false)
+        if (helperAlive) ProcessHandle.of(helper).ifPresent { it.destroyForcibly() }
+        assertFalse(helperAlive, "the CLI's helper outlived a normal exit")
+        assertTrue((readers() - readersBefore).isEmpty(), "an ai-cli-reader thread is still blocked on the helper's pipe")
+    }
+
     @Test
     fun `a stale file never launches the cli`() {
         val marker = File(dir, "ran")
