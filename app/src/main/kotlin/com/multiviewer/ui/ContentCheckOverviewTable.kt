@@ -66,7 +66,11 @@ fun buildContentCheckOverviewRows(
     running: Boolean,
     fileChanged: Boolean,
     verdictResolver: (CheckStage) -> String?,
-): List<ContentCheckOverviewRow> = specs.map { spec ->
+): List<ContentCheckOverviewRow> = specs
+    .filterNot { spec ->
+        type == MediaType.IMAGE && (spec.stage == CheckStage.CODEC || spec.stage == CheckStage.AUDIO_DECODE)
+    }
+    .map { spec ->
     val state = states[spec.stage] ?: CheckStageState(CheckRunStatus.NOT_RUN)
     val isAvailable = spec.availability == CheckAvailability.AVAILABLE
     val (statusText, statusTone) = when (spec.availability) {

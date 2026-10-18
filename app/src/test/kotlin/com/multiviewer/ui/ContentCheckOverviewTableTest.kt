@@ -150,4 +150,28 @@ class ContentCheckOverviewTableTest {
         ) { null }
         assertFalse(fileChangedRows[0].canAction) // Disabled when file changed
     }
+
+    @Test
+    fun imageFilesOmitCodecBitstreamAndAudioDecodeStages() {
+        val root = sampleMp4Root()
+        val specs = listOf(
+            CheckStageSpec(CheckStage.CONTAINER_CONFORMANCE, CheckAvailability.AVAILABLE),
+            CheckStageSpec(CheckStage.STRUCTURE, CheckAvailability.AVAILABLE),
+            CheckStageSpec(CheckStage.CODEC, CheckAvailability.NOT_APPLICABLE),
+            CheckStageSpec(CheckStage.VISUAL_DECODE, CheckAvailability.AVAILABLE),
+            CheckStageSpec(CheckStage.AUDIO_DECODE, CheckAvailability.NOT_APPLICABLE),
+            CheckStageSpec(CheckStage.MOTION_PHOTO, CheckAvailability.AVAILABLE),
+        )
+        val rows = buildContentCheckOverviewRows(
+            specs = specs, states = emptyMap(), type = MediaType.IMAGE, root = root, summary = null,
+            ko = true, running = false, fileChanged = false,
+        ) { null }
+
+        assertEquals(
+            listOf(CheckStage.CONTAINER_CONFORMANCE, CheckStage.STRUCTURE, CheckStage.VISUAL_DECODE, CheckStage.MOTION_PHOTO),
+            rows.map { it.stage },
+        )
+        assertFalse(rows.any { it.stage == CheckStage.CODEC })
+        assertFalse(rows.any { it.stage == CheckStage.AUDIO_DECODE })
+    }
 }
