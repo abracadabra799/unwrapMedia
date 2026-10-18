@@ -20,6 +20,7 @@ import com.multiviewer.parser.parseFile
 import com.multiviewer.parser.parseXmpDocument
 import com.multiviewer.ui.FfmpegLocator
 import com.multiviewer.ui.readProcessOutputWithTimeout
+import com.multiviewer.util.deleteWhenReleased
 import java.io.File
 import java.util.Locale
 import kotlin.math.abs
@@ -77,22 +78,25 @@ object MotionPhotoInspectorEngine {
             // Extract embedded video once if available for video and av-sync analysis
             var tempVideoFile: File? = null
             var videoRoot: BoxNode? = null
-            if (embeddedVideo != null) {
-                try {
-                    val temp = File.createTempFile("motion-photo-inspect-video", ".${embeddedVideo.extension}")
-                    temp.deleteOnExit()
-                    extractEmbeddedVideo(file, embeddedVideo, temp)
-                    tempVideoFile = temp
-                    videoRoot = try { parseFile(temp) } catch (_: Exception) { null }
-                } catch (e: InterruptedException) {
-                    throw e
-                } catch (_: Exception) {
-                    // Extraction failed
-                }
-            }
-            throwIfInterrupted()
-
+            // Assigned the moment the temp file exists, so the finally below removes it on every path --
+            // including a cancel (interrupt) or failure midway through extraction.
+            var createdTemp: File? = null
             try {
+                if (embeddedVideo != null) {
+                    try {
+                        val temp = File.createTempFile("motion-photo-inspect-video", ".${embeddedVideo.extension}")
+                        createdTemp = temp
+                        extractEmbeddedVideo(file, embeddedVideo, temp)
+                        tempVideoFile = temp
+                        videoRoot = try { parseFile(temp) } catch (_: Exception) { null }
+                    } catch (e: InterruptedException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // Extraction failed; the sections report the missing video.
+                    }
+                }
+                throwIfInterrupted()
+
                 val formatXmpSection = inspectFormatAndXmp(file, root, reader, tempVideoFile)
                 throwIfInterrupted()
                 val sefSection = inspectSefIntegrity(file, root, reader)
@@ -126,7 +130,8 @@ object MotionPhotoInspectorEngine {
                     avSyncSection = avSyncSection,
                 )
             } finally {
-                tempVideoFile?.delete()
+                // deleteWhenReleased: on Windows an ffmpeg/ffprobe just killed by the cancel may still hold it.
+                deleteWhenReleased(createdTemp)
             }
         }
     }

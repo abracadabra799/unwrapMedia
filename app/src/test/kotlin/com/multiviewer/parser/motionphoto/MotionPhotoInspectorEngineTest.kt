@@ -532,4 +532,42 @@ class MotionPhotoInspectorEngineTest {
         }
         assertEquals("interrupted", outcome)
     }
+
+    // The extracted video can be tens of MB; it must not stay in the temp directory when the inspection is
+    // cancelled mid-extraction (deleteOnExit only removes it when the whole app exits). A large sparse
+    // "video" keeps extraction busy long enough to interrupt it once its temp file exists.
+    @Test
+    fun `an interrupted inspection leaves no extracted video behind`() {
+        val videoLength = 400L shl 20
+        val prefix = 1000L
+        val file = File.createTempFile("mp-inspector-big-", ".jpg")
+        file.deleteOnExit()
+        java.io.RandomAccessFile(file, "rw").use { raf ->
+            raf.setLength(prefix + videoLength)
+            raf.seek(prefix + 4); raf.write("ftypisom".toByteArray(Charsets.US_ASCII))
+        }
+        val root = rootWithXmp(googleDirectoryXmp(videoLength), file.length())
+        assertNotNull(com.multiviewer.parser.ByteReader.open(file).use { com.multiviewer.parser.findEmbeddedVideo(root, it) })
+
+        val tempDir = File(System.getProperty("java.io.tmpdir"))
+        fun extracted() = tempDir.listFiles { f -> f.name.startsWith("motion-photo-inspect-video") }?.map { it.name }?.toSet().orEmpty()
+        val before = extracted()
+        var sawTemp = false
+        val worker = Thread {
+            try { MotionPhotoInspectorEngine.inspect(file, root) } catch (_: InterruptedException) { }
+        }.apply { isDaemon = true; start() }
+        val watchDeadline = System.currentTimeMillis() + 10_000
+        while (worker.isAlive && System.currentTimeMillis() < watchDeadline) {
+            if ((extracted() - before).isNotEmpty()) { sawTemp = true; worker.interrupt(); break }
+            Thread.sleep(1)
+        }
+        worker.join(10_000)
+        file.delete()
+        assertTrue(sawTemp, "extraction finished before the test could interrupt it")
+        val deadline = System.currentTimeMillis() + 3_000
+        while ((extracted() - before).isNotEmpty() && System.currentTimeMillis() < deadline) Thread.sleep(50)
+        val left = extracted() - before
+        left.forEach { File(tempDir, it).delete() }
+        assertEquals(emptySet(), left, "the extracted video was left in the temp directory")
+    }
 }

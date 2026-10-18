@@ -58,6 +58,7 @@ import com.multiviewer.parser.motionphoto.MotionPhotoInspectorEngine
 import com.multiviewer.parser.parseFile
 import com.multiviewer.util.ClipboardUtil
 import com.multiviewer.util.deleteWhenReleased
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -255,17 +256,27 @@ fun MotionPhotoInspectorWindow(
                                             }
                                         }
                                         if (video != null) {
-                                            val temp = withContext(Dispatchers.IO) {
-                                                File.createTempFile("motion-photo-window-", ".${video.extension}").also { dest ->
+                                            // Held here (not returned) so a cancel or failure mid-extraction can still
+                                            // delete it: withContext would drop a finished result on cancellation.
+                                            var pending: File? = null
+                                            try {
+                                                runInterruptible(Dispatchers.IO) {
+                                                    val dest = File.createTempFile("motion-photo-window-", ".${video.extension}")
+                                                    pending = dest
                                                     extractEmbeddedVideo(tab.file, video, dest)
                                                 }
+                                                extractedVideoFile = pending
+                                                pending = null
+                                            } finally {
+                                                deleteWhenReleased(pending)
                                             }
-                                            extractedVideoFile = temp
                                             motionVideoWindowOpen = true
                                             statusMessage = label("동영상 재생 창을 열었습니다", "Opened video player")
                                         } else {
                                             statusMessage = label("임베디드 동영상을 찾을 수 없습니다", "Embedded video not found")
                                         }
+                                    } catch (e: CancellationException) {
+                                        throw e
                                     } catch (e: Exception) {
                                         statusMessage = label("동영상 추출 실패: ${e.message}", "Failed to extract video: ${e.message}")
                                     } finally {
