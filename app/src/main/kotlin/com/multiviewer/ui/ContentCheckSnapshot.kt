@@ -41,6 +41,7 @@ data class ContentCheckSnapshot(
     val av1Bitstream: com.multiviewer.parser.conformance.Av1BitstreamReport? = null,
     val vp9Bitstream: com.multiviewer.parser.conformance.Vp9BitstreamReport? = null,
     val apvBitstream: com.multiviewer.parser.conformance.ApvBitstreamReport? = null,
+    val vvcBitstream: com.multiviewer.parser.conformance.VvcBitstreamReport? = null,
     val aacBitstream: com.multiviewer.parser.conformance.AacBitstreamReport? = null,
     val opusBitstream: com.multiviewer.parser.conformance.OpusBitstreamReport? = null,
     val flacBitstream: com.multiviewer.parser.conformance.FlacBitstreamReport? = null,
@@ -177,6 +178,23 @@ fun contentCheckWorkflowJson(snapshot: ContentCheckSnapshot, file: File): JsonVa
         "ranges" to JsonValue.JArray(finding.ranges.take(4).map { range -> JsonValue.JObject(listOf(
             "start" to JsonValue.JNumber(range.first), "endInclusive" to JsonValue.JNumber(range.last))) }),
     )) }),
+))) } ?: snapshot.vvcBitstream?.let { report -> listOf("codec" to JsonValue.JObject(listOf(
+    "checkedSamples" to JsonValue.JNumber(report.checkedSamples.toLong()),
+    "indexedSamples" to JsonValue.JNumber(report.indexedSamples.toLong()),
+    "complete" to JsonValue.JBoolean(report.complete),
+    "checkedTrack" to JsonValue.JString(report.checkedTrack),
+    "totalOccurrences" to JsonValue.JObject(report.totalOccurrences.entries.take(30).map { (id, count) ->
+        id to JsonValue.JNumber(count)
+    }),
+    "limitations" to JsonValue.JArray(report.limitations.take(30).map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
+    "findings" to JsonValue.JArray(report.findings.take(100).map { finding -> JsonValue.JObject(listOf(
+        "ruleId" to JsonValue.JString(finding.rule.id),
+        "status" to JsonValue.JString(finding.status.name),
+        "source" to JsonValue.JString(finding.rule.source),
+        "details" to JsonValue.JArray(finding.details.take(4).map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
+        "ranges" to JsonValue.JArray(finding.ranges.take(4).map { range -> JsonValue.JObject(listOf(
+            "start" to JsonValue.JNumber(range.first), "endInclusive" to JsonValue.JNumber(range.last))) }),
+    )) }),
 ))) } ?: snapshot.aacBitstream?.let { report -> listOf("codec" to JsonValue.JObject(listOf(
     "checkedSamples" to JsonValue.JNumber(report.checkedSamples.toLong()),
     "indexedSamples" to JsonValue.JNumber(report.indexedSamples.toLong()),
@@ -257,8 +275,10 @@ private fun contentCheckFindings(snapshot: ContentCheckSnapshot): List<ContentFi
     snapshot.av1Bitstream?.let { addAll(av1BitstreamFindings(it)) }
     snapshot.vp9Bitstream?.let { addAll(vp9BitstreamFindings(it)) }
     snapshot.apvBitstream?.let { addAll(apvBitstreamFindings(it)) }
+    snapshot.vvcBitstream?.let { addAll(vvcBitstreamFindings(it)) }
     snapshot.aacBitstream?.let { addAll(aacBitstreamFindings(it)) }
     snapshot.opusBitstream?.let { addAll(opusBitstreamFindings(it)) }
+    snapshot.flacBitstream?.let { addAll(flacBitstreamFindings(it)) }
     snapshot.structure?.let { addAll(structureFindings(it, FindingStage.STRUCTURE)) }
     snapshot.audioStructure?.let { addAll(audioStructureFindings(it)) }
     snapshot.imageDecode?.let { addAll(imageDecodeFindings(it)) }
@@ -338,6 +358,15 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
 
     snapshot.hevcBitstream?.let { codec ->
         sb.appendLine("- HEVC 바이트 검사: ${codec.checkedSamples}/${codec.indexedSamples} samples; complete=${codec.complete}; ${promptText(codec.checkedTrack)}")
+        sb.appendCapped(codec.limitations, MAX_ITEMS, "  • ") { promptText(it) }
+        sb.appendCapped(codec.findings, MAX_ITEMS, "  • ") { finding ->
+            "[${finding.status.name}] ${finding.rule.id}; 구조 관측값·규격 조항 미확인; " +
+                finding.details.take(4).joinToString("; ") { promptText(it) }
+        }
+    }
+
+    snapshot.vvcBitstream?.let { codec ->
+        sb.appendLine("- VVC 바이트 검사: ${codec.checkedSamples}/${codec.indexedSamples} samples; complete=${codec.complete}; ${promptText(codec.checkedTrack)}")
         sb.appendCapped(codec.limitations, MAX_ITEMS, "  • ") { promptText(it) }
         sb.appendCapped(codec.findings, MAX_ITEMS, "  • ") { finding ->
             "[${finding.status.name}] ${finding.rule.id}; 구조 관측값·규격 조항 미확인; " +
