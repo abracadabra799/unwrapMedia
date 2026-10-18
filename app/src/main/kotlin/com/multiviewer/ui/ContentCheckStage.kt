@@ -2,6 +2,7 @@ package com.multiviewer.ui
 
 import com.multiviewer.parser.BoxNode
 import com.multiviewer.parser.conformance.BitstreamCodec
+import com.multiviewer.parser.conformance.CodecBitstreamReport
 import com.multiviewer.parser.firstVideoSampleEntry
 import com.multiviewer.parser.firstAudioSampleEntry
 import com.multiviewer.parser.boxDescendants
@@ -163,9 +164,29 @@ fun codecBitstreamPlan(type: MediaType, root: BoxNode?): List<BitstreamCodec> {
     )
 }
 
-/** A video file whose video track has no supported byte checker: an audio-only check must not read as complete. */
-fun videoCodecUnchecked(type: MediaType, plan: List<BitstreamCodec>): Boolean =
-    type == MediaType.VIDEO && plan.none { !it.isAudio }
+/**
+ * What a CODEC run did not cover, one bilingual reason per gap; empty means every track was byte-checked in full.
+ * A video whose video or audio track has no checker, a planned check that never produced a report (cancelled or
+ * failed midway) and partial sample coverage are all gaps, so an incomplete run never reads as complete (rule 7).
+ */
+// Any `soun` track, whatever its codec (firstAudioSampleEntry only knows the codecs the app can play).
+private fun hasSoundTrack(root: BoxNode): Boolean = boxDescendants(root).any { trak ->
+    trak.type == "trak" && boxDescendants(trak).any { node ->
+        node.type == "hdlr" && node.fields.any { it.name == "handler_type" && it.value == "soun" }
+    }
+}
+
+fun codecCoverageGaps(type: MediaType, root: BoxNode?, plan: List<BitstreamCodec>, reports: List<CodecBitstreamReport>): List<String> = buildList {
+    if (type == MediaType.VIDEO && plan.none { !it.isAudio }) {
+        add("Video codec has no byte checker; video track not checked / 영상 코덱 미지원 · 영상 트랙 미검사")
+    }
+    if (type == MediaType.VIDEO && plan.none { it.isAudio } && root != null && hasSoundTrack(root)) {
+        add("Audio codec has no byte checker; audio track not checked / 오디오 코덱 미지원 · 오디오 트랙 미검사")
+    }
+    val ran = reports.map { it.codec }.toSet()
+    plan.filter { it !in ran }.forEach { add("${it.label} check did not run / ${it.label} 검사 미실행") }
+    if (reports.any { !it.complete }) add("Only indexed, supported samples were checked / 일부 샘플만 검사")
+}
 
 fun videoCodecAvailability(type: MediaType, root: BoxNode?): CheckAvailability {
     val hevc = hevcCodecAvailability(type, root)

@@ -39,6 +39,8 @@ data class ContentCheckSnapshot(
     val stages: Map<CheckStage, CheckStageState> = emptyMap(),
     /** Codec byte checks in run order: the video track's first, then the audio track's. */
     val codecBitstreams: List<CodecBitstreamReport> = emptyList(),
+    /** What the codec run did not cover ([codecCoverageGaps]); non-empty means the codec check is not complete. */
+    val codecGaps: List<String> = emptyList(),
 )
 
 /** Size + modification time of the checked file, captured before reading it (same idea as the thumbnail cache). */
@@ -238,6 +240,7 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
     snapshot.codecBitstreams.forEach {
         sb.appendCodecByteCheck(it.codec.label, it.checkedSamples, it.indexedSamples, it.complete, it.checkedTrack, it.limitations, it.findings)
     }
+    snapshot.codecGaps.forEach { sb.appendLine("- 코덱 바이트 검사 범위 밖: ${promptText(it)}") }
 
     val normalizedFindings = contentCheckFindings(snapshot)
     sb.appendLine("### [검증된 사실]")

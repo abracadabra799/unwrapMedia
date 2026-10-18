@@ -21,8 +21,13 @@ User decision: check **both** the video and the audio codec.
 - `ui/CodecContentFindings.kt`: one `codecBitstreamFindings(report)` (the nine were identical).
 - `codecBitstreamPlan(type, root)`: first AVAILABLE video codec (HEVC, AVC, AV1, VP9, APV, VVC), then the
   first AVAILABLE audio codec (AAC, Opus, FLAC). The stage runs them in order.
-- `videoCodecUnchecked(type, plan)`: a VIDEO file with no supported video codec but a supported audio
-  codec is checked audio-only and the stage shows PARTIAL with a reason (rule 7 — never a silent pass).
+- `codecCoverageGaps(type, root, plan, reports)` (from the whole-branch review): one bilingual reason per gap —
+  video track without a checker, audio (`soun`) track without a checker (e.g. AC-3), a planned check that never
+  produced a report (cancelled / failed between the two), partial sample coverage. Any gap turns a COMPLETED CODEC
+  stage into PARTIAL with all reasons joined, makes the overview "partly unchecked", is listed on the codec tab and
+  goes to the AI prompt as "코덱 바이트 검사 범위 밖" lines (rule 7 — never a silent pass).
+- Each run clears the previous run's reports before checking (no duplicates on re-run); a late progress tick from
+  the previous codec is dropped once the next one starts.
 - `ContentCheckSnapshot.codecBitstreams: List<CodecBitstreamReport>`. Workflow JSON keeps `"codec"`
   (the first report) for older readers and adds `"codecs"` (every report, each with `"codecName"`).
   The AI prompt lists one "<codec> 바이트 검사" line per report.
@@ -35,7 +40,10 @@ User decision: check **both** the video and the audio codec.
   bit 15, so real mono AAC (global_gain ≥ 128) gave false FAILs. Fixed separately (`f2353e83`) with a real
   ffmpeg mono fixture.
 
+- While there: the AAC scanner now also checks a CPE without `common_window` (reserved bit 16, after the first
+  channel's `global_gain`) and LFE (SCE layout, bit 15); no false FAIL on real ffmpeg stereo / 5.1 output.
+
 ## Fixtures
 
 `docs/validation/content-check-codec-fixtures/generate.sh` → `app/src/test/resources/content-check-codecs/`
-`hevc-aac.mp4` (hev1+mp4a), `avc-aac.mp4` (avc1+mp4a), `mpeg4-aac.mp4` (mp4v+mp4a, unsupported video).
+`hevc-aac.mp4` (hev1+mp4a), `avc-aac.mp4` (avc1+mp4a), `mpeg4-aac.mp4` (mp4v+mp4a, unsupported video), `hevc-ac3.mp4` (hev1+ac-3, unsupported audio).

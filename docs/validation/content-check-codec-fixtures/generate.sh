@@ -14,3 +14,6 @@ ffmpeg -hide_banner -loglevel error -y "${src[@]}" -frames:v 8 -pix_fmt yuv420p 
 # MPEG-4 Part 2 video has no byte checker: only the audio track can be checked.
 ffmpeg -hide_banner -loglevel error -y "${src[@]}" -frames:v 8 -pix_fmt yuv420p \
   -c:v mpeg4 -c:a aac -shortest "$out/mpeg4-aac.mp4"
+# AC-3 audio has no byte checker: only the video track can be checked.
+ffmpeg -hide_banner -loglevel error -y "${src[@]}" -frames:v 8 -pix_fmt yuv420p \
+  -c:v libx265 -x265-params 'pools=1:frame-threads=1:log-level=error' -c:a ac3 -shortest "$out/hevc-ac3.mp4"

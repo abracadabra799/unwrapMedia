@@ -47,6 +47,7 @@ import com.multiviewer.parser.buildMediaSummary
 import com.multiviewer.parser.collectWarnings
 import com.multiviewer.parser.GainmapValidator
 import com.multiviewer.parser.conformance.ConformanceReport
+import com.multiviewer.parser.conformance.BitstreamCodec
 import com.multiviewer.parser.conformance.CodecBitstreamReport
 import com.multiviewer.parser.conformance.ConformanceStatus
 import com.multiviewer.parser.conformance.analyzeCodecBitstream
@@ -89,6 +90,7 @@ fun ContentCheckWindow(
     var audioStructure by remember(tab) { mutableStateOf<AudioStructureReport?>(null) }
     var conformance by remember(tab) { mutableStateOf<ConformanceReport?>(null) }
     var codecBitstreams by remember(tab) { mutableStateOf<List<CodecBitstreamReport>>(emptyList()) }
+    var codecPlan by remember(tab) { mutableStateOf<List<BitstreamCodec>>(emptyList()) }
     var fileLength by remember(tab) { mutableStateOf(0L) }
     var structureError by remember(tab) { mutableStateOf<String?>(null) }
     var imageDecode by remember(tab) { mutableStateOf<ImageDecodeReport?>(null) }
@@ -137,13 +139,17 @@ fun ContentCheckWindow(
             opusCodecAvailable = (opusAvail == CheckAvailability.AVAILABLE),
             flacCodecAvailable = (flacAvail == CheckAvailability.AVAILABLE))
     }
+    // What the codec run did not cover; drives the overview verdict, the codec tab notice and the AI snapshot.
+    val codecGaps = remember(type, tab.root, codecPlan, codecBitstreams) {
+        if (codecPlan.isEmpty()) emptyList() else codecCoverageGaps(type, tab.root, codecPlan, codecBitstreams)
+    }
     val targetJob = job
     DisposableEffect(tab, targetJob) { onDispose { targetJob?.cancel() } }
 
     // Publish the current run's results to the tab for the AI prompt. These states are only ever
     // written by the current run (every write is behind the runId/current() guard), so a stale or
     // cancelled run can never reach the tab through here.
-    LaunchedEffect(tab, structure, audioStructure, conformance, codecBitstreams, structureError, imageDecode, imageDecodeError, motion, motionError, video, videoError, audio, audioError, running, motionDetected, type, checkedIdentity, stageStates) {
+    LaunchedEffect(tab, structure, audioStructure, conformance, codecBitstreams, codecGaps, structureError, imageDecode, imageDecodeError, motion, motionError, video, videoError, audio, audioError, running, motionDetected, type, checkedIdentity, stageStates) {
         tab.contentCheck = ContentCheckSnapshot(
             structure, imageDecode, motionDetected, motion, motionError, video, type,
             structureError = structureError, imageDecodeError = imageDecodeError, videoError = videoError, running = running,
@@ -153,6 +159,7 @@ fun ContentCheckWindow(
             fileIdentity = checkedIdentity,
             stages = stageStates,
             codecBitstreams = codecBitstreams,
+            codecGaps = codecGaps,
         )
     }
 
@@ -185,6 +192,7 @@ fun ContentCheckWindow(
         structureError = fileChangedMessage()
         conformance = contentConformanceReport(type, inspectionError = structureError)
         codecBitstreams = emptyList()
+        codecPlan = emptyList()
         message = fileChangedMessage()
     }
 
@@ -251,10 +259,15 @@ fun ContentCheckWindow(
                             if (type != MediaType.VIDEO && type != MediaType.AUDIO) error("Video or audio track unavailable")
                             val plan = codecBitstreamPlan(type, root)
                             if (plan.isEmpty()) error("Supported HEVC, AVC, AV1, VP9, APV, VVC, AAC, Opus or FLAC configuration unavailable")
-                            for (codec in plan) {
+                            // A re-run replaces the previous run's reports instead of appending to them.
+                            codecBitstreams = emptyList()
+                            codecPlan = plan
+                            plan.forEachIndexed { index, codec ->
                                 val report = analyzeCodecBitstream(codec, tab.file, root) { checked, total ->
                                     if (checked % 20 == 0 || checked == total) scope.launch {
-                                        if (current() && stageStates[CheckStage.CODEC]?.status == CheckRunStatus.RUNNING) {
+                                        // Drop a late tick from an earlier codec once the next one has started.
+                                        if (current() && codecBitstreams.size == index &&
+                                            stageStates[CheckStage.CODEC]?.status == CheckRunStatus.RUNNING) {
                                             progress(CheckProgress(checked.toLong(), total?.toLong(), "${codec.label} samples"))
                                         }
                                     }
@@ -290,15 +303,11 @@ fun ContentCheckWindow(
                 }
                 runner.run(runStages) { stage, state ->
                     if (shouldPublishCheckState(myRun == runId, isActive, state.status)) {
-                        val codecComplete = codecBitstreams.takeIf { it.isNotEmpty() }?.all { it.complete }
-                        val videoUnchecked = videoCodecUnchecked(type, codecBitstreams.map { it.codec })
-                        val shownState = when {
-                            stage != CheckStage.CODEC || state.status != CheckRunStatus.COMPLETED -> state
-                            videoUnchecked -> state.copy(status = CheckRunStatus.PARTIAL,
-                                reason = "Video codec has no byte checker; only the audio track was checked / 영상 코덱 미지원 · 오디오 트랙만 검사")
-                            codecComplete == false -> state.copy(status = CheckRunStatus.PARTIAL, reason = "Only indexed, supported samples were checked / 일부 샘플만 검사")
-                            else -> state
-                        }
+                        // Computed from the run's own state: the remembered codecGaps lags until the next recomposition.
+                        val gaps = if (stage == CheckStage.CODEC) codecCoverageGaps(type, tab.root, codecPlan, codecBitstreams) else emptyList()
+                        val shownState = if (stage == CheckStage.CODEC && state.status == CheckRunStatus.COMPLETED && gaps.isNotEmpty()) {
+                            state.copy(status = CheckRunStatus.PARTIAL, reason = gaps.joinToString("; "))
+                        } else state
                         stageStates = stageStates + (stage to shownState)
                         if (state.status == CheckRunStatus.RUNNING && state.progress == null) {
                             selectedStage = nextSelectedStage(selectedStage, manuallySelectedStage, stage)
@@ -339,6 +348,7 @@ fun ContentCheckWindow(
         running = running, audio = audio, audioError = audioError, audioStructure = audioStructure,
         conformance = conformance, fileIdentity = checkedIdentity, stages = stageStates,
         codecBitstreams = codecBitstreams,
+        codecGaps = codecGaps,
     )
 
     Window(
@@ -542,7 +552,7 @@ fun ContentCheckWindow(
                 }
             }
             if (message.isNotEmpty()) Text(message, color = AppColors.TextSecondary, fontSize = 12.sp)
-            val overviewRows = remember(stageSpecs, stageStates, tab.root, tab.mediaSummary, ko, running, fileChanged, conformance, structure, audioStructure, codecBitstreams, imageDecode, video, audio, motion, gainmapChecks) {
+            val overviewRows = remember(stageSpecs, stageStates, tab.root, tab.mediaSummary, ko, running, fileChanged, conformance, structure, audioStructure, codecBitstreams, codecGaps, imageDecode, video, audio, motion, gainmapChecks) {
                 buildContentCheckOverviewRows(
                     specs = stageSpecs,
                     states = stageStates,
@@ -561,7 +571,7 @@ fun ContentCheckWindow(
                             else structure?.overall?.let { checkStatusLabel(it, ko) }
                         CheckStage.CODEC -> {
                             val pair = codecBitstreams.takeIf { it.isNotEmpty() }?.let { reports ->
-                                reports.flatMap { it.findings } to (reports.all { it.complete } && !videoCodecUnchecked(type, reports.map { it.codec }))
+                                reports.flatMap { it.findings } to codecGaps.isEmpty()
                             }
                             pair?.let { (findings, complete) -> when {
                                 findings.any { it.status == ConformanceStatus.FAIL } -> label("오류 관측", "Issues observed")
@@ -654,11 +664,7 @@ fun ContentCheckWindow(
                                 reports.forEach { r ->
                                     Text("${r.codec.label} · ${r.checkedTrack} · ${r.checkedSamples}/${r.indexedSamples} samples", color = AppColors.TextSecondary)
                                 }
-                                if (videoCodecUnchecked(type, reports.map { it.codec })) {
-                                    Text(label("영상 코덱은 바이트 검사를 지원하지 않아 오디오 트랙만 검사했습니다.",
-                                        "The video codec has no byte checker; only the audio track was checked."),
-                                        color = AppColors.NeonYellow, fontSize = 12.sp)
-                                }
+                                codecGaps.forEach { Text(it, color = AppColors.NeonYellow, fontSize = 12.sp) }
                                 Text(label("구조 관측값입니다. 전체 규격 준수나 MediaCodec 동작을 증명하지 않습니다.",
                                     "Structural observations; these do not establish full conformance or MediaCodec behavior."),
                                     color = AppColors.TextSecondary, fontSize = 12.sp)

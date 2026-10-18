@@ -56,6 +56,19 @@ class AacSampleScannerTest {
         assertNotNull(bad.issue)
     }
 
+    // CPE without common_window: id(3) tag(4) common_window(1), then the first channel's global_gain(8), then its
+    // ics_info — ics_reserved_bit is bit 16 (top bit of byte 2). LFE has the SCE layout (bit 15).
+    @Test
+    fun cpeWithoutCommonWindowAndLfeReservedBits() {
+        fun scan(channels: Int, vararg bytes: Int) = byteReaderOf(bytes.map { it.toByte() }.toByteArray()).use { reader ->
+            scanAacSample(reader, AudioSample(0, 0L, bytes.size.toLong(), 0L), channels)
+        }
+        assertEquals(0, scan(2, 0x20, 0xB1, 0x00, 0x00).icsReservedBit)
+        assertEquals(1, scan(2, 0x20, 0xB1, 0x80, 0x00).icsReservedBit)
+        assertEquals(0, scan(6, 0x61, 0x62, 0x00).icsReservedBit)
+        assertEquals(1, scan(6, 0x61, 0x63, 0x00).icsReservedBit)
+    }
+
     @Test
     fun realFfmpegMonoAacHasNoReservedBitFailures() {
         val file = fixture("ffmpeg-mono.m4a")

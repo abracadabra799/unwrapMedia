@@ -200,11 +200,15 @@ fun scanAacSample(reader: ByteReader, sample: AudioSample, channelConfig: Int): 
     val elementInstanceTag = (b0 shr 1) and 0x0F
 
     val icsReservedBit = when (elementId) {
-        1 -> { // ID_CPE (Channel Pair Element)
+        1 -> { // ID_CPE: id(3) tag(4) common_window(1)
             val commonWindow = b0 and 0x01
-            if (commonWindow == 1) (b1 shr 7) and 0x01 else null
+            when {
+                commonWindow == 1 -> (b1 shr 7) and 0x01 // shared ics_info follows directly: bit 8
+                buf.size >= 3 -> ((buf[2].toInt() and 0xFF) shr 7) and 0x01 // first channel's global_gain(8), then ics_info: bit 16
+                else -> null
+            }
         }
-        0 -> { // ID_SCE: id(3) tag(4) global_gain(8), then ics_info's ics_reserved_bit at bit 15
+        0, 3 -> { // ID_SCE / ID_LFE: id(3) tag(4) global_gain(8), then ics_info's ics_reserved_bit at bit 15
             b1 and 0x01
         }
         else -> null
