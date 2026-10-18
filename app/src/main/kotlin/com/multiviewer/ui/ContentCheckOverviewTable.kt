@@ -6,9 +6,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -137,52 +140,64 @@ fun ContentCheckOverviewTable(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(AppColors.Panel)
-                .padding(horizontal = 10.dp, vertical = 7.dp),
+                .height(IntrinsicSize.Min),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                if (ko) "구분" else "Category",
-                color = AppColors.TextSecondary,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.width(165.dp),
-            )
-            Text(
-                if (ko) "검사 항목" else "Check Item",
-                color = AppColors.TextSecondary,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.width(155.dp),
-            )
-            Text(
-                if (ko) "대상 / 규격" else "Target / Format",
-                color = AppColors.TextSecondary,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.width(160.dp),
-            )
-            Text(
-                if (ko) "상태" else "Status",
-                color = AppColors.TextSecondary,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.width(90.dp),
-            )
-            Text(
-                if (ko) "결과 요약" else "Summary / Verdict",
-                color = AppColors.TextSecondary,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                if (ko) "실행" else "Action",
-                color = AppColors.TextSecondary,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.width(75.dp),
-            )
+            Box(Modifier.width(175.dp).padding(horizontal = 8.dp, vertical = 7.dp)) {
+                Text(
+                    if (ko) "구분" else "Category",
+                    color = AppColors.TextSecondary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            TableVerticalDivider(AppColors.Border.copy(alpha = 0.6f))
+            Box(Modifier.width(160.dp).padding(horizontal = 8.dp, vertical = 7.dp)) {
+                Text(
+                    if (ko) "검사 항목" else "Check Item",
+                    color = AppColors.TextSecondary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            TableVerticalDivider(AppColors.Border.copy(alpha = 0.6f))
+            Box(Modifier.width(180.dp).padding(horizontal = 8.dp, vertical = 7.dp)) {
+                Text(
+                    if (ko) "대상 / 규격" else "Target / Format",
+                    color = AppColors.TextSecondary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            TableVerticalDivider(AppColors.Border.copy(alpha = 0.6f))
+            Box(Modifier.width(85.dp).padding(horizontal = 8.dp, vertical = 7.dp)) {
+                Text(
+                    if (ko) "상태" else "Status",
+                    color = AppColors.TextSecondary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            TableVerticalDivider(AppColors.Border.copy(alpha = 0.6f))
+            Box(Modifier.weight(1f).padding(horizontal = 8.dp, vertical = 7.dp)) {
+                Text(
+                    if (ko) "결과 요약" else "Summary / Verdict",
+                    color = AppColors.TextSecondary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            TableVerticalDivider(AppColors.Border.copy(alpha = 0.6f))
+            Box(Modifier.width(80.dp).padding(horizontal = 8.dp, vertical = 7.dp), contentAlignment = Alignment.Center) {
+                Text(
+                    if (ko) "실행" else "Action",
+                    color = AppColors.TextSecondary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
         }
+        HorizontalDivider(color = AppColors.Border, thickness = 1.dp)
 
         // Table Rows
         LazyColumn(modifier = Modifier.fillMaxWidth()) {
@@ -190,73 +205,92 @@ fun ContentCheckOverviewTable(
                 val isSelected = row.stage == selectedStage
                 val isFirstOfCategory = index == 0 || rows[index - 1].category != row.category
 
-                if (isFirstOfCategory && index > 0) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(1.dp)
-                            .background(AppColors.Border.copy(alpha = 0.5f)),
-                    )
+                if (index > 0) {
+                    val dividerColor = if (isFirstOfCategory) AppColors.Border else AppColors.Border.copy(alpha = 0.35f)
+                    HorizontalDivider(color = dividerColor, thickness = 1.dp)
                 }
 
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(if (isSelected) AppColors.Surface.copy(alpha = 0.9f) else Color.Transparent)
-                        .clickable { onSelectStage(row.stage) }
-                        .padding(vertical = 5.dp, horizontal = 10.dp),
+                        .height(IntrinsicSize.Min)
+                        .background(
+                            when {
+                                isSelected -> AppColors.NeonBlue.copy(alpha = 0.12f)
+                                else -> Color.Transparent
+                            }
+                        )
+                        .clickable { onSelectStage(row.stage) },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     // Category Column (with left accent stripe if selected)
                     Row(
-                        modifier = Modifier.width(165.dp),
+                        modifier = Modifier.width(175.dp).padding(horizontal = 8.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         if (isSelected) {
                             Box(
                                 modifier = Modifier
                                     .width(3.dp)
-                                    .height(16.dp)
+                                    .height(14.dp)
                                     .background(AppColors.NeonBlue, RoundedCornerShape(1.5.dp)),
                             )
-                            Spacer(Modifier.width(6.dp))
+                            Spacer(Modifier.width(5.dp))
                         } else {
-                            Spacer(Modifier.width(9.dp))
+                            Spacer(Modifier.width(8.dp))
                         }
+                        val catText = checkCategoryLabel(row.category, ko)
+                        val catFontSize = if (catText.length > 20) 10.sp else 11.sp
                         Text(
-                            checkCategoryLabel(row.category, ko),
+                            catText,
                             color = if (isSelected) AppColors.NeonBlue else AppColors.TextSecondary,
-                            fontSize = 11.sp,
+                            fontSize = catFontSize,
                             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
+                    TableVerticalDivider()
 
                     // Check Item Column
-                    Text(
-                        row.stageLabel,
-                        color = if (isSelected) AppColors.TextPrimary else AppColors.TextPrimary.copy(alpha = 0.85f),
-                        fontSize = 12.sp,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                        modifier = Modifier.width(155.dp),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Box(
+                        modifier = Modifier.width(160.dp).padding(horizontal = 8.dp, vertical = 5.dp),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        val stageFontSize = if (row.stageLabel.length > 16) 10.5.sp else 11.5.sp
+                        Text(
+                            row.stageLabel,
+                            color = if (isSelected) AppColors.TextPrimary else AppColors.TextPrimary.copy(alpha = 0.85f),
+                            fontSize = stageFontSize,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    TableVerticalDivider()
 
                     // Target / Format Column
-                    Text(
-                        row.targetLabel,
-                        color = AppColors.TextSecondary,
-                        fontSize = 11.sp,
-                        modifier = Modifier.width(160.dp),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Box(
+                        modifier = Modifier.width(180.dp).padding(horizontal = 8.dp, vertical = 5.dp),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        val targetFontSize = if (row.targetLabel.length > 20) 10.sp else 11.sp
+                        Text(
+                            row.targetLabel,
+                            color = AppColors.TextSecondary,
+                            fontSize = targetFontSize,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    TableVerticalDivider()
 
                     // Status Column
                     val toneColor = overviewStatusToneColor(row.statusTone)
-                    Box(modifier = Modifier.width(90.dp)) {
+                    Box(
+                        modifier = Modifier.width(85.dp).padding(horizontal = 8.dp, vertical = 5.dp),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
                         Surface(
                             color = toneColor.copy(alpha = 0.12f),
                             shape = RoundedCornerShape(4.dp),
@@ -264,16 +298,18 @@ fun ContentCheckOverviewTable(
                             Text(
                                 text = row.status,
                                 color = toneColor,
-                                fontSize = 11.sp,
+                                fontSize = 10.5.sp,
                                 fontWeight = FontWeight.Medium,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                maxLines = 1,
                             )
                         }
                     }
+                    TableVerticalDivider()
 
                     // Summary / Verdict Column
                     Row(
-                        modifier = Modifier.weight(1f).padding(end = 8.dp),
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
@@ -297,33 +333,49 @@ fun ContentCheckOverviewTable(
                                 )
                             }
                         } else {
+                            val verdictText = row.verdict ?: "-"
+                            val verdictFontSize = if (verdictText.length > 30) 10.5.sp else 11.sp
                             Text(
-                                row.verdict ?: "-",
+                                verdictText,
                                 color = if (row.verdict != null) AppColors.TextPrimary else AppColors.TextMuted,
-                                fontSize = 11.sp,
+                                fontSize = verdictFontSize,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
+                    TableVerticalDivider()
 
                     // Action Column
-                    Box(modifier = Modifier.width(75.dp), contentAlignment = Alignment.CenterStart) {
+                    Box(
+                        modifier = Modifier.width(80.dp).padding(horizontal = 6.dp, vertical = 4.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
                         if (row.isAvailable) {
                             OutlinedButton(
                                 enabled = row.canAction,
                                 onClick = { onRunStage(row.stage) },
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                modifier = Modifier.height(24.dp),
+                                modifier = Modifier.height(24.dp).fillMaxWidth(),
                             ) {
-                                Text(row.actionLabel, fontSize = 11.sp)
+                                Text(row.actionLabel, fontSize = 10.5.sp)
                             }
                         } else {
-                            Text("-", color = AppColors.TextMuted, fontSize = 11.sp, modifier = Modifier.padding(start = 12.dp))
+                            Text("-", color = AppColors.TextMuted, fontSize = 11.sp)
                         }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun TableVerticalDivider(color: Color = AppColors.Border.copy(alpha = 0.4f)) {
+    Box(
+        modifier = Modifier
+            .fillMaxHeight()
+            .width(1.dp)
+            .background(color)
+    )
 }
