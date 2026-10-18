@@ -24,7 +24,9 @@ sealed interface C2paAssertionContent {
     data object Empty : C2paAssertionContent
 }
 
-data class C2paAssertion(val label: String, val contentType: String, val content: C2paAssertionContent, val fileOffset: Long, val size: Int, val rawBytes: ByteArray = ByteArray(0), val diagnostic: String = "")
+data class C2paAssertion(val label: String, val contentType: String, val content: C2paAssertionContent, val fileOffset: Long, val size: Int, val rawBytes: ByteArray = ByteArray(0), val diagnostic: String = "",
+    /** The assertion superbox payload (jumd + content boxes, without the jumb header) — the bytes its hashed-URI covers. */
+    val hashedBytes: ByteArray = ByteArray(0))
 
 data class C2paClaim(
     val label: String, val version: Int, val title: String?, val format: String?, val instanceId: String?,
@@ -174,7 +176,8 @@ private fun parseAssertion(box: JumbfBox, bytes: ByteArray, map: C2paOffsetMap):
     } catch (e: CborException) {
         C2paAssertionContent.Failed(e.message ?: "CBOR decode failed")
     }
-    return C2paAssertion(label, type, content, map.toFile(box.offset), box.size, rawBytes, diagnostic)
+    return C2paAssertion(label, type, content, map.toFile(box.offset), box.size, rawBytes, diagnostic,
+        hashedBytes = bytes.copyOfRange(box.payloadStart, box.payloadEnd))
 }
 
 private fun parseActions(v: CborValue): List<C2paAction> {

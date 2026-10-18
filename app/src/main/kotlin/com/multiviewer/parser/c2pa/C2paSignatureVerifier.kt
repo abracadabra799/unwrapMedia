@@ -173,55 +173,47 @@ fun verifyCertificateChain(chain: List<X509Certificate>): ChainVerificationResul
     )
 }
 
+/**
+ * Checks every hashed-URI in the claim against the assertion it names. The hash covers the assertion's JUMBF superbox
+ * payload (description box + content boxes, without the superbox header). A referenced assertion that is absent, has
+ * no bytes, or uses an unknown algorithm is reported as a mismatch — never counted as matched.
+ */
 fun verifyAssertionHashes(manifest: C2paManifest): AssertionIntegrityResult {
     val claim = manifest.claim ?: return AssertionIntegrityResult(false, 0, 0, emptyList())
     val claimMap = claim.raw.asMap() ?: return AssertionIntegrityResult(false, 0, 0, emptyList())
-    val rawAssertionList = (claimMap["assertions"] ?: claimMap["created_assertions"] ?: claimMap["gathered_assertions"])?.asArray() ?: emptyList()
+    val rawAssertionList = claimMap["assertions"]?.asArray()
+        ?: ((claimMap["created_assertions"]?.asArray() ?: emptyList()) + (claimMap["gathered_assertions"]?.asArray() ?: emptyList()))
+    val claimAlg = claimMap["alg"]?.asText() ?: "sha256"
 
-    val urlToHash = mutableMapOf<String, ByteArray>()
+    var total = 0
+    var matched = 0
+    val mismatched = mutableListOf<String>()
     for (entry in rawAssertionList) {
         val map = entry.asMap() ?: continue
         val url = map["url"]?.asText() ?: continue
-        val hash = map["hash"]?.asBytes() ?: continue
-        urlToHash[url] = hash
-    }
-
-    if (urlToHash.isEmpty()) {
-        return AssertionIntegrityResult(true, 0, 0, emptyList())
-    }
-
-    var matched = 0
-    val mismatched = mutableListOf<String>()
-
-    for ((url, expectedHash) in urlToHash) {
+        val expectedHash = map["hash"]?.asBytes() ?: continue
+        total++
         val targetLabel = url.substringAfterLast('/')
         val assertion = manifest.assertions.firstOrNull { it.label == targetLabel }
-        if (assertion == null || assertion.rawBytes.isEmpty()) {
-            // Check if matching claim or store
-            matched++
-            continue
+        val computed = assertion?.hashedBytes?.takeIf { it.isNotEmpty() }?.let { bytes ->
+            try {
+                MessageDigest.getInstance(normalizeDigestAlgorithm(map["alg"]?.asText() ?: claimAlg)).digest(bytes)
+            } catch (_: java.security.NoSuchAlgorithmException) {
+                null
+            }
         }
-
-        val md = MessageDigest.getInstance("SHA-256")
-        val computed = md.digest(assertion.rawBytes)
-
-        if (computed.contentEquals(expectedHash)) {
-            matched++
-        } else {
-            // Some assertions may use different serialization or salt; count as soft match if present
-            matched++
-        }
+        if (computed != null && computed.contentEquals(expectedHash)) matched++ else mismatched += url
     }
 
     return AssertionIntegrityResult(
         allMatch = mismatched.isEmpty(),
         matchedCount = matched,
-        totalCount = urlToHash.size,
+        totalCount = total,
         mismatchedUrls = mismatched
     )
 }
 
-/** Overall verdict; a mismatching assertion hash means tampering, so it can never be VALID/UNTRUSTED. */
+/** Overall verdict; a mismatching (or absent) assertion hash means tampering, so it can never be VALID/UNTRUSTED. */
 internal fun verdictFor(
     sigValid: Boolean,
     chainValid: Boolean,
@@ -230,6 +222,8 @@ internal fun verdictFor(
 ): VerificationState = when {
     !sigValid -> VerificationState.INVALID
     !chainValid -> VerificationState.INVALID
+    // A claim must reference at least its hard-binding assertion; zero hashed assertions is a malformed claim, not a pass.
+    assertions.totalCount == 0 -> VerificationState.INVALID
     assertions.mismatchedUrls.isNotEmpty() || assertions.matchedCount < assertions.totalCount -> VerificationState.INVALID
     isTest -> VerificationState.UNTRUSTED
     else -> VerificationState.VALID
@@ -281,13 +275,16 @@ fun verifyC2paManifest(manifest: C2paManifest): C2paVerificationReport {
     val errors = mutableListOf<String>()
     sigResult.error?.let { errors += it }
     chainResult.error?.let { errors += it }
+    assertionResult.mismatchedUrls.forEach { errors += "어설션 해시 불일치: $it" }
 
     val state = verdictFor(sigResult.valid, chainResult.valid, chainResult.isTestCredential, assertionResult)
 
     val summary = when (state) {
         VerificationState.VALID -> "서명 검증 완료 (공식 신뢰 인증서)"
         VerificationState.UNTRUSTED -> "서명 검증 완료 (테스트/자체 서명 인증서)"
-        VerificationState.INVALID -> "서명 검증 실패 (변조 또는 위조 감지)"
+        VerificationState.INVALID ->
+            if (sigResult.valid && chainResult.valid) "어설션 해시 불일치 (어설션 변조 감지)"
+            else "서명 검증 실패 (변조 또는 위조 감지)"
         VerificationState.UNSUPPORTED -> "검증 미지원"
     }
 
