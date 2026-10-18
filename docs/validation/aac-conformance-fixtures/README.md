@@ -18,6 +18,13 @@ Provenance and byte structure for synthetic AAC (`mp4a`) MP4/M4A test vectors.
 | `malformed-esds.m4a` | Truncated `esds` descriptor payload | UNSUPPORTED / NOT_CHECKED on `aac.config.esds` |
 | `truncated-sample.m4a` | File truncated by 20 bytes so last sample extends beyond EOF | Incomplete coverage, FAIL on `aac.sample.framing` |
 | `many-adts-failures.m4a` | 101 samples with ADTS leak | Tests 100-occurrence display cap and 101 total count |
+| `ffmpeg-mono.m4a` | **Real encoder output** (not from `generate.py`): mono AAC LC 48 kHz, first elements are SCE with `global_gain` ≥ 128 | No `aac.frame.ics_reserved` FAIL (the SCE reserved bit is bit 15, after `global_gain`) |
+
+`ffmpeg-mono.m4a` regeneration:
+
+```bash
+ffmpeg -f lavfi -i 'sine=frequency=440:sample_rate=48000:duration=2' -c:a aac ffmpeg-mono.m4a
+```
 
 ## Byte Offsets in `default-mp4a.m4a`
 

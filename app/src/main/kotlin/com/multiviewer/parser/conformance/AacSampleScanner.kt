@@ -204,8 +204,8 @@ fun scanAacSample(reader: ByteReader, sample: AudioSample, channelConfig: Int): 
             val commonWindow = b0 and 0x01
             if (commonWindow == 1) (b1 shr 7) and 0x01 else null
         }
-        0 -> { // ID_SCE (Single Channel Element)
-            b0 and 0x01
+        0 -> { // ID_SCE: id(3) tag(4) global_gain(8), then ics_info's ics_reserved_bit at bit 15
+            b1 and 0x01
         }
         else -> null
     }

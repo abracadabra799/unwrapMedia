@@ -4,6 +4,7 @@ import com.multiviewer.parser.AudioSample
 import com.multiviewer.parser.ByteReader
 import com.multiviewer.parser.buildAudioSampleTable
 import com.multiviewer.parser.boxDescendants
+import com.multiviewer.parser.byteReaderOf
 import com.multiviewer.parser.parseFile
 import java.io.File
 import kotlin.test.Test
@@ -36,6 +37,36 @@ class AacSampleScannerTest {
             assertEquals(1, obs.elementId) // ID_CPE
             assertEquals(0, obs.elementInstanceTag)
             assertEquals(0, obs.icsReservedBit)
+        }
+    }
+
+    // SCE: id_syn_ele(3) element_instance_tag(4) global_gain(8), then ics_info starts with ics_reserved_bit — bit 15,
+    // the low bit of byte 1. Bytes 01 62 are a real ffmpeg mono frame (global_gain=177, so bit 7 is set).
+    @Test
+    fun sceReservedBitIsReadAfterGlobalGain() {
+        fun scan(vararg bytes: Int) = byteReaderOf(bytes.map { it.toByte() }.toByteArray()).use { reader ->
+            scanAacSample(reader, AudioSample(0, 0L, bytes.size.toLong(), 0L), 1)
+        }
+        val ok = scan(0x01, 0x62, 0x98, 0xD8)
+        assertEquals(0, ok.elementId)
+        assertEquals(0, ok.icsReservedBit)
+        assertNull(ok.issue)
+        val bad = scan(0x01, 0x63, 0x98, 0xD8)
+        assertEquals(1, bad.icsReservedBit)
+        assertNotNull(bad.issue)
+    }
+
+    @Test
+    fun realFfmpegMonoAacHasNoReservedBitFailures() {
+        val file = fixture("ffmpeg-mono.m4a")
+        val root = parseFile(file)
+        ByteReader.open(file).use { reader ->
+            val table = assertNotNull(buildAudioSampleTable(reader, root))
+            assertTrue(table.samples.size > 50)
+            for (sample in table.samples) {
+                val obs = scanAacSample(reader, sample, 1)
+                assertNull(obs.issue, "sample ${sample.index}: ${obs.issue}")
+            }
         }
     }
 
