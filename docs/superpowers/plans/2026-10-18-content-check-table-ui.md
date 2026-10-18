@@ -24,14 +24,14 @@
 - Modify `app/src/main/kotlin/com/multiviewer/ui/ContentCheckPresentation.kt`
 - Modify `app/src/test/kotlin/com/multiviewer/ui/ContentCheckPresentationTest.kt`
 
-- [ ] **Step 1: Write failing presentation tests.** Assert updated group labels ("포맷 및 비트스트림 검증", "디코딩 검증"), first-class Container Conformance stage label/description, and stage target descriptions (e.g. `ISO-BMFF (mp42)`, `HEVC (hvc1)`, `1080p`).
-- [ ] **Step 2: Run** focused tests; expect RED.
-- [ ] **Step 3: Update `ContentCheckStage.kt` & `ContentCheckPresentation.kt`** with:
+- [x] **Step 1: Write failing presentation tests.** Assert updated group labels ("포맷 및 비트스트림 검증", "디코딩 검증"), first-class Container Conformance stage label/description, and stage target descriptions (e.g. `ISO-BMFF (mp42)`, `HEVC (hvc1)`, `1080p`).
+- [x] **Step 2: Run** focused tests; expect RED.
+- [x] **Step 3: Update `ContentCheckStage.kt` & `ContentCheckPresentation.kt`** with:
   - `CheckStage.CONTAINER_CONFORMANCE` added to `CheckStage` enum (or separate stage definition).
   - Updated category headers and KO/EN descriptions.
   - Stage target format resolution helper `checkStageTargetLabel(stage, type, root, summary)`.
-- [ ] **Step 4: Run** focused tests; expect PASS.
-- [ ] **Step 5: Commit** `refactor: update Content Check stage terminology and target presentation`.
+- [x] **Step 4: Run** focused tests; expect PASS.
+- [x] **Step 5: Commit** `refactor: update Content Check stage terminology and target presentation`.
 
 ---
 
@@ -41,16 +41,16 @@
 - Create `app/src/main/kotlin/com/multiviewer/ui/ContentCheckOverviewTable.kt`
 - Create `app/src/test/kotlin/com/multiviewer/ui/ContentCheckOverviewTableTest.kt`
 
-- [ ] **Step 1: Write failing unit tests for `ContentCheckOverviewTable`** (row generation, category grouping, selection, action enablement).
-- [ ] **Step 2: Run** focused tests; expect RED.
-- [ ] **Step 3: Implement `ContentCheckOverviewTable`** with Material3:
+- [x] **Step 1: Write failing unit tests for `ContentCheckOverviewTable`** (row generation, category grouping, selection, action enablement).
+- [x] **Step 2: Run** focused tests; expect RED.
+- [x] **Step 3: Implement `ContentCheckOverviewTable`** with Material3:
   - Clean table header: `구분 | 검사 항목 | 대상 / 규격 | 상태 | 결과 요약 | 실행`.
   - Group visual separation between "포맷 및 비트스트림 검증", "디코딩 검증", "확장 검사".
   - Color-coded badges for status and verdicts.
   - Selection border & background for the active row.
   - Inline progress indicator during running state.
-- [ ] **Step 4: Run** focused tests; expect PASS.
-- [ ] **Step 5: Commit** `feat: create Content Check stage overview table component`.
+- [x] **Step 4: Run** focused tests; expect PASS.
+- [x] **Step 5: Commit** `feat: create Content Check stage overview table component`.
 
 ---
 
@@ -60,12 +60,12 @@
 - Modify `app/src/main/kotlin/com/multiviewer/ui/ConformancePanel.kt` (or create tabular adapter `conformanceFindings(report)`)
 - Modify `app/src/main/kotlin/com/multiviewer/ui/ContentCheckWindow.kt`
 
-- [ ] **Step 1: Write failing tests** asserting Conformance findings can be mapped to tabular `ContentFinding` items with rule ID, source/clause, scope, and Hex jump ranges.
-- [ ] **Step 2: Implement `conformanceFindings`** mapping `ConformanceReport` rules to `ContentFinding` so they render in `ContentFindingTable`.
-- [ ] **Step 3: Remove the floating `[규격 결과]` button** from the detail pane header. Selecting `CONTAINER_CONFORMANCE` directly opens the conformance table.
-- [ ] **Step 4: Add clean sub-tab toggle** in `VISUAL_DECODE` (`[ 프레임 디코딩 결과 | 비디오 패킷 목록 ]`).
-- [ ] **Step 5: Run** focused tests; expect PASS.
-- [ ] **Step 6: Commit** `feat: unify container conformance and video packets into tabular findings`.
+- [x] **Step 1: Write failing tests** asserting Conformance findings can be mapped to tabular `ContentFinding` items with rule ID, source/clause, scope, and Hex jump ranges.
+- [x] **Step 2: Implement `conformanceFindings`** mapping `ConformanceReport` rules to `ContentFinding` so they render in `ContentFindingTable`.
+- [x] **Step 3: Remove the floating `[규격 결과]` button** from the detail pane header. Selecting `CONTAINER_CONFORMANCE` directly opens the conformance table.
+- [x] **Step 4: Add clean sub-tab toggle** in `VISUAL_DECODE` (`[ 프레임 디코딩 결과 | 비디오 패킷 목록 ]`).
+- [x] **Step 5: Run** focused tests; expect PASS.
+- [x] **Step 6: Commit** `feat: unify container conformance and video packets into tabular findings`.
 
 ---
 
@@ -75,19 +75,19 @@
 - Modify `app/src/main/kotlin/com/multiviewer/ui/ContentCheckWindow.kt`
 - Create / update `app/src/test/kotlin/com/multiviewer/ui/ContentCheckTableUiIntegrationTest.kt`
 
-- [ ] **Step 1: Write integration tests** verifying top-bottom layout transitions, row clicks changing detail views, individual rerun actions, cancel actions, and export completeness.
-- [ ] **Step 2: Integrate `ContentCheckOverviewTable` in `ContentCheckWindow.kt`**:
+- [x] **Step 1: Write integration tests** verifying top-bottom layout transitions, row clicks changing detail views, individual rerun actions, cancel actions, and export completeness.
+- [x] **Step 2: Integrate `ContentCheckOverviewTable` in `ContentCheckWindow.kt`**:
   - Top pane (~220dp, full width) displaying the overview table.
   - Bottom pane (remaining height) displaying the selected stage's findings table.
-- [ ] **Step 3: Verify** snapshot publishing, AI diagnosis context, and file change invalidation.
-- [ ] **Step 4: Run** `./gradlew :app:compileKotlin` and focused tests; expect PASS.
-- [ ] **Step 5: Commit** `feat: integrate top-bottom table dashboard layout into Content Check`.
+- [x] **Step 3: Verify** snapshot publishing, AI diagnosis context, and file change invalidation.
+- [x] **Step 4: Run** `./gradlew :app:compileKotlin` and focused tests; expect PASS.
+- [x] **Step 5: Commit** `feat: integrate top-bottom table dashboard layout into Content Check`.
 
 ---
 
 ## Branch Finish
 
-- [ ] Run full test suite `./gradlew :app:test` and `git diff --check`.
-- [ ] Update `docs/superpowers/HANDOFF.md`.
-- [ ] Fast-forward merge `feat/content-check-table-ui` into `main`.
-- [ ] Remove worktree and delete feature branch.
+- [x] Run full test suite `./gradlew :app:test` and `git diff --check`.
+- [x] Update `docs/superpowers/HANDOFF.md`.
+- [x] Fast-forward merge `feat/content-check-table-ui` into `main`.
+- [x] Remove worktree and delete feature branch.

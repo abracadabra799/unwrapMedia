@@ -1,5 +1,19 @@
 # Handoff — 2026-10-13 (Claude Code → Codex)
 
+## 2026-10-18 update — Content Check Table UI & Terminology Redesign merged
+
+- `feat/content-check-table-ui` merged into `main`:
+  1. Top-Bottom Split Table Dashboard layout: top pane has `ContentCheckOverviewTable` (`구분 | 검사 항목 | 대상 / 규격 | 상태 | 결과 요약 | 실행`), bottom pane shows detailed findings.
+  2. Media-engineering terminology update:
+     - Group 1: "포맷 및 비트스트림 검증" (*Format & Bitstream Validation*)
+     - Group 2: "디코딩 검증" (*Decode Verification*)
+     - Group 3: "확장 검사" (*Additional Checks*)
+  3. First-class Container Conformance row (`CheckStage.CONTAINER_CONFORMANCE`), mapped to `ContentTab.CONFORMANCE`.
+  4. Removed ambiguous floating `[규격 결과]` button; Container Conformance rules render cleanly in `ContentFindingTable`.
+  5. Video decode pane clean sub-tab toggle: `[ 프레임 디코딩 결과 | 비디오 패킷 목록 ]`.
+  6. Preserved 100% backward compatibility for snapshots and JSON export workflow.
+  7. Specs/plans: `docs/superpowers/{specs,plans}/2026-10-18-content-check-table-ui*`.
+
 ## 2026-10-18 update — VVC, FLAC, Opus, AAC, APV, VP9, AV1, AVC, HEVC Bitstream Checks & Content Check merged
 
 - `feat/content-check-conformance`, `feat/avc-bitstream-check`, `feat/av1-bitstream-check`, `feat/vp9-bitstream-check`, `feat/apv-bitstream-check`, `feat/aac-bitstream-check`, `feat/opus-bitstream-check`, `feat/flac-bitstream-check`, and `feat/vvc-bitstream-check` merged into `main`:
