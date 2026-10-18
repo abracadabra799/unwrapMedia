@@ -32,6 +32,8 @@ data class LayoutBox(
     val detail: String,
     val role: RegionRole,
     val status: RegionStatus,
+    val multiline: Boolean = false,
+    val titleLines: List<String> = listOf(title),
 )
 
 /** A semantic overlay (e.g. embedded video bytes) drawn as a bracket beside the rows it spans. */
@@ -80,17 +82,89 @@ internal fun regionsInTreeOrder(diagram: StructureDiagram): List<DiagramRegion> 
     return out
 }
 
+private val bold12Fm: java.awt.FontMetrics by lazy {
+    val img = java.awt.image.BufferedImage(1, 1, java.awt.image.BufferedImage.TYPE_INT_RGB)
+    val g = img.createGraphics()
+    val fm = g.getFontMetrics(java.awt.Font(java.awt.Font.SANS_SERIF, java.awt.Font.BOLD, 12))
+    g.dispose()
+    fm
+}
+
+private val plain11Fm: java.awt.FontMetrics by lazy {
+    val img = java.awt.image.BufferedImage(1, 1, java.awt.image.BufferedImage.TYPE_INT_RGB)
+    val g = img.createGraphics()
+    val fm = g.getFontMetrics(java.awt.Font(java.awt.Font.SANS_SERIF, java.awt.Font.PLAIN, 11))
+    g.dispose()
+    fm
+}
+
+private fun wrapStructureText(text: String, fm: java.awt.FontMetrics, maxW: Int): List<String> {
+    if (fm.stringWidth(text) <= maxW) return listOf(text)
+    val words = text.split(" ")
+    val lines = mutableListOf<String>()
+    var current = ""
+    for (word in words) {
+        val test = if (current.isEmpty()) word else "$current $word"
+        if (fm.stringWidth(test) <= maxW) {
+            current = test
+        } else {
+            if (current.isNotEmpty()) lines += current
+            if (fm.stringWidth(word) > maxW) {
+                var sub = ""
+                for (ch in word) {
+                    if (fm.stringWidth(sub + ch) <= maxW) {
+                        sub += ch
+                    } else {
+                        lines += sub
+                        sub = ch.toString()
+                    }
+                }
+                current = sub
+            } else {
+                current = word
+            }
+        }
+    }
+    if (current.isNotEmpty()) lines += current
+    return lines.ifEmpty { listOf(text) }
+}
+
 /** [depth] 0 = overview (top level only); higher values add nested levels. Not to scale on purpose. */
 fun layoutStructureDiagram(diagram: StructureDiagram, depth: Int, title: String): DiagramLayout {
     val visible = regionsInTreeOrder(diagram).filter { it.depth <= depth }
     val drawn = visible.take(MAX_LAYOUT_ROWS)
-    val boxes = drawn.mapIndexed { row, r ->
-        LayoutBox(
-            r.id, r.depth,
-            x = MARGIN + r.depth * INDENT, y = HEADER + row * (ROW_H + ROW_GAP),
-            w = MAP_W - r.depth * INDENT, h = ROW_H,
-            title = r.label, detail = rangeText(r.offset, r.length), role = r.role, status = r.status,
-        )
+    var curY = HEADER
+    val boxes = mutableListOf<LayoutBox>()
+    for (r in drawn) {
+        val boxX = MARGIN + r.depth * INDENT
+        val boxW = MAP_W - r.depth * INDENT
+        val detailText = rangeText(r.offset, r.length)
+
+        val titleW = bold12Fm.stringWidth(r.label)
+        val detailW = plain11Fm.stringWidth(detailText)
+        val availW = boxW - 16
+
+        val isSingleLine = (titleW + detailW + 24 <= availW) && (titleW <= availW)
+
+        if (isSingleLine) {
+            boxes += LayoutBox(
+                r.id, r.depth,
+                x = boxX, y = curY, w = boxW, h = ROW_H,
+                title = r.label, detail = detailText, role = r.role, status = r.status,
+                multiline = false, titleLines = listOf(r.label),
+            )
+            curY += ROW_H + ROW_GAP
+        } else {
+            val tLines = wrapStructureText(r.label, bold12Fm, availW)
+            val boxH = maxOf(42, 12 + (tLines.size + 1) * 16)
+            boxes += LayoutBox(
+                r.id, r.depth,
+                x = boxX, y = curY, w = boxW, h = boxH,
+                title = r.label, detail = detailText, role = r.role, status = r.status,
+                multiline = true, titleLines = tLines,
+            )
+            curY += boxH + ROW_GAP
+        }
     }
     val byId = boxes.associateBy { it.regionId }
     val regionById = diagram.regions.associateBy { it.id }
@@ -124,7 +198,7 @@ fun layoutStructureDiagram(diagram: StructureDiagram, depth: Int, title: String)
     val capped = if (notes.size <= MAX_LAYOUT_NOTES) notes
         else notes.take(MAX_LAYOUT_NOTES) + "… ${groupedBytes((notes.size - MAX_LAYOUT_NOTES).toLong())} more warnings/notes (see the table)."
     val clipped = capped.map { if (it.length <= MAX_NOTE_CHARS) it else it.take(MAX_NOTE_CHARS - 1) + "…" }
-    val rowsBottom = HEADER + drawn.size * (ROW_H + ROW_GAP)
+    val rowsBottom = curY
     val notesTop = rowsBottom + 12
     return DiagramLayout(
         width = MARGIN + MAP_W + BRACKET_GAP + SIDE_W + MARGIN,

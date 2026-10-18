@@ -9,6 +9,7 @@ import org.xml.sax.InputSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class StructureDiagramExportTest {
@@ -101,4 +102,22 @@ class StructureDiagramExportTest {
         assertTrue(layout.notes.size <= MAX_LAYOUT_NOTES + 1, layout.notes.size.toString())
         assertTrue(layout.notes.any { "4,9" in it || "more warnings" in it }, layout.notes.toString())
     }
+
+    @Test
+    fun `boxes with long labels wrap to multiline so text does not collide with byte range`() {
+        val longLabel = "Very Long Box Label With Substantial Text That Collides With Byte Range On Single Line"
+        val root = node("root", 0, 100_000_000L, listOf(node(longLabel, 10_000_000L, 50_000_000L, headerSize = 8)), headerSize = 0)
+        val d = buildStructureDiagram(root, 100_000_000L, null)
+        val layout = layoutStructureDiagram(d, 1, "test.mp4")
+        val box = layout.boxes.find { it.title.startsWith("Very Long") }
+        assertNotNull(box)
+        assertTrue(box!!.multiline, "Box with long label should be marked multiline")
+        assertTrue(box.h >= 42, "Multiline box height should be >= 42")
+        val svg = renderStructureSvg(layout)
+        assertTrue(svg.contains(xmlSafe(longLabel).take(20)) || svg.contains("Very Long"))
+        val png = renderStructurePng(layout)
+        assertNotNull(png)
+    }
+
+    private fun xmlSafe(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 }

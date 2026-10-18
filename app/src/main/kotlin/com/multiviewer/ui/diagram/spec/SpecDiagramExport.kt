@@ -57,6 +57,32 @@ private fun xml(text: String): String = buildString {
 
 object SpecDiagramExporter {
 
+    private val bold11Fm: java.awt.FontMetrics by lazy {
+        val img = java.awt.image.BufferedImage(1, 1, java.awt.image.BufferedImage.TYPE_INT_RGB)
+        val g = img.createGraphics()
+        val fm = g.getFontMetrics(java.awt.Font(java.awt.Font.SANS_SERIF, java.awt.Font.BOLD, 11))
+        g.dispose()
+        fm
+    }
+
+    private val plain10Fm: java.awt.FontMetrics by lazy {
+        val img = java.awt.image.BufferedImage(1, 1, java.awt.image.BufferedImage.TYPE_INT_RGB)
+        val g = img.createGraphics()
+        val fm = g.getFontMetrics(java.awt.Font(java.awt.Font.SANS_SERIF, java.awt.Font.PLAIN, 10))
+        g.dispose()
+        fm
+    }
+
+    private fun fitLabel(text: String, fm: java.awt.FontMetrics, maxW: Int): String {
+        if (fm.stringWidth(text) <= maxW) return text
+        if (maxW <= 12) return ""
+        var t = text
+        while (t.isNotEmpty() && fm.stringWidth("$t…") > maxW) {
+            t = t.dropLast(1)
+        }
+        return if (t.isNotEmpty()) "$t…" else ""
+    }
+
     fun renderSvg(layout: SpecLayout): String = buildString {
         appendLine("""<svg xmlns="http://www.w3.org/2000/svg" width="${layout.width}" height="${layout.height}" viewBox="0 0 ${layout.width} ${layout.height}" font-family="system-ui, sans-serif">""")
         appendLine("""<defs>""")
@@ -94,11 +120,30 @@ object SpecDiagramExporter {
                     appendLine("""<rect x="${c.x}" y="${c.y}" width="${c.w}" height="${c.h}" fill="$fill" stroke="$stroke" stroke-width="1"$dash/>""")
                     val textY = c.y + 18
                     if (c.value != null && c.w >= 100) {
-                        appendLine("""<text x="${c.x + 6}" y="$textY" font-size="11" font-weight="600" fill="#1F2937">${xml(c.name)}</text>""")
-                        appendLine("""<text x="${c.x + c.w - 6}" y="$textY" font-size="10" text-anchor="end" fill="#4B5563">${xml(c.value)}</text>""")
+                        val nameW = bold11Fm.stringWidth(c.name)
+                        val valW = plain10Fm.stringWidth(c.value)
+                        if (nameW + valW + 16 <= c.w) {
+                            appendLine("""<text x="${c.x + 6}" y="$textY" font-size="11" font-weight="600" fill="#1F2937">${xml(c.name)}</text>""")
+                            appendLine("""<text x="${c.x + c.w - 6}" y="$textY" font-size="10" text-anchor="end" fill="#4B5563">${xml(c.value)}</text>""")
+                        } else {
+                            val label = "${c.name}: ${c.value}"
+                            val sw11 = bold11Fm.stringWidth(label)
+                            if (sw11 <= c.w - 8) {
+                                appendLine("""<text x="${c.x + c.w / 2}" y="$textY" font-size="11" text-anchor="middle" font-weight="600" fill="#1F2937">${xml(label)}</text>""")
+                            } else {
+                                val fitted = fitLabel(label, plain10Fm, c.w - 6)
+                                appendLine("""<text x="${c.x + c.w / 2}" y="$textY" font-size="10" text-anchor="middle" fill="#1F2937">${xml(fitted)}</text>""")
+                            }
+                        }
                     } else {
                         val label = if (c.value != null) "${c.name}: ${c.value}" else c.name
-                        appendLine("""<text x="${c.x + c.w / 2}" y="$textY" font-size="11" text-anchor="middle" font-weight="600" fill="#1F2937">${xml(label)}</text>""")
+                        val sw11 = bold11Fm.stringWidth(label)
+                        if (sw11 <= c.w - 6) {
+                            appendLine("""<text x="${c.x + c.w / 2}" y="$textY" font-size="11" text-anchor="middle" font-weight="600" fill="#1F2937">${xml(label)}</text>""")
+                        } else {
+                            val fitted = fitLabel(label, plain10Fm, c.w - 6)
+                            appendLine("""<text x="${c.x + c.w / 2}" y="$textY" font-size="10" text-anchor="middle" fill="#1F2937">${xml(fitted)}</text>""")
+                        }
                     }
                 }
             }
@@ -199,15 +244,44 @@ object SpecDiagramExporter {
                         g.font = bold11
                         val textY = c.y + 18
                         if (c.value != null && c.w >= 100) {
-                            g.drawString(c.name, c.x + 6, textY)
-                            g.font = plain10
-                            g.color = Color(0x4B5563)
-                            val sw = g.fontMetrics.stringWidth(c.value)
-                            g.drawString(c.value, c.x + c.w - 6 - sw, textY)
+                            val nameW = bold11Fm.stringWidth(c.name)
+                            val valW = plain10Fm.stringWidth(c.value)
+                            if (nameW + valW + 16 <= c.w) {
+                                g.font = bold11
+                                g.color = Color(0x1F2937)
+                                g.drawString(c.name, c.x + 6, textY)
+                                g.font = plain10
+                                g.color = Color(0x4B5563)
+                                g.drawString(c.value, c.x + c.w - 6 - valW, textY)
+                            } else {
+                                val label = "${c.name}: ${c.value}"
+                                val sw11 = bold11Fm.stringWidth(label)
+                                if (sw11 <= c.w - 8) {
+                                    g.font = bold11
+                                    g.color = Color(0x1F2937)
+                                    g.drawString(label, c.x + (c.w - sw11) / 2, textY)
+                                } else {
+                                    val fitted = fitLabel(label, plain10Fm, c.w - 6)
+                                    g.font = plain10
+                                    g.color = Color(0x1F2937)
+                                    val fsw = plain10Fm.stringWidth(fitted)
+                                    g.drawString(fitted, c.x + (c.w - fsw) / 2, textY)
+                                }
+                            }
                         } else {
                             val label = if (c.value != null) "${c.name}: ${c.value}" else c.name
-                            val sw = g.fontMetrics.stringWidth(label)
-                            g.drawString(label, c.x + (c.w - sw) / 2, textY)
+                            val sw11 = bold11Fm.stringWidth(label)
+                            if (sw11 <= c.w - 6) {
+                                g.font = bold11
+                                g.color = Color(0x1F2937)
+                                g.drawString(label, c.x + (c.w - sw11) / 2, textY)
+                            } else {
+                                val fitted = fitLabel(label, plain10Fm, c.w - 6)
+                                g.font = plain10
+                                g.color = Color(0x1F2937)
+                                val fsw = plain10Fm.stringWidth(fitted)
+                                g.drawString(fitted, c.x + (c.w - fsw) / 2, textY)
+                            }
                         }
                     }
                 }

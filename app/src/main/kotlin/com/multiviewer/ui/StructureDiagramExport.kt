@@ -63,8 +63,18 @@ fun renderStructureSvg(layout: DiagramLayout): String = buildString {
         val dash = if (b.status == RegionStatus.UNPARSED) """ stroke-dasharray="5,3"""" else ""
         val width = if (b.status == RegionStatus.WARNING) 2 else 1
         appendLine("""<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="3" fill="${css(roleFill(b.role))}" stroke="${css(statusStroke(b.status))}" stroke-width="$width"$dash/>""")
-        appendLine("""<text x="${b.x + 8}" y="${b.y + 19}" font-size="12" font-weight="bold" fill="${css(TEXT)}">${xml(b.title)}</text>""")
-        appendLine("""<text x="${b.x + b.w - 8}" y="${b.y + 19}" font-size="11" text-anchor="end" fill="${css(MUTED)}">${xml(b.detail)}</text>""")
+        if (!b.multiline) {
+            val textY = b.y + b.h / 2 + 4
+            appendLine("""<text x="${b.x + 8}" y="$textY" font-size="12" font-weight="bold" fill="${css(TEXT)}">${xml(b.title)}</text>""")
+            appendLine("""<text x="${b.x + b.w - 8}" y="$textY" font-size="11" text-anchor="end" fill="${css(MUTED)}">${xml(b.detail)}</text>""")
+        } else {
+            var lineY = b.y + 16
+            for (tLine in b.titleLines) {
+                appendLine("""<text x="${b.x + 8}" y="$lineY" font-size="12" font-weight="bold" fill="${css(TEXT)}">${xml(tLine)}</text>""")
+                lineY += 15
+            }
+            appendLine("""<text x="${b.x + 8}" y="$lineY" font-size="11" fill="${css(MUTED)}">${xml(b.detail)}</text>""")
+        }
     }
     for (br in layout.brackets) {
         appendLine("""<path d="M${br.x - 6},${br.y1} H${br.x} V${br.y2} H${br.x - 6}" fill="none" stroke="${css(ACCENT)}" stroke-width="2"/>""")
@@ -108,12 +118,27 @@ fun renderStructurePng(layout: DiagramLayout): BufferedImage {
                 RegionStatus.PARSED -> BasicStroke(1f)
             }
             g.drawRoundRect(b.x, b.y, b.w, b.h, 6, 6)
-            g.font = bold12
-            g.color = Color(TEXT)
-            g.drawString(b.title, b.x + 8, b.y + 19)
-            g.font = plain11
-            g.color = Color(MUTED)
-            g.drawString(b.detail, b.x + b.w - 8 - g.fontMetrics.stringWidth(b.detail), b.y + 19)
+
+            if (!b.multiline) {
+                val textY = b.y + b.h / 2 + 4
+                g.font = bold12
+                g.color = Color(TEXT)
+                g.drawString(b.title, b.x + 8, textY)
+                g.font = plain11
+                g.color = Color(MUTED)
+                g.drawString(b.detail, b.x + b.w - 8 - g.fontMetrics.stringWidth(b.detail), textY)
+            } else {
+                var lineY = b.y + 16
+                g.font = bold12
+                g.color = Color(TEXT)
+                for (tLine in b.titleLines) {
+                    g.drawString(tLine, b.x + 8, lineY)
+                    lineY += 15
+                }
+                g.font = plain11
+                g.color = Color(MUTED)
+                g.drawString(b.detail, b.x + 8, lineY)
+            }
         }
         g.stroke = BasicStroke(2f)
         for (br in layout.brackets) {

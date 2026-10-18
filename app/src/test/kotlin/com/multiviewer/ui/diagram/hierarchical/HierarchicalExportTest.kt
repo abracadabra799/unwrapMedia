@@ -46,4 +46,27 @@ class HierarchicalExportTest {
         assertTrue(png.width >= 1600, "2x scale PNG width should be >= 1600")
         assertTrue(png.height >= 600, "2x scale PNG height should be >= 600")
     }
+
+    @Test
+    fun `long section name and description wrap to multiline with expanded row height`() {
+        val root = BoxNode(
+            type = "root", offset = 0L, headerSize = 0, size = 10000L,
+            children = listOf(
+                BoxNode("SOI", 0L, 0, 2L),
+                BoxNode("APP1", 2L, 4, 1000L, summary = "Exif Very Long Description That Will Definitely Exceed Single Line Limit With Lots Of Details", children = listOf(
+                    BoxNode("IFD0", 16L, 0, 800L, fields = listOf(BoxField("Make", "Samsung Electronics Very Long Camera Sensor Details", 16L, 10L)))
+                )),
+                BoxNode("EOI", 1002L, 0, 2L),
+            )
+        )
+        val diagram = HierarchicalDiagramBuilder.build(root, 10000L, "test_long.jpg")
+        val layout = HierarchicalLayoutEngine.layout(diagram)
+
+        val app1Row = layout.columns.first().rows.find { it.marker == "APP1" }
+        assertNotNull(app1Row)
+        // Check that long name/desc wrapped or caused multiline layout
+        assertTrue(app1Row!!.h >= 32)
+        assertNotNull(HierarchicalDiagramExporter.renderSvg(layout))
+        assertNotNull(HierarchicalDiagramExporter.renderPng(layout))
+    }
 }

@@ -58,13 +58,30 @@ object HierarchicalDiagramExporter {
 
                 // Left cell: Marker
                 appendLine("""<rect x="${sec.x}" y="${sec.y}" width="$markerW" height="${sec.h}" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="1"/>""")
-                appendLine("""<text x="${sec.x + markerW / 2}" y="${sec.y + 20}" font-size="11" font-weight="bold" text-anchor="middle" fill="#0F172A">${xml(sec.marker)}</text>""")
+                val markerLineH = 14
+                val markerStartY = sec.y + (sec.h - sec.markerLines.size * markerLineH) / 2 + 11
+                for ((mIdx, mLine) in sec.markerLines.withIndex()) {
+                    appendLine("""<text x="${sec.x + markerW / 2}" y="${markerStartY + mIdx * markerLineH}" font-size="11" font-weight="bold" text-anchor="middle" fill="#0F172A">${xml(mLine)}</text>""")
+                }
 
                 // Right cell: Name & Description
                 appendLine("""<rect x="${sec.x + markerW}" y="${sec.y}" width="$nameW" height="${sec.h}" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1"/>""")
-                appendLine("""<text x="${sec.x + markerW + 10}" y="${sec.y + 20}" font-size="11" fill="#1E293B">${xml(sec.name)}</text>""")
-                if (sec.description != null) {
-                    appendLine("""<text x="${sec.x + sec.w - 10}" y="${sec.y + 20}" font-size="10.5" text-anchor="end" fill="#64748B">${xml(sec.description)}</text>""")
+                if (sec.isSingleLine) {
+                    val textY = sec.y + sec.h / 2 + 4
+                    appendLine("""<text x="${sec.x + markerW + 10}" y="$textY" font-size="11" fill="#1E293B">${xml(sec.name)}</text>""")
+                    if (sec.description != null) {
+                        appendLine("""<text x="${sec.x + sec.w - 10}" y="$textY" font-size="10.5" text-anchor="end" fill="#64748B">${xml(sec.description)}</text>""")
+                    }
+                } else {
+                    var curY = sec.y + 16
+                    for (nLine in sec.nameLines) {
+                        appendLine("""<text x="${sec.x + markerW + 10}" y="$curY" font-size="11" font-weight="bold" fill="#1E293B">${xml(nLine)}</text>""")
+                        curY += 15
+                    }
+                    for (dLine in sec.descLines) {
+                        appendLine("""<text x="${sec.x + markerW + 10}" y="$curY" font-size="10.5" fill="#64748B">${xml(dLine)}</text>""")
+                        curY += 15
+                    }
                 }
             }
         }
@@ -153,8 +170,12 @@ object HierarchicalDiagramExporter {
 
                     g.font = fontBold11
                     g.color = colorTextDark
-                    val msw = g.fontMetrics.stringWidth(sec.marker)
-                    g.drawString(sec.marker, sec.x + (markerW - msw) / 2, sec.y + 20)
+                    val markerLineH = 14
+                    val markerStartY = sec.y + (sec.h - sec.markerLines.size * markerLineH) / 2 + 11
+                    for ((mIdx, mLine) in sec.markerLines.withIndex()) {
+                        val msw = g.fontMetrics.stringWidth(mLine)
+                        g.drawString(mLine, sec.x + (markerW - msw) / 2, markerStartY + mIdx * markerLineH)
+                    }
 
                     // Name box
                     g.color = Color.WHITE
@@ -162,15 +183,32 @@ object HierarchicalDiagramExporter {
                     g.color = colorBorder
                     g.drawRect(sec.x + markerW, sec.y, nameW, sec.h)
 
-                    g.font = fontPlain11
-                    g.color = colorTextDark
-                    g.drawString(sec.name, sec.x + markerW + 10, sec.y + 20)
+                    if (sec.isSingleLine) {
+                        val textY = sec.y + sec.h / 2 + 4
+                        g.font = fontPlain11
+                        g.color = colorTextDark
+                        g.drawString(sec.name, sec.x + markerW + 10, textY)
 
-                    if (sec.description != null) {
+                        if (sec.description != null) {
+                            g.font = fontMuted10
+                            g.color = colorTextSecondary
+                            val dsw = g.fontMetrics.stringWidth(sec.description)
+                            g.drawString(sec.description, sec.x + sec.w - 10 - dsw, textY)
+                        }
+                    } else {
+                        var curY = sec.y + 16
+                        g.font = fontBold11
+                        g.color = colorTextDark
+                        for (nLine in sec.nameLines) {
+                            g.drawString(nLine, sec.x + markerW + 10, curY)
+                            curY += 15
+                        }
                         g.font = fontMuted10
                         g.color = colorTextSecondary
-                        val dsw = g.fontMetrics.stringWidth(sec.description)
-                        g.drawString(sec.description, sec.x + sec.w - 10 - dsw, sec.y + 20)
+                        for (dLine in sec.descLines) {
+                            g.drawString(dLine, sec.x + markerW + 10, curY)
+                            curY += 15
+                        }
                     }
                 }
             }
