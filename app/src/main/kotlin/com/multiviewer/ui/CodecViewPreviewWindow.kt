@@ -10,6 +10,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -71,6 +72,14 @@ fun CodecViewPreviewWindow(
     }
 
     var frameQpInfoText by remember { mutableStateOf<String?>(null) }
+
+    // The popup is the only reader of the codecview frame: drop it once the popup closes (~33 MB per 4K frame).
+    DisposableEffect(tab) {
+        onDispose {
+            tab.codecViewFrameBitmap = null
+            tab.isDecodingCodecViewFrame = false
+        }
+    }
 
     LaunchedEffect(tab.selectedFrame, mode) {
         val f = tab.selectedFrame

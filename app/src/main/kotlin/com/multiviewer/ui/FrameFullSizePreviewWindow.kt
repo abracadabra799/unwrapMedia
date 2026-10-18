@@ -85,6 +85,9 @@ fun FrameFullSizePreviewWindow(
         pendingInterval = null
     }
 
+    // Nothing else shows the native-resolution frame: drop it once the popup closes (~33 MB per 4K frame).
+    DisposableEffect(tab) { onDispose { tab.fullSizeFrameBitmap = null } }
+
     LaunchedEffect(tab.file, frame, nativeView) {
         tab.fullSizeFrameBitmap = null
         if (!nativeView || frame == null) return@LaunchedEffect
