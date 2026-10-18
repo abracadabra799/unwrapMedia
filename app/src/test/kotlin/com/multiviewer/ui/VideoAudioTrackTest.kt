@@ -1,15 +1,19 @@
 package com.multiviewer.ui
 
 import com.multiviewer.util.ProcessManager
-import org.junit.jupiter.api.Assumptions.assumeTrue
 import java.io.ByteArrayInputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.sound.sampled.AudioFormat
 import javax.sound.sampled.AudioSystem
+import javax.sound.sampled.Control
+import javax.sound.sampled.DataLine
+import javax.sound.sampled.LineListener
+import javax.sound.sampled.SourceDataLine
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class VideoAudioTrackTest {
@@ -42,9 +46,37 @@ class VideoAudioTrackTest {
     }
 
     /** True when this host can open a plain stereo PCM line -- gates the tests that need a mixer. */
-    private fun mixerAvailable(): Boolean = runCatching {
-        AudioSystem.getSourceDataLine(AudioFormat(44100f, 16, 2, true, false)).close()
-    }.isSuccess
+    /** A SourceDataLine that accepts every write immediately and has nothing left to drain. */
+    private class InstantLine(private val fmt: AudioFormat) : SourceDataLine {
+        @Volatile private var open = false
+        @Volatile private var running = false
+        private var written = 0L
+        override fun open(format: AudioFormat, bufferSize: Int) { open = true }
+        override fun open(format: AudioFormat) { open = true }
+        override fun open() { open = true }
+        override fun write(b: ByteArray, off: Int, len: Int): Int { written += len; return len }
+        override fun drain() {}
+        override fun flush() {}
+        override fun start() { running = true }
+        override fun stop() { running = false }
+        override fun isRunning() = running
+        override fun isActive() = running
+        override fun getFormat() = fmt
+        override fun getBufferSize() = 4096
+        override fun available() = bufferSize
+        override fun getFramePosition() = getLongFramePosition().toInt()
+        override fun getLongFramePosition() = written / fmt.frameSize
+        override fun getMicrosecondPosition() = getLongFramePosition() * 1_000_000L / fmt.sampleRate.toLong()
+        override fun getLevel() = AudioSystem.NOT_SPECIFIED.toFloat()
+        override fun getLineInfo() = DataLine.Info(SourceDataLine::class.java, fmt)
+        override fun close() { open = false }
+        override fun isOpen() = open
+        override fun getControls() = emptyArray<Control>()
+        override fun isControlSupported(control: Control.Type) = false
+        override fun getControl(control: Control.Type): Control = throw IllegalArgumentException("unsupported: $control")
+        override fun addLineListener(listener: LineListener) {}
+        override fun removeLineListener(listener: LineListener) {}
+    }
 
     /** Fake process whose stdout is a fixed PCM byte blob then EOF. */
     private class FakePcmProcess(bytes: ByteArray) : Process() {
@@ -91,19 +123,21 @@ class VideoAudioTrackTest {
 
     @Test
     fun `pipe EOF sets ended and destroy unregisters the process`() {
-        assumeTrue(mixerAvailable(), "no audio mixer on this host")
-        val before = ProcessManager.activeCount
+        val process = FakePcmProcess(ByteArray(16000)) // ~1s of 8kHz mono s16le
         val track = VideoAudioTrack(
             java.io.File("x.mp4"), 0.0, 8000, 1, AtomicBoolean(true), AtomicBoolean(false),
-            processFactory = { FakePcmProcess(ByteArray(16000)) }, // ~1s of 8kHz mono s16le
+            processFactory = { process },
+            lineFactory = { InstantLine(it) },
         )
         track.start()
+        assertTrue(ProcessManager.isTracked(process))
         val deadline = System.currentTimeMillis() + 5000
         while (!track.ended && System.currentTimeMillis() < deadline) Thread.sleep(20)
         assertTrue(track.ended, "expected the track to reach EOF")
         track.destroy()
-        Thread.sleep(200)
-        assertEquals(before, ProcessManager.activeCount)
+        val gone = System.currentTimeMillis() + 2000
+        while (ProcessManager.isTracked(process) && System.currentTimeMillis() < gone) Thread.sleep(20)
+        assertFalse(ProcessManager.isTracked(process), "process must be unregistered after EOF + destroy")
     }
 
     @Test

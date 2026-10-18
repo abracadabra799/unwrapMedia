@@ -89,6 +89,8 @@ internal class VideoAudioTrack(
             .also { FfmpegLocator.configureEnvironment(it) }
             .start()
     },
+    // Injectable so tests don't depend on the host's audio output actually draining the line.
+    private val lineFactory: (AudioFormat) -> SourceDataLine = { AudioSystem.getSourceDataLine(it) },
 ) {
     @Volatile var failed: Boolean = false
         private set
@@ -130,7 +132,7 @@ internal class VideoAudioTrack(
             var ln: SourceDataLine? = null
             try {
                 val format = AudioFormat(sampleRate.toFloat(), 16, outChannels, true, false)
-                ln = AudioSystem.getSourceDataLine(format)
+                ln = lineFactory(format)
                 ln.open(format)
                 ln.start()
                 line = ln

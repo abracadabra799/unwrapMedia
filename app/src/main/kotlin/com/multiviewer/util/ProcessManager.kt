@@ -19,6 +19,9 @@ object ProcessManager {
     /** Number of processes currently tracked. For leak assertions in tests. */
     internal val activeCount: Int get() = activeProcesses.size
 
+    /** Whether [process] is still tracked. For per-process leak assertions in tests. */
+    internal fun isTracked(process: Process): Boolean = process in activeProcesses
+
     init {
         // Register JVM shutdown hook to kill all remaining child processes
         Runtime.getRuntime().addShutdownHook(Thread {
