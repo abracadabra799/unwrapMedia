@@ -182,10 +182,16 @@ object SpecDiagramExporter {
         appendLine("</svg>")
     }
 
-    fun renderPng(layout: SpecLayout): BufferedImage {
-        val image = BufferedImage(layout.width, layout.height, BufferedImage.TYPE_INT_RGB)
+    fun renderPng(layout: SpecLayout, maxPixels: Long = com.multiviewer.ui.MAX_DIAGRAM_PIXELS): BufferedImage {
+        val scale = com.multiviewer.ui.cappedDiagramScale(layout.width, layout.height, 1.0f, maxPixels)
+        val image = BufferedImage(
+            (layout.width * scale).toInt().coerceAtLeast(1),
+            (layout.height * scale).toInt().coerceAtLeast(1),
+            BufferedImage.TYPE_INT_RGB,
+        )
         val g = image.createGraphics()
         try {
+            if (scale < 1.0f) g.scale(scale.toDouble(), scale.toDouble())
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
             g.color = Color.WHITE

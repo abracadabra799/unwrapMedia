@@ -94,6 +94,24 @@ fun renderStructureSvg(layout: DiagramLayout): String = buildString {
     appendLine("</svg>")
 }
 
+/**
+ * Pixel budget for a rendered structure diagram (64 MP = 256 MB as TYPE_INT_RGB). A file with thousands of
+ * top-level chunks (every IDAT of a PNG, every moof/mdat of a fragmented MP4) lays out tens of thousands of
+ * pixels tall; past the budget the diagram is rendered at a lower scale instead of allocating gigabytes.
+ */
+const val MAX_DIAGRAM_PIXELS: Long = 64_000_000L
+
+/** [desired] lowered just enough that a [width] x [height] layout fits [maxPixels] once scaled. */
+fun cappedDiagramScale(width: Int, height: Int, desired: Float, maxPixels: Long = MAX_DIAGRAM_PIXELS): Float {
+    val w = width.coerceAtLeast(1).toDouble()
+    val h = height.coerceAtLeast(1).toDouble()
+    if (w * desired * h * desired <= maxPixels) return desired
+    var s = kotlin.math.sqrt(maxPixels / (w * h)).toFloat()
+    // Integer truncation in the caller must not push the product back over the budget.
+    while (s > 0f && (w * s).toLong() * (h * s).toLong() > maxPixels) s *= 0.999f
+    return minOf(desired, s)
+}
+
 fun renderStructurePng(layout: DiagramLayout): BufferedImage {
     val image = BufferedImage(layout.width, layout.height, BufferedImage.TYPE_INT_RGB)
     val g = image.createGraphics()

@@ -89,9 +89,14 @@ object HierarchicalDiagramExporter {
         appendLine("</svg>")
     }
 
-    fun renderPng(layout: HierarchicalLayout, scale: Float = 2.0f): BufferedImage {
-        val scaledWidth = (layout.width * scale).toInt()
-        val scaledHeight = (layout.height * scale).toInt()
+    fun renderPng(
+        layout: HierarchicalLayout,
+        scale: Float = 2.0f,
+        maxPixels: Long = com.multiviewer.ui.MAX_DIAGRAM_PIXELS,
+    ): BufferedImage {
+        val scale = com.multiviewer.ui.cappedDiagramScale(layout.width, layout.height, scale, maxPixels)
+        val scaledWidth = (layout.width * scale).toInt().coerceAtLeast(1)
+        val scaledHeight = (layout.height * scale).toInt().coerceAtLeast(1)
         val image = BufferedImage(scaledWidth, scaledHeight, BufferedImage.TYPE_INT_RGB)
         val g = image.createGraphics()
 

@@ -83,9 +83,13 @@ import com.multiviewer.ui.diagram.hierarchical.HierarchicalDiagramExporter
 import com.multiviewer.ui.diagram.hierarchical.HierarchicalLayout
 import com.multiviewer.ui.diagram.hierarchical.HierarchicalLayoutEngine
 
-private class RenderedDiagram(val layout: DiagramLayout, val image: BufferedImage, val bitmap: ImageBitmap)
-private class RenderedSpec(val layout: SpecLayout, val image: BufferedImage, val bitmap: ImageBitmap)
-private class RenderedHierarchical(val diagram: HierarchicalDiagram, val layout: HierarchicalLayout, val image: BufferedImage, val bitmap: ImageBitmap)
+// Only the on-screen bitmap is kept: exports re-render the PNG from the layout on demand, so a large diagram is
+// never held twice (BufferedImage + Skia copy) for as long as the window is open.
+private class RenderedDiagram(val layout: DiagramLayout, val bitmap: ImageBitmap)
+private class RenderedSpec(val layout: SpecLayout, val bitmap: ImageBitmap)
+private class RenderedHierarchical(val diagram: HierarchicalDiagram, val layout: HierarchicalLayout, val bitmap: ImageBitmap)
+
+private const val HIERARCHICAL_PNG_SCALE = 2.0f
 
 /**
  * Analyze → 파일 구조도 / File Structure Diagram: the opened file's actual byte layout as a
@@ -135,16 +139,17 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
         }
     }
     val renderedHier by produceState<RenderedHierarchical?>(null, root, tab.file.name, showHierarchical) {
-        if (!showHierarchical) return@produceState
+        // Cleared before the early return too: a hidden view must not keep its image.
         value = null
+        if (!showHierarchical) return@produceState
         val r = root ?: return@produceState
         val fileSize = tab.parsedIdentity?.length ?: r.size
         try {
             value = withContext(Dispatchers.Default) {
                 val diag = HierarchicalDiagramBuilder.build(r, fileSize, tab.file.name)
                 val layout = HierarchicalLayoutEngine.layout(diag)
-                val image = HierarchicalDiagramExporter.renderPng(layout, scale = 2.0f)
-                RenderedHierarchical(diag, layout, image, image.toComposeImageBitmap())
+                val image = HierarchicalDiagramExporter.renderPng(layout, scale = HIERARCHICAL_PNG_SCALE)
+                RenderedHierarchical(diag, layout, image.toComposeImageBitmap())
             }
         } catch (e: CancellationException) {
             throw e
@@ -159,7 +164,7 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
             value = withContext(Dispatchers.Default) {
                 val layout = layoutStructureDiagram(d, depth, title)
                 val image = renderStructurePng(layout)
-                RenderedDiagram(layout, image, image.toComposeImageBitmap())
+                RenderedDiagram(layout, image.toComposeImageBitmap())
             }
         } catch (e: CancellationException) {
             throw e
@@ -168,8 +173,8 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
         }
     }
     val renderedSpec by produceState<RenderedSpec?>(null, root, tab.file.name, showSpec) {
-        if (!showSpec) return@produceState
         value = null
+        if (!showSpec) return@produceState
         val r = root ?: return@produceState
         val fileSize = tab.parsedIdentity?.length ?: r.size
         try {
@@ -177,7 +182,7 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
                 val spec = SpecDiagramDispatcher.build(r, fileSize, tab.file.name)
                 val layout = SpecDiagramLayoutEngine.layout(spec)
                 val image = SpecDiagramExporter.renderPng(layout)
-                RenderedSpec(layout, image, image.toComposeImageBitmap())
+                RenderedSpec(layout, image.toComposeImageBitmap())
             }
         } catch (e: CancellationException) {
             throw e
@@ -195,6 +200,13 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
         val r = root ?: return
         val path = diagram?.regions?.firstOrNull { it.id == regionId }?.nodePath ?: return
         nodeAtPath(r, path)?.let { tab.selected = it }
+    }
+
+    // The shown view's PNG, re-rendered from its layout (call the returned function off the UI thread).
+    fun currentPngRenderer(): (() -> BufferedImage)? = when {
+        showHierarchical -> renderedHier?.layout?.let { l -> { HierarchicalDiagramExporter.renderPng(l, scale = HIERARCHICAL_PNG_SCALE) } }
+        showSpec -> renderedSpec?.layout?.let { l -> { SpecDiagramExporter.renderPng(l) } }
+        else -> rendered?.layout?.let { l -> { renderStructurePng(l) } }
     }
 
     fun save(extension: String, write: (File) -> Unit) {
@@ -251,21 +263,23 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
                 val d = diagram
 
                 OutlinedButton(enabled = hasImage && !fileChanged, onClick = {
-                    val image = when {
-                        showHierarchical -> renderedHier?.image
-                        showSpec -> renderedSpec?.image
-                        else -> rendered?.image
-                    } ?: return@OutlinedButton
-                    message = if (ClipboardUtil.copyImage(image)) label("이미지를 클립보드에 복사했습니다", "Image copied to the clipboard")
-                    else label("클립보드에 복사하지 못했습니다 (다른 앱이 사용 중일 수 있음)", "Could not copy to the clipboard (another app may be using it)")
+                    val render = currentPngRenderer() ?: return@OutlinedButton
+                    scope.launch {
+                        val image = try {
+                            withContext(Dispatchers.Default) { render() }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Throwable) {
+                            message = label("이미지를 만들지 못했습니다: ", "Could not render the image: ") + e
+                            return@launch
+                        }
+                        message = if (ClipboardUtil.copyImage(image)) label("이미지를 클립보드에 복사했습니다", "Image copied to the clipboard")
+                        else label("클립보드에 복사하지 못했습니다 (다른 앱이 사용 중일 수 있음)", "Could not copy to the clipboard (another app may be using it)")
+                    }
                 }) { Text(label("이미지 복사", "Copy image")) }
 
                 OutlinedButton(enabled = hasImage && !saving && !fileChanged, onClick = {
-                    val image = when {
-                        showHierarchical -> renderedHier?.image
-                        showSpec -> renderedSpec?.image
-                        else -> rendered?.image
-                    } ?: return@OutlinedButton
+                    val render = currentPngRenderer() ?: return@OutlinedButton
 
                     val userHome = System.getProperty("user.home") ?: "."
                     val downloadsDir = File(userHome, "Downloads")
@@ -275,6 +289,7 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
                     scope.launch {
                         try {
                             withContext(Dispatchers.IO) {
+                                val image = render()
                                 Files.newOutputStream(outFile.toPath(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE).use { out ->
                                     check(ImageIO.write(image, "png", out)) { "No PNG writer" }
                                 }
@@ -289,12 +304,9 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
                 }) { Text(label("📥 빠른 다운로드", "📥 Quick Download")) }
 
                 OutlinedButton(enabled = hasImage && !saving && !fileChanged, onClick = {
-                    val image = when {
-                        showHierarchical -> renderedHier?.image
-                        showSpec -> renderedSpec?.image
-                        else -> rendered?.image
-                    } ?: return@OutlinedButton
+                    val render = currentPngRenderer() ?: return@OutlinedButton
                     save("png") { file ->
+                        val image = render()
                         Files.newOutputStream(file.toPath(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE).use { out ->
                             check(ImageIO.write(image, "png", out)) { "No PNG writer" }
                         }
