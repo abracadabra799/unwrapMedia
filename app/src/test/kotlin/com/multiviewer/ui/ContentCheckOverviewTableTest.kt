@@ -174,4 +174,46 @@ class ContentCheckOverviewTableTest {
         assertFalse(rows.any { it.stage == CheckStage.CODEC })
         assertFalse(rows.any { it.stage == CheckStage.AUDIO_DECODE })
     }
+
+    @Test
+    fun groupOverviewRowsByCategoryMergesContiguousSameCategoryRows() {
+        val root = sampleMp4Root()
+        val specs = listOf(
+            CheckStageSpec(CheckStage.CONTAINER_CONFORMANCE, CheckAvailability.AVAILABLE),
+            CheckStageSpec(CheckStage.STRUCTURE, CheckAvailability.AVAILABLE),
+            CheckStageSpec(CheckStage.CODEC, CheckAvailability.AVAILABLE),
+            CheckStageSpec(CheckStage.VISUAL_DECODE, CheckAvailability.AVAILABLE),
+            CheckStageSpec(CheckStage.AUDIO_DECODE, CheckAvailability.AVAILABLE),
+            CheckStageSpec(CheckStage.MOTION_PHOTO, CheckAvailability.AVAILABLE),
+        )
+        val rows = buildContentCheckOverviewRows(
+            specs = specs, states = emptyMap(), type = MediaType.VIDEO, root = root, summary = null,
+            ko = true, running = false, fileChanged = false,
+        ) { null }
+
+        val groups = groupOverviewRowsByCategory(rows)
+        assertEquals(3, groups.size)
+
+        // First group: FORMAT_AND_BITSTREAM with 3 stages (CONTAINER_CONFORMANCE, STRUCTURE, CODEC)
+        assertEquals(CheckCategory.FORMAT_AND_BITSTREAM, groups[0].first)
+        assertEquals(
+            listOf(CheckStage.CONTAINER_CONFORMANCE, CheckStage.STRUCTURE, CheckStage.CODEC),
+            groups[0].second.map { it.stage },
+        )
+
+        // Second group: DECODE_VERIFICATION with 2 stages (VISUAL_DECODE, AUDIO_DECODE)
+        assertEquals(CheckCategory.DECODE_VERIFICATION, groups[1].first)
+        assertEquals(
+            listOf(CheckStage.VISUAL_DECODE, CheckStage.AUDIO_DECODE),
+            groups[1].second.map { it.stage },
+        )
+
+        // Third group: ADDITIONAL_CHECKS with 1 stage (MOTION_PHOTO)
+        assertEquals(CheckCategory.ADDITIONAL_CHECKS, groups[2].first)
+        assertEquals(
+            listOf(CheckStage.MOTION_PHOTO),
+            groups[2].second.map { it.stage },
+        )
+    }
 }
+

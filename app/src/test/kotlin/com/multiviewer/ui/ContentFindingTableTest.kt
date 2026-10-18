@@ -74,6 +74,36 @@ class ContentFindingTableTest {
         assertFalse(canSelectContentFindingRange(ranged, 5, callbackAvailable = false))
     }
 
+    @Test fun hasContentFindingDetailsDistinguishesItemsWithDetails() {
+        val withFacts = finding("facts", CheckStatus.PASS).copy(verifiedFacts = listOf("fact 1"))
+        assertTrue(hasContentFindingDetails(withFacts, 100, true))
+
+        val withLongSummary = finding("summary", CheckStatus.PASS).copy(
+            summary = "a".repeat(250), verifiedFacts = emptyList(),
+        )
+        assertTrue(hasContentFindingDetails(withLongSummary, 100, true))
+
+        val withHypothesis = finding("hypo", CheckStatus.WARN).copy(
+            hypothesis = "some cause", verifiedFacts = emptyList(),
+        )
+        assertTrue(hasContentFindingDetails(withHypothesis, 100, true))
+
+        val withNextChecks = finding("checks", CheckStatus.INFO).copy(
+            nextChecks = listOf("check 1"), verifiedFacts = emptyList(),
+        )
+        assertTrue(hasContentFindingDetails(withNextChecks, 100, true))
+
+        val withRange = finding("range", CheckStatus.PASS, 10, 5).copy(verifiedFacts = emptyList())
+        assertTrue(hasContentFindingDetails(withRange, 100, true, onSelectRange = { _, _ -> }))
+        assertFalse(hasContentFindingDetails(withRange, 100, true, onSelectRange = null))
+
+        val emptyItem = finding("empty", CheckStatus.PASS).copy(
+            summary = "short", verifiedFacts = emptyList(), hypothesis = null, nextChecks = emptyList(),
+        )
+        assertFalse(hasContentFindingDetails(emptyItem, 100, true))
+    }
+
+
     private fun finding(id: String, status: CheckStatus, offset: Long? = null, length: Long? = null) = ContentFinding(
         id = id, stage = FindingStage.STRUCTURE, status = status, title = id,
         location = null, offset = offset, length = length, summary = id, verifiedFacts = listOf(id),

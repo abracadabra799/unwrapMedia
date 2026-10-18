@@ -27,6 +27,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -127,6 +128,20 @@ fun overviewStatusToneColor(tone: OverviewRowStatusTone): Color = when (tone) {
     OverviewRowStatusTone.MUTED -> AppColors.TextMuted
 }
 
+fun groupOverviewRowsByCategory(rows: List<ContentCheckOverviewRow>): List<Pair<CheckCategory, List<ContentCheckOverviewRow>>> {
+    if (rows.isEmpty()) return emptyList()
+    val groups = mutableListOf<Pair<CheckCategory, MutableList<ContentCheckOverviewRow>>>()
+    for (row in rows) {
+        val last = groups.lastOrNull()
+        if (last != null && last.first == row.category) {
+            last.second.add(row)
+        } else {
+            groups.add(row.category to mutableListOf(row))
+        }
+    }
+    return groups
+}
+
 @Composable
 fun ContentCheckOverviewTable(
     rows: List<ContentCheckOverviewRow>,
@@ -142,10 +157,12 @@ fun ContentCheckOverviewTable(
         maxTargetLen > 16 -> 175.dp
         else -> 150.dp
     }
-    val catWidth = 145.dp
+    val catWidth = 150.dp
     val stageWidth = 150.dp
     val statusWidth = 72.dp
     val actionWidth = 72.dp
+
+    val categoryGroups = remember(rows) { groupOverviewRowsByCategory(rows) }
 
     Column(
         modifier = modifier
@@ -225,178 +242,197 @@ fun ContentCheckOverviewTable(
                     .fillMaxWidth()
                     .verticalScroll(overviewScrollState),
             ) {
-                rows.forEachIndexed { index, row ->
-                val isSelected = row.stage == selectedStage
-                val isFirstOfCategory = index == 0 || rows[index - 1].category != row.category
-
-                if (index > 0) {
-                    val dividerColor = if (isFirstOfCategory) AppColors.Border else AppColors.Border.copy(alpha = 0.35f)
-                    HorizontalDivider(color = dividerColor, thickness = 1.dp)
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(IntrinsicSize.Min)
-                        .background(
-                            when {
-                                isSelected -> AppColors.NeonBlue.copy(alpha = 0.12f)
-                                else -> Color.Transparent
-                            }
-                        )
-                        .clickable { onSelectStage(row.stage) },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // Category Column (with left accent stripe if selected)
+                categoryGroups.forEachIndexed { groupIndex, (category, groupRows) ->
+                    if (groupIndex > 0) {
+                        HorizontalDivider(color = AppColors.Border, thickness = 1.dp)
+                    }
+                    val hasSelected = groupRows.any { it.stage == selectedStage }
                     Row(
-                        modifier = Modifier.width(catWidth).padding(horizontal = 8.dp, vertical = 5.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Min),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        if (isSelected) {
-                            Box(
-                                modifier = Modifier
-                                    .width(3.dp)
-                                    .height(14.dp)
-                                    .background(AppColors.NeonBlue, RoundedCornerShape(1.5.dp)),
-                            )
-                            Spacer(Modifier.width(5.dp))
-                        } else {
-                            Spacer(Modifier.width(8.dp))
-                        }
-                        val catText = checkCategoryLabel(row.category, ko)
-                        val catFontSize = if (catText.length > 20) 10.sp else 11.sp
-                        Text(
-                            catText,
-                            color = if (isSelected) AppColors.NeonBlue else AppColors.TextSecondary,
-                            fontSize = catFontSize,
-                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    TableVerticalDivider()
-
-                    // Check Item Column
-                    Box(
-                        modifier = Modifier.width(stageWidth).padding(horizontal = 8.dp, vertical = 5.dp),
-                        contentAlignment = Alignment.CenterStart,
-                    ) {
-                        val stageFontSize = if (row.stageLabel.length > 16) 10.5.sp else 11.5.sp
-                        Text(
-                            row.stageLabel,
-                            color = if (isSelected) AppColors.TextPrimary else AppColors.TextPrimary.copy(alpha = 0.85f),
-                            fontSize = stageFontSize,
-                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    TableVerticalDivider()
-
-                    // Target / Format Column
-                    Box(
-                        modifier = Modifier.width(targetWidth).padding(horizontal = 8.dp, vertical = 5.dp),
-                        contentAlignment = Alignment.CenterStart,
-                    ) {
-                        val targetFontSize = if (row.targetLabel.length > 20) 10.sp else 11.sp
-                        Text(
-                            row.targetLabel,
-                            color = AppColors.TextSecondary,
-                            fontSize = targetFontSize,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    TableVerticalDivider()
-
-                    // Status Column
-                    val toneColor = overviewStatusToneColor(row.statusTone)
-                    Box(
-                        modifier = Modifier.width(statusWidth).padding(horizontal = 8.dp, vertical = 5.dp),
-                        contentAlignment = Alignment.CenterStart,
-                    ) {
-                        Surface(
-                            color = toneColor.copy(alpha = 0.12f),
-                            shape = RoundedCornerShape(4.dp),
+                        // Merged Category Cell (vertically centered across all rows in this category)
+                        Box(
+                            modifier = Modifier
+                                .width(catWidth)
+                                .fillMaxHeight()
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            contentAlignment = Alignment.CenterStart,
                         ) {
+                            val catText = checkCategoryLabel(category, ko)
+                            val catFontSize = if (catText.length > 20) 10.sp else 11.sp
                             Text(
-                                text = row.status,
-                                color = toneColor,
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                maxLines = 1,
-                            )
-                        }
-                    }
-                    TableVerticalDivider()
-
-                    // Summary / Verdict Column
-                    Row(
-                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        if (row.isRunning) {
-                            val progress = row.progress
-                            if (progress?.total != null && progress.total > 0) {
-                                LinearProgressIndicator(
-                                    progress = { (progress.completed.toFloat() / progress.total).coerceIn(0f, 1f) },
-                                    modifier = Modifier.width(100.dp).height(4.dp),
-                                )
-                            } else {
-                                LinearProgressIndicator(
-                                    modifier = Modifier.width(100.dp).height(4.dp),
-                                )
-                            }
-                            if (progress != null) {
-                                Text(
-                                    checkProgressLabel(progress),
-                                    color = AppColors.TextSecondary,
-                                    fontSize = 11.sp,
-                                )
-                            }
-                        } else {
-                            val verdictText = row.verdict ?: "-"
-                            val verdictFontSize = if (verdictText.length > 30) 10.5.sp else 11.sp
-                            Text(
-                                verdictText,
-                                color = if (row.verdict != null) AppColors.TextPrimary else AppColors.TextMuted,
-                                fontSize = verdictFontSize,
+                                text = catText,
+                                color = if (hasSelected) AppColors.NeonBlue else AppColors.TextSecondary,
+                                fontSize = catFontSize,
+                                fontWeight = if (hasSelected) FontWeight.SemiBold else FontWeight.Normal,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
-                    }
-                    TableVerticalDivider()
+                        TableVerticalDivider(AppColors.Border.copy(alpha = 0.6f))
 
-                    // Action Column
-                    Box(
-                        modifier = Modifier.width(actionWidth).padding(horizontal = 6.dp, vertical = 4.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (row.isAvailable) {
-                            OutlinedButton(
-                                enabled = row.canAction,
-                                onClick = { onRunStage(row.stage) },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                modifier = Modifier.height(24.dp).fillMaxWidth(),
-                            ) {
-                                Text(row.actionLabel, fontSize = 10.5.sp)
+                        // Stage Rows Column for this category
+                        Column(
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            groupRows.forEachIndexed { rowIndex, row ->
+                                if (rowIndex > 0) {
+                                    HorizontalDivider(color = AppColors.Border.copy(alpha = 0.35f), thickness = 1.dp)
+                                }
+                                val isSelected = row.stage == selectedStage
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(IntrinsicSize.Min)
+                                        .background(
+                                            when {
+                                                isSelected -> AppColors.NeonBlue.copy(alpha = 0.12f)
+                                                else -> Color.Transparent
+                                            }
+                                        )
+                                        .clickable { onSelectStage(row.stage) },
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    // Check Item Column (with left accent stripe if selected)
+                                    Row(
+                                        modifier = Modifier.width(stageWidth).padding(horizontal = 8.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        if (isSelected) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .width(3.dp)
+                                                    .height(14.dp)
+                                                    .background(AppColors.NeonBlue, RoundedCornerShape(1.5.dp)),
+                                            )
+                                            Spacer(Modifier.width(5.dp))
+                                        } else {
+                                            Spacer(Modifier.width(8.dp))
+                                        }
+                                        val stageFontSize = if (row.stageLabel.length > 16) 10.5.sp else 11.5.sp
+                                        Text(
+                                            row.stageLabel,
+                                            color = if (isSelected) AppColors.TextPrimary else AppColors.TextPrimary.copy(alpha = 0.85f),
+                                            fontSize = stageFontSize,
+                                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                    TableVerticalDivider()
+
+                                    // Target / Format Column
+                                    Box(
+                                        modifier = Modifier.width(targetWidth).padding(horizontal = 8.dp, vertical = 5.dp),
+                                        contentAlignment = Alignment.CenterStart,
+                                    ) {
+                                        val targetFontSize = if (row.targetLabel.length > 20) 10.sp else 11.sp
+                                        Text(
+                                            row.targetLabel,
+                                            color = AppColors.TextSecondary,
+                                            fontSize = targetFontSize,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                    TableVerticalDivider()
+
+                                    // Status Column
+                                    val toneColor = overviewStatusToneColor(row.statusTone)
+                                    Box(
+                                        modifier = Modifier.width(statusWidth).padding(horizontal = 8.dp, vertical = 5.dp),
+                                        contentAlignment = Alignment.CenterStart,
+                                    ) {
+                                        Surface(
+                                            color = toneColor.copy(alpha = 0.12f),
+                                            shape = RoundedCornerShape(4.dp),
+                                        ) {
+                                            Text(
+                                                text = row.status,
+                                                color = toneColor,
+                                                fontSize = 10.5.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                maxLines = 1,
+                                            )
+                                        }
+                                    }
+                                    TableVerticalDivider()
+
+                                    // Summary / Verdict Column
+                                    Row(
+                                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        if (row.isRunning) {
+                                            val progress = row.progress
+                                            if (progress?.total != null && progress.total > 0) {
+                                                LinearProgressIndicator(
+                                                    progress = { (progress.completed.toFloat() / progress.total).coerceIn(0f, 1f) },
+                                                    modifier = Modifier.width(100.dp).height(4.dp),
+                                                )
+                                            } else {
+                                                LinearProgressIndicator(
+                                                    modifier = Modifier.width(100.dp).height(4.dp),
+                                                )
+                                            }
+                                            if (progress != null) {
+                                                Text(
+                                                    checkProgressLabel(progress),
+                                                    color = AppColors.TextSecondary,
+                                                    fontSize = 11.sp,
+                                                )
+                                            }
+                                        } else {
+                                            val verdictText = row.verdict ?: "-"
+                                            val verdictFontSize = if (verdictText.length > 30) 10.5.sp else 11.sp
+                                            Text(
+                                                verdictText,
+                                                color = if (row.verdict != null) AppColors.TextPrimary else AppColors.TextMuted,
+                                                fontSize = verdictFontSize,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
+                                    }
+                                    TableVerticalDivider()
+
+                                    // Action Column
+                                    Box(
+                                        modifier = Modifier.width(actionWidth).padding(horizontal = 6.dp, vertical = 4.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        if (row.isAvailable) {
+                                            OutlinedButton(
+                                                enabled = row.canAction,
+                                                onClick = { onRunStage(row.stage) },
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                                modifier = Modifier.height(24.dp).fillMaxWidth(),
+                                            ) {
+                                                Text(row.actionLabel, fontSize = 10.5.sp)
+                                            }
+                                        } else {
+                                            Text("-", color = AppColors.TextMuted, fontSize = 11.sp)
+                                        }
+                                    }
+                                }
                             }
-                        } else {
-                            Text("-", color = AppColors.TextMuted, fontSize = 11.sp)
                         }
                     }
                 }
             }
+            if (overviewScrollState.maxValue > 0) {
+                VerticalScrollbar(
+                    adapter = rememberScrollbarAdapter(overviewScrollState),
+                    modifier = Modifier.align(Alignment.CenterEnd).matchParentSize(),
+                )
+            }
         }
-        VerticalScrollbar(
-            adapter = rememberScrollbarAdapter(overviewScrollState),
-            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
-        )
     }
-}
 }
 
 

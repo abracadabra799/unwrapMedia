@@ -24,6 +24,7 @@ import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -93,6 +94,21 @@ internal fun unknownDecoderCauseLabel(finding: ContentFinding, ko: Boolean): Str
         if (ko) "원인 미확정" else "Cause not determined"
     } else null
 
+internal fun hasContentFindingDetails(
+    finding: ContentFinding,
+    fileLength: Long,
+    ko: Boolean,
+    onSelectRange: ((Long, Long) -> Unit)? = null,
+): Boolean {
+    if (finding.verifiedFacts.isNotEmpty()) return true
+    if (finding.summary.length > MAX_COLLAPSED_FINDING_SUMMARY_LENGTH) return true
+    if (finding.hypothesis != null) return true
+    if (unknownDecoderCauseLabel(finding, ko) != null) return true
+    if (finding.nextChecks.isNotEmpty()) return true
+    if (onSelectRange != null && canSelectContentFindingRange(finding, fileLength, callbackAvailable = true)) return true
+    return false
+}
+
 @Composable
 internal fun ContentFindingSummaryBar(findings: List<ContentFinding>, ko: Boolean, modifier: Modifier = Modifier) {
     val counts = contentFindingTableSummary(findings)
@@ -131,6 +147,7 @@ internal fun ContentFindingTable(
         else -> 120.dp
     }
     val statusWidth = 65.dp
+    val detailWidth = 52.dp
 
     Column(modifier.fillMaxSize()) {
         ContentFindingSummaryBar(findings, ko, Modifier.padding(bottom = 6.dp))
@@ -166,6 +183,10 @@ internal fun ContentFindingTable(
                 Box(Modifier.weight(1f).padding(horizontal = 8.dp, vertical = 7.dp)) {
                     Text(if (ko) "결과" else "Finding", color = AppColors.TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
+                TableVerticalDivider(AppColors.Border.copy(alpha = 0.6f))
+                Box(Modifier.width(detailWidth).padding(horizontal = 4.dp, vertical = 7.dp), contentAlignment = Alignment.Center) {
+                    Text(if (ko) "상세" else "Detail", color = AppColors.TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                }
             }
             HorizontalDivider(color = AppColors.Border, thickness = 1.dp)
 
@@ -175,7 +196,8 @@ internal fun ContentFindingTable(
                 LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                     itemsIndexed(rows, key = { index, finding -> "${finding.id}#$index" }) { index, finding ->
                     val rowKey = "${finding.id}#$index"
-                    val isExpanded = expanded[rowKey] == true
+                    val canExpand = hasContentFindingDetails(finding, fileLength, ko, onSelectRange)
+                    val isExpanded = canExpand && expanded[rowKey] == true
 
                     if (index > 0) {
                         HorizontalDivider(color = AppColors.Border.copy(alpha = 0.35f), thickness = 1.dp)
@@ -185,7 +207,7 @@ internal fun ContentFindingTable(
                         Modifier
                             .fillMaxWidth()
                             .background(if (isExpanded) AppColors.Panel.copy(alpha = 0.3f) else Color.Transparent)
-                            .clickable { expanded[rowKey] = !isExpanded },
+                            .clickable(enabled = canExpand) { expanded[rowKey] = !isExpanded },
                     ) {
                         Row(
                             Modifier
@@ -262,6 +284,31 @@ internal fun ContentFindingTable(
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
                                 )
+                            }
+                            TableVerticalDivider()
+
+                            // Column 5: Detail (Arrow)
+                            Box(
+                                Modifier.width(detailWidth).padding(horizontal = 4.dp, vertical = 5.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (canExpand) {
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = if (isExpanded) AppColors.NeonBlue.copy(alpha = 0.15f) else Color.Transparent,
+                                        modifier = Modifier.clickable { expanded[rowKey] = !isExpanded },
+                                    ) {
+                                        Text(
+                                            if (isExpanded) "▲" else "▼",
+                                            color = if (isExpanded) AppColors.NeonBlue else AppColors.TextSecondary,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                        )
+                                    }
+                                } else {
+                                    Text("-", color = AppColors.TextMuted, fontSize = 11.sp)
+                                }
                             }
                         }
 

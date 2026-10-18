@@ -31,7 +31,7 @@ fun checkCategory(stage: CheckStage): CheckCategory = when (stage) {
 }
 
 fun checkCategoryLabel(category: CheckCategory, ko: Boolean): String = when (category) {
-    CheckCategory.FORMAT_AND_BITSTREAM -> if (ko) "포맷 및 비트스트림 검증" else "Format & Bitstream Validation"
+    CheckCategory.FORMAT_AND_BITSTREAM -> if (ko) "포맷 및 비트스트림" else "Format & Bitstream"
     CheckCategory.DECODE_VERIFICATION -> if (ko) "디코딩 검증" else "Decode Verification"
     CheckCategory.ADDITIONAL_CHECKS -> if (ko) "확장 검사" else "Additional Checks"
 }

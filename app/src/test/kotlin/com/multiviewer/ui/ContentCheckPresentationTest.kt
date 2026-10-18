@@ -54,8 +54,8 @@ class ContentCheckPresentationTest {
         assertEquals(CheckCategory.ADDITIONAL_CHECKS, checkCategory(CheckStage.MOTION_PHOTO))
         assertEquals(CheckCategory.ADDITIONAL_CHECKS, checkCategory(CheckStage.GAINMAP))
 
-        assertEquals("포맷 및 비트스트림 검증", checkCategoryLabel(CheckCategory.FORMAT_AND_BITSTREAM, true))
-        assertEquals("Format & Bitstream Validation", checkCategoryLabel(CheckCategory.FORMAT_AND_BITSTREAM, false))
+        assertEquals("포맷 및 비트스트림", checkCategoryLabel(CheckCategory.FORMAT_AND_BITSTREAM, true))
+        assertEquals("Format & Bitstream", checkCategoryLabel(CheckCategory.FORMAT_AND_BITSTREAM, false))
         assertEquals("디코딩 검증", checkCategoryLabel(CheckCategory.DECODE_VERIFICATION, true))
         assertEquals("Decode Verification", checkCategoryLabel(CheckCategory.DECODE_VERIFICATION, false))
         assertEquals("확장 검사", checkCategoryLabel(CheckCategory.ADDITIONAL_CHECKS, true))
