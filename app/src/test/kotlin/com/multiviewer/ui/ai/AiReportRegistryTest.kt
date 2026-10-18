@@ -505,6 +505,30 @@ class AiReportRegistryTest {
     }
 
     @Test
+    fun `reclaimed HRD and timed results are unavailable with the released text`() {
+        val hrd = StoredAnalysis(com.multiviewer.parser.hrd.HrdSimulationReport(
+            1, 1, 0.0, 1, 0.0, 0.0, 0.0, 0, emptyList(), emptyList(), emptyList()), ContentFileIdentity.capture(file))
+        val timed = StoredAnalysis(com.multiviewer.parser.metadata.TimedMetadataReport(1, "camm", 0, 0.0, 0.0, emptyList()),
+            ContentFileIdentity.capture(file))
+        hrd.simulateReclaimForTest(); timed.simulateReclaimForTest()
+        val sources = aiReportSources(inputs(MediaType.VIDEO, root = moovRoot()).copy(hrd = hrd, timed = timed), label)
+        for (k in listOf(AiReportKind.HRD, AiReportKind.TIMED)) {
+            val u = sources[k]
+            assertIs<AiReportSource.Unavailable>(u)
+            assertTrue(u.reason.contains("released"), u.reason)
+        }
+    }
+
+    @Test
+    fun `a reclaimed HDR result on a moov tree is rescanned on request`() {
+        val stored = StoredAnalysis(hdrResult, ContentFileIdentity.capture(file))
+        stored.simulateReclaimForTest()
+        val hdr = aiReportSources(inputs(MediaType.VIDEO, root = moovRoot(), hdr = stored), label)[AiReportKind.HDR]
+        assertIs<AiReportSource.OnRequest>(hdr)
+        assertEquals(AUTO_RUN_TIMEOUT_SECONDS, hdr.timeoutSeconds)
+    }
+
+    @Test
     fun `an image tab offers neither gop nor audio`() {
         val sources = aiReportSources(inputs(MediaType.IMAGE, frames = frames3()), label)
         assertFalse(AiReportKind.GOP in sources)
