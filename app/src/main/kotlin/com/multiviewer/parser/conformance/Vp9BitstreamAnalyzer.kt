@@ -19,7 +19,7 @@ suspend fun analyzeVp9Bitstream(
     file: File,
     root: BoxNode,
     onProgress: (Int, Int?) -> Unit,
-): Vp9BitstreamReport = withContext(Dispatchers.IO) {
+): CodecBitstreamReport = withContext(Dispatchers.IO) {
     val limitations = mutableListOf<String>()
     val findings = mutableListOf<ConformanceFinding>()
     val totals = mutableMapOf<String, Long>()
@@ -32,9 +32,8 @@ suspend fun analyzeVp9Bitstream(
     val trackIndex = videoTracks.indexOf(pair?.first).takeIf { it >= 0 }?.plus(1) ?: 1
     val otherVideoTracks = (videoTracks.size - 1).coerceAtLeast(0)
 
-    fun report(complete: Boolean, checked: Int = 0, indexed: Int = 0): Vp9BitstreamReport =
-        Vp9BitstreamReport(
-            findings = findings,
+    fun report(complete: Boolean, checked: Int = 0, indexed: Int = 0): CodecBitstreamReport =
+        CodecBitstreamReport(BitstreamCodec.VP9, findings = findings,
             checkedSamples = checked,
             indexedSamples = indexed,
             totalOccurrences = totals,

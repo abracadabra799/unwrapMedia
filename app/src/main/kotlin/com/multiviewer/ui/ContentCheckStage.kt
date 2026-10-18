@@ -1,6 +1,7 @@
 package com.multiviewer.ui
 
 import com.multiviewer.parser.BoxNode
+import com.multiviewer.parser.conformance.BitstreamCodec
 import com.multiviewer.parser.firstVideoSampleEntry
 import com.multiviewer.parser.firstAudioSampleEntry
 import com.multiviewer.parser.boxDescendants
@@ -137,6 +138,34 @@ fun flacCodecAvailability(type: MediaType, root: BoxNode?): CheckAvailability {
     }
     return CheckAvailability.AVAILABLE
 }
+
+private fun codecAvailability(codec: BitstreamCodec, type: MediaType, root: BoxNode?): CheckAvailability = when (codec) {
+    BitstreamCodec.HEVC -> hevcCodecAvailability(type, root)
+    BitstreamCodec.AVC -> avcCodecAvailability(type, root)
+    BitstreamCodec.AV1 -> av1CodecAvailability(type, root)
+    BitstreamCodec.VP9 -> vp9CodecAvailability(type, root)
+    BitstreamCodec.APV -> apvCodecAvailability(type, root)
+    BitstreamCodec.VVC -> vvcCodecAvailability(type, root)
+    BitstreamCodec.AAC -> aacCodecAvailability(type, root)
+    BitstreamCodec.OPUS -> opusCodecAvailability(type, root)
+    BitstreamCodec.FLAC -> flacCodecAvailability(type, root)
+}
+
+/**
+ * The byte checks the CODEC stage runs, in order: the first supported video codec, then the first supported
+ * audio codec. A phone/camera MP4 carries both tracks and both get checked.
+ */
+fun codecBitstreamPlan(type: MediaType, root: BoxNode?): List<BitstreamCodec> {
+    val (audio, video) = BitstreamCodec.entries.partition { it.isAudio }
+    return listOfNotNull(
+        video.firstOrNull { codecAvailability(it, type, root) == CheckAvailability.AVAILABLE },
+        audio.firstOrNull { codecAvailability(it, type, root) == CheckAvailability.AVAILABLE },
+    )
+}
+
+/** A video file whose video track has no supported byte checker: an audio-only check must not read as complete. */
+fun videoCodecUnchecked(type: MediaType, plan: List<BitstreamCodec>): Boolean =
+    type == MediaType.VIDEO && plan.none { !it.isAudio }
 
 fun videoCodecAvailability(type: MediaType, root: BoxNode?): CheckAvailability {
     val hevc = hevcCodecAvailability(type, root)

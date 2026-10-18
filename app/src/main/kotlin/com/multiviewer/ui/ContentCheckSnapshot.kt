@@ -3,7 +3,7 @@ package com.multiviewer.ui
 import com.multiviewer.cli.scrubPaths
 import com.multiviewer.cli.JsonValue
 import com.multiviewer.parser.SefCheckResult
-import com.multiviewer.parser.conformance.HevcBitstreamReport
+import com.multiviewer.parser.conformance.CodecBitstreamReport
 import com.multiviewer.parser.conformance.ConformanceFinding
 import com.multiviewer.parser.conformance.ConformanceReport
 import com.multiviewer.parser.conformance.ConformanceStatus
@@ -37,15 +37,8 @@ data class ContentCheckSnapshot(
     /** The file state the results describe; evidence is only valid while [ContentFileIdentity.matches] holds. */
     val fileIdentity: ContentFileIdentity? = null,
     val stages: Map<CheckStage, CheckStageState> = emptyMap(),
-    val hevcBitstream: HevcBitstreamReport? = null,
-    val avcBitstream: com.multiviewer.parser.conformance.AvcBitstreamReport? = null,
-    val av1Bitstream: com.multiviewer.parser.conformance.Av1BitstreamReport? = null,
-    val vp9Bitstream: com.multiviewer.parser.conformance.Vp9BitstreamReport? = null,
-    val apvBitstream: com.multiviewer.parser.conformance.ApvBitstreamReport? = null,
-    val vvcBitstream: com.multiviewer.parser.conformance.VvcBitstreamReport? = null,
-    val aacBitstream: com.multiviewer.parser.conformance.AacBitstreamReport? = null,
-    val opusBitstream: com.multiviewer.parser.conformance.OpusBitstreamReport? = null,
-    val flacBitstream: com.multiviewer.parser.conformance.FlacBitstreamReport? = null,
+    /** Codec byte checks in run order: the video track's first, then the audio track's. */
+    val codecBitstreams: List<CodecBitstreamReport> = emptyList(),
 )
 
 /** Size + modification time of the checked file, captured before reading it (same idea as the thumbnail cache). */
@@ -94,7 +87,17 @@ fun contentCheckWorkflowJson(snapshot: ContentCheckSnapshot, file: File): JsonVa
                 "unit" to JsonValue.JString(progress.unit),
             ) + (progress.total?.let { listOf("total" to JsonValue.JNumber(it)) } ?: emptyList()) } ?: emptyList()))
     }),
-) + (snapshot.hevcBitstream?.let { report -> listOf("codec" to JsonValue.JObject(listOf(
+) + codecJson(snapshot.codecBitstreams, file))
+
+/** "codec" keeps the first check (the video track's, when there is one) for older readers; "codecs" lists every checked track. */
+private fun codecJson(reports: List<CodecBitstreamReport>, file: File): List<Pair<String, JsonValue>> {
+    if (reports.isEmpty()) return emptyList()
+    val objects = reports.map { codecReportJson(it, file) }
+    return listOf("codec" to objects.first(), "codecs" to JsonValue.JArray(objects))
+}
+
+private fun codecReportJson(report: CodecBitstreamReport, file: File): JsonValue = JsonValue.JObject(listOf(
+    "codecName" to JsonValue.JString(report.codec.label),
     "checkedSamples" to JsonValue.JNumber(report.checkedSamples.toLong()),
     "indexedSamples" to JsonValue.JNumber(report.indexedSamples.toLong()),
     "complete" to JsonValue.JBoolean(report.complete),
@@ -111,143 +114,7 @@ fun contentCheckWorkflowJson(snapshot: ContentCheckSnapshot, file: File): JsonVa
         "ranges" to JsonValue.JArray(finding.ranges.take(4).map { range -> JsonValue.JObject(listOf(
             "start" to JsonValue.JNumber(range.first), "endInclusive" to JsonValue.JNumber(range.last))) }),
     )) }),
-))) } ?: snapshot.avcBitstream?.let { report -> listOf("codec" to JsonValue.JObject(listOf(
-    "checkedSamples" to JsonValue.JNumber(report.checkedSamples.toLong()),
-    "indexedSamples" to JsonValue.JNumber(report.indexedSamples.toLong()),
-    "complete" to JsonValue.JBoolean(report.complete),
-    "checkedTrack" to JsonValue.JString(report.checkedTrack),
-    "totalOccurrences" to JsonValue.JObject(report.totalOccurrences.entries.take(30).map { (id, count) ->
-        id to JsonValue.JNumber(count)
-    }),
-    "limitations" to JsonValue.JArray(report.limitations.take(30).map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
-    "findings" to JsonValue.JArray(report.findings.take(100).map { finding -> JsonValue.JObject(listOf(
-        "ruleId" to JsonValue.JString(finding.rule.id),
-        "status" to JsonValue.JString(finding.status.name),
-        "source" to JsonValue.JString(finding.rule.source),
-        "details" to JsonValue.JArray(finding.details.take(4).map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
-        "ranges" to JsonValue.JArray(finding.ranges.take(4).map { range -> JsonValue.JObject(listOf(
-            "start" to JsonValue.JNumber(range.first), "endInclusive" to JsonValue.JNumber(range.last))) }),
-    )) }),
-))) } ?: snapshot.av1Bitstream?.let { report -> listOf("codec" to JsonValue.JObject(listOf(
-    "checkedSamples" to JsonValue.JNumber(report.checkedSamples.toLong()),
-    "indexedSamples" to JsonValue.JNumber(report.indexedSamples.toLong()),
-    "complete" to JsonValue.JBoolean(report.complete),
-    "checkedTrack" to JsonValue.JString(report.checkedTrack),
-    "totalOccurrences" to JsonValue.JObject(report.totalOccurrences.entries.take(30).map { (id, count) ->
-        id to JsonValue.JNumber(count)
-    }),
-    "limitations" to JsonValue.JArray(report.limitations.take(30).map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
-    "findings" to JsonValue.JArray(report.findings.take(100).map { finding -> JsonValue.JObject(listOf(
-        "ruleId" to JsonValue.JString(finding.rule.id),
-        "status" to JsonValue.JString(finding.status.name),
-        "source" to JsonValue.JString(finding.rule.source),
-        "details" to JsonValue.JArray(finding.details.take(4).map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
-        "ranges" to JsonValue.JArray(finding.ranges.take(4).map { range -> JsonValue.JObject(listOf(
-            "start" to JsonValue.JNumber(range.first), "endInclusive" to JsonValue.JNumber(range.last))) }),
-    )) }),
-))) } ?: snapshot.vp9Bitstream?.let { report -> listOf("codec" to JsonValue.JObject(listOf(
-    "checkedSamples" to JsonValue.JNumber(report.checkedSamples.toLong()),
-    "indexedSamples" to JsonValue.JNumber(report.indexedSamples.toLong()),
-    "complete" to JsonValue.JBoolean(report.complete),
-    "checkedTrack" to JsonValue.JString(report.checkedTrack),
-    "totalOccurrences" to JsonValue.JObject(report.totalOccurrences.entries.take(30).map { (id, count) ->
-        id to JsonValue.JNumber(count)
-    }),
-    "limitations" to JsonValue.JArray(report.limitations.take(30).map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
-    "findings" to JsonValue.JArray(report.findings.take(100).map { finding -> JsonValue.JObject(listOf(
-        "ruleId" to JsonValue.JString(finding.rule.id),
-        "status" to JsonValue.JString(finding.status.name),
-        "source" to JsonValue.JString(finding.rule.source),
-        "details" to JsonValue.JArray(finding.details.take(4).map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
-        "ranges" to JsonValue.JArray(finding.ranges.take(4).map { range -> JsonValue.JObject(listOf(
-            "start" to JsonValue.JNumber(range.first), "endInclusive" to JsonValue.JNumber(range.last))) }),
-    )) }),
-))) } ?: snapshot.apvBitstream?.let { report -> listOf("codec" to JsonValue.JObject(listOf(
-    "checkedSamples" to JsonValue.JNumber(report.checkedSamples.toLong()),
-    "indexedSamples" to JsonValue.JNumber(report.indexedSamples.toLong()),
-    "complete" to JsonValue.JBoolean(report.complete),
-    "checkedTrack" to JsonValue.JString(report.checkedTrack),
-    "totalOccurrences" to JsonValue.JObject(report.totalOccurrences.entries.take(30).map { (id, count) ->
-        id to JsonValue.JNumber(count)
-    }),
-    "limitations" to JsonValue.JArray(report.limitations.take(30).map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
-    "findings" to JsonValue.JArray(report.findings.take(100).map { finding -> JsonValue.JObject(listOf(
-        "ruleId" to JsonValue.JString(finding.rule.id),
-        "status" to JsonValue.JString(finding.status.name),
-        "source" to JsonValue.JString(finding.rule.source),
-        "details" to JsonValue.JArray(finding.details.take(4).map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
-        "ranges" to JsonValue.JArray(finding.ranges.take(4).map { range -> JsonValue.JObject(listOf(
-            "start" to JsonValue.JNumber(range.first), "endInclusive" to JsonValue.JNumber(range.last))) }),
-    )) }),
-))) } ?: snapshot.vvcBitstream?.let { report -> listOf("codec" to JsonValue.JObject(listOf(
-    "checkedSamples" to JsonValue.JNumber(report.checkedSamples.toLong()),
-    "indexedSamples" to JsonValue.JNumber(report.indexedSamples.toLong()),
-    "complete" to JsonValue.JBoolean(report.complete),
-    "checkedTrack" to JsonValue.JString(report.checkedTrack),
-    "totalOccurrences" to JsonValue.JObject(report.totalOccurrences.entries.take(30).map { (id, count) ->
-        id to JsonValue.JNumber(count)
-    }),
-    "limitations" to JsonValue.JArray(report.limitations.take(30).map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
-    "findings" to JsonValue.JArray(report.findings.take(100).map { finding -> JsonValue.JObject(listOf(
-        "ruleId" to JsonValue.JString(finding.rule.id),
-        "status" to JsonValue.JString(finding.status.name),
-        "source" to JsonValue.JString(finding.rule.source),
-        "details" to JsonValue.JArray(finding.details.take(4).map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
-        "ranges" to JsonValue.JArray(finding.ranges.take(4).map { range -> JsonValue.JObject(listOf(
-            "start" to JsonValue.JNumber(range.first), "endInclusive" to JsonValue.JNumber(range.last))) }),
-    )) }),
-))) } ?: snapshot.aacBitstream?.let { report -> listOf("codec" to JsonValue.JObject(listOf(
-    "checkedSamples" to JsonValue.JNumber(report.checkedSamples.toLong()),
-    "indexedSamples" to JsonValue.JNumber(report.indexedSamples.toLong()),
-    "complete" to JsonValue.JBoolean(report.complete),
-    "checkedTrack" to JsonValue.JString(report.checkedTrack),
-    "totalOccurrences" to JsonValue.JObject(report.totalOccurrences.entries.take(30).map { (id, count) ->
-        id to JsonValue.JNumber(count)
-    }),
-    "limitations" to JsonValue.JArray(report.limitations.take(30).map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
-    "findings" to JsonValue.JArray(report.findings.take(100).map { finding -> JsonValue.JObject(listOf(
-        "ruleId" to JsonValue.JString(finding.rule.id),
-        "status" to JsonValue.JString(finding.status.name),
-        "source" to JsonValue.JString(finding.rule.source),
-        "details" to JsonValue.JArray(finding.details.take(4).map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
-        "ranges" to JsonValue.JArray(finding.ranges.take(4).map { range -> JsonValue.JObject(listOf(
-            "start" to JsonValue.JNumber(range.first), "endInclusive" to JsonValue.JNumber(range.last))) }),
-    )) }),
-))) } ?: snapshot.opusBitstream?.let { report -> listOf("codec" to JsonValue.JObject(listOf(
-    "checkedSamples" to JsonValue.JNumber(report.checkedSamples.toLong()),
-    "indexedSamples" to JsonValue.JNumber(report.indexedSamples.toLong()),
-    "complete" to JsonValue.JBoolean(report.complete),
-    "checkedTrack" to JsonValue.JString(report.checkedTrack),
-    "totalOccurrences" to JsonValue.JObject(report.totalOccurrences.entries.take(30).map { (id, count) ->
-        id to JsonValue.JNumber(count)
-    }),
-    "limitations" to JsonValue.JArray(report.limitations.take(30).map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
-    "findings" to JsonValue.JArray(report.findings.take(100).map { finding -> JsonValue.JObject(listOf(
-        "ruleId" to JsonValue.JString(finding.rule.id),
-        "status" to JsonValue.JString(finding.status.name),
-        "source" to JsonValue.JString(finding.rule.source),
-        "details" to JsonValue.JArray(finding.details.take(4).map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
-        "ranges" to JsonValue.JArray(finding.ranges.take(4).map { range -> JsonValue.JObject(listOf(
-            "start" to JsonValue.JNumber(range.first), "endInclusive" to JsonValue.JNumber(range.last))) }),
-    )) }),
-))) } ?: snapshot.flacBitstream?.let { report -> listOf("codec" to JsonValue.JObject(listOf(
-    "checkedSamples" to JsonValue.JNumber(report.checkedSamples.toLong()),
-    "indexedSamples" to JsonValue.JNumber(report.indexedSamples.toLong()),
-    "complete" to JsonValue.JBoolean(report.complete),
-    "checkedTrack" to JsonValue.JString(report.checkedTrack),
-    "totalOccurrences" to JsonValue.JObject(report.totalOccurrences.entries.take(30).map { (id, count) ->
-        id to JsonValue.JNumber(count)
-    }),
-    "limitations" to JsonValue.JArray(report.limitations.take(30).map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
-    "findings" to JsonValue.JArray(report.findings.take(100).map { finding -> JsonValue.JObject(listOf(
-        "ruleId" to JsonValue.JString(finding.rule.id),
-        "status" to JsonValue.JString(finding.status.name),
-        "source" to JsonValue.JString(finding.rule.source),
-        "details" to JsonValue.JArray(finding.details.take(4).map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
-        "ranges" to JsonValue.JArray(finding.ranges.take(4).map { range -> JsonValue.JObject(listOf(
-            "start" to JsonValue.JNumber(range.first), "endInclusive" to JsonValue.JNumber(range.last))) }),
-    )) }),
-))) } ?: emptyList()))
+))
 
 const val STALE_CONTENT_CHECK_NOTICE =
     "컨텐츠 검사 결과 제외: 검사 이후 파일이 변경되어 이전 판정과 바이트 근거를 사용하지 않습니다. 파일을 다시 열어 검사해야 합니다."
@@ -271,15 +138,7 @@ private fun <T> StringBuilder.appendCapped(items: List<T>, max: Int, indent: Str
 }
 
 private fun contentCheckFindings(snapshot: ContentCheckSnapshot): List<ContentFinding> = buildList {
-    snapshot.hevcBitstream?.let { addAll(hevcBitstreamFindings(it)) }
-    snapshot.avcBitstream?.let { addAll(avcBitstreamFindings(it)) }
-    snapshot.av1Bitstream?.let { addAll(av1BitstreamFindings(it)) }
-    snapshot.vp9Bitstream?.let { addAll(vp9BitstreamFindings(it)) }
-    snapshot.apvBitstream?.let { addAll(apvBitstreamFindings(it)) }
-    snapshot.vvcBitstream?.let { addAll(vvcBitstreamFindings(it)) }
-    snapshot.aacBitstream?.let { addAll(aacBitstreamFindings(it)) }
-    snapshot.opusBitstream?.let { addAll(opusBitstreamFindings(it)) }
-    snapshot.flacBitstream?.let { addAll(flacBitstreamFindings(it)) }
+    snapshot.codecBitstreams.forEach { addAll(codecBitstreamFindings(it)) }
     snapshot.structure?.let { addAll(structureFindings(it, FindingStage.STRUCTURE)) }
     snapshot.audioStructure?.let { addAll(audioStructureFindings(it)) }
     snapshot.imageDecode?.let { addAll(imageDecodeFindings(it)) }
@@ -376,15 +235,9 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
 
     // Every codec byte check gives the AI its coverage and limitations, so a partial check (complete=false)
     // never reads as clean (rule 7).
-    snapshot.hevcBitstream?.let { sb.appendCodecByteCheck("HEVC", it.checkedSamples, it.indexedSamples, it.complete, it.checkedTrack, it.limitations, it.findings) }
-    snapshot.avcBitstream?.let { sb.appendCodecByteCheck("AVC", it.checkedSamples, it.indexedSamples, it.complete, it.checkedTrack, it.limitations, it.findings) }
-    snapshot.av1Bitstream?.let { sb.appendCodecByteCheck("AV1", it.checkedSamples, it.indexedSamples, it.complete, it.checkedTrack, it.limitations, it.findings) }
-    snapshot.vp9Bitstream?.let { sb.appendCodecByteCheck("VP9", it.checkedSamples, it.indexedSamples, it.complete, it.checkedTrack, it.limitations, it.findings) }
-    snapshot.apvBitstream?.let { sb.appendCodecByteCheck("APV", it.checkedSamples, it.indexedSamples, it.complete, it.checkedTrack, it.limitations, it.findings) }
-    snapshot.vvcBitstream?.let { sb.appendCodecByteCheck("VVC", it.checkedSamples, it.indexedSamples, it.complete, it.checkedTrack, it.limitations, it.findings) }
-    snapshot.aacBitstream?.let { sb.appendCodecByteCheck("AAC", it.checkedSamples, it.indexedSamples, it.complete, it.checkedTrack, it.limitations, it.findings) }
-    snapshot.opusBitstream?.let { sb.appendCodecByteCheck("Opus", it.checkedSamples, it.indexedSamples, it.complete, it.checkedTrack, it.limitations, it.findings) }
-    snapshot.flacBitstream?.let { sb.appendCodecByteCheck("FLAC", it.checkedSamples, it.indexedSamples, it.complete, it.checkedTrack, it.limitations, it.findings) }
+    snapshot.codecBitstreams.forEach {
+        sb.appendCodecByteCheck(it.codec.label, it.checkedSamples, it.indexedSamples, it.complete, it.checkedTrack, it.limitations, it.findings)
+    }
 
     val normalizedFindings = contentCheckFindings(snapshot)
     sb.appendLine("### [검증된 사실]")

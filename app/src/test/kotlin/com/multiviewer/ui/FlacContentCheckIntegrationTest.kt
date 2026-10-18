@@ -43,14 +43,14 @@ class FlacContentCheckIntegrationTest {
     fun corruptedConfigurationIsUnsupportedAndPartialScanEvidenceIsBounded() = runBlocking {
         val truncated = fixture("truncated-sample.mp4")
         val report = analyzeFlacBitstream(truncated, parseFile(truncated)) { _, _ -> }
-        val findings = flacBitstreamFindings(report)
+        val findings = codecBitstreamFindings(report)
         assertTrue(findings.any { it.id == "flac.sample.framing" })
         assertFalse(report.complete)
         val json = contentCheckWorkflowJson(
             ContentCheckSnapshot(
                 null, null, false, null, null, null,
                 mediaType = MediaType.AUDIO,
-                flacBitstream = report,
+                codecBitstreams = listOf(report),
                 stages = mapOf(CheckStage.CODEC to CheckStageState(CheckRunStatus.PARTIAL)),
             ),
             truncated,
@@ -113,7 +113,7 @@ class FlacContentCheckIntegrationTest {
             ContentCheckSnapshot(
                 null, null, false, null, null, null,
                 mediaType = MediaType.AUDIO,
-                flacBitstream = report,
+                codecBitstreams = listOf(report),
             ),
             file,
         ).render()

@@ -43,14 +43,14 @@ class AacContentCheckIntegrationTest {
     fun corruptedConfigurationIsUnsupportedAndPartialScanEvidenceIsBounded() = runBlocking {
         val truncated = fixture("truncated-sample.m4a")
         val report = analyzeAacBitstream(truncated, parseFile(truncated)) { _, _ -> }
-        val findings = aacBitstreamFindings(report)
+        val findings = codecBitstreamFindings(report)
         assertTrue(findings.any { it.id == "aac.sample.framing" })
         assertFalse(report.complete)
         val json = contentCheckWorkflowJson(
             ContentCheckSnapshot(
                 null, null, false, null, null, null,
                 mediaType = MediaType.AUDIO,
-                aacBitstream = report,
+                codecBitstreams = listOf(report),
                 stages = mapOf(CheckStage.CODEC to CheckStageState(CheckRunStatus.PARTIAL)),
             ),
             truncated,
@@ -113,7 +113,7 @@ class AacContentCheckIntegrationTest {
             ContentCheckSnapshot(
                 null, null, false, null, null, null,
                 mediaType = MediaType.AUDIO,
-                aacBitstream = report,
+                codecBitstreams = listOf(report),
             ),
             file,
         ).render()

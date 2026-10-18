@@ -47,25 +47,9 @@ import com.multiviewer.parser.buildMediaSummary
 import com.multiviewer.parser.collectWarnings
 import com.multiviewer.parser.GainmapValidator
 import com.multiviewer.parser.conformance.ConformanceReport
+import com.multiviewer.parser.conformance.CodecBitstreamReport
 import com.multiviewer.parser.conformance.ConformanceStatus
-import com.multiviewer.parser.conformance.HevcBitstreamReport
-import com.multiviewer.parser.conformance.AvcBitstreamReport
-import com.multiviewer.parser.conformance.Av1BitstreamReport
-import com.multiviewer.parser.conformance.Vp9BitstreamReport
-import com.multiviewer.parser.conformance.ApvBitstreamReport
-import com.multiviewer.parser.conformance.VvcBitstreamReport
-import com.multiviewer.parser.conformance.AacBitstreamReport
-import com.multiviewer.parser.conformance.OpusBitstreamReport
-import com.multiviewer.parser.conformance.FlacBitstreamReport
-import com.multiviewer.parser.conformance.analyzeHevcBitstream
-import com.multiviewer.parser.conformance.analyzeAvcBitstream
-import com.multiviewer.parser.conformance.analyzeAv1Bitstream
-import com.multiviewer.parser.conformance.analyzeVp9Bitstream
-import com.multiviewer.parser.conformance.analyzeApvBitstream
-import com.multiviewer.parser.conformance.analyzeVvcBitstream
-import com.multiviewer.parser.conformance.analyzeAacBitstream
-import com.multiviewer.parser.conformance.analyzeOpusBitstream
-import com.multiviewer.parser.conformance.analyzeFlacBitstream
+import com.multiviewer.parser.conformance.analyzeCodecBitstream
 import com.multiviewer.parser.integrity.ImageStructureReport
 import com.multiviewer.parser.integrity.AudioStructureReport
 import com.multiviewer.parser.integrity.IntegrityCheckItem
@@ -104,15 +88,7 @@ fun ContentCheckWindow(
     var structure by remember(tab) { mutableStateOf<ImageStructureReport?>(null) }
     var audioStructure by remember(tab) { mutableStateOf<AudioStructureReport?>(null) }
     var conformance by remember(tab) { mutableStateOf<ConformanceReport?>(null) }
-    var hevcBitstream by remember(tab) { mutableStateOf<HevcBitstreamReport?>(null) }
-    var avcBitstream by remember(tab) { mutableStateOf<AvcBitstreamReport?>(null) }
-    var av1Bitstream by remember(tab) { mutableStateOf<Av1BitstreamReport?>(null) }
-    var vp9Bitstream by remember(tab) { mutableStateOf<Vp9BitstreamReport?>(null) }
-    var apvBitstream by remember(tab) { mutableStateOf<ApvBitstreamReport?>(null) }
-    var vvcBitstream by remember(tab) { mutableStateOf<VvcBitstreamReport?>(null) }
-    var aacBitstream by remember(tab) { mutableStateOf<AacBitstreamReport?>(null) }
-    var opusBitstream by remember(tab) { mutableStateOf<OpusBitstreamReport?>(null) }
-    var flacBitstream by remember(tab) { mutableStateOf<FlacBitstreamReport?>(null) }
+    var codecBitstreams by remember(tab) { mutableStateOf<List<CodecBitstreamReport>>(emptyList()) }
     var fileLength by remember(tab) { mutableStateOf(0L) }
     var structureError by remember(tab) { mutableStateOf<String?>(null) }
     var imageDecode by remember(tab) { mutableStateOf<ImageDecodeReport?>(null) }
@@ -167,7 +143,7 @@ fun ContentCheckWindow(
     // Publish the current run's results to the tab for the AI prompt. These states are only ever
     // written by the current run (every write is behind the runId/current() guard), so a stale or
     // cancelled run can never reach the tab through here.
-    LaunchedEffect(tab, structure, audioStructure, conformance, hevcBitstream, avcBitstream, av1Bitstream, vp9Bitstream, apvBitstream, vvcBitstream, aacBitstream, opusBitstream, flacBitstream, structureError, imageDecode, imageDecodeError, motion, motionError, video, videoError, audio, audioError, running, motionDetected, type, checkedIdentity, stageStates) {
+    LaunchedEffect(tab, structure, audioStructure, conformance, codecBitstreams, structureError, imageDecode, imageDecodeError, motion, motionError, video, videoError, audio, audioError, running, motionDetected, type, checkedIdentity, stageStates) {
         tab.contentCheck = ContentCheckSnapshot(
             structure, imageDecode, motionDetected, motion, motionError, video, type,
             structureError = structureError, imageDecodeError = imageDecodeError, videoError = videoError, running = running,
@@ -176,15 +152,7 @@ fun ContentCheckWindow(
             conformance = conformance,
             fileIdentity = checkedIdentity,
             stages = stageStates,
-            hevcBitstream = hevcBitstream,
-            avcBitstream = avcBitstream,
-            av1Bitstream = av1Bitstream,
-            vp9Bitstream = vp9Bitstream,
-            apvBitstream = apvBitstream,
-            vvcBitstream = vvcBitstream,
-            aacBitstream = aacBitstream,
-            opusBitstream = opusBitstream,
-            flacBitstream = flacBitstream,
+            codecBitstreams = codecBitstreams,
         )
     }
 
@@ -216,15 +184,7 @@ fun ContentCheckWindow(
         selectedPacket = null
         structureError = fileChangedMessage()
         conformance = contentConformanceReport(type, inspectionError = structureError)
-        hevcBitstream = null
-        avcBitstream = null
-        av1Bitstream = null
-        vp9Bitstream = null
-        apvBitstream = null
-        vvcBitstream = null
-        aacBitstream = null
-        opusBitstream = null
-        flacBitstream = null
+        codecBitstreams = emptyList()
         message = fileChangedMessage()
     }
 
@@ -289,98 +249,17 @@ fun ContentCheckWindow(
                         CheckStage.STRUCTURE -> runStructure(root, identity)
                         CheckStage.CODEC -> {
                             if (type != MediaType.VIDEO && type != MediaType.AUDIO) error("Video or audio track unavailable")
-                            val aacAvail = aacCodecAvailability(type, root)
-                            val opusAvail = opusCodecAvailability(type, root)
-                            val flacAvail = flacCodecAvailability(type, root)
-                            val hevcAvail = hevcCodecAvailability(type, root)
-                            val avcAvail = avcCodecAvailability(type, root)
-                            val av1Avail = av1CodecAvailability(type, root)
-                            val vp9Avail = vp9CodecAvailability(type, root)
-                            val apvAvail = apvCodecAvailability(type, root)
-                            val vvcAvail = vvcCodecAvailability(type, root)
-                            when {
-                                aacAvail == CheckAvailability.AVAILABLE -> {
-                                    aacBitstream = analyzeAacBitstream(tab.file, root) { checked, total ->
-                                        if (checked % 20 == 0 || checked == total) scope.launch {
-                                            if (current() && stageStates[CheckStage.CODEC]?.status == CheckRunStatus.RUNNING) {
-                                                progress(CheckProgress(checked.toLong(), total?.toLong(), "samples"))
-                                            }
+                            val plan = codecBitstreamPlan(type, root)
+                            if (plan.isEmpty()) error("Supported HEVC, AVC, AV1, VP9, APV, VVC, AAC, Opus or FLAC configuration unavailable")
+                            for (codec in plan) {
+                                val report = analyzeCodecBitstream(codec, tab.file, root) { checked, total ->
+                                    if (checked % 20 == 0 || checked == total) scope.launch {
+                                        if (current() && stageStates[CheckStage.CODEC]?.status == CheckRunStatus.RUNNING) {
+                                            progress(CheckProgress(checked.toLong(), total?.toLong(), "${codec.label} samples"))
                                         }
                                     }
                                 }
-                                opusAvail == CheckAvailability.AVAILABLE -> {
-                                    opusBitstream = analyzeOpusBitstream(tab.file, root) { checked, total ->
-                                        if (checked % 20 == 0 || checked == total) scope.launch {
-                                            if (current() && stageStates[CheckStage.CODEC]?.status == CheckRunStatus.RUNNING) {
-                                                progress(CheckProgress(checked.toLong(), total?.toLong(), "samples"))
-                                            }
-                                        }
-                                    }
-                                }
-                                flacAvail == CheckAvailability.AVAILABLE -> {
-                                    flacBitstream = analyzeFlacBitstream(tab.file, root) { checked, total ->
-                                        if (checked % 20 == 0 || checked == total) scope.launch {
-                                            if (current() && stageStates[CheckStage.CODEC]?.status == CheckRunStatus.RUNNING) {
-                                                progress(CheckProgress(checked.toLong(), total?.toLong(), "samples"))
-                                            }
-                                        }
-                                    }
-                                }
-                                hevcAvail == CheckAvailability.AVAILABLE -> {
-                                    hevcBitstream = analyzeHevcBitstream(tab.file, root) { checked, total ->
-                                        if (checked % 20 == 0 || checked == total) scope.launch {
-                                            if (current() && stageStates[CheckStage.CODEC]?.status == CheckRunStatus.RUNNING) {
-                                                progress(CheckProgress(checked.toLong(), total?.toLong(), "samples"))
-                                            }
-                                        }
-                                    }
-                                }
-                                avcAvail == CheckAvailability.AVAILABLE -> {
-                                    avcBitstream = analyzeAvcBitstream(tab.file, root) { checked, total ->
-                                        if (checked % 20 == 0 || checked == total) scope.launch {
-                                            if (current() && stageStates[CheckStage.CODEC]?.status == CheckRunStatus.RUNNING) {
-                                                progress(CheckProgress(checked.toLong(), total?.toLong(), "samples"))
-                                            }
-                                        }
-                                    }
-                                }
-                                av1Avail == CheckAvailability.AVAILABLE -> {
-                                    av1Bitstream = analyzeAv1Bitstream(tab.file, root) { checked, total ->
-                                        if (checked % 20 == 0 || checked == total) scope.launch {
-                                            if (current() && stageStates[CheckStage.CODEC]?.status == CheckRunStatus.RUNNING) {
-                                                progress(CheckProgress(checked.toLong(), total?.toLong(), "samples"))
-                                            }
-                                        }
-                                    }
-                                }
-                                vp9Avail == CheckAvailability.AVAILABLE -> {
-                                    vp9Bitstream = analyzeVp9Bitstream(tab.file, root) { checked, total ->
-                                        if (checked % 20 == 0 || checked == total) scope.launch {
-                                            if (current() && stageStates[CheckStage.CODEC]?.status == CheckRunStatus.RUNNING) {
-                                                progress(CheckProgress(checked.toLong(), total?.toLong(), "samples"))
-                                            }
-                                        }
-                                    }
-                                }
-                                apvAvail == CheckAvailability.AVAILABLE -> {
-                                    apvBitstream = analyzeApvBitstream(tab.file, root) { checked, total ->
-                                        if (checked % 20 == 0 || checked == total) scope.launch {
-                                            if (current() && stageStates[CheckStage.CODEC]?.status == CheckRunStatus.RUNNING) {
-                                                progress(CheckProgress(checked.toLong(), total?.toLong(), "samples"))
-                                            }
-                                        }
-                                    }
-                                }
-                                vvcAvail == CheckAvailability.AVAILABLE -> {
-                                    vvcBitstream = analyzeVvcBitstream(tab.file, root) { checked, total ->
-                                        if (checked % 20 == 0 || checked == total) scope.launch {
-                                            if (current() && stageStates[CheckStage.CODEC]?.status == CheckRunStatus.RUNNING) {
-                                                progress(CheckProgress(checked.toLong(), total?.toLong(), "samples"))
-                                            }
-                                        }
-                                    }
-                                }
-                                else -> error("Supported HEVC, AVC, AV1, VP9, APV, VVC, or AAC configuration unavailable")
+                                codecBitstreams = codecBitstreams + report
                             }
                         }
                         CheckStage.VISUAL_DECODE -> {
@@ -411,10 +290,15 @@ fun ContentCheckWindow(
                 }
                 runner.run(runStages) { stage, state ->
                     if (shouldPublishCheckState(myRun == runId, isActive, state.status)) {
-                        val codecComplete = hevcBitstream?.complete ?: avcBitstream?.complete ?: av1Bitstream?.complete ?: vp9Bitstream?.complete ?: apvBitstream?.complete ?: vvcBitstream?.complete ?: aacBitstream?.complete ?: opusBitstream?.complete ?: flacBitstream?.complete
-                        val shownState = if (stage == CheckStage.CODEC && state.status == CheckRunStatus.COMPLETED && codecComplete == false) {
-                            state.copy(status = CheckRunStatus.PARTIAL, reason = "Only indexed, supported samples were checked / 일부 샘플만 검사")
-                        } else state
+                        val codecComplete = codecBitstreams.takeIf { it.isNotEmpty() }?.all { it.complete }
+                        val videoUnchecked = videoCodecUnchecked(type, codecBitstreams.map { it.codec })
+                        val shownState = when {
+                            stage != CheckStage.CODEC || state.status != CheckRunStatus.COMPLETED -> state
+                            videoUnchecked -> state.copy(status = CheckRunStatus.PARTIAL,
+                                reason = "Video codec has no byte checker; only the audio track was checked / 영상 코덱 미지원 · 오디오 트랙만 검사")
+                            codecComplete == false -> state.copy(status = CheckRunStatus.PARTIAL, reason = "Only indexed, supported samples were checked / 일부 샘플만 검사")
+                            else -> state
+                        }
                         stageStates = stageStates + (stage to shownState)
                         if (state.status == CheckRunStatus.RUNNING && state.progress == null) {
                             selectedStage = nextSelectedStage(selectedStage, manuallySelectedStage, stage)
@@ -454,15 +338,7 @@ fun ContentCheckWindow(
         structureError = structureError, imageDecodeError = imageDecodeError, videoError = videoError,
         running = running, audio = audio, audioError = audioError, audioStructure = audioStructure,
         conformance = conformance, fileIdentity = checkedIdentity, stages = stageStates,
-        hevcBitstream = hevcBitstream,
-        avcBitstream = avcBitstream,
-        av1Bitstream = av1Bitstream,
-        vp9Bitstream = vp9Bitstream,
-        apvBitstream = apvBitstream,
-        vvcBitstream = vvcBitstream,
-        aacBitstream = aacBitstream,
-        opusBitstream = opusBitstream,
-        flacBitstream = flacBitstream,
+        codecBitstreams = codecBitstreams,
     )
 
     Window(
@@ -666,7 +542,7 @@ fun ContentCheckWindow(
                 }
             }
             if (message.isNotEmpty()) Text(message, color = AppColors.TextSecondary, fontSize = 12.sp)
-            val overviewRows = remember(stageSpecs, stageStates, tab.root, tab.mediaSummary, ko, running, fileChanged, conformance, structure, audioStructure, hevcBitstream, avcBitstream, av1Bitstream, vp9Bitstream, apvBitstream, vvcBitstream, aacBitstream, opusBitstream, flacBitstream, imageDecode, video, audio, motion, gainmapChecks) {
+            val overviewRows = remember(stageSpecs, stageStates, tab.root, tab.mediaSummary, ko, running, fileChanged, conformance, structure, audioStructure, codecBitstreams, imageDecode, video, audio, motion, gainmapChecks) {
                 buildContentCheckOverviewRows(
                     specs = stageSpecs,
                     states = stageStates,
@@ -684,15 +560,9 @@ fun ContentCheckWindow(
                         CheckStage.STRUCTURE -> if (type == MediaType.AUDIO) audioStructure?.overall?.let { checkStatusLabel(it, ko) }
                             else structure?.overall?.let { checkStatusLabel(it, ko) }
                         CheckStage.CODEC -> {
-                            val pair = hevcBitstream?.let { it.findings to it.complete }
-                                ?: avcBitstream?.let { it.findings to it.complete }
-                                ?: av1Bitstream?.let { it.findings to it.complete }
-                                ?: vp9Bitstream?.let { it.findings to it.complete }
-                                ?: apvBitstream?.let { it.findings to it.complete }
-                                ?: vvcBitstream?.let { it.findings to it.complete }
-                                ?: aacBitstream?.let { it.findings to it.complete }
-                                ?: opusBitstream?.let { it.findings to it.complete }
-                                ?: flacBitstream?.let { it.findings to it.complete }
+                            val pair = codecBitstreams.takeIf { it.isNotEmpty() }?.let { reports ->
+                                reports.flatMap { it.findings } to (reports.all { it.complete } && !videoCodecUnchecked(type, reports.map { it.codec }))
+                            }
                             pair?.let { (findings, complete) -> when {
                                 findings.any { it.status == ConformanceStatus.FAIL } -> label("오류 관측", "Issues observed")
                                 !complete -> label("일부 미검증", "Partly unchecked")
@@ -777,29 +647,24 @@ fun ContentCheckWindow(
                     val shownTab = selectedTab
                     when (shownTab) {
                         ContentTab.CODEC -> {
-                            val codecData = when {
-                                hevcBitstream != null -> Triple(hevcBitstream!!.checkedTrack, "${hevcBitstream!!.checkedSamples}/${hevcBitstream!!.indexedSamples}", hevcBitstream!!.limitations) to hevcBitstreamFindings(hevcBitstream!!)
-                                avcBitstream != null -> Triple(avcBitstream!!.checkedTrack, "${avcBitstream!!.checkedSamples}/${avcBitstream!!.indexedSamples}", avcBitstream!!.limitations) to avcBitstreamFindings(avcBitstream!!)
-                                av1Bitstream != null -> Triple(av1Bitstream!!.checkedTrack, "${av1Bitstream!!.checkedSamples}/${av1Bitstream!!.indexedSamples}", av1Bitstream!!.limitations) to av1BitstreamFindings(av1Bitstream!!)
-                                vp9Bitstream != null -> Triple(vp9Bitstream!!.checkedTrack, "${vp9Bitstream!!.checkedSamples}/${vp9Bitstream!!.indexedSamples}", vp9Bitstream!!.limitations) to vp9BitstreamFindings(vp9Bitstream!!)
-                                apvBitstream != null -> Triple(apvBitstream!!.checkedTrack, "${apvBitstream!!.checkedSamples}/${apvBitstream!!.indexedSamples}", apvBitstream!!.limitations) to apvBitstreamFindings(apvBitstream!!)
-                                vvcBitstream != null -> Triple(vvcBitstream!!.checkedTrack, "${vvcBitstream!!.checkedSamples}/${vvcBitstream!!.indexedSamples}", vvcBitstream!!.limitations) to vvcBitstreamFindings(vvcBitstream!!)
-                                aacBitstream != null -> Triple(aacBitstream!!.checkedTrack, "${aacBitstream!!.checkedSamples}/${aacBitstream!!.indexedSamples}", aacBitstream!!.limitations) to aacBitstreamFindings(aacBitstream!!)
-                                opusBitstream != null -> Triple(opusBitstream!!.checkedTrack, "${opusBitstream!!.checkedSamples}/${opusBitstream!!.indexedSamples}", opusBitstream!!.limitations) to opusBitstreamFindings(opusBitstream!!)
-                                flacBitstream != null -> Triple(flacBitstream!!.checkedTrack, "${flacBitstream!!.checkedSamples}/${flacBitstream!!.indexedSamples}", flacBitstream!!.limitations) to flacBitstreamFindings(flacBitstream!!)
-                                else -> null
-                            }
-                            if (codecData == null) Text(label("코덱 검사 결과가 없습니다. 실행을 눌러 시작하세요.", "No codec result yet. Press Run to start."),
+                            val reports = codecBitstreams
+                            if (reports.isEmpty()) Text(label("코덱 검사 결과가 없습니다. 실행을 눌러 시작하세요.", "No codec result yet. Press Run to start."),
                                 color = AppColors.TextSecondary)
                             else {
-                                val (meta, findings) = codecData
-                                val (track, samples, limitations) = meta
-                                Text("$track · $samples samples", color = AppColors.TextSecondary)
+                                reports.forEach { r ->
+                                    Text("${r.codec.label} · ${r.checkedTrack} · ${r.checkedSamples}/${r.indexedSamples} samples", color = AppColors.TextSecondary)
+                                }
+                                if (videoCodecUnchecked(type, reports.map { it.codec })) {
+                                    Text(label("영상 코덱은 바이트 검사를 지원하지 않아 오디오 트랙만 검사했습니다.",
+                                        "The video codec has no byte checker; only the audio track was checked."),
+                                        color = AppColors.NeonYellow, fontSize = 12.sp)
+                                }
                                 Text(label("구조 관측값입니다. 전체 규격 준수나 MediaCodec 동작을 증명하지 않습니다.",
                                     "Structural observations; these do not establish full conformance or MediaCodec behavior."),
                                     color = AppColors.TextSecondary, fontSize = 12.sp)
-                                limitations.take(8).forEach { Text(it, color = AppColors.TextSecondary, fontSize = 11.sp) }
-                                ContentFindingTable(findings, fileLength, ko, Modifier.weight(1f)) { offset, length ->
+                                reports.flatMap { r -> r.limitations.map { "${r.codec.label}: $it" } }.take(8)
+                                    .forEach { Text(it, color = AppColors.TextSecondary, fontSize = 11.sp) }
+                                ContentFindingTable(reports.flatMap(::codecBitstreamFindings), fileLength, ko, Modifier.weight(1f)) { offset, length ->
                                     tab.parameterSetHighlightRange = offset until (offset + length)
                                 }
                             }

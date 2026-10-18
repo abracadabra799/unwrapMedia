@@ -3,13 +3,8 @@ package com.multiviewer.ui
 import com.multiviewer.cli.AiDiagnosticPromptBuilder
 import com.multiviewer.parser.SefCheckResult
 import com.multiviewer.parser.SefIntegritySeverity
-import com.multiviewer.parser.conformance.AacBitstreamReport
-import com.multiviewer.parser.conformance.Av1BitstreamReport
-import com.multiviewer.parser.conformance.AvcBitstreamReport
-import com.multiviewer.parser.conformance.ApvBitstreamReport
-import com.multiviewer.parser.conformance.FlacBitstreamReport
-import com.multiviewer.parser.conformance.OpusBitstreamReport
-import com.multiviewer.parser.conformance.Vp9BitstreamReport
+import com.multiviewer.parser.conformance.BitstreamCodec
+import com.multiviewer.parser.conformance.CodecBitstreamReport
 import com.multiviewer.parser.integrity.CheckStatus
 import com.multiviewer.parser.integrity.AudioStructureReport
 import com.multiviewer.parser.integrity.ImageStructureReport
@@ -46,13 +41,13 @@ class ContentCheckSnapshotTest {
         val base = ContentCheckSnapshot(null, null, false, null, null, null, MediaType.VIDEO)
         val limitation = "stopped at sample cap"
         val cases = listOf(
-            "AVC" to base.copy(avcBitstream = AvcBitstreamReport(emptyList(), 3, 10, emptyMap(), listOf(limitation), "track 1 (avc1)", false)),
-            "AV1" to base.copy(av1Bitstream = Av1BitstreamReport(emptyList(), 3, 10, emptyMap(), listOf(limitation), "track 1 (av01)", false)),
-            "VP9" to base.copy(vp9Bitstream = Vp9BitstreamReport(emptyList(), 3, 10, emptyMap(), listOf(limitation), "track 1 (vp09)", false)),
-            "APV" to base.copy(apvBitstream = ApvBitstreamReport(emptyList(), 3, 10, emptyMap(), listOf(limitation), "track 1 (apv1)", false)),
-            "AAC" to base.copy(mediaType = MediaType.AUDIO, aacBitstream = AacBitstreamReport(emptyList(), 3, 10, emptyMap(), listOf(limitation), "track 1 (mp4a)", false)),
-            "Opus" to base.copy(mediaType = MediaType.AUDIO, opusBitstream = OpusBitstreamReport(emptyList(), 3, 10, emptyMap(), listOf(limitation), "track 1 (Opus)", false)),
-            "FLAC" to base.copy(mediaType = MediaType.AUDIO, flacBitstream = FlacBitstreamReport(emptyList(), 3, 10, emptyMap(), listOf(limitation), "track 1 (fLaC)", false)),
+            "AVC" to base.copy(codecBitstreams = listOf(CodecBitstreamReport(BitstreamCodec.AVC, emptyList(), 3, 10, emptyMap(), listOf(limitation), "track 1 (avc1)", false))),
+            "AV1" to base.copy(codecBitstreams = listOf(CodecBitstreamReport(BitstreamCodec.AV1, emptyList(), 3, 10, emptyMap(), listOf(limitation), "track 1 (av01)", false))),
+            "VP9" to base.copy(codecBitstreams = listOf(CodecBitstreamReport(BitstreamCodec.VP9, emptyList(), 3, 10, emptyMap(), listOf(limitation), "track 1 (vp09)", false))),
+            "APV" to base.copy(codecBitstreams = listOf(CodecBitstreamReport(BitstreamCodec.APV, emptyList(), 3, 10, emptyMap(), listOf(limitation), "track 1 (apv1)", false))),
+            "AAC" to base.copy(mediaType = MediaType.AUDIO, codecBitstreams = listOf(CodecBitstreamReport(BitstreamCodec.AAC, emptyList(), 3, 10, emptyMap(), listOf(limitation), "track 1 (mp4a)", false))),
+            "Opus" to base.copy(mediaType = MediaType.AUDIO, codecBitstreams = listOf(CodecBitstreamReport(BitstreamCodec.OPUS, emptyList(), 3, 10, emptyMap(), listOf(limitation), "track 1 (Opus)", false))),
+            "FLAC" to base.copy(mediaType = MediaType.AUDIO, codecBitstreams = listOf(CodecBitstreamReport(BitstreamCodec.FLAC, emptyList(), 3, 10, emptyMap(), listOf(limitation), "track 1 (fLaC)", false))),
         )
         for ((codec, snapshot) in cases) {
             val text = contentCheckPromptSection(snapshot, file)

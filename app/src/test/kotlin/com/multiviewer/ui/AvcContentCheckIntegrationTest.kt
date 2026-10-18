@@ -35,11 +35,11 @@ class AvcContentCheckIntegrationTest {
         assertEquals(CheckAvailability.UNSUPPORTED, avcCodecAvailability(MediaType.VIDEO, parseFile(bad)))
         val truncated = fixture("truncated-prefix.mp4")
         val report = analyzeAvcBitstream(truncated, parseFile(truncated)) { _, _ -> }
-        val findings = avcBitstreamFindings(report)
+        val findings = codecBitstreamFindings(report)
         assertTrue(findings.any { it.id == "avc.nal.framing" && it.offset == 48L })
         assertFalse(report.complete)
         val json = contentCheckWorkflowJson(ContentCheckSnapshot(null, null, false, null, null, null,
-            mediaType = MediaType.VIDEO, avcBitstream = report,
+            mediaType = MediaType.VIDEO, codecBitstreams = listOf(report),
             stages = mapOf(CheckStage.CODEC to CheckStageState(CheckRunStatus.PARTIAL))), truncated)
         assertContains(json.render(), "\"checkedSamples\"")
     }
@@ -81,7 +81,7 @@ class AvcContentCheckIntegrationTest {
         val file = fixture("many-forbidden-headers.mp4")
         val report = analyzeAvcBitstream(file, parseFile(file)) { _, _ -> }
         val json = contentCheckWorkflowJson(ContentCheckSnapshot(null, null, false, null, null, null,
-            mediaType = MediaType.VIDEO, avcBitstream = report), file).render()
+            mediaType = MediaType.VIDEO, codecBitstreams = listOf(report)), file).render()
         assertContains(json, "\"avc.nal.forbidden_zero_bit\": 101")
     }
 }

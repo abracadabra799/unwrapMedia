@@ -21,7 +21,7 @@ suspend fun analyzeAv1Bitstream(
     file: File,
     root: BoxNode,
     onProgress: (Int, Int?) -> Unit,
-): Av1BitstreamReport = withContext(Dispatchers.IO) {
+): CodecBitstreamReport = withContext(Dispatchers.IO) {
     val limitations = mutableListOf<String>()
     val findings = mutableListOf<ConformanceFinding>()
     val totals = mutableMapOf<String, Long>()
@@ -34,9 +34,8 @@ suspend fun analyzeAv1Bitstream(
     val trackIndex = videoTracks.indexOf(pair?.first).takeIf { it >= 0 }?.plus(1) ?: 1
     val otherVideoTracks = (videoTracks.size - 1).coerceAtLeast(0)
 
-    fun report(complete: Boolean, checked: Int = 0, indexed: Int = 0): Av1BitstreamReport =
-        Av1BitstreamReport(
-            findings = findings,
+    fun report(complete: Boolean, checked: Int = 0, indexed: Int = 0): CodecBitstreamReport =
+        CodecBitstreamReport(BitstreamCodec.AV1, findings = findings,
             checkedSamples = checked,
             indexedSamples = indexed,
             totalOccurrences = totals,

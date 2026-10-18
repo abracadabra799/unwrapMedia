@@ -47,14 +47,14 @@ class VvcContentCheckIntegrationTest {
         assertEquals(CheckAvailability.UNSUPPORTED, vvcCodecAvailability(MediaType.VIDEO, parseFile(bad)))
         val truncated = fixture("truncated-sample.mp4")
         val report = analyzeVvcBitstream(truncated, parseFile(truncated)) { _, _ -> }
-        val findings = vvcBitstreamFindings(report)
+        val findings = codecBitstreamFindings(report)
         assertTrue(findings.any { it.id == "vvc.sample.framing" })
         assertFalse(report.complete)
         val json = contentCheckWorkflowJson(
             ContentCheckSnapshot(
                 null, null, false, null, null, null,
                 mediaType = MediaType.VIDEO,
-                vvcBitstream = report,
+                codecBitstreams = listOf(report),
                 stages = mapOf(CheckStage.CODEC to CheckStageState(CheckRunStatus.PARTIAL)),
             ),
             truncated,
@@ -117,7 +117,7 @@ class VvcContentCheckIntegrationTest {
             ContentCheckSnapshot(
                 null, null, false, null, null, null,
                 mediaType = MediaType.VIDEO,
-                vvcBitstream = report,
+                codecBitstreams = listOf(report),
             ),
             file,
         ).render()

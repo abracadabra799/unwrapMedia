@@ -43,14 +43,14 @@ class OpusContentCheckIntegrationTest {
     fun corruptedConfigurationIsUnsupportedAndPartialScanEvidenceIsBounded() = runBlocking {
         val truncated = fixture("truncated-sample.mp4")
         val report = analyzeOpusBitstream(truncated, parseFile(truncated)) { _, _ -> }
-        val findings = opusBitstreamFindings(report)
+        val findings = codecBitstreamFindings(report)
         assertTrue(findings.any { it.id == "opus.sample.framing" })
         assertFalse(report.complete)
         val json = contentCheckWorkflowJson(
             ContentCheckSnapshot(
                 null, null, false, null, null, null,
                 mediaType = MediaType.AUDIO,
-                opusBitstream = report,
+                codecBitstreams = listOf(report),
                 stages = mapOf(CheckStage.CODEC to CheckStageState(CheckRunStatus.PARTIAL)),
             ),
             truncated,
@@ -113,7 +113,7 @@ class OpusContentCheckIntegrationTest {
             ContentCheckSnapshot(
                 null, null, false, null, null, null,
                 mediaType = MediaType.AUDIO,
-                opusBitstream = report,
+                codecBitstreams = listOf(report),
             ),
             file,
         ).render()

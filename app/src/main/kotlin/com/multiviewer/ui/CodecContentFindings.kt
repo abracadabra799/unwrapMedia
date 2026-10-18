@@ -1,11 +1,11 @@
 package com.multiviewer.ui
 
 import com.multiviewer.parser.conformance.ConformanceStatus
-import com.multiviewer.parser.conformance.OpusBitstreamReport
+import com.multiviewer.parser.conformance.CodecBitstreamReport
 import com.multiviewer.parser.integrity.CheckStatus
 
-/** Opus byte observations stay outside normative conformance counts. */
-fun opusBitstreamFindings(report: OpusBitstreamReport): List<ContentFinding> = report.findings.map { finding ->
+/** Codec byte observations stay outside normative conformance counts. */
+fun codecBitstreamFindings(report: CodecBitstreamReport): List<ContentFinding> = report.findings.map { finding ->
     val range = finding.ranges.firstOrNull()
     ContentFinding(
         id = finding.rule.id,

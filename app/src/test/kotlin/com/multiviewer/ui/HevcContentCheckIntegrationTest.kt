@@ -37,11 +37,11 @@ class HevcContentCheckIntegrationTest {
         assertEquals(CheckAvailability.UNSUPPORTED, hevcCodecAvailability(MediaType.VIDEO, parseFile(bad)))
         val truncated = fixture("truncated-prefix.mp4")
         val report = analyzeHevcBitstream(truncated, parseFile(truncated)) { _, _ -> }
-        val findings = hevcBitstreamFindings(report)
+        val findings = codecBitstreamFindings(report)
         assertTrue(findings.any { it.id == "hevc.nal.framing" && it.offset == 44L })
         assertFalse(report.complete)
         val json = contentCheckWorkflowJson(ContentCheckSnapshot(null, null, false, null, null, null,
-            mediaType = MediaType.VIDEO, hevcBitstream = report,
+            mediaType = MediaType.VIDEO, codecBitstreams = listOf(report),
             stages = mapOf(CheckStage.CODEC to CheckStageState(CheckRunStatus.PARTIAL))), truncated)
         assertContains(json.render(), "\"checkedSamples\"")
     }
@@ -83,7 +83,7 @@ class HevcContentCheckIntegrationTest {
         val file = fixture("many-forbidden-headers.mp4")
         val report = analyzeHevcBitstream(file, parseFile(file)) { _, _ -> }
         val json = contentCheckWorkflowJson(ContentCheckSnapshot(null, null, false, null, null, null,
-            mediaType = MediaType.VIDEO, hevcBitstream = report), file).render()
+            mediaType = MediaType.VIDEO, codecBitstreams = listOf(report)), file).render()
         assertContains(json, "\"hevc.nal.forbidden_zero_bit\": 101")
     }
 }

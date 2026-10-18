@@ -47,14 +47,14 @@ class ApvContentCheckIntegrationTest {
         assertEquals(CheckAvailability.UNSUPPORTED, apvCodecAvailability(MediaType.VIDEO, parseFile(bad)))
         val truncated = fixture("truncated-sample.mp4")
         val report = analyzeApvBitstream(truncated, parseFile(truncated)) { _, _ -> }
-        val findings = apvBitstreamFindings(report)
+        val findings = codecBitstreamFindings(report)
         assertTrue(findings.any { it.id == "apv.pbu.framing" })
         assertFalse(report.complete)
         val json = contentCheckWorkflowJson(
             ContentCheckSnapshot(
                 null, null, false, null, null, null,
                 mediaType = MediaType.VIDEO,
-                apvBitstream = report,
+                codecBitstreams = listOf(report),
                 stages = mapOf(CheckStage.CODEC to CheckStageState(CheckRunStatus.PARTIAL)),
             ),
             truncated,
@@ -117,7 +117,7 @@ class ApvContentCheckIntegrationTest {
             ContentCheckSnapshot(
                 null, null, false, null, null, null,
                 mediaType = MediaType.VIDEO,
-                apvBitstream = report,
+                codecBitstreams = listOf(report),
             ),
             file,
         ).render()

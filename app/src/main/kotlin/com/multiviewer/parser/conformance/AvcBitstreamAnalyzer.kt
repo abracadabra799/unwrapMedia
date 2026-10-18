@@ -22,7 +22,7 @@ suspend fun analyzeAvcBitstream(
     file: File,
     root: BoxNode,
     onProgress: (Int, Int?) -> Unit,
-): AvcBitstreamReport = withContext(Dispatchers.IO) {
+): CodecBitstreamReport = withContext(Dispatchers.IO) {
     val limitations = mutableListOf<String>()
     val findings = mutableListOf<ConformanceFinding>()
     val totals = mutableMapOf<String, Long>()
@@ -34,8 +34,8 @@ suspend fun analyzeAvcBitstream(
     }.toList()
     val trackIndex = videoTracks.indexOf(pair?.first).takeIf { it >= 0 }?.plus(1) ?: 1
     val otherVideoTracks = (videoTracks.size - 1).coerceAtLeast(0)
-    fun report(complete: Boolean, checked: Int = 0, indexed: Int = 0): AvcBitstreamReport =
-        AvcBitstreamReport(findings, checked, indexed, totals, limitations,
+    fun report(complete: Boolean, checked: Int = 0, indexed: Int = 0): CodecBitstreamReport =
+        CodecBitstreamReport(BitstreamCodec.AVC, findings, checked, indexed, totals, limitations,
             "video track #$trackIndex (${tag ?: "unknown"})", complete)
     if (tag != "avc1") {
         limitations += "AVC avc1 video sample entry not found / AVC 비디오 샘플 엔트리 없음"

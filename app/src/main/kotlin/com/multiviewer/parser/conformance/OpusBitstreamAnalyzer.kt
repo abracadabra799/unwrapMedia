@@ -21,7 +21,7 @@ suspend fun analyzeOpusBitstream(
     file: File,
     root: BoxNode,
     onProgress: (Int, Int?) -> Unit,
-): OpusBitstreamReport = withContext(Dispatchers.IO) {
+): CodecBitstreamReport = withContext(Dispatchers.IO) {
     val limitations = mutableListOf<String>()
     val findings = mutableListOf<ConformanceFinding>()
     val totals = mutableMapOf<String, Long>()
@@ -34,9 +34,8 @@ suspend fun analyzeOpusBitstream(
     val trackIndex = audioTracks.indexOf(pair?.first).takeIf { it >= 0 }?.plus(1) ?: 1
     val otherAudioTracks = (audioTracks.size - 1).coerceAtLeast(0)
 
-    fun report(complete: Boolean, checked: Int = 0, indexed: Int = 0): OpusBitstreamReport =
-        OpusBitstreamReport(
-            findings = findings,
+    fun report(complete: Boolean, checked: Int = 0, indexed: Int = 0): CodecBitstreamReport =
+        CodecBitstreamReport(BitstreamCodec.OPUS, findings = findings,
             checkedSamples = checked,
             indexedSamples = indexed,
             totalOccurrences = totals,

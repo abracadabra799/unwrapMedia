@@ -46,14 +46,14 @@ class Vp9ContentCheckIntegrationTest {
         assertEquals(CheckAvailability.UNSUPPORTED, vp9CodecAvailability(MediaType.VIDEO, parseFile(bad)))
         val truncated = fixture("truncated-frame.mp4")
         val report = analyzeVp9Bitstream(truncated, parseFile(truncated)) { _, _ -> }
-        val findings = vp9BitstreamFindings(report)
+        val findings = codecBitstreamFindings(report)
         assertTrue(findings.any { it.id == "vp9.frame.framing" && it.offset == 44L })
         assertFalse(report.complete)
         val json = contentCheckWorkflowJson(
             ContentCheckSnapshot(
                 null, null, false, null, null, null,
                 mediaType = MediaType.VIDEO,
-                vp9Bitstream = report,
+                codecBitstreams = listOf(report),
                 stages = mapOf(CheckStage.CODEC to CheckStageState(CheckRunStatus.PARTIAL)),
             ),
             truncated,
@@ -116,7 +116,7 @@ class Vp9ContentCheckIntegrationTest {
             ContentCheckSnapshot(
                 null, null, false, null, null, null,
                 mediaType = MediaType.VIDEO,
-                vp9Bitstream = report,
+                codecBitstreams = listOf(report),
             ),
             file,
         ).render()

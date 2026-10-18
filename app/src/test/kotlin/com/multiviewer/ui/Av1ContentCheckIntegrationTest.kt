@@ -46,14 +46,14 @@ class Av1ContentCheckIntegrationTest {
         assertEquals(CheckAvailability.UNSUPPORTED, av1CodecAvailability(MediaType.VIDEO, parseFile(bad)))
         val truncated = fixture("truncated-obu.mp4")
         val report = analyzeAv1Bitstream(truncated, parseFile(truncated)) { _, _ -> }
-        val findings = av1BitstreamFindings(report)
+        val findings = codecBitstreamFindings(report)
         assertTrue(findings.any { it.id == "av1.obu.framing" && it.offset == 61L })
         assertFalse(report.complete)
         val json = contentCheckWorkflowJson(
             ContentCheckSnapshot(
                 null, null, false, null, null, null,
                 mediaType = MediaType.VIDEO,
-                av1Bitstream = report,
+                codecBitstreams = listOf(report),
                 stages = mapOf(CheckStage.CODEC to CheckStageState(CheckRunStatus.PARTIAL)),
             ),
             truncated,
@@ -116,7 +116,7 @@ class Av1ContentCheckIntegrationTest {
             ContentCheckSnapshot(
                 null, null, false, null, null, null,
                 mediaType = MediaType.VIDEO,
-                av1Bitstream = report,
+                codecBitstreams = listOf(report),
             ),
             file,
         ).render()
