@@ -1,7 +1,7 @@
 {
-  "version": "1.29.0",
-  "releaseDate": "2026-10-16",
-  "releaseNotes": "• 동영상 인스펙터: GOP 막대 및 필름스트립 썸네일 클릭 시 좌측 Live Player 동기화 및 프레임 탐색\n• 동영상 필름스트립: 상단 인터랙션 가이드 및 정밀 검사 팝업 버튼 추가, 더블클릭으로 팝업 오픈\n• 재생 성능: Live Player 일시정지 시에만 GOP 프레임을 동기화하여 재생 중 지연 방지",
+  "version": "1.30.0",
+  "releaseDate": "2026-10-19",
+  "releaseNotes": "• AI 대화: Claude·Codex·Antigravity로 화면 이미지 첨부 (첫 전송 시 이미지 입력 자동 확인)\n• AI 대화: 비디오 선택 프레임을 원본 해상도로 정확히 디코딩해 첨부\n• AI 대화: 분석 창 결과(HDR/SEI·HRD·센서·C2PA·SEF·게인맵·공간 비디오·GOP·오디오 파형·Quality Compare)를 리포트로 요청, 프레임/HDR 분석 자동 실행\n• MPEG-TS 영상에서 프레임 팝업·비교 창이 선택한 프레임을 정확히 표시하도록 수정\n• 안정성: 창·탭을 닫으면 관련 ffmpeg/ffprobe·AI CLI 작업 종료, 긴 프레임 분석이 파일 열기를 막지 않도록 개선\n• 메모리: 닫은 탭·팝업·다이어그램·Hex 뷰가 붙잡던 대용량 데이터 해제, AI 대화 기록 상한, 남은 임시 폴더 자동 정리\n• 버그 수정: 모션포토 JSON 내보내기, 읽을 수 없는 폴더 표시, 모션포토 길이 계산, C2PA 판정",
   "windowsUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest",
   "macUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest"
 }
