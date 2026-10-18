@@ -47,6 +47,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.rememberWindowState
+import com.multiviewer.cli.JsonValue
+import com.multiviewer.cli.render
 import com.multiviewer.parser.ByteReader
 import com.multiviewer.parser.extractEmbeddedVideo
 import com.multiviewer.parser.findEmbeddedVideo
@@ -664,35 +666,41 @@ private fun InspectionAccordionCard(
 }
 
 fun buildMotionPhotoInspectionJson(file: File, report: MotionPhotoInspectionReport): String {
-    val sb = StringBuilder()
-    sb.append("{\n")
-    sb.append("  \"file\": \"").append(file.name).append("\",\n")
-    sb.append("  \"format\": \"").append(report.formatLabel).append("\",\n")
-    sb.append("  \"overallStatus\": \"").append(report.overallStatus.name).append("\",\n")
-    sb.append("  \"sections\": [\n")
-    report.allSections.forEachIndexed { sIdx, sec ->
-        sb.append("    {\n")
-        sb.append("      \"id\": \"").append(sec.id).append("\",\n")
-        sb.append("      \"title\": \"").append(sec.titleEn).append("\",\n")
-        sb.append("      \"status\": \"").append(sec.status.name).append("\",\n")
-        sb.append("      \"items\": [\n")
-        sec.items.forEachIndexed { iIdx, item ->
-            sb.append("        {\n")
-            sb.append("          \"id\": \"").append(item.id).append("\",\n")
-            sb.append("          \"status\": \"").append(item.status.name).append("\",\n")
-            sb.append("          \"label\": \"").append(item.label.replace("\"", "\\\"")).append("\",\n")
-            sb.append("          \"expected\": ").append(item.expected?.let { "\"${it.replace("\"", "\\\"")}\"" } ?: "null").append(",\n")
-            sb.append("          \"actual\": ").append(item.actual?.let { "\"${it.replace("\"", "\\\"")}\"" } ?: "null").append(",\n")
-            sb.append("          \"detail\": \"").append(item.detail.replace("\"", "\\\"")).append("\",\n")
-            sb.append("          \"remediation\": ").append(item.remediation?.let { "\"${it.replace("\"", "\\\"")}\"" } ?: "null").append(",\n")
-            sb.append("          \"offset\": ").append(item.offset ?: "null").append(",\n")
-            sb.append("          \"length\": ").append(item.length ?: "null").append("\n")
-            sb.append("        }").append(if (iIdx < sec.items.size - 1) "," else "").append("\n")
-        }
-        sb.append("      ]\n")
-        sb.append("    }").append(if (sIdx < report.allSections.size - 1) "," else "").append("\n")
-    }
-    sb.append("  ]\n")
-    sb.append("}")
-    return sb.toString()
+    fun str(v: String?): JsonValue = v?.let { JsonValue.JString(it) } ?: JsonValue.JNull
+    fun num(v: Long?): JsonValue = v?.let { JsonValue.JNumber(it) } ?: JsonValue.JNull
+    return JsonValue.JObject(
+        listOf(
+            "file" to str(file.name),
+            "format" to str(report.formatLabel),
+            "overallStatus" to str(report.overallStatus.name),
+            "sections" to JsonValue.JArray(
+                report.allSections.map { sec ->
+                    JsonValue.JObject(
+                        listOf(
+                            "id" to str(sec.id),
+                            "title" to str(sec.titleEn),
+                            "status" to str(sec.status.name),
+                            "items" to JsonValue.JArray(
+                                sec.items.map { item ->
+                                    JsonValue.JObject(
+                                        listOf(
+                                            "id" to str(item.id),
+                                            "status" to str(item.status.name),
+                                            "label" to str(item.label),
+                                            "expected" to str(item.expected),
+                                            "actual" to str(item.actual),
+                                            "detail" to str(item.detail),
+                                            "remediation" to str(item.remediation),
+                                            "offset" to num(item.offset),
+                                            "length" to num(item.length),
+                                        ),
+                                    )
+                                },
+                            ),
+                        ),
+                    )
+                },
+            ),
+        ),
+    ).render()
 }

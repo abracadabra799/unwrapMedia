@@ -1,7 +1,7 @@
 package com.multiviewer.cli
 
 // A minimal, BoxNode-agnostic JSON value tree and pretty-printer -- this project has no JSON
-// library dependency, and this shape (no polymorphism beyond these four cases, no maps) doesn't
+// library dependency, and this shape (no polymorphism beyond these few cases, no maps) doesn't
 // need one. One recursive `render` handles indentation uniformly for both JObject and JArray,
 // rather than hand-rolling padding arithmetic separately at each call site.
 sealed class JsonValue {
@@ -10,6 +10,7 @@ sealed class JsonValue {
     data class JString(val value: String) : JsonValue()
     data class JNumber(val value: Long) : JsonValue()
     data class JBoolean(val value: Boolean) : JsonValue()
+    data object JNull : JsonValue()
 }
 
 fun JsonValue.render(indent: Int = 0): String {
@@ -31,6 +32,7 @@ fun JsonValue.render(indent: Int = 0): String {
         is JsonValue.JString -> jsonString(value)
         is JsonValue.JNumber -> value.toString()
         is JsonValue.JBoolean -> value.toString()
+        JsonValue.JNull -> "null"
     }
 }
 
@@ -41,6 +43,7 @@ fun JsonValue.renderCompact(): String = when (this) {
     is JsonValue.JString -> jsonString(value)
     is JsonValue.JNumber -> value.toString()
     is JsonValue.JBoolean -> value.toString()
+    JsonValue.JNull -> "null"
 }
 
 private fun jsonString(s: String): String {

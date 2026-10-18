@@ -9,7 +9,7 @@ sealed interface AiParsedOutput {
 }
 
 /**
- * Minimal JSON reader for CLI output (no JSON dependency in this project; `JsonValue` has no null or
+ * Minimal JSON reader for CLI output (no JSON dependency in this project; `JsonValue` is write-only and has no
  * fractional numbers). Returns Map<String, Any?> / List<Any?> / String / Double / Boolean / null, and null
  * for any syntax error, so a top-level JSON `null` and bad input look the same -- callers expect objects.
  */
