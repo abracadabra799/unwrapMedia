@@ -83,11 +83,6 @@ data class PlaybackStart(val seconds: Double, val handledSeekTick: Int)
 fun initialPlaybackStart(initialSeekSeconds: Double?, seekRequestTick: Int): PlaybackStart =
     PlaybackStart(initialSeekSeconds?.coerceAtLeast(0.0) ?: 0.0, if (initialSeekSeconds != null) seekRequestTick else 0)
 
-fun formatMmSs(seconds: Double): String {
-    val total = seconds.toLong()
-    return "%d:%02d".format(total / 60, total % 60)
-}
-
 fun formatMmSsMs(seconds: Double): String {
     val totalMillis = (seconds * 1000).toLong()
     val totalSeconds = totalMillis / 1000

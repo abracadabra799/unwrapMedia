@@ -84,14 +84,6 @@ import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardOpenOption
 
-@Composable
-private fun integrityStatusColor(status: IntegrityStatus): Color = when (status) {
-    IntegrityStatus.NOT_RUN -> AppColors.TextMuted
-    IntegrityStatus.CLEAN -> AppColors.NeonGreen
-    IntegrityStatus.ISSUES -> AppColors.NeonYellow
-    IntegrityStatus.FAILED -> AppColors.NeonRed
-}
-
 /**
  * Analysis → 컨텐츠 검사 / Content Check: one window per file that runs every applicable check
  * for its media type only after an explicit run action.

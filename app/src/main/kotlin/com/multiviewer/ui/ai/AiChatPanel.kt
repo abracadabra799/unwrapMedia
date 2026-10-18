@@ -125,12 +125,6 @@ suspend fun discoverAiProviders(): Map<AiProviderId, AiProviderCapabilities> = w
     }
 }
 
-private fun stateLabel(state: CapabilityState, ko: Boolean) = when (state) {
-    CapabilityState.VERIFIED -> if (ko) "확인됨" else "verified"
-    CapabilityState.UNSUPPORTED -> if (ko) "불가" else "unavailable"
-    CapabilityState.UNKNOWN -> if (ko) "미확인" else "unverified"
-}
-
 /**
  * The collapsible right-side conversation for [tab]. Everything shown (transcript, run state, file warning)
  * belongs to that tab; the provider choice and capability probe results are app-wide.

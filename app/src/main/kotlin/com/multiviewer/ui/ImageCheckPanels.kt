@@ -33,14 +33,6 @@ internal fun checkStatusColor(status: CheckStatus): Color = when (status) {
     CheckStatus.SKIP -> AppColors.TextMuted
 }
 
-@Composable
-internal fun decodeStatusColor(status: ImageDecodeStatus): Color = when (status) {
-    ImageDecodeStatus.NOT_RUN -> AppColors.TextMuted
-    ImageDecodeStatus.CLEAN -> AppColors.NeonGreen
-    ImageDecodeStatus.ISSUES -> AppColors.NeonYellow
-    ImageDecodeStatus.FAILED -> AppColors.NeonRed
-}
-
 internal fun checkStatusLabel(status: CheckStatus, ko: Boolean): String = when (status) {
     CheckStatus.PASS -> if (ko) "정상" else "Pass"
     CheckStatus.INFO -> if (ko) "참고" else "Info"

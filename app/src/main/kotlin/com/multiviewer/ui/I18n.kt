@@ -25,7 +25,6 @@ object I18n {
     // Menu: File
     fun menuFile(lang: AppLanguage) = if (lang == AppLanguage.KO) "파일" else "File"
     fun menuOpen(lang: AppLanguage) = if (lang == AppLanguage.KO) "열기" else "Open"
-    fun menuOpenFile(lang: AppLanguage) = if (lang == AppLanguage.KO) "파일 열기" else "Open File"
     fun menuClose(lang: AppLanguage) = if (lang == AppLanguage.KO) "닫기" else "Close"
 
     // Menu: Extract
@@ -46,10 +45,8 @@ object I18n {
     fun menuMotionPhoto(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토" else "Motion Photo"
     fun menuCreateMotionPhotoV2(lang: AppLanguage) = if (lang == AppLanguage.KO) "v2.0 만들기 — 사진 + 동영상 (권장)" else "Create v2.0 — Photo + Video (Recommended)"
     fun menuCreateMotionPhotoV1(lang: AppLanguage) = if (lang == AppLanguage.KO) "v1.0 만들기 — MicroVideo" else "Create v1.0 — MicroVideo"
-    fun menuCreateMotionPhoto(lang: AppLanguage) = menuCreateMotionPhotoV2(lang)
     fun menuExtractMotionVideo(lang: AppLanguage) = if (lang == AppLanguage.KO) "동영상 추출 (.mp4/.mov)" else "Extract Video (.mp4/.mov)"
     fun menuExtractPreviewVideo(lang: AppLanguage) = if (lang == AppLanguage.KO) "자동재생 클립 추출 (SEF AutoPlay)" else "Extract Auto-play Clip (SEF AutoPlay)"
-    fun menuMotionPhotoCheck(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 검사" else "Motion Photo Check"
     fun menuMotionFrameDropAnalysis(lang: AppLanguage) = if (lang == AppLanguage.KO) "동영상 프레임 간격 분석" else "Video Frame Interval Analysis"
 
     // Menu: Gain Map
@@ -79,19 +76,16 @@ object I18n {
     fun descCannotDecodeGainmap(lang: AppLanguage, format: String) = if (lang == AppLanguage.KO) "게인맵 이미지 데이터($format)가 존재하지만, 지원하지 않는 형식이거나 손상되어 디코딩하지 못했습니다." else "Gain map image data ($format) exists, but could not be decoded due to unsupported format or corruption."
 
     // Menu: Bitstream
-    fun menuBitstream(lang: AppLanguage) = if (lang == AppLanguage.KO) "비트스트림 추출" else "Extract Bitstream"
     fun menuExtractVideoTrack(lang: AppLanguage) = if (lang == AppLanguage.KO) "비디오 트랙 추출 (.mp4/.mov)" else "Extract Video Track (.mp4/.mov)"
     fun menuExtractAudioTrack(lang: AppLanguage) = if (lang == AppLanguage.KO) "오디오 트랙 추출 (.m4a)" else "Extract Audio Track (.m4a)"
 
     // Menu: Frame Interval
-    fun menuFrameInterval(lang: AppLanguage) = if (lang == AppLanguage.KO) "프레임 간격 분석" else "Frame Intervals"
     fun menuViewFrameIntervals(lang: AppLanguage) = if (lang == AppLanguage.KO) "프레임 간격 분석" else "Frame Interval Analysis"
     fun menuC2pa(lang: AppLanguage) = if (lang == AppLanguage.KO) "C2PA 콘텐츠 자격 증명" else "C2PA Content Credentials"
     fun menuHdrSeiAnalysis(lang: AppLanguage) = if (lang == AppLanguage.KO) "HDR/SEI 메타데이터 분석" else "HDR/SEI Metadata Analysis"
 
     // Menu: Tools / Compare
     fun menuTools(lang: AppLanguage) = if (lang == AppLanguage.KO) "도구" else "Tools"
-    fun menuCompareAndAnalysis(lang: AppLanguage) = menuTools(lang)
     // Named to match the window it opens (see ImageCompareWindow's own title) -- the menu used to
     // say "두 파일 상세 비교 …" while the window called itself "미디어 비교 분석기", so the thing you
     // clicked and the thing that appeared had different names.
@@ -99,12 +93,6 @@ object I18n {
     fun menuQualityBenchmark(lang: AppLanguage) = if (lang == AppLanguage.KO) "화질 측정 (PSNR/SSIM/VMAF)" else "Quality Metrics (PSNR/SSIM/VMAF)"
 
     // Backward compatibility aliases
-    fun menuMediaCompare(lang: AppLanguage) = menuCompareAndAnalysis(lang)
-    fun menuOpenMediaCompare(lang: AppLanguage) = menuCompareFiles(lang)
-    fun menuImageCompare(lang: AppLanguage) = menuCompareAndAnalysis(lang)
-    fun menuOpenImageCompare(lang: AppLanguage) = menuCompareFiles(lang)
-    fun menuQualityCompare(lang: AppLanguage) = menuCompareAndAnalysis(lang)
-    fun menuOpenQualityCompare(lang: AppLanguage) = menuQualityBenchmark(lang)
 
     // Menu: View
     fun menuView(lang: AppLanguage) = if (lang == AppLanguage.KO) "보기" else "View"
@@ -117,16 +105,11 @@ object I18n {
     fun menuEnglish(lang: AppLanguage) = "English"
 
     // Feedback & Toast messages
-    fun toastExtractingVideo(lang: AppLanguage) = if (lang == AppLanguage.KO) "비디오 트랙 추출 중..." else "Extracting video track..."
-    fun toastExtractingAudio(lang: AppLanguage) = if (lang == AppLanguage.KO) "오디오 트랙 추출 중..." else "Extracting audio track..."
     fun toastCreatingMotionPhoto(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 생성 중..." else "Creating Motion Photo..."
     fun toastMotionPhotoCreated(lang: AppLanguage, filename: String) = if (lang == AppLanguage.KO) "모션포토 생성 완료: $filename" else "Motion Photo created: $filename"
     fun toastMotionPhotoFailed(lang: AppLanguage, msg: String) = if (lang == AppLanguage.KO) "모션포토 생성 실패: $msg" else "Failed to create Motion Photo: $msg"
-    fun toastSaved(lang: AppLanguage, filename: String) = if (lang == AppLanguage.KO) "저장됨: $filename" else "Saved: $filename"
-    fun toastExtractionFailed(lang: AppLanguage) = if (lang == AppLanguage.KO) "트랙 추출 실패" else "Track extraction failed"
     fun toastGainmapExtracted(lang: AppLanguage, filename: String) = if (lang == AppLanguage.KO) "게인맵 이미지가 저장되었습니다: $filename" else "Gain map image saved: $filename"
     fun toastGainmapExtractFailed(lang: AppLanguage, msg: String) = if (lang == AppLanguage.KO) "게인맵 이미지 저장 실패: $msg" else "Failed to save gain map image: $msg"
-    fun toastGainmapXmpCopied(lang: AppLanguage) = if (lang == AppLanguage.KO) "게인맵 XMP 메타데이터가 클립보드에 복사되었습니다." else "Gain map XMP copied to clipboard."
 
     // Motion Photo Validation Errors
     fun dialogTitleMotionPhotoCannotCreate(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 생성 불가" else "Cannot Create Motion Photo"
@@ -143,11 +126,9 @@ object I18n {
 
     const val APP_VERSION = "1.29.0"
     fun menuHelp(lang: AppLanguage) = if (lang == AppLanguage.KO) "도움말" else "Help"
-    fun menuCheckForUpdates(lang: AppLanguage) = if (lang == AppLanguage.KO) "업데이트 확인..." else "Check for Updates..."
     fun btnCheckForUpdates(lang: AppLanguage) = if (lang == AppLanguage.KO) "업데이트 확인" else "Check for Updates"
     fun menuOnlineRepo(lang: AppLanguage) = if (lang == AppLanguage.KO) "GitHub 저장소 및 릴리즈" else "GitHub Repository & Releases"
     fun menuAbout(lang: AppLanguage) = if (lang == AppLanguage.KO) "unwrapMedia 정보" else "About unwrapMedia"
-    fun menuVersionInfo(lang: AppLanguage) = if (lang == AppLanguage.KO) "버전: v$APP_VERSION" else "Version: v$APP_VERSION"
     fun titleAboutWindow(lang: AppLanguage) = if (lang == AppLanguage.KO) "unwrapMedia 정보" else "About unwrapMedia"
     fun titleUpdateWindow(lang: AppLanguage) = if (lang == AppLanguage.KO) "소프트웨어 업데이트" else "Software Update"
     fun updateChecking(lang: AppLanguage) = if (lang == AppLanguage.KO) "최신 버전을 확인하는 중입니다..." else "Checking for updates..."
