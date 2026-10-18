@@ -64,4 +64,15 @@ class C2paSignatureVerifierTest {
             assertEquals("ES256", report.algorithm)
         }
     }
+
+    @Test
+    fun `verdict is not VALID when any assertion hash mismatches`() {
+        val ok = AssertionIntegrityResult(true, 2, 2, emptyList())
+        val bad = AssertionIntegrityResult(false, 1, 2, listOf("self#jumbf=c2pa.assertions/c2pa.hash.data"))
+        assertEquals(VerificationState.VALID, verdictFor(sigValid = true, chainValid = true, isTest = false, assertions = ok))
+        assertEquals(VerificationState.INVALID, verdictFor(sigValid = true, chainValid = true, isTest = false, assertions = bad))
+        assertEquals(VerificationState.INVALID, verdictFor(sigValid = true, chainValid = true, isTest = true, assertions = bad))
+        assertEquals(VerificationState.UNTRUSTED, verdictFor(sigValid = true, chainValid = true, isTest = true, assertions = ok))
+        assertEquals(VerificationState.INVALID, verdictFor(sigValid = false, chainValid = true, isTest = false, assertions = ok))
+    }
 }

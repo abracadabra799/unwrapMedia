@@ -221,6 +221,20 @@ fun verifyAssertionHashes(manifest: C2paManifest): AssertionIntegrityResult {
     )
 }
 
+/** Overall verdict; a mismatching assertion hash means tampering, so it can never be VALID/UNTRUSTED. */
+internal fun verdictFor(
+    sigValid: Boolean,
+    chainValid: Boolean,
+    isTest: Boolean,
+    assertions: AssertionIntegrityResult,
+): VerificationState = when {
+    !sigValid -> VerificationState.INVALID
+    !chainValid -> VerificationState.INVALID
+    assertions.mismatchedUrls.isNotEmpty() || assertions.matchedCount < assertions.totalCount -> VerificationState.INVALID
+    isTest -> VerificationState.UNTRUSTED
+    else -> VerificationState.VALID
+}
+
 fun verifyC2paManifest(manifest: C2paManifest): C2paVerificationReport {
     val coseBytes = manifest.signatureBytes
     val claimBytes = manifest.claimBytes
@@ -268,12 +282,7 @@ fun verifyC2paManifest(manifest: C2paManifest): C2paVerificationReport {
     sigResult.error?.let { errors += it }
     chainResult.error?.let { errors += it }
 
-    val state = when {
-        !sigResult.valid -> VerificationState.INVALID
-        !chainResult.valid -> VerificationState.INVALID
-        chainResult.isTestCredential -> VerificationState.UNTRUSTED
-        else -> VerificationState.VALID
-    }
+    val state = verdictFor(sigResult.valid, chainResult.valid, chainResult.isTestCredential, assertionResult)
 
     val summary = when (state) {
         VerificationState.VALID -> "서명 검증 완료 (공식 신뢰 인증서)"
