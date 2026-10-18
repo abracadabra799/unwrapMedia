@@ -23,6 +23,25 @@ class ProcessManagerTest {
     }
 
 
+    // A deadline kill must be distinguishable from a normal end or a cancel, so long scans can say
+    // "timed out" instead of presenting a partial result as if it were complete.
+    @Test
+    fun `watch reports whether its deadline killed the process`() {
+        val slow = ProcessManager.register(ProcessBuilder("sleep", "30").start())
+        val deadlineWatch = ProcessManager.watchCancellation(slow, timeoutMillis = 100) { false }
+        val cancelled = ProcessManager.register(ProcessBuilder("sleep", "30").start())
+        val cancelWatch = ProcessManager.watchCancellation(cancelled, timeoutMillis = 60_000) { true }
+        try {
+            assertTrue(slow.waitFor(3, TimeUnit.SECONDS))
+            assertTrue(cancelled.waitFor(3, TimeUnit.SECONDS))
+            assertTrue(deadlineWatch.timedOut, "deadline kill must be reported as a timeout")
+            assertFalse(cancelWatch.timedOut, "a cancel is not a timeout")
+        } finally {
+            deadlineWatch.close(); cancelWatch.close()
+            ProcessManager.terminate(slow); ProcessManager.terminate(cancelled)
+        }
+    }
+
     @Test
     fun `terminate stops a child even when its parent exits immediately`() {
         val parent = ProcessBuilder("sh", "-c", "sleep 30 & echo ${'$'}!; wait").start()

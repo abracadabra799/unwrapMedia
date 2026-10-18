@@ -118,18 +118,37 @@ object ProcessManager {
         runCatching { if (process.isAlive) process.destroyForcibly() }
     }
 
+    /** The deadline [watchCancellation] applies when the caller gives none. */
+    val DEFAULT_WATCH_TIMEOUT_MILLIS: Long = TimeUnit.MINUTES.toMillis(30)
+
+    /** Handle returned by [watchCancellation]; [timedOut] tells a deadline kill apart from a cancel. */
+    class Watch internal constructor() : AutoCloseable {
+        /** True once the deadline (not a cancel) killed the process: whatever was read is partial. */
+        @Volatile var timedOut: Boolean = false
+            internal set
+        @Volatile internal var task: java.util.concurrent.ScheduledFuture<*>? = null
+        override fun close() { task?.cancel(false) }
+    }
+
     /** Cancellation must not depend on a blocked stdout read producing another line. */
-    fun watchCancellation(process: Process, cancelled: () -> Boolean): AutoCloseable =
-        watchCancellation(process, TimeUnit.MINUTES.toMillis(30), cancelled)
+    fun watchCancellation(process: Process, cancelled: () -> Boolean): Watch =
+        watchCancellation(process, DEFAULT_WATCH_TIMEOUT_MILLIS, cancelled)
 
     /** Also bounds a silent stdout read; waiting after the read cannot enforce this deadline. */
-    fun watchCancellation(process: Process, timeoutMillis: Long, cancelled: () -> Boolean): AutoCloseable {
+    fun watchCancellation(process: Process, timeoutMillis: Long, cancelled: () -> Boolean): Watch {
         require(timeoutMillis > 0) { "timeoutMillis must be positive" }
         val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
-        val watch = cleanup.scheduleWithFixedDelay({
-            if (System.nanoTime() >= deadline || runCatching(cancelled).getOrDefault(true)) terminate(process)
+        val watch = Watch()
+        watch.task = cleanup.scheduleWithFixedDelay({
+            if (runCatching(cancelled).getOrDefault(true)) {
+                terminate(process)
+            } else if (System.nanoTime() >= deadline) {
+                // Set before the kill, so a reader that sees the process end also sees why.
+                if (process.isAlive) watch.timedOut = true
+                terminate(process)
+            }
         }, 0, 50, TimeUnit.MILLISECONDS)
-        return AutoCloseable { watch.cancel(false) }
+        return watch
     }
 
     /**

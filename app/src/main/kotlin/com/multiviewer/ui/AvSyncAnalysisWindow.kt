@@ -43,6 +43,7 @@ fun AvSyncAnalysisWindow(
     ) {
         var report by remember(tab.file) { mutableStateOf<AvSyncReport?>(null) }
         var isLoading by remember(tab.file) { mutableStateOf(true) }
+        var timedOut by remember(tab.file) { mutableStateOf(false) }
         var selectedSyncPoint by remember { mutableStateOf<SyncPoint?>(null) }
 
         LaunchedEffect(tab.file) {
@@ -51,7 +52,9 @@ fun AvSyncAnalysisWindow(
                 isLoading = false
             } else {
                 isLoading = true
-                val analyzed = AvSyncAnalyzer.analyze(tab.file)
+                val analysis = AvSyncAnalyzer.analyzeWithStatus(tab.file)
+                val analyzed = analysis.report
+                timedOut = analysis.timedOut
                 report = analyzed
                 tab.avSyncReport = analyzed
                 isLoading = false
@@ -92,7 +95,8 @@ fun AvSyncAnalysisWindow(
                             style = AppTypography.headlineSmall.copy(color = AppColors.TextPrimary, fontWeight = FontWeight.Bold)
                         )
                         Text(
-                            "이 파일에 비디오 또는 오디오 트랙이 둘 다 존재하지 않거나, 패킷 타임스탬프를 읽을 수 없습니다.",
+                            if (timedOut) "패킷 분석이 시간 제한(30분)을 넘어 중단되었습니다. 파일이 너무 길어 분석을 완료하지 못했습니다. / Packet scan timed out after 30 min; the file is too long to analyze."
+                            else "이 파일에 비디오 또는 오디오 트랙이 둘 다 존재하지 않거나, 패킷 타임스탬프를 읽을 수 없습니다.",
                             style = AppTypography.bodyMedium.copy(color = AppColors.TextSecondary)
                         )
                     }

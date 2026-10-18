@@ -21,6 +21,40 @@ class AvSyncAndCorruptionScannerTest {
     }
 
 
+    // An unfed FIFO blocks ffprobe forever, standing in for a multi-hour file the scan deadline cuts short.
+    private fun blockedInput(): File {
+        val fifo = File.createTempFile("scan-deadline-", ".mp4")
+        fifo.delete()
+        ProcessBuilder("mkfifo", fifo.absolutePath).start().waitFor()
+        fifo.deleteOnExit()
+        return fifo
+    }
+
+    @Test
+    fun `a bitstream scan cut off by its deadline says it timed out`() = runBlocking {
+        val fifo = blockedInput()
+        try {
+            val report = assertNotNull(BitstreamCorruptionScanner.scan(fifo, scanTimeoutMillis = 300))
+            assertTrue(report.timedOut, "a deadline-killed scan must be flagged as timed out")
+            assertEquals(CorruptionSeverity.WARNING, report.overallStatus)
+            assertTrue(report.summaryRecommendation.contains("timed out"), report.summaryRecommendation)
+        } finally {
+            fifo.delete()
+        }
+    }
+
+    @Test
+    fun `an av sync analysis cut off by its deadline says it timed out`() = runBlocking {
+        val fifo = blockedInput()
+        try {
+            val result = AvSyncAnalyzer.analyzeWithStatus(fifo, timeoutMillis = 300)
+            assertTrue(result.timedOut, "a deadline-killed analysis must be flagged as timed out")
+            assertEquals(null, result.report)
+        } finally {
+            fifo.delete()
+        }
+    }
+
     @Test
     fun testBitstreamDecoderErrorExplanation() {
         val errLine1 = "[h264 @ 0x14700f200] error while decoding MB 39 0, bytestream -16"

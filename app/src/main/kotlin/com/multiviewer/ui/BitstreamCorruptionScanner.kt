@@ -77,6 +77,8 @@ data class BitstreamCorruptionReport(
     val hasReferenceLoss: Boolean,
     val overallStatus: CorruptionSeverity,
     val summaryRecommendation: String,
+    /** The scan hit its deadline and was stopped: the result covers only part of the file. */
+    val timedOut: Boolean = false,
 )
 
 object BitstreamCorruptionScanner {
@@ -106,10 +108,15 @@ object BitstreamCorruptionScanner {
         "mmco: ref not found"
     )
 
-    suspend fun scan(file: File, knownFrames: List<FrameInfo>? = null): BitstreamCorruptionReport? = withContext(Dispatchers.IO) {
+    suspend fun scan(
+        file: File,
+        knownFrames: List<FrameInfo>? = null,
+        scanTimeoutMillis: Long = ProcessManager.DEFAULT_WATCH_TIMEOUT_MILLIS,
+    ): BitstreamCorruptionReport? = withContext(Dispatchers.IO) {
         try {
             // A killed (cancelled) scan read only part of the file -- never turn that into a report.
-            val (frames, rawErrors, scanComplete) = probeFramesAndErrors(file, knownFrames) { !isActive }
+            val (frames, rawErrors, scanComplete, timedOut) =
+                probeFramesAndErrors(file, knownFrames, scanTimeoutMillis) { !isActive }
             ensureActive()
             val corruptEntries = mutableListOf<CorruptFrameEntry>()
 
@@ -181,9 +188,18 @@ object BitstreamCorruptionScanner {
                 else -> CorruptionSeverity.PASS
             }
 
+            val timeoutMinutes = scanTimeoutMillis / 60_000.0
+            val timeoutNotice = String.format(
+                Locale.US,
+                "검사 시간 제한(%.1f분)을 넘어 중단되었습니다. 결과는 파일의 앞부분만 반영합니다. / Scan timed out after %.1f min; results cover only the start of the file.",
+                timeoutMinutes, timeoutMinutes,
+            )
             val recommendation = when {
+                criticalCount > 0 && timedOut ->
+                    "손상된 비트스트림 NAL 오프셋이 발견되었습니다. 프레임 바이트를 확인하거나 참조 무결성을 위해 해당 GOP 구간을 재인코딩(Re-encode)하거나 복구 필터를 적용하세요.\n$timeoutNotice"
                 criticalCount > 0 ->
                     "손상된 비트스트림 NAL 오프셋이 발견되었습니다. 프레임 바이트를 확인하거나 참조 무결성을 위해 해당 GOP 구간을 재인코딩(Re-encode)하거나 복구 필터를 적용하세요."
+                timedOut -> timeoutNotice
                 !hasCoverage ->
                     "프레임 검사가 완료되지 않았습니다. 입력과 ffprobe 실행을 확인하세요. / Frame scan incomplete. Check the input and ffprobe process."
                 corruptEntries.isNotEmpty() ->
@@ -200,7 +216,8 @@ object BitstreamCorruptionScanner {
                 entries = corruptEntries,
                 hasReferenceLoss = hasRefLoss,
                 overallStatus = overallStatus,
-                summaryRecommendation = recommendation
+                summaryRecommendation = recommendation,
+                timedOut = timedOut,
             )
         } catch (e: CancellationException) {
             throw e
@@ -217,16 +234,24 @@ object BitstreamCorruptionScanner {
         val pos: Long?
     )
 
+    private data class ProbeResult(
+        val frames: List<FrameInfo>,
+        val errors: List<RawDecoderError>,
+        val complete: Boolean,
+        val timedOut: Boolean,
+    )
+
     private fun probeFramesAndErrors(
         file: File,
         knownFrames: List<FrameInfo>? = null,
+        timeoutMillis: Long = ProcessManager.DEFAULT_WATCH_TIMEOUT_MILLIS,
         isCancelled: () -> Boolean = { false },
-    ): Triple<List<FrameInfo>, List<RawDecoderError>, Boolean> {
+    ): ProbeResult {
         val frames = mutableListOf<FrameInfo>()
         val errors = mutableListOf<RawDecoderError>()
         var scanComplete = false
         var process: Process? = null
-        var cancellationWatch: AutoCloseable? = null
+        var cancellationWatch: ProcessManager.Watch? = null
         try {
             // Run ffprobe with -v warning, showing frames, so stderr errors and stdout frames are interleaved.
             process = ProcessManager.register(
@@ -237,7 +262,7 @@ object BitstreamCorruptionScanner {
                     file.absolutePath
                 ).redirectErrorStream(true).also { FfmpegLocator.configureEnvironment(it) }.start()
             )
-            cancellationWatch = ProcessManager.watchCancellation(process, isCancelled)
+            cancellationWatch = ProcessManager.watchCancellation(process, timeoutMillis, isCancelled)
 
             val values = mutableMapOf<String, String>()
             var pendingError: String? = null
@@ -316,7 +341,8 @@ object BitstreamCorruptionScanner {
 
         // If knownFrames were already analyzed, keep the caller's frames but keep matched errors
         val finalFrames = if (knownFrames != null && knownFrames.isNotEmpty()) knownFrames else frames
-        return Triple(finalFrames, errors, scanComplete)
+        val timedOut = cancellationWatch?.timedOut == true
+        return ProbeResult(finalFrames, errors, scanComplete && !timedOut, timedOut)
     }
 
     /**

@@ -251,13 +251,27 @@ internal fun computeSyncPoints(
     return points
 }
 
+/** [report] is null when no analysis was possible; [timedOut] says it was because the packet scan hit its deadline. */
+data class AvSyncAnalysis(val report: AvSyncReport?, val timedOut: Boolean)
+
 object AvSyncAnalyzer {
 
-    suspend fun analyze(file: File): AvSyncReport? = withContext(Dispatchers.IO) {
+    suspend fun analyze(file: File): AvSyncReport? = analyzeWithStatus(file).report
+
+    suspend fun analyzeWithStatus(
+        file: File,
+        timeoutMillis: Long = ProcessManager.DEFAULT_WATCH_TIMEOUT_MILLIS,
+    ): AvSyncAnalysis {
+        var timedOut = false
+        val report = analyzeInternal(file, timeoutMillis) { timedOut = true }
+        return AvSyncAnalysis(report, timedOut)
+    }
+
+    private suspend fun analyzeInternal(file: File, timeoutMillis: Long, onTimeout: () -> Unit): AvSyncReport? = withContext(Dispatchers.IO) {
         try {
             // Closing the window cancels this coroutine, but nothing interrupts a blocking stdout
             // read -- the watch inside each probe kills ffprobe so it can't outlive the window.
-            val packets = probePackets(file) { !isActive } ?: return@withContext null
+            val packets = probePackets(file, timeoutMillis, onTimeout) { !isActive } ?: return@withContext null
             ensureActive()
             val videoPackets = packets.filter { it.mediaType == "video" }.sortedBy { it.ptsSeconds }
             val audioPackets = packets.filter { it.mediaType == "audio" }.sortedBy { it.ptsSeconds }
@@ -456,9 +470,9 @@ object AvSyncAnalyzer {
         }
     }
 
-    private fun probePackets(file: File, isCancelled: () -> Boolean): List<StreamPacket>? {
+    private fun probePackets(file: File, timeoutMillis: Long, onTimeout: () -> Unit, isCancelled: () -> Boolean): List<StreamPacket>? {
         var process: Process? = null
-        var cancellationWatch: AutoCloseable? = null
+        var cancellationWatch: ProcessManager.Watch? = null
         return try {
             process = ProcessManager.register(
                 ProcessBuilder(
@@ -468,7 +482,7 @@ object AvSyncAnalyzer {
                 ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD)
                     .also { FfmpegLocator.configureEnvironment(it) }.start()
             )
-            cancellationWatch = ProcessManager.watchCancellation(process, isCancelled)
+            cancellationWatch = ProcessManager.watchCancellation(process, timeoutMillis, isCancelled)
 
             val packets = ArrayList<StreamPacket>(10000)
             val map = mutableMapOf<String, String>()
@@ -496,11 +510,12 @@ object AvSyncAnalyzer {
                 }
             }
             if (isCancelled()) return null
-            if (process.waitFor() == 0) packets else null
+            if (process.waitFor() == 0 && !cancellationWatch.timedOut) packets else null
         } catch (e: Exception) {
             null
         } finally {
             cancellationWatch?.close()
+            if (cancellationWatch?.timedOut == true) onTimeout()
             process?.let {
                 ProcessManager.terminate(it)
                 ProcessManager.unregister(it)
