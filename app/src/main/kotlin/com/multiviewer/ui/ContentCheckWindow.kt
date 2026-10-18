@@ -724,12 +724,26 @@ fun ContentCheckWindow(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            checkStageLabel(selectedStage, ko),
-                            color = AppColors.TextPrimary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                checkStageLabel(selectedStage, ko),
+                                color = AppColors.TextPrimary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            if (selectedStage == CheckStage.CONTAINER_CONFORMANCE && conformance != null) {
+                                val report = conformance!!
+                                Text("·", color = AppColors.TextMuted, fontSize = 12.sp)
+                                Text("${report.format} · ${report.profile}", color = AppColors.TextSecondary, fontSize = 12.sp)
+                                val effStatus = effectiveConformanceStatus(exportSnapshot()) ?: report.overall
+                                val statusText = conformanceStatusLabel(effStatus, ko)
+                                val statusColor = conformanceStatusColor(effStatus)
+                                Text(statusText, color = statusColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
                         if (selectedStage == CheckStage.VISUAL_DECODE && type == MediaType.VIDEO) {
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 OutlinedButton(
@@ -790,19 +804,10 @@ fun ContentCheckWindow(
                             if (report == null) {
                                 Text(label("규격 검사 준비 중 · 미검증", "Preparing conformance checks · not checked"), color = AppColors.TextMuted)
                             } else {
-                                Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Text("${report.format} · ${report.profile}", color = AppColors.TextSecondary, fontSize = 12.sp)
-                                        val effStatus = effectiveConformanceStatus(exportSnapshot()) ?: report.overall
-                                        val statusText = conformanceStatusLabel(effStatus, ko)
-                                        val statusColor = conformanceStatusColor(effStatus)
-                                        Text(statusText, color = statusColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                    }
-                                    val findings = conformanceFindings(report)
-                                    ContentFindingTable(findings, fileLength, ko, Modifier.weight(1f)) { offset, length ->
-                                        if (offset >= 0 && length > 0 && offset < fileLength && length <= fileLength - offset) {
-                                            tab.parameterSetHighlightRange = offset..(offset + (length - 1))
-                                        }
+                                val findings = conformanceFindings(report)
+                                ContentFindingTable(findings, fileLength, ko, Modifier.weight(1f)) { offset, length ->
+                                    if (offset >= 0 && length > 0 && offset < fileLength && length <= fileLength - offset) {
+                                        tab.parameterSetHighlightRange = offset..(offset + (length - 1))
                                     }
                                 }
                             }
