@@ -1278,9 +1278,9 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                         }
 
                         val leftPanel: @Composable ColumnScope.() -> Unit = {
-                            val folderFilesCount = remember(appState.selectedFolder?.absolutePath, currentTab.file.parentFile?.absolutePath) {
-                                appState.getFolderMediaFiles().size
-                            }
+                            // Listed off the UI thread; the count shows 0 until the listing arrives.
+                            val folderFilesCount = rememberFolderListing(appState.selectedFolder ?: currentTab.file.parentFile)
+                                ?.mediaFiles?.size ?: 0
                             Surface(
                                 color = AppColors.Panel,
                                 modifier = Modifier.fillMaxWidth().height(32.dp),

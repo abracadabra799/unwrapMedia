@@ -39,7 +39,9 @@ import androidx.compose.ui.unit.sp
 import com.multiviewer.cache.ThumbnailDiskCache
 import com.multiviewer.cache.ThumbnailSourceFingerprint
 import com.multiviewer.parser.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.withContext
 import java.awt.EventQueue
 import java.awt.FileDialog
 import java.awt.Frame
@@ -335,40 +337,32 @@ fun FastStoneExplorerView(
     var searchQuery by remember { mutableStateOf("") }
     var isGridView by remember { mutableStateOf(true) }
 
-    val folderFiles = remember(currentFolder) {
-        val startedAt = System.nanoTime()
-        var result = "ok"
-        try {
-            if (currentFolder.exists() && currentFolder.isDirectory) {
-                currentFolder.listFiles()?.toList() ?: emptyList()
-            } else {
-                result = "unavailable"
-                emptyList()
-            }
-        } catch (_: Exception) {
-            result = "error"
-            emptyList()
-        }.also { files ->
+    // Listed on Dispatchers.IO so a big or remote folder never freezes the window; the search box filters
+    // the listing in memory. The listing is tagged with its folder so the previous folder's entries are never
+    // shown (or opened) under the new one while it loads.
+    val loadedListing by produceState<Pair<File, FolderListing>?>(null, currentFolder) {
+        val folder = currentFolder
+        value = withContext(Dispatchers.IO) {
+            val startedAt = System.nanoTime()
+            val listing = listFolder(folder)
             ThumbnailMetrics.record(
                 event = "folder_list",
                 elapsedMs = (System.nanoTime() - startedAt) / 1_000_000,
-                itemCount = files.size,
-                result = result,
+                itemCount = listing.mediaFiles.size + listing.subfolders.size,
+                result = if (listing.available) "ok" else "unavailable",
             )
+            folder to listing.copy(subfolders = listing.subfolders.filter { it.canRead() })
         }
     }
+    val folderListing = loadedListing?.takeIf { it.first == currentFolder }?.second
 
-    val subDirectories = remember(folderFiles) {
-        folderFiles.filter { it.isDirectory && !it.isHidden && it.canRead() }
-            .sortedBy { it.name.lowercase(Locale.US) }
-    }
+    val subDirectories = folderListing?.subfolders ?: emptyList()
 
-    val mediaFiles = remember(folderFiles, searchQuery) {
+    val mediaFiles = remember(folderListing, searchQuery) {
         val startedAt = System.nanoTime()
-        folderFiles.filter {
-            it.isFile && !it.isHidden && it.extension.lowercase(Locale.US) in ALL_SUPPORTED_MEDIA_EXTENSIONS &&
-                    (searchQuery.isBlank() || it.name.contains(searchQuery, ignoreCase = true))
-        }.sortedBy { it.name.lowercase(Locale.US) }.also { files ->
+        (folderListing?.mediaFiles ?: emptyList()).filter {
+            searchQuery.isBlank() || it.name.contains(searchQuery, ignoreCase = true)
+        }.also { files ->
             ThumbnailMetrics.record(
                 event = "media_index",
                 elapsedMs = (System.nanoTime() - startedAt) / 1_000_000,
@@ -634,7 +628,11 @@ fun FastStoneExplorerView(
                 if (mediaFiles.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
-                            text = if (language == AppLanguage.KO) "지원되는 미디어 파일이 없습니다" else "No supported media files found",
+                            text = when {
+                                folderListing == null -> if (language == AppLanguage.KO) "폴더를 읽는 중…" else "Reading folder…"
+                                language == AppLanguage.KO -> "지원되는 미디어 파일이 없습니다"
+                                else -> "No supported media files found"
+                            },
                             fontSize = 13.sp,
                             color = AppColors.TextSecondary,
                         )

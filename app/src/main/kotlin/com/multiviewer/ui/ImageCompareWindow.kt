@@ -474,17 +474,8 @@ fun ImageCompareWindow(
         }
 
         val activeFolder = folderA ?: folderB ?: fileA?.parentFile ?: fileB?.parentFile
-        val siblingMediaFiles = remember(activeFolder?.absolutePath) {
-            if (activeFolder != null && activeFolder.exists() && activeFolder.isDirectory) {
-                try {
-                    activeFolder.listFiles { f ->
-                        f.isFile && !f.isHidden && f.extension.lowercase(Locale.US) in ALL_SUPPORTED_MEDIA_EXTENSIONS
-                    }?.sortedBy { it.name.lowercase(Locale.US) }?.toList() ?: emptyList()
-                } catch (_: Exception) {
-                    emptyList()
-                }
-            } else emptyList()
-        }
+        // Listed off the UI thread; empty (so navigateSlot does nothing) until the listing arrives.
+        val siblingMediaFiles = rememberFolderListing(activeFolder)?.mediaFiles ?: emptyList()
 
         fun navigateSlot(slot: CompareSlot, delta: Int) {
             if (siblingMediaFiles.isEmpty()) return
@@ -983,19 +974,8 @@ private fun FileDropdownOrLabel(
     var expanded by remember { mutableStateOf(false) }
 
     // When folder is chosen via browse dialog, scan all supported media files in that specific folder
-    val folderFiles = remember(selectedFolder?.absolutePath) {
-        if (selectedFolder != null && selectedFolder.exists() && selectedFolder.isDirectory) {
-            try {
-                selectedFolder.listFiles { f ->
-                    f.isFile && !f.isHidden && f.extension.lowercase(Locale.US) in ALL_SUPPORTED_MEDIA_EXTENSIONS
-                }?.sortedBy { it.name.lowercase(Locale.US) }?.toList() ?: emptyList()
-            } catch (_: Exception) {
-                emptyList()
-            }
-        } else {
-            emptyList()
-        }
-    }
+    // Listed off the UI thread (empty until it arrives).
+    val folderFiles = rememberFolderListing(selectedFolder)?.mediaFiles ?: emptyList()
 
     Box {
         Surface(

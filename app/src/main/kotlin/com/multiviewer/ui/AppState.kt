@@ -636,31 +636,9 @@ class AppState {
         return true
     }
 
-    // Immediate subdirectories of the folder on screen, so the explorer can navigate down without
-    // going back out to a native dialog. Hidden folders are skipped, matching the file listing.
-    fun getSubfolders(folder: File? = null): List<File> {
-        val dir = folder ?: selectedFolder ?: tabs.getOrNull(selectedTabIndex)?.file?.parentFile ?: return emptyList()
-        if (!dir.exists() || !dir.isDirectory) return emptyList()
-        return try {
-            dir.listFiles { f -> f.isDirectory && !f.isHidden }
-                ?.sortedBy { it.name.lowercase(java.util.Locale.US) }
-                ?.toList() ?: emptyList()
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
-
-    fun getFolderMediaFiles(folder: File? = null): List<File> {
-        val dir = folder ?: selectedFolder ?: tabs.getOrNull(selectedTabIndex)?.file?.parentFile ?: return emptyList()
-        if (!dir.exists() || !dir.isDirectory) return emptyList()
-        return try {
-            dir.listFiles { f ->
-                f.isFile && !f.isHidden && f.extension.lowercase(java.util.Locale.US) in ALL_SUPPORTED_MEDIA_EXTENSIONS
-            }?.sortedBy { it.name.lowercase(java.util.Locale.US) }?.toList() ?: emptyList()
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
+    // Blocking listing (see listFolder): openFolder uses it once per explicit open, never from composition.
+    fun getFolderMediaFiles(folder: File? = null): List<File> =
+        listFolderMediaFiles(folder ?: selectedFolder ?: tabs.getOrNull(selectedTabIndex)?.file?.parentFile)
 
     fun openFile(file: File) {
         updateLastOpenedDirectory(file)

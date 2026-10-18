@@ -126,19 +126,10 @@ fun FolderExplorerView(
     var selectedFiles by remember(targetFolder?.absolutePath) { mutableStateOf<Set<File>>(emptySet()) }
     var isGridView by remember { mutableStateOf(false) }
 
-    val allMediaFiles = remember(targetFolder?.absolutePath, refreshTrigger) {
-        if (targetFolder != null && targetFolder.exists() && targetFolder.isDirectory) {
-            try {
-                targetFolder.listFiles { f ->
-                    f.isFile && !f.isHidden && f.extension.lowercase(Locale.US) in ALL_SUPPORTED_MEDIA_EXTENSIONS
-                }?.sortedBy { it.name.lowercase(Locale.US) }?.toList() ?: emptyList()
-            } catch (_: Exception) {
-                emptyList()
-            }
-        } else {
-            emptyList()
-        }
-    }
+    // Listed on Dispatchers.IO: a big, network or cloud-synced folder must not freeze the window. null while
+    // loading. The search box filters this listing in memory, so typing never touches the disk.
+    val listing = rememberFolderListing(targetFolder, refreshTrigger)
+    val allMediaFiles = listing?.mediaFiles ?: emptyList()
 
     val filteredFiles = remember(allMediaFiles, searchQuery, selectedCategory) {
         allMediaFiles.filter { file ->
@@ -157,9 +148,8 @@ fun FolderExplorerView(
 
     // Listed above the files so the explorer can go down as well as up, instead of the native
     // folder dialog being the only way to change folders.
-    val subfolders = remember(targetFolder?.absolutePath, refreshTrigger, searchQuery) {
-        appState.getSubfolders(targetFolder)
-            .filter { searchQuery.isBlank() || it.name.contains(searchQuery, ignoreCase = true) }
+    val subfolders = remember(listing, searchQuery) {
+        listing?.matching(searchQuery)?.subfolders ?: emptyList()
     }
 
     val listState = rememberLazyListState()
@@ -189,7 +179,7 @@ fun FolderExplorerView(
             .fillMaxSize()
             .background(AppColors.Background),
     ) {
-        if (targetFolder == null || !targetFolder.exists()) {
+        if (targetFolder == null || listing?.available == false) {
             // Empty folder placeholder
             Box(
                 modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -376,7 +366,9 @@ fun FolderExplorerView(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        if (searchQuery.isNotEmpty()) {
+                        if (listing == null) {
+                            if (language == AppLanguage.KO) "폴더를 읽는 중…" else "Reading folder…"
+                        } else if (searchQuery.isNotEmpty()) {
                             if (language == AppLanguage.KO) "검색 결과가 없습니다" else "No matching files"
                         } else {
                             if (language == AppLanguage.KO) "해당하는 지원 미디어 파일이 없습니다" else "No supported media files found"
