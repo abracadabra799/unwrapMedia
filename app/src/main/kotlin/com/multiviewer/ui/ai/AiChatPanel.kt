@@ -169,6 +169,17 @@ fun AiChatPanel(
     }
 
     val conversation = tab.aiConversation
+    // Offsets the app sent, computed once per conversation change and shared by every message row.
+    val sentOffsets = remember(conversation.messages) { sentOffsets(conversation.messages) }
+    // Keyed on the parts, not the whole snapshot, which is republished on every Content Check progress tick.
+    val checkConformance = tab.contentCheck?.conformance
+    val checkStructure = tab.contentCheck?.structure
+    val checkAudioStructure = tab.contentCheck?.audioStructure
+    val checkIds = remember(checkConformance, checkStructure, checkAudioStructure) {
+        (checkConformance?.findings?.map { it.rule.id }.orEmpty() +
+            checkStructure?.items?.map { it.id }.orEmpty() +
+            checkAudioStructure?.items?.map { it.id }.orEmpty()).toSet()
+    }
     // The first image send checks image input before the question is added, so that phase counts as running too.
     val running = conversation.status == AiRunStatus.RUNNING || tab.aiImageChecking || tab.aiFrameDecoding
     val provider = appState.aiProvider
@@ -546,7 +557,7 @@ fun AiChatPanel(
                                     SelectionContainer {
                                         Text(m.text, color = AppColors.TextPrimary, fontSize = 12.sp)
                                     }
-                                    EvidenceChips(appState, tab, m.text, ko)
+                                    EvidenceChips(appState, tab, m.text, ko, sentOffsets, checkIds)
                                 }
                             }
                         }
@@ -762,23 +773,12 @@ fun AiChatPanel(
 /** Clickable references found in an answer: bytes/frames select in the app (tree-driven), URLs open outside. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun EvidenceChips(appState: AppState, tab: TabState, text: String, ko: Boolean) {
+private fun EvidenceChips(
+    appState: AppState, tab: TabState, text: String, ko: Boolean,
+    sentOffsets: Set<Long>, checkIds: Set<String>,
+) {
     val root = tab.root
     val frames = tab.gopFrames
-    val checkIds = remember(tab.contentCheck) {
-        val check = tab.contentCheck
-        (check?.conformance?.findings?.map { it.rule.id }.orEmpty() +
-            check?.structure?.items?.map { it.id }.orEmpty() +
-            check?.audioStructure?.items?.map { it.id }.orEmpty()).toSet()
-    }
-    // An offset becomes a chip only if the app sent it (context or tool output) or a node starts there;
-    // otherwise it is likely a codec value such as 0xFFD8, not a location.
-    val conversation = tab.aiConversation
-    val sentOffsets = remember(conversation.messages.size) {
-        val hexes = Regex("\\b0x[0-9A-Fa-f]{1,12}\\b")
-        conversation.messages.flatMap { m -> listOfNotNull(m.outgoingContext, m.text.takeIf { m.role == AiRole.TOOL }) }
-            .flatMap { t -> hexes.findAll(t).mapNotNull { it.value.drop(2).toLongOrNull(16) } }.toSet()
-    }
     val refs = remember(text, root, frames, checkIds, sentOffsets) {
         val candidates = Regex("\\b0x[0-9A-Fa-f]{1,12}\\b").findAll(text).mapNotNull { it.value.drop(2).toLongOrNull(16) }
         val supported = candidates.filter { it in sentOffsets || (root != null && deepestNodeAt(root, it)?.offset == it) }.toSet()

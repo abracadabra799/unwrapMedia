@@ -26,6 +26,14 @@ data class AiMessage(
     val outgoingContext: String? = null,
 )
 
+/**
+ * Byte offsets the app itself sent to the AI (outgoing context and tool output). An offset quoted in an answer
+ * becomes an evidence chip only if it is in this set or a node starts there.
+ */
+internal fun sentOffsets(messages: List<AiMessage>): Set<Long> =
+    messages.flatMap { m -> listOfNotNull(m.outgoingContext, m.text.takeIf { m.role == AiRole.TOOL }) }
+        .flatMap { t -> HEX_OFFSET.findAll(t).mapNotNull { it.value.drop(2).toLongOrNull(16) } }.toSet()
+
 data class AiActivity(val timestampMillis: Long, val text: String)
 
 /** Runs (questions) whose sent context and tool output are kept in full; older ones keep a short stub. */

@@ -54,4 +54,18 @@ class AiTabCloseTest {
         appState.closeTab(0)
         kotlin.test.assertTrue(job.isCancelled)
     }
+
+    @Test
+    fun `sentOffsets collects hex offsets from outgoing context and tool text only`() {
+        fun msg(id: Long, role: AiRole, text: String, ctx: String? = null) =
+            AiMessage(id, role, text, null, 0, ctx)
+        val offsets = sentOffsets(listOf(
+            msg(1, AiRole.USER, "question 0xAAAA", ctx = "box at 0x10 and 0xFF"),
+            msg(2, AiRole.ASSISTANT, "answer 0xBBBB"),
+            msg(3, AiRole.TOOL, "tool read 0x2000"),
+            msg(4, AiRole.NOTICE, "notice 0xCCCC"),
+        ))
+        assertEquals(setOf(0x10L, 0xFFL, 0x2000L), offsets)
+        assertEquals(emptySet(), sentOffsets(emptyList()))
+    }
 }
