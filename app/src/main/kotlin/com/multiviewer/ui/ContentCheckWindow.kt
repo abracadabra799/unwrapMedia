@@ -715,7 +715,7 @@ fun ContentCheckWindow(
                     startChecks(listOf(stage))
                 },
                 ko = ko,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp, max = 220.dp),
+                modifier = Modifier.fillMaxWidth(),
             )
 
             Column(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {

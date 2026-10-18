@@ -15,8 +15,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
@@ -200,8 +198,8 @@ fun ContentCheckOverviewTable(
         HorizontalDivider(color = AppColors.Border, thickness = 1.dp)
 
         // Table Rows
-        LazyColumn(modifier = Modifier.fillMaxWidth()) {
-            itemsIndexed(rows, key = { _, row -> row.stage.name }) { index, row ->
+        Column(modifier = Modifier.fillMaxWidth()) {
+            rows.forEachIndexed { index, row ->
                 val isSelected = row.stage == selectedStage
                 val isFirstOfCategory = index == 0 || rows[index - 1].category != row.category
 
