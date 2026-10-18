@@ -785,6 +785,7 @@ class AppState {
                         tab.aiJob?.cancel()
                         tab.backgroundTasks.close()
                         tab.longScanTasks.close()
+                        releaseClosedTab(tab)
                         if (selectedTabIndex >= tabs.size) selectedTabIndex = (tabs.size - 1).coerceAtLeast(0)
                         openFileError = hardBlockMessage
                     }
@@ -918,7 +919,26 @@ class AppState {
         tab.filmstripThumbnails.clear()
         tab.thumbnailCache = emptyMap()
         tab.gifAnimation = null
+        releaseClosedTab(tab)
+    }
+
+    /**
+     * Drops what a closed tab no longer needs: the Content Check window pinned to it, and the heavy per-tab
+     * results (decoded bitmaps, frame lists, stored analyses), so a stray reference to the tab costs KB, not
+     * hundreds of MB. Only fields whose readers all treat null as "not loaded" are cleared.
+     */
+    private fun releaseClosedTab(tab: TabState) {
+        if (contentCheckTab === tab) contentCheckTab = null
+        tab.imageForensic = null
+        tab.gainmapBitmap = null
         tab.fullSizeFrameBitmap = null
+        tab.codecViewFrameBitmap = null
+        tab.gopFrames = null
+        tab.motionPhotoGopFrames = null
+        tab.hdrScan = null
+        tab.hrdReport = null
+        tab.timedMetadata = null
+        tab.audioWaveform = null
     }
 
     fun closeTabByFile(file: File) {

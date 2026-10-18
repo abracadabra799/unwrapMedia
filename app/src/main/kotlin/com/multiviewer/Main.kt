@@ -863,7 +863,12 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     dumpStructureWindowOpen = false
                 }
             }
+            // Pinned to the tab it was opened for; dropped once that tab closes (closeTab also clears it).
             appState.contentCheckTab?.let { targetTab ->
+                if (appState.tabs.none { it === targetTab }) {
+                    appState.contentCheckTab = null
+                    return@let
+                }
                 ContentCheckWindow(
                     targetTab,
                     language,
