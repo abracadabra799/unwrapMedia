@@ -242,10 +242,14 @@ fun MotionPhotoInspectorWindow(
                 if (hasVideo) {
                     AssistChip(
                         onClick = {
-                            if (extractedVideoFile != null && extractedVideoFile!!.exists()) {
-                                motionVideoWindowOpen = true
-                            } else {
-                                scope.launch {
+                            scope.launch {
+                                // Reuse an already extracted video; the stat runs off the UI thread.
+                                val existing = extractedVideoFile
+                                if (existing != null && withContext(Dispatchers.IO) { existing.exists() }) {
+                                    motionVideoWindowOpen = true
+                                    return@launch
+                                }
+                                run {
                                     isExtractingVideo = true
                                     statusMessage = label("동영상 추출 중...", "Extracting video...")
                                     try {

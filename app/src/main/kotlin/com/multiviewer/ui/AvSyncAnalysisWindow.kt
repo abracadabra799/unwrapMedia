@@ -95,7 +95,7 @@ fun AvSyncAnalysisWindow(
                             style = AppTypography.headlineSmall.copy(color = AppColors.TextPrimary, fontWeight = FontWeight.Bold)
                         )
                         Text(
-                            if (timedOut) "패킷 분석이 시간 제한(30분)을 넘어 중단되었습니다. 파일이 너무 길어 분석을 완료하지 못했습니다. / Packet scan timed out after 30 min; the file is too long to analyze."
+                            if (timedOut) avSyncTimeoutMessage()
                             else "이 파일에 비디오 또는 오디오 트랙이 둘 다 존재하지 않거나, 패킷 타임스탬프를 읽을 수 없습니다.",
                             style = AppTypography.bodyMedium.copy(color = AppColors.TextSecondary)
                         )
@@ -485,4 +485,13 @@ private fun DiagnosisCard(diag: SyncDiagnosis) {
             }
         }
     }
+}
+
+/** The packet-scan timeout notice, worded from the actual watch timeout so the two cannot drift apart. */
+internal fun avSyncTimeoutMessage(
+    timeoutMillis: Long = com.multiviewer.util.ProcessManager.DEFAULT_WATCH_TIMEOUT_MILLIS,
+): String {
+    val minutes = java.util.concurrent.TimeUnit.MILLISECONDS.toMinutes(timeoutMillis)
+    return "패킷 분석이 시간 제한(${minutes}분)을 넘어 중단되었습니다. 파일이 너무 길어 분석을 완료하지 못했습니다. / " +
+        "Packet scan timed out after $minutes min; the file is too long to analyze."
 }

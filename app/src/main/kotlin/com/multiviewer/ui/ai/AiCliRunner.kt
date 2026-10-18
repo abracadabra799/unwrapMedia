@@ -23,6 +23,8 @@ sealed interface AiCliResult {
 const val DEFAULT_AI_TIMEOUT_MILLIS = 180_000L
 const val DEFAULT_AI_MAX_OUTPUT_BYTES = 512 * 1024
 private const val MAX_STDERR_BYTES = 16 * 1024
+// How often a running CLI's descendants are sampled (so helpers it leaves behind can be stopped on exit).
+private const val DESCENDANT_POLL_MILLIS = 250L
 
 private val AUTH_HINT = Regex("(?i)/login|not logged in|log ?in required|please log ?in|unauthori[sz]ed|authenticat|api key|credential|sign ?in|\\b401\\b|\\b403\\b")
 private val ANSI = Regex("\u001B\\[[0-9;?]*[ -/]*[@-~]")
@@ -182,7 +184,7 @@ suspend fun runAiCli(
                 ProcessManager.descendantsOf(started).forEach { seenDescendants[it.pid()] = it }
                 val remaining = deadline - System.nanoTime()
                 if (remaining <= 0) break
-                exited = started.waitFor(minOf(remaining, TimeUnit.MILLISECONDS.toNanos(100)), TimeUnit.NANOSECONDS)
+                exited = started.waitFor(minOf(remaining, TimeUnit.MILLISECONDS.toNanos(DESCENDANT_POLL_MILLIS)), TimeUnit.NANOSECONDS)
             }
             exited
         } catch (e: InterruptedException) {
