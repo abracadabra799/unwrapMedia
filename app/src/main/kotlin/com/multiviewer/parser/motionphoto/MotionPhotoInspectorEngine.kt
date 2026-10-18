@@ -6,6 +6,7 @@ import com.multiviewer.parser.EmbeddedVideo
 import com.multiviewer.parser.GainmapParser
 import com.multiviewer.parser.SefIntegrityAnalyzer
 import com.multiviewer.parser.SefIntegritySeverity
+import com.multiviewer.parser.VideoSampleTable
 import com.multiviewer.parser.buildVideoSampleTable
 import com.multiviewer.parser.correctMp4StartOffset
 import com.multiviewer.parser.extractEmbeddedVideo
@@ -61,6 +62,20 @@ data class MotionPhotoInspectionReport(
         get() = listOf(stillImageSection, formatXmpSection, sefSection, videoCodecSection, avSyncSection)
 }
 
+/**
+ * Playback length of [table] in seconds: the last sample's decode time plus its duration. The table keeps
+ * no per-sample duration, so the last sample is given the previous sample's decode-time delta (exact for
+ * constant frame rate; a single sample counts as 0 s). This replaces two disagreeing formulas: one added
+ * 1000 *ticks* whatever the timescale (11 ms at 90 kHz, 1.7 s at 600 Hz), the other left out the last frame.
+ */
+internal fun videoSampleTableDurationSec(table: VideoSampleTable): Double {
+    val samples = table.samples
+    if (samples.isEmpty() || table.timescale <= 0) return 0.0
+    val last = samples.last()
+    val lastDelta = if (samples.size >= 2) (last.decodeTime - samples[samples.size - 2].decodeTime).coerceAtLeast(0) else 0L
+    return (last.decodeTime + lastDelta).toDouble() / table.timescale
+}
+
 object MotionPhotoInspectorEngine {
 
     // The inspector runs under runInterruptible: closing its window interrupts this thread. The sections
@@ -101,9 +116,16 @@ object MotionPhotoInspectorEngine {
                 throwIfInterrupted()
                 val sefSection = inspectSefIntegrity(file, root, reader)
                 throwIfInterrupted()
-                val videoCodecSection = inspectVideoAndCodec(file, root, reader, embeddedVideo, tempVideoFile, videoRoot)
+                // Built once (one full stsz/stco/stts read) and shared by the codec and A/V sync sections.
+                val videoSampleTable = if (embeddedVideo != null && tempVideoFile != null && videoRoot != null) {
+                    ByteReader.open(tempVideoFile).use { vReader -> buildVideoSampleTable(vReader, videoRoot) }
+                } else {
+                    null
+                }
                 throwIfInterrupted()
-                val avSyncSection = inspectAvSyncAndTiming(file, root, reader, embeddedVideo, tempVideoFile, videoRoot)
+                val videoCodecSection = inspectVideoAndCodec(file, root, reader, embeddedVideo, tempVideoFile, videoRoot, videoSampleTable)
+                throwIfInterrupted()
+                val avSyncSection = inspectAvSyncAndTiming(file, root, reader, embeddedVideo, tempVideoFile, videoRoot, videoSampleTable)
                 throwIfInterrupted()
 
                 val detectedFormats = mutableListOf<String>()
@@ -1050,6 +1072,7 @@ object MotionPhotoInspectorEngine {
         video: EmbeddedVideo?,
         tempVideoFile: File?,
         videoRoot: BoxNode?,
+        sampleTable: VideoSampleTable?,
     ): MotionPhotoInspectionSection {
         val items = mutableListOf<MotionPhotoInspectionItem>()
 
@@ -1107,16 +1130,9 @@ object MotionPhotoInspectorEngine {
         }
 
         // 3. Video Sample Table & Track Details
-        val sampleTable = ByteReader.open(tempVideoFile).use { vReader ->
-            buildVideoSampleTable(vReader, videoRoot)
-        }
-
         if (sampleTable != null) {
             val sampleCount = sampleTable.samples.size
-            val durationSec = if (sampleCount > 0) {
-                val last = sampleTable.samples.last()
-                (last.decodeTime + 1000L).toDouble() / sampleTable.timescale
-            } else 0.0
+            val durationSec = videoSampleTableDurationSec(sampleTable)
 
             items.add(
                 MotionPhotoInspectionItem(
@@ -1165,6 +1181,7 @@ object MotionPhotoInspectorEngine {
         video: EmbeddedVideo?,
         tempVideoFile: File?,
         videoRoot: BoxNode?,
+        sampleTable: VideoSampleTable?,
     ): MotionPhotoInspectionSection {
         val items = mutableListOf<MotionPhotoInspectionItem>()
 
@@ -1189,10 +1206,8 @@ object MotionPhotoInspectorEngine {
 
         // Fallback to sample table duration if ffprobe didn't report stream duration
         if (videoDurationMs == null) {
-            val sampleTable = ByteReader.open(tempVideoFile).use { vReader -> buildVideoSampleTable(vReader, videoRoot) }
             if (sampleTable != null && sampleTable.samples.isNotEmpty()) {
-                val last = sampleTable.samples.last()
-                videoDurationMs = ((last.decodeTime.toDouble() / sampleTable.timescale) * 1000).toLong()
+                videoDurationMs = (videoSampleTableDurationSec(sampleTable) * 1000).toLong()
             }
         }
 
@@ -1255,7 +1270,6 @@ object MotionPhotoInspectorEngine {
             )
 
             // Frame Match
-            val sampleTable = ByteReader.open(tempVideoFile).use { vReader -> buildVideoSampleTable(vReader, videoRoot) }
             val match = if (sampleTable != null) matchFrameToTimestamp(sampleTable, presentationTimestampUs) else null
             if (match != null) {
                 items.add(
