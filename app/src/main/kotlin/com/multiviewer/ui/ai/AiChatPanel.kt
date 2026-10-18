@@ -47,6 +47,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -171,14 +172,16 @@ fun AiChatPanel(
     val conversation = tab.aiConversation
     // Offsets the app sent, computed once per conversation change and shared by every message row.
     val sentOffsets = remember(conversation.messages) { sentOffsets(conversation.messages) }
-    // Keyed on the parts, not the whole snapshot, which is republished on every Content Check progress tick.
-    val checkConformance = tab.contentCheck?.conformance
-    val checkStructure = tab.contentCheck?.structure
-    val checkAudioStructure = tab.contentCheck?.audioStructure
-    val checkIds = remember(checkConformance, checkStructure, checkAudioStructure) {
-        (checkConformance?.findings?.map { it.rule.id }.orEmpty() +
-            checkStructure?.items?.map { it.id }.orEmpty() +
-            checkAudioStructure?.items?.map { it.id }.orEmpty()).toSet()
+    // derivedStateOf: the snapshot is republished on every Content Check progress tick, but the id set
+    // usually does not change, so reading it through a derived Set (structural equality) keeps the panel
+    // from recomposing on ticks that leave the ids alone.
+    val checkIds by remember(tab) {
+        derivedStateOf {
+            val check = tab.contentCheck
+            (check?.conformance?.findings?.map { it.rule.id }.orEmpty() +
+                check?.structure?.items?.map { it.id }.orEmpty() +
+                check?.audioStructure?.items?.map { it.id }.orEmpty()).toSet()
+        }
     }
     // The first image send checks image input before the question is added, so that phase counts as running too.
     val running = conversation.status == AiRunStatus.RUNNING || tab.aiImageChecking || tab.aiFrameDecoding
