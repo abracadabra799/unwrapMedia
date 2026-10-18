@@ -48,6 +48,24 @@ class FolderListingTest {
     }
 
     @Test
+    fun `existing folder that cannot be read is unreadable, a missing one is not`() {
+        val dir = tempDir()
+        val locked = dir.dir("locked")
+        try {
+            assertTrue(locked.setReadable(false) && locked.setExecutable(false))
+            if (locked.listFiles() != null) return // running as a user that ignores permissions (root)
+            val listing = listFolder(locked)
+            assertFalse(listing.available)
+            assertTrue(listing.unreadable)
+        } finally {
+            locked.setReadable(true); locked.setExecutable(true)
+        }
+        assertFalse(listFolder(File(dir, "missing")).unreadable)
+        assertFalse(listFolder(null).unreadable)
+        assertFalse(listFolder(dir).unreadable)
+    }
+
+    @Test
     fun `search filter matches names case-insensitively in memory`() {
         val dir = tempDir()
         dir.file("Holiday.JPG")

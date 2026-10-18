@@ -179,7 +179,7 @@ fun FolderExplorerView(
             .fillMaxSize()
             .background(AppColors.Background),
     ) {
-        if (targetFolder == null || listing?.available == false) {
+        if (targetFolder == null || (listing?.available == false && listing.unreadable.not())) {
             // Empty folder placeholder
             Box(
                 modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -368,6 +368,8 @@ fun FolderExplorerView(
                     Text(
                         if (listing == null) {
                             if (language == AppLanguage.KO) "폴더를 읽는 중…" else "Reading folder…"
+                        } else if (listing.unreadable) {
+                            if (language == AppLanguage.KO) "폴더를 읽을 수 없습니다 (권한 또는 접근 제한)" else "Cannot read this folder (permission or access restriction)"
                         } else if (searchQuery.isNotEmpty()) {
                             if (language == AppLanguage.KO) "검색 결과가 없습니다" else "No matching files"
                         } else {

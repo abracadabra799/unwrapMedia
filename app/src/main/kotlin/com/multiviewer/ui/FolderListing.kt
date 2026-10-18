@@ -17,6 +17,8 @@ data class FolderListing(
     val mediaFiles: List<File>,
     val subfolders: List<File>,
     val available: Boolean,
+    /** True when the folder exists but could not be listed (permission or access restriction). */
+    val unreadable: Boolean = false,
 ) {
     /** Entries whose name contains [query] (ignoring case); a blank query keeps everything. No disk access. */
     fun matching(query: String): FolderListing =
@@ -31,6 +33,7 @@ data class FolderListing(
 
     companion object {
         val UNAVAILABLE = FolderListing(emptyList(), emptyList(), available = false)
+        val UNREADABLE = FolderListing(emptyList(), emptyList(), available = false, unreadable = true)
     }
 }
 
@@ -44,7 +47,7 @@ fun listFolder(dir: File?): FolderListing {
     if (dir == null) return FolderListing.UNAVAILABLE
     return try {
         if (!dir.exists() || !dir.isDirectory) return FolderListing.UNAVAILABLE
-        val entries = dir.listFiles() ?: return FolderListing.UNAVAILABLE
+        val entries = dir.listFiles() ?: return FolderListing.UNREADABLE
         val media = ArrayList<File>()
         val subfolders = ArrayList<File>()
         for (entry in entries) {
@@ -56,6 +59,8 @@ fun listFolder(dir: File?): FolderListing {
             }
         }
         FolderListing(media.sortedWith(BY_LOWERCASE_NAME), subfolders.sortedWith(BY_LOWERCASE_NAME), available = true)
+    } catch (_: SecurityException) {
+        FolderListing.UNREADABLE
     } catch (_: Exception) {
         FolderListing.UNAVAILABLE
     }
