@@ -346,9 +346,9 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
     val appIcon = com.multiviewer.ui.appIconPainter
     val windowState = rememberWindowState(
         position = WindowPosition(Alignment.Center),
-        // 1366x768 is still a common laptop resolution (notably on Windows) -- 1280x800 leaves
-        // room for the taskbar/title bar instead of the window opening larger than the screen.
-        size = DpSize(1280.dp, 800.dp),
+        // 1380x820 leaves balanced space for Media Structure (330dp), Properties (430dp),
+        // and full 16-byte + Decoded Text Hex View (~608dp), fitting comfortably on modern desktop screens.
+        size = DpSize(1380.dp, 820.dp),
     )
     Window(
         onCloseRequest = {

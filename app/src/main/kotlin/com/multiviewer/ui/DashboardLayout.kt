@@ -22,16 +22,13 @@ import androidx.compose.ui.unit.dp
 import java.awt.Cursor
 
 private const val LEFT_PANEL_MIN_WIDTH_DP = 180f
-// 370 -> 290: leaves more room for HexView on initial launch (~600dp) so Decoded Text is visible by default.
-private const val LEFT_PANEL_DEFAULT_WIDTH_DP = 290f
+// 330dp: comfortable default for deep box hierarchies and field names
+private const val LEFT_PANEL_DEFAULT_WIDTH_DP = 330f
 private const val LEFT_PANEL_MAX_WIDTH_DP = 800f
-// The right panel used to start at exactly its own minimum width, so there was no room left to
-// drag-shrink it -- only grow. Default now sits above the floor instead of on top of it. The user
-// can always drag it wider (or resize the whole window) when they need more room, so the default
-// favors leaving more space to the center preview instead.
+
 private const val RIGHT_PANEL_MIN_WIDTH_DP = 240f
-// 450 -> 380: leaves sufficient width for HexView's 16-byte dump + decoded ASCII text (~580dp required).
-private const val RIGHT_PANEL_DEFAULT_WIDTH_DP = 380f
+// 430dp: comfortable default for Overview summary cards and detailed property rows
+private const val RIGHT_PANEL_DEFAULT_WIDTH_DP = 430f
 private const val RIGHT_PANEL_MAX_WIDTH_DP = 1000f
 
 // Thin draggable strip between two side-by-side panels. onDragDeltaDp receives the horizontal
@@ -75,11 +72,11 @@ fun DashboardLayout(
     // 0.75 -> 0.6: shrinks the top row's (left+center+right) real height allocation so the bottom
     // Hex & Raw Data Viewer panel gets more room by default -- still a user-draggable ratio, not a
     // fixed pixel height.
-    var verticalSplit by remember { mutableStateOf(0.6f) }
+    var verticalSplit by remember { mutableStateOf(loadVerticalSplit(0.6f)) }
     // Left (Structure) and right (Detailed Properties) panels start at their default widths but
     // the user can drag either wider.
-    var leftPanelWidthDp by remember { mutableStateOf(leftPanelDefaultWidthDp) }
-    var rightPanelWidthDp by remember { mutableStateOf(rightPanelDefaultWidthDp) }
+    var leftPanelWidthDp by remember { mutableStateOf(loadLeftPanelWidth(leftPanelDefaultWidthDp)) }
+    var rightPanelWidthDp by remember { mutableStateOf(loadRightPanelWidth(rightPanelDefaultWidthDp)) }
 
     Column(
         modifier = Modifier
@@ -101,6 +98,7 @@ fun DashboardLayout(
 
             VerticalResizeHandle { deltaDp ->
                 leftPanelWidthDp = (leftPanelWidthDp + deltaDp).coerceIn(LEFT_PANEL_MIN_WIDTH_DP, LEFT_PANEL_MAX_WIDTH_DP)
+                saveLeftPanelWidth(leftPanelWidthDp)
             }
 
             // Right Panel (Properties) -- rendered immediately beside the structure tree rather
@@ -121,6 +119,7 @@ fun DashboardLayout(
                 // This panel is now left-of-handle (like leftPanelWidthDp above), so a rightward
                 // drag grows it too -- sign flipped from the old right-edge position.
                 rightPanelWidthDp = (rightPanelWidthDp + deltaDp).coerceIn(RIGHT_PANEL_MIN_WIDTH_DP, RIGHT_PANEL_MAX_WIDTH_DP)
+                saveRightPanelWidth(rightPanelWidthDp)
             }
 
             // Bottom Panel (Hex) -- rendered here now, directly beside Properties, so the byte
@@ -141,7 +140,10 @@ fun DashboardLayout(
             orientation = Orientation.Horizontal,
             containerSizePx = containerHeightPx,
             getSplit = { verticalSplit },
-            setSplit = { verticalSplit = it },
+            setSplit = {
+                verticalSplit = it
+                saveVerticalSplit(it)
+            },
         )
 
         // Center Panel (Visual Canvas: thumbnail/image/video player/frame analysis/waveform/
