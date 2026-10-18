@@ -2,6 +2,9 @@ package com.multiviewer.ui
 
 import com.multiviewer.parser.integrity.CheckStatus
 import com.multiviewer.parser.conformance.ConformanceStatus
+import com.multiviewer.parser.conformance.ConformanceReport
+import com.multiviewer.parser.conformance.ConformanceFinding
+import com.multiviewer.parser.conformance.ConformanceRule
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -163,4 +166,56 @@ class ContentCheckPresentationTest {
         assertEquals("Use the run button above for video decode and packet checks.",
             contentCheckStartHint(ContentTab.VIDEO_DECODE, false))
     }
+
+    @Test fun conformanceVerdictLabelReflectsProposal2Breakdown() {
+        fun dummyFinding(id: String, status: ConformanceStatus) = ConformanceFinding(
+            rule = ConformanceRule(id, id, "source", null, "scope"),
+            status = status,
+            details = listOf(id),
+            ranges = emptyList(),
+        )
+
+        val pass14NotChecked1 = ConformanceReport(
+            format = "MP4", profile = "ISO-BMFF",
+            findings = (1..14).map { dummyFinding("rule$it", ConformanceStatus.PASS) } +
+                listOf(dummyFinding("rule15", ConformanceStatus.NOT_CHECKED)),
+        )
+        assertEquals("14/15 항목 통과 (미검증 1건)", conformanceVerdictLabel(pass14NotChecked1, ko = true))
+        assertEquals("14/15 passed (1 unverified)", conformanceVerdictLabel(pass14NotChecked1, ko = false))
+
+        val allPass = ConformanceReport(
+            format = "MP4", profile = "ISO-BMFF",
+            findings = (1..15).map { dummyFinding("rule$it", ConformanceStatus.PASS) },
+        )
+        assertEquals("규격 통과", conformanceVerdictLabel(allPass, ko = true))
+        assertEquals("Conformance pass", conformanceVerdictLabel(allPass, ko = false))
+
+        val withFail = ConformanceReport(
+            format = "MP4", profile = "ISO-BMFF",
+            findings = listOf(
+                dummyFinding("f1", ConformanceStatus.FAIL),
+                dummyFinding("p1", ConformanceStatus.PASS),
+            ),
+        )
+        assertEquals("오류 1건", conformanceVerdictLabel(withFail, ko = true))
+        assertEquals("1 issues", conformanceVerdictLabel(withFail, ko = false))
+
+        val withWarn = ConformanceReport(
+            format = "MP4", profile = "ISO-BMFF",
+            findings = listOf(
+                dummyFinding("w1", ConformanceStatus.WARN),
+                dummyFinding("p1", ConformanceStatus.PASS),
+            ),
+        )
+        assertEquals("경고 1건", conformanceVerdictLabel(withWarn, ko = true))
+        assertEquals("1 warnings", conformanceVerdictLabel(withWarn, ko = false))
+
+        val onlyNotChecked = ConformanceReport(
+            format = "MP4", profile = "ISO-BMFF",
+            findings = listOf(dummyFinding("u1", ConformanceStatus.NOT_CHECKED)),
+        )
+        assertEquals("미검증 1건", conformanceVerdictLabel(onlyNotChecked, ko = true))
+        assertEquals("1 unverified", conformanceVerdictLabel(onlyNotChecked, ko = false))
+    }
 }
+

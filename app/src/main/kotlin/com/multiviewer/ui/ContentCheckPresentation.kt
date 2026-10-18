@@ -5,6 +5,7 @@ import com.multiviewer.parser.MediaSummary
 import com.multiviewer.parser.firstVideoSampleEntry
 import com.multiviewer.parser.firstAudioSampleEntry
 import com.multiviewer.parser.integrity.CheckStatus
+import com.multiviewer.parser.conformance.ConformanceReport
 import com.multiviewer.parser.conformance.ConformanceStatus
 
 fun checkStageLabel(stage: CheckStage, ko: Boolean): String = when (stage) {
@@ -201,3 +202,23 @@ fun contentCheckActionState(
     canDiagnose = rootLoaded,
     canCancel = running,
 )
+
+fun conformanceVerdictLabel(report: ConformanceReport, ko: Boolean): String {
+    val failCount = report.findings.count { it.status == ConformanceStatus.FAIL }
+    val warnCount = report.findings.count { it.status == ConformanceStatus.WARN }
+    val passCount = report.findings.count { it.status == ConformanceStatus.PASS }
+    val notCheckedCount = report.findings.count { it.status == ConformanceStatus.NOT_CHECKED }
+    val totalChecked = passCount + notCheckedCount
+    return when {
+        failCount > 0 -> if (ko) "오류 ${failCount}건" else "$failCount issues"
+        warnCount > 0 -> if (ko) "경고 ${warnCount}건" else "$warnCount warnings"
+        passCount > 0 && notCheckedCount > 0 ->
+            if (ko) "${passCount}/${totalChecked} 항목 통과 (미검증 ${notCheckedCount}건)"
+            else "$passCount/$totalChecked passed ($notCheckedCount unverified)"
+        passCount > 0 -> if (ko) "규격 통과" else "Conformance pass"
+        notCheckedCount > 0 -> if (ko) "미검증 ${notCheckedCount}건" else "$notCheckedCount unverified"
+        report.inspectionError != null -> if (ko) "검사 오류" else "Inspection error"
+        else -> if (ko) "해당 없음" else "Not applicable"
+    }
+}
+

@@ -76,6 +76,31 @@ class ContentFindingTest {
         assertEquals("Location unavailable", contentFindingLocationLabel(finding, ko = false))
     }
 
+    @Test
+    fun formatsByteOffsetAndCleansConformanceLocation() {
+        val withOffset = finding("soi", CheckStatus.PASS, offset = 0L).copy(length = 2L)
+        assertEquals("0x0 (+2 B)", contentFindingLocationLabel(withOffset, ko = true))
+        assertEquals("0x0 (+2 B)", contentFindingLocationLabel(withOffset, ko = false))
+
+        val conformanceWithoutOffset = finding("trailing", CheckStatus.PASS, offset = null).copy(
+            stage = FindingStage.CONFORMANCE,
+            location = null,
+        )
+        assertEquals("-", contentFindingLocationLabel(conformanceWithoutOffset, ko = true))
+
+        val audioTrack = finding("audio.track", CheckStatus.PASS, offset = null).copy(
+            location = "Track 0",
+        )
+        assertEquals("Track 0", contentFindingLocationLabel(audioTrack, ko = true))
+
+        val boilerplate = finding("test", CheckStatus.PASS, offset = null).copy(
+            stage = FindingStage.CONFORMANCE,
+            location = "청크 경계; 기존 바이트·구조 검사 범위 / Existing byte/structure check only",
+        )
+        assertEquals("-", contentFindingLocationLabel(boilerplate, ko = true))
+    }
+
+
     private fun finding(id: String, status: CheckStatus, offset: Long? = null) = ContentFinding(
         id = id,
         stage = FindingStage.STRUCTURE,

@@ -15,9 +15,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -167,8 +170,10 @@ internal fun ContentFindingTable(
             HorizontalDivider(color = AppColors.Border, thickness = 1.dp)
 
             // Table Rows
-            LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-                itemsIndexed(rows, key = { index, finding -> "${finding.id}#$index" }) { index, finding ->
+            val listState = rememberLazyListState()
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                    itemsIndexed(rows, key = { index, finding -> "${finding.id}#$index" }) { index, finding ->
                     val rowKey = "${finding.id}#$index"
                     val isExpanded = expanded[rowKey] == true
 
@@ -307,9 +312,15 @@ internal fun ContentFindingTable(
                     Text(emptyText, color = AppColors.TextMuted, modifier = Modifier.padding(12.dp))
                 }
             }
+            VerticalScrollbar(
+                adapter = rememberScrollbarAdapter(listState),
+                modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
+            )
         }
     }
 }
+}
+
 
 @Composable
 private fun TableVerticalDivider(color: Color = AppColors.Border.copy(alpha = 0.4f)) {

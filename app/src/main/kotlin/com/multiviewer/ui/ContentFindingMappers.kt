@@ -50,7 +50,7 @@ fun conformanceFindings(report: ConformanceReport): List<ContentFinding> = repor
             ConformanceStatus.NOT_CHECKED, ConformanceStatus.NOT_APPLICABLE -> CheckStatus.SKIP
         },
         title = finding.rule.title,
-        location = finding.rule.scope,
+        location = cleanConformanceLocation(finding.rule.scope, finding.rule.title),
         offset = range?.first,
         length = extent,
         summary = finding.details.firstOrNull() ?: finding.rule.source,
@@ -62,6 +62,21 @@ fun conformanceFindings(report: ConformanceReport): List<ContentFinding> = repor
         },
         nextChecks = finding.ranges.map { "Hex evidence: 0x${it.first.toString(16).uppercase()}–0x${it.last.toString(16).uppercase()}" },
     ).sanitizeFindingPaths()
+}
+
+internal fun cleanConformanceLocation(scope: String, title: String): String? {
+    val trimmed = scope.trim()
+    if (trimmed.isEmpty()) return null
+    if (trimmed == title) return null
+    val beforeSemi = trimmed.substringBefore(';').trim()
+    if (beforeSemi == title) return null
+    if (beforeSemi.contains("기존 바이트") || beforeSemi.contains("Existing byte") ||
+        beforeSemi.contains("codec syntax") || beforeSemi.contains("구조 검사 범위") ||
+        beforeSemi.contains("추가 바이트") || beforeSemi.contains("not validated") ||
+        beforeSemi.contains("fit in the file") || beforeSemi.length > 30) {
+        return null
+    }
+    return beforeSemi.takeIf { it.isNotBlank() }
 }
 
 fun structureFindings(report: ImageStructureReport, stage: FindingStage): List<ContentFinding> =

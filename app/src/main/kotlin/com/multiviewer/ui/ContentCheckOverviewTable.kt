@@ -3,6 +3,7 @@ package com.multiviewer.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,9 +14,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollbarAdapter
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
@@ -213,8 +218,14 @@ fun ContentCheckOverviewTable(
         HorizontalDivider(color = AppColors.Border, thickness = 1.dp)
 
         // Table Rows
-        Column(modifier = Modifier.fillMaxWidth()) {
-            rows.forEachIndexed { index, row ->
+        val overviewScrollState = rememberScrollState()
+        Box(modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(overviewScrollState),
+            ) {
+                rows.forEachIndexed { index, row ->
                 val isSelected = row.stage == selectedStage
                 val isFirstOfCategory = index == 0 || rows[index - 1].category != row.category
 
@@ -380,8 +391,14 @@ fun ContentCheckOverviewTable(
                 }
             }
         }
+        VerticalScrollbar(
+            adapter = rememberScrollbarAdapter(overviewScrollState),
+            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
+        )
     }
 }
+}
+
 
 @Composable
 private fun TableVerticalDivider(color: Color = AppColors.Border.copy(alpha = 0.4f)) {

@@ -67,11 +67,36 @@ fun filteredContentFindings(findings: List<ContentFinding>, filter: ContentFindi
         .map { it.value }
 
 fun contentFindingLocationLabel(finding: ContentFinding, ko: Boolean): String {
-    finding.location?.let { return it }
-    val offset = finding.offset ?: return if (ko) "위치 확인 불가" else "Location unavailable"
-    val range = finding.length?.takeIf { it > 0 }?.let { " (+$it B)" }.orEmpty()
-    return "0x${offset.toString(16).uppercase()}$range"
+    val offset = finding.offset
+    if (offset != null) {
+        val range = finding.length?.takeIf { it > 0 }?.let { " (+$it B)" }.orEmpty()
+        return "0x${offset.toString(16).uppercase()}$range"
+    }
+    val loc = finding.location?.trim()
+    if (!loc.isNullOrEmpty()) {
+        val cleaned = cleanLocationLabel(loc, ko)
+        if (cleaned.isNotEmpty()) return cleaned
+    }
+    return if (finding.stage == FindingStage.CONFORMANCE) "-"
+        else if (ko) "위치 확인 불가" else "Location unavailable"
 }
+
+internal fun cleanLocationLabel(loc: String, ko: Boolean): String {
+    if (loc.contains("기존 바이트") || loc.contains("Existing byte") ||
+        loc.contains("codec syntax") || loc.contains("구조 검사 범위") ||
+        loc.contains("추가 바이트") || loc.contains("not validated") ||
+        loc.contains("fit in the file")) {
+        return ""
+    }
+    val beforeSemi = loc.substringBefore(';').trim()
+    if (beforeSemi.contains('/')) {
+        val parts = beforeSemi.split('/').map { it.trim() }
+        val chosen = if (ko) parts.firstOrNull() else parts.getOrNull(1) ?: parts.firstOrNull()
+        if (chosen != null && chosen.length <= 25) return chosen
+    }
+    return if (beforeSemi.length <= 25) beforeSemi else ""
+}
+
 
 fun mapIntegrityStatus(status: IntegrityStatus): CheckStatus = when (status) {
     IntegrityStatus.NOT_RUN -> CheckStatus.SKIP

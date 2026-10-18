@@ -668,13 +668,7 @@ fun ContentCheckWindow(
                 ) { stage ->
                     when (stage) {
                         CheckStage.CONTAINER_CONFORMANCE -> conformance?.let { report ->
-                            when (report.overall) {
-                                ConformanceStatus.PASS -> label("규격 통과", "Conformance pass")
-                                ConformanceStatus.FAIL -> label("오류 ${report.findings.count { it.status == ConformanceStatus.FAIL }}건", "${report.findings.count { it.status == ConformanceStatus.FAIL }} issues")
-                                ConformanceStatus.WARN -> label("경고 ${report.findings.count { it.status == ConformanceStatus.WARN }}건", "${report.findings.count { it.status == ConformanceStatus.WARN }} warnings")
-                                ConformanceStatus.NOT_CHECKED -> label("미검사", "Not checked")
-                                ConformanceStatus.NOT_APPLICABLE -> label("해당 없음", "Not applicable")
-                            }
+                            conformanceVerdictLabel(report, ko)
                         }
                         CheckStage.STRUCTURE -> if (type == MediaType.AUDIO) audioStructure?.overall?.let { checkStatusLabel(it, ko) }
                             else structure?.overall?.let { checkStatusLabel(it, ko) }
