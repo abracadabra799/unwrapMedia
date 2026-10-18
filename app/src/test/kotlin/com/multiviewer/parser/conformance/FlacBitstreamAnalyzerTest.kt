@@ -109,4 +109,16 @@ class FlacBitstreamAnalyzerTest {
             }
         }
     }
+
+    // FLAC-in-ISOBMFF: a rate above 65535 Hz cannot fit the 16.16 samplerate field, so the entry carries an integer
+    // divisor of it (ffmpeg writes 48000 for 96000). Real ffmpeg output, see docs/validation/flac-conformance-fixtures.
+    @Test
+    fun highSampleRateEntryDivisorMatchesStreaminfo() = runBlocking {
+        val file = fixture("ffmpeg-96k.mp4")
+        val report = analyzeFlacBitstream(file, parseFile(file)) { _, _ -> }
+        assertTrue(report.findings.any { it.rule.id == "flac.config.match" && it.status == ConformanceStatus.PASS },
+            report.findings.filter { it.rule.id == "flac.config.match" }.toString())
+        assertFalse(report.findings.any { it.status == ConformanceStatus.FAIL }, report.findings.filter { it.status == ConformanceStatus.FAIL }.toString())
+        assertTrue(report.complete)
+    }
 }

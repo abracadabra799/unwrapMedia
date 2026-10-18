@@ -105,4 +105,19 @@ class AacBitstreamAnalyzerTest {
         assertTrue(totals.isNotEmpty())
         assertTrue(totals.all { it == null })
     }
+
+    // HE-AAC (SBR) and HE-AAC v2 (SBR+PS) from macOS AudioToolbox (ffmpeg aac_at): backward-compatible signaling,
+    // core AOT 2 at 22050 Hz mono plus a 0x2B7 SBR extension at 44100 Hz (and 0x548 PS for v2). The sample entry
+    // carries the SBR output rate, which must not read as a mismatch.
+    @Test
+    fun heAacEntryRateMatchesTheSbrExtensionRate() = runBlocking {
+        for (name in listOf("he-aac-sbr.m4a", "he-aac-v2-ps.m4a")) {
+            val file = fixture(name)
+            val report = analyzeAacBitstream(file, parseFile(file)) { _, _ -> }
+            assertTrue(report.findings.any { it.rule.id == "aac.config.match" && it.status == ConformanceStatus.PASS },
+                "$name: " + report.findings.filter { it.rule.id == "aac.config.match" })
+            assertFalse(report.findings.any { it.status == ConformanceStatus.FAIL }, "$name: " + report.findings.filter { it.status == ConformanceStatus.FAIL })
+            assertTrue(report.complete, "$name: ${report.limitations}")
+        }
+    }
 }

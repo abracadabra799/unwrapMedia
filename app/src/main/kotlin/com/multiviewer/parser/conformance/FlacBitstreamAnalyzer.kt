@@ -117,7 +117,11 @@ suspend fun analyzeFlacBitstream(
 
         val matchChannels = entryChannelCount == config.channels
         val matchBits = entrySampleSize == config.bitsPerSample
-        val matchRate = (config.sampleRate != null && entrySampleRate == config.sampleRate.toInt())
+        // The 16.16 samplerate field cannot hold a rate above 65535 Hz; the entry then carries an integer divisor
+        // of it (FLAC-in-ISOBMFF; ffmpeg writes 48000 for 96000 and 192000).
+        val streamRate = config.sampleRate?.toInt()
+        val matchRate = streamRate != null && entrySampleRate != null && (entrySampleRate == streamRate ||
+            (streamRate > 65535 && entrySampleRate in 1..65535 && streamRate % entrySampleRate == 0))
 
         if (config.issue == null && matchChannels && matchBits && matchRate) {
             add(

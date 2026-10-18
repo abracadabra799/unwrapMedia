@@ -152,4 +152,21 @@ class AacSampleScannerTest {
             assertTrue(obs.issue!!.contains("bounds"))
         }
     }
+
+    @Test
+    fun heAacBackwardCompatibleExtensionsAreParsed() {
+        for ((name, ps) in listOf("he-aac-sbr.m4a" to false, "he-aac-v2-ps.m4a" to true)) {
+            val file = fixture(name)
+            val esds = assertNotNull(boxDescendants(parseFile(file)).firstOrNull { it.type == "esds" })
+            ByteReader.open(file).use { reader ->
+                val config = parseAacConfig(reader, esds)
+                assertNull(config.issue, name)
+                assertEquals(2, config.aot, name)
+                assertEquals(22050, config.sampleRate, name)
+                assertEquals(1, config.channelConfig, name)
+                assertEquals(44100, config.extensionSampleRate, name)
+                assertEquals(ps, config.psPresent, name)
+            }
+        }
+    }
 }

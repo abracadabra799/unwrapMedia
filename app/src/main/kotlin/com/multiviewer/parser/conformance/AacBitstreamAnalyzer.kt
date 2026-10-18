@@ -116,7 +116,12 @@ suspend fun analyzeAacBitstream(
                 "audioObjectType=${config.aot} samplingFrequencyIndex=${config.samplingFrequencyIndex} (${config.sampleRate}Hz) channelConfiguration=${config.channelConfig} / ASC 구문 정상",
                 esds.offset until (esds.offset + esds.size),
             )
-            if (entryChannelCount == config.channelConfig && (config.sampleRate == null || entrySampleRate == config.sampleRate)) {
+            // With SBR the entry may carry the output rate, and with PS a mono core decodes to stereo.
+            val channelsMatch = entryChannelCount == config.channelConfig ||
+                (config.psPresent && config.channelConfig == 1 && entryChannelCount == 2)
+            val rateMatches = config.sampleRate == null || entrySampleRate == config.sampleRate ||
+                (config.extensionSampleRate != null && entrySampleRate == config.extensionSampleRate)
+            if (channelsMatch && rateMatches) {
                 add(
                     "aac.config.match",
                     ConformanceStatus.PASS,
@@ -128,7 +133,8 @@ suspend fun analyzeAacBitstream(
                 add(
                     "aac.config.match",
                     ConformanceStatus.FAIL,
-                    "entry channels=$entryChannelCount sampleRate=${entrySampleRate}Hz vs ASC channels=${config.channelConfig} sampleRate=${config.sampleRate}Hz / 불일치",
+                    "entry channels=$entryChannelCount sampleRate=${entrySampleRate}Hz vs ASC channels=${config.channelConfig} sampleRate=${config.sampleRate}Hz" +
+                        (config.extensionSampleRate?.let { " (SBR ${it}Hz${if (config.psPresent) ", PS" else ""})" } ?: "") + " / 불일치",
                     entry.offset until (entry.offset + 28),
                 )
             }

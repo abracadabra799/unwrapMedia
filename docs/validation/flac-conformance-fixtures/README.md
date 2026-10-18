@@ -29,3 +29,9 @@ Provenance and byte structure for synthetic FLAC (`fLaC`) MP4 test vectors.
   - `dfLa` box: 449..499 (50 bytes: FullBox v0, flags=0, 4-byte block header, 34-byte STREAMINFO)
 - `mdat`: 651..915 (header 8 bytes, 8 samples x 32 bytes = 256 bytes payload)
 - First sample offset: 659..690 (32 bytes, starts with `0xFFF84908009E...` with valid CRC-8 `0x9E` and CRC-16 `0xC00A`)
+
+## Real encoder output
+
+- `ffmpeg-96k.mp4` (not from `generate.py`): `ffmpeg -f lavfi -i 'sine=frequency=440:sample_rate=96000:duration=1' -c:a flac -strict -2 ffmpeg-96k.mp4`.
+  STREAMINFO rate 96000 Hz, `fLaC` entry samplerate 48000 (a 16.16 field cannot hold > 65535; ffmpeg writes an integer
+  divisor — 44100 for 88200/176400, 48000 for 96000/192000). Expected: `flac.config.match` PASS.

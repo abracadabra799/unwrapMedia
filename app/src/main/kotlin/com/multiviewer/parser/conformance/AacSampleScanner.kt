@@ -11,6 +11,10 @@ data class AacConfigObservation(
     val sampleRate: Int? = null,
     val channelConfig: Int? = null,
     val issue: String? = null,
+    /** SBR output rate (explicit AOT 5/29, or a backward-compatible 0x2B7 extension); null without SBR. */
+    val extensionSampleRate: Int? = null,
+    /** Parametric Stereo signaled (AOT 29, or a 0x548 extension): a mono core decodes to stereo. */
+    val psPresent: Boolean = false,
 )
 
 data class AacSampleObservation(
@@ -132,6 +136,7 @@ fun parseAacConfig(reader: ByteReader, esds: BoxNode): AacConfigObservation {
     val aot = (b0 shr 3) and 0x1F
     val freqIdx = ((b0 and 0x07) shl 1) or ((b1 and 0x80) shr 7)
     val channelConfig = (b1 shr 3) and 0x0F
+    val extension = parseAscExtensions(buf, dsiStart, dsiLen)
 
     val sampleRate = if (freqIdx in AAC_SAMPLING_FREQUENCIES.indices) {
         AAC_SAMPLING_FREQUENCIES[freqIdx]
@@ -152,7 +157,53 @@ fun parseAacConfig(reader: ByteReader, esds: BoxNode): AacConfigObservation {
         sampleRate = sampleRate,
         channelConfig = channelConfig,
         issue = issue,
+        extensionSampleRate = extension.first,
+        psPresent = extension.second,
     )
+}
+
+/** MSB-first bit reader over an AudioSpecificConfig; reads past the end yield null. */
+private class AscBits(private val buf: ByteArray, start: Int, length: Int) {
+    private var pos = start * 8L
+    private val end = (start + length) * 8L
+    val remaining: Long get() = end - pos
+    fun read(n: Int): Int? {
+        if (n > remaining) return null
+        var v = 0
+        repeat(n) {
+            val byte = buf[(pos ushr 3).toInt()].toInt() and 0xFF
+            v = (v shl 1) or ((byte shr (7 - (pos and 7).toInt())) and 1)
+            pos++
+        }
+        return v
+    }
+    fun peek(n: Int): Int? { val saved = pos; return read(n).also { pos = saved } }
+    fun aot(): Int? = read(5)?.let { if (it == 31) read(6)?.plus(32) else it }
+    fun rate(): Int? = read(4)?.let { idx -> if (idx == 15) read(24) else AAC_SAMPLING_FREQUENCIES.getOrNull(idx) }
+}
+
+/**
+ * SBR / PS signaling in an AudioSpecificConfig (ISO/IEC 14496-3 1.6.2.1): explicit (audioObjectType 5 or 29 with
+ * extensionSamplingFrequencyIndex) or backward-compatible (syncExtensionType 0x2B7 after GASpecificConfig, then
+ * 0x548 for PS). Returns (SBR output rate, PS present).
+ */
+private fun parseAscExtensions(buf: ByteArray, start: Int, length: Int): Pair<Int?, Boolean> {
+    val bits = AscBits(buf, start, length)
+    val aot = bits.aot() ?: return null to false
+    bits.rate() ?: return null to false
+    val channelConfig = bits.read(4) ?: return null to false
+    if (aot == 5 || aot == 29) return bits.rate() to (aot == 29)
+    if (aot !in 1..4 || channelConfig == 0) return null to false // GASpecificConfig without a PCE only
+    bits.read(1) ?: return null to false // frameLengthFlag
+    if ((bits.read(1) ?: return null to false) == 1) bits.read(14) ?: return null to false // coreCoderDelay
+    if ((bits.read(1) ?: return null to false) == 1) bits.read(1) ?: return null to false // extensionFlag3
+    if (bits.remaining < 16 || bits.peek(11) != 0x2B7) return null to false
+    bits.read(11)
+    if (bits.aot() != 5) return null to false
+    if (bits.read(1) != 1) return null to false // sbrPresentFlag
+    val extensionRate = bits.rate()
+    val ps = bits.remaining >= 12 && bits.peek(11) == 0x548 && run { bits.read(11); bits.read(1) == 1 }
+    return extensionRate to ps
 }
 
 /**
