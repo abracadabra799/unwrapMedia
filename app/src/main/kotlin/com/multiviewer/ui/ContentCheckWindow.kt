@@ -7,12 +7,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -477,109 +480,179 @@ fun ContentCheckWindow(
             val s = structure
             val v = video
             val treePending = tab.root == null && !fileChanged
-            Text(tab.file.name, color = AppColors.TextPrimary)
-            Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                Text(label("유형: ", "Type: ") + type.name, color = AppColors.TextSecondary)
-                if (type == MediaType.IMAGE) {
-                    Text(label("형식: ", "Format: ") + (s?.format ?: "…"), color = AppColors.TextSecondary)
-                }
+            val formatText = when (type) {
+                MediaType.IMAGE -> s?.format ?: tab.file.extension.uppercase()
+                MediaType.AUDIO -> audioStructure?.format ?: tab.file.extension.uppercase()
+                else -> conformance?.format ?: tab.file.extension.uppercase()
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                val actions = contentCheckActionState(type, stageSpecs.any { it.availability == CheckAvailability.AVAILABLE }, true, tab.root != null,
-                    fileChanged, running, saving)
-                val exportReady = actions.canExport && checkedIdentity != null
-                Button(enabled = actions.canRun && tab.root != null, onClick = {
-                    startChecks(stageSpecs.filter { it.availability == CheckAvailability.AVAILABLE }.map { it.stage })
-                }) { Text(label("모든 검사 실행", "Run all checks")) }
-                if (actions.canCancel) OutlinedButton(onClick = {
-                    job?.cancel()
-                    running = false
-                    message = cancelledMessage()
-                }) { Text(label("취소", "Cancel")) }
-                Box {
-                    OutlinedButton(enabled = exportReady, onClick = { exportMenuExpanded = true }) {
-                        Text(label("결과 내보내기", "Export results"))
+            val actions = contentCheckActionState(
+                type,
+                stageSpecs.any { it.availability == CheckAvailability.AVAILABLE },
+                true,
+                tab.root != null,
+                fileChanged,
+                running,
+                saving,
+            )
+            val exportReady = actions.canExport && checkedIdentity != null
+
+            // Compact Header: Title · Type · Format on the left, buttons on the right
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f, fill = false),
+                ) {
+                    Text(
+                        tab.file.name,
+                        color = AppColors.TextPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text("·", color = AppColors.TextMuted, fontSize = 12.sp)
+                    Text(
+                        label("유형: ", "Type: ") + type.name,
+                        color = AppColors.TextSecondary,
+                        fontSize = 12.sp,
+                    )
+                    Text("·", color = AppColors.TextMuted, fontSize = 12.sp)
+                    Text(
+                        label("형식: ", "Format: ") + formatText,
+                        color = AppColors.TextSecondary,
+                        fontSize = 12.sp,
+                    )
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Button(
+                        enabled = actions.canRun && tab.root != null,
+                        onClick = {
+                            startChecks(stageSpecs.filter { it.availability == CheckAvailability.AVAILABLE }.map { it.stage })
+                        },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                        modifier = Modifier.height(28.dp),
+                    ) {
+                        Text(label("모든 검사 실행", "Run all checks"), fontSize = 11.5.sp)
                     }
-                    DropdownMenu(expanded = exportMenuExpanded, onDismissRequest = { exportMenuExpanded = false }) {
-                        DropdownMenuItem(text = { Text(label("JSON 복사", "Copy JSON")) }, onClick = {
-                            exportMenuExpanded = false
-                            val root = tab.root ?: return@DropdownMenuItem
-                            val structureSnapshot = s
-                            val decodeSnapshot = imageDecode
-                            val motionSnapshot = motion
-                            val motionErrorSnapshot = motionError
-                            val videoSnapshot = video
-                            val audioSnapshot = audio
-                            val workflowSnapshot = exportSnapshot()
-                            scope.launch {
-                                val copiedText = label("복사됨", "Copied")
-                                message = try {
-                                    val json = withContext(Dispatchers.IO) {
-                                        if (workflowSnapshot.fileIdentity?.matches(tab.file) != true) throw ContentFileChangedException()
-                                        buildCheckJson(
-                                            tab.file, collectWarnings(root), videoSnapshot,
-                                            imageJson(structureSnapshot, decodeSnapshot, motionSnapshot, motionErrorSnapshot),
-                                            audioSnapshot,
-                                            workflow = contentCheckWorkflowJson(workflowSnapshot, tab.file),
-                                        )
+                    if (actions.canCancel) {
+                        OutlinedButton(
+                            onClick = {
+                                job?.cancel()
+                                running = false
+                                message = cancelledMessage()
+                            },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                            modifier = Modifier.height(28.dp),
+                        ) {
+                            Text(label("취소", "Cancel"), fontSize = 11.5.sp)
+                        }
+                    }
+                    Box {
+                        OutlinedButton(
+                            enabled = exportReady,
+                            onClick = { exportMenuExpanded = true },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                            modifier = Modifier.height(28.dp),
+                        ) {
+                            Text(label("결과 내보내기", "Export results"), fontSize = 11.5.sp)
+                        }
+                        DropdownMenu(expanded = exportMenuExpanded, onDismissRequest = { exportMenuExpanded = false }) {
+                            DropdownMenuItem(text = { Text(label("JSON 복사", "Copy JSON")) }, onClick = {
+                                exportMenuExpanded = false
+                                val root = tab.root ?: return@DropdownMenuItem
+                                val structureSnapshot = s
+                                val decodeSnapshot = imageDecode
+                                val motionSnapshot = motion
+                                val motionErrorSnapshot = motionError
+                                val videoSnapshot = video
+                                val audioSnapshot = audio
+                                val workflowSnapshot = exportSnapshot()
+                                scope.launch {
+                                    val copiedText = label("복사됨", "Copied")
+                                    message = try {
+                                        val json = withContext(Dispatchers.IO) {
+                                            if (workflowSnapshot.fileIdentity?.matches(tab.file) != true) throw ContentFileChangedException()
+                                            buildCheckJson(
+                                                tab.file, collectWarnings(root), videoSnapshot,
+                                                imageJson(structureSnapshot, decodeSnapshot, motionSnapshot, motionErrorSnapshot),
+                                                audioSnapshot,
+                                                workflow = contentCheckWorkflowJson(workflowSnapshot, tab.file),
+                                            )
+                                        }
+                                        if (ClipboardUtil.copyToClipboard(json)) copiedText else label("복사 실패", "Copy failed")
+                                    } catch (e: CancellationException) {
+                                        throw e
+                                    } catch (e: Exception) {
+                                        label("복사 실패: ", "Copy failed: ") + (e.message ?: e.toString())
                                     }
-                                    if (ClipboardUtil.copyToClipboard(json)) copiedText else label("복사 실패", "Copy failed")
-                                } catch (e: CancellationException) {
-                                    throw e
-                                } catch (e: Exception) {
-                                    label("복사 실패: ", "Copy failed: ") + (e.message ?: e.toString())
-                                }
-                                if (message == copiedText) {
-                                    delay(2000)
-                                    if (message == copiedText) message = ""
-                                }
-                            }
-                        }, enabled = exportReady)
-                        DropdownMenuItem(text = { Text(label("분석 케이스 저장", "Save analysis case")) }, onClick = {
-                            exportMenuExpanded = false
-                            val root = tab.root ?: return@DropdownMenuItem
-                            val dialog = FileDialog(null as Frame?, label("분석 케이스 저장", "Save analysis case"), FileDialog.SAVE)
-                            dialog.file = "${tab.file.nameWithoutExtension}-case.json"
-                            dialog.isVisible = true
-                            val output = dialog.file?.let { File(dialog.directory, it) }
-                            dialog.dispose()
-                            if (output == null) return@DropdownMenuItem
-                            val structureSnapshot = s
-                            val decodeSnapshot = imageDecode
-                            val motionSnapshot = motion
-                            val motionErrorSnapshot = motionError
-                            val videoSnapshot = video
-                            val audioSnapshot = audio
-                            val workflowSnapshot = exportSnapshot()
-                            saving = true
-                            scope.launch {
-                                try {
-                                    withContext(Dispatchers.IO) {
-                                        if (workflowSnapshot.fileIdentity?.matches(tab.file) != true) throw ContentFileChangedException()
-                                        val caseJson = buildAnalysisCaseJson(
-                                            tab.file, collectWarnings(root), buildMediaSummary(root, tab.file),
-                                            integrityReport = videoSnapshot,
-                                            imageIntegrity = imageJson(structureSnapshot, decodeSnapshot, motionSnapshot, motionErrorSnapshot),
-                                            audioIntegrity = audioSnapshot,
-                                            workflow = contentCheckWorkflowJson(workflowSnapshot, tab.file),
-                                        )
-                                        // CREATE_NEW: never overwrite an existing file.
-                                        Files.writeString(output.toPath(), caseJson, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
+                                    if (message == copiedText) {
+                                        delay(2000)
+                                        if (message == copiedText) message = ""
                                     }
-                                    message = label("저장됨: ", "Saved: ") + output.name
-                                } catch (e: CancellationException) {
-                                    throw e
-                                } catch (e: Exception) {
-                                    message = label("저장 실패 (기존 파일 덮어쓰기 불가): ", "Save failed (existing files are not overwritten): ") +
-                                        (e.message ?: e.toString())
-                                } finally {
-                                    saving = false
                                 }
-                            }
-                        }, enabled = exportReady)
+                            }, enabled = exportReady)
+                            DropdownMenuItem(text = { Text(label("분석 케이스 저장", "Save analysis case")) }, onClick = {
+                                exportMenuExpanded = false
+                                val root = tab.root ?: return@DropdownMenuItem
+                                val dialog = FileDialog(null as Frame?, label("분석 케이스 저장", "Save analysis case"), FileDialog.SAVE)
+                                dialog.file = "${tab.file.nameWithoutExtension}-case.json"
+                                dialog.isVisible = true
+                                val output = dialog.file?.let { File(dialog.directory, it) }
+                                dialog.dispose()
+                                if (output == null) return@DropdownMenuItem
+                                val structureSnapshot = s
+                                val decodeSnapshot = imageDecode
+                                val motionSnapshot = motion
+                                val motionErrorSnapshot = motionError
+                                val videoSnapshot = video
+                                val audioSnapshot = audio
+                                val workflowSnapshot = exportSnapshot()
+                                saving = true
+                                scope.launch {
+                                    try {
+                                        withContext(Dispatchers.IO) {
+                                            if (workflowSnapshot.fileIdentity?.matches(tab.file) != true) throw ContentFileChangedException()
+                                            val caseJson = buildAnalysisCaseJson(
+                                                tab.file, collectWarnings(root), buildMediaSummary(root, tab.file),
+                                                integrityReport = videoSnapshot,
+                                                imageIntegrity = imageJson(structureSnapshot, decodeSnapshot, motionSnapshot, motionErrorSnapshot),
+                                                audioIntegrity = audioSnapshot,
+                                                workflow = contentCheckWorkflowJson(workflowSnapshot, tab.file),
+                                            )
+                                            // CREATE_NEW: never overwrite an existing file.
+                                            Files.writeString(output.toPath(), caseJson, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
+                                        }
+                                        message = label("저장됨: ", "Saved: ") + output.name
+                                    } catch (e: CancellationException) {
+                                        throw e
+                                    } catch (e: Exception) {
+                                        message = label("저장 실패 (기존 파일 덮어쓰기 불가): ", "Save failed (existing files are not overwritten): ") +
+                                            (e.message ?: e.toString())
+                                    } finally {
+                                        saving = false
+                                    }
+                                }
+                            }, enabled = exportReady)
+                        }
+                    }
+                    OutlinedButton(
+                        enabled = actions.canDiagnose,
+                        onClick = onAiDiagnosis,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                        modifier = Modifier.height(28.dp),
+                    ) {
+                        Text(label("AI 진단", "AI diagnosis"), fontSize = 11.5.sp)
                     }
                 }
-                OutlinedButton(enabled = actions.canDiagnose, onClick = onAiDiagnosis) { Text(label("AI 진단", "AI diagnosis")) }
             }
             if (message.isNotEmpty()) Text(message, color = AppColors.TextSecondary, fontSize = 12.sp)
             val overviewRows = remember(stageSpecs, stageStates, tab.root, tab.mediaSummary, ko, running, fileChanged, conformance, structure, audioStructure, hevcBitstream, avcBitstream, av1Bitstream, vp9Bitstream, apvBitstream, vvcBitstream, aacBitstream, opusBitstream, flacBitstream, imageDecode, video, audio, motion, gainmapChecks) {
