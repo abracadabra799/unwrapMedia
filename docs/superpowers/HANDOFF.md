@@ -1,19 +1,20 @@
 # Handoff — 2026-10-13 (Claude Code → Codex)
 
-## 2026-10-17 update — Content Check Workflow, HEVC, AVC, AV1, VP9, APV, AAC, Opus & FLAC Bitstream Checks merged
+## 2026-10-18 update — VVC, FLAC, Opus, AAC, APV, VP9, AV1, AVC, HEVC Bitstream Checks & Content Check merged
 
-- `feat/content-check-conformance`, `feat/avc-bitstream-check`, `feat/av1-bitstream-check`, `feat/vp9-bitstream-check`, `feat/apv-bitstream-check`, `feat/aac-bitstream-check`, `feat/opus-bitstream-check`, and `feat/flac-bitstream-check` merged into `main`:
+- `feat/content-check-conformance`, `feat/avc-bitstream-check`, `feat/av1-bitstream-check`, `feat/vp9-bitstream-check`, `feat/apv-bitstream-check`, `feat/aac-bitstream-check`, `feat/opus-bitstream-check`, `feat/flac-bitstream-check`, and `feat/vvc-bitstream-check` merged into `main`:
   1. Content Check workflow redesign: sequential isolated stage execution (Structure → Codec → Visual Decode → Audio Decode → Motion Photo / Gain Map).
   2. Bounded HEVC bitstream analyzer for non-fragmented `hvc1` and `hev1` MP4/MOV: NAL framing, `forbidden_zero_bit`, `nuh_temporal_id_plus1`, and parameter references.
   3. Bounded H.264 / AVC bitstream analyzer for non-fragmented `avc1` MP4/MOV: NAL framing, `forbidden_zero_bit`, IDR `nal_ref_idc != 0`, and SPS/PPS references.
   4. Bounded AV1 bitstream analyzer for non-fragmented `av01` MP4/MOV: OBU framing, `obu_forbidden_bit == 0`, `obu_reserved_1bit == 0`, `extension_header_reserved_3bits == 0`, and `av1C` Sequence Header validity.
   5. Bounded VP9 bitstream analyzer for non-fragmented `vp09` MP4/MOV: frame and superframe framing, `frame_marker == 2`, KEY_FRAME `sync_code == 0x498342`, profile 3 `reserved_zero == 0`, and `vpcC` FullBox configuration validity.
   6. Bounded APV bitstream analyzer for non-fragmented `apv1` MP4/MOV: access unit `'aPv1'` signature, PBU framing, PBU `reserved_zero_8bits == 0`, primary frame `band_idc <= 3`, `reserved_zero_5bits == 0`, frame header `reserved_zero_8bits == 0`, and `apvC` configuration validity.
-  7. Bounded AAC bitstream analyzer for non-fragmented `mp4a` MP4/MOV/M4A: `esds` FullBox and descriptor TLV, `AudioSpecificConfig` (AOT, frequency index, channel config), sample entry match, ADTS syncword guard, syntactic element start (`ID_CPE`, `ID_SCE`), and `ics_reserved_bit == 0`.
-  8. Bounded Opus bitstream analyzer for non-fragmented `Opus` MP4/MOV: `dOps` (`OpusSpecificBox`) configuration validity, sample entry match, TOC byte (`config` 0..31, mono stereo flag guard), Code 3 packet framing (`M != 0` forbidden frame count, duration <= 120ms), and sample framing.
-  9. Bounded FLAC bitstream analyzer for non-fragmented `fLaC` MP4/MOV: `dfLa` (`FLACSpecificBox`) FullBox version 0 and STREAMINFO 34-byte block, sample entry parameter match, frame header syncword (`0x3FFE`) and CRC-8, and trailing frame CRC-16.
-  10. Structural observations vs. normative rule separation (no false PASS, strict NOT_CHECKED isolation).
-  11. Specs/plans: `docs/superpowers/{specs,plans}/2026-10-17-content-check-workflow*`, `2026-10-17-hevc-bitstream-check*`, `2026-10-17-avc-bitstream-check*`, `2026-10-17-av1-bitstream-check*`, `2026-10-17-vp9-bitstream-check*`, `2026-10-17-apv-bitstream-check*`, `2026-10-17-aac-bitstream-check*`, `2026-10-17-opus-bitstream-check*`, `2026-10-17-flac-bitstream-check*`.
+  7. Bounded VVC (H.266) bitstream analyzer for non-fragmented `vvc1` and `vvi1` MP4/MOV: `vvcC` FullBox configuration (`VvcDecoderConfigurationRecord`, `LengthSizeMinusOne`, PTL), length-prefixed NAL header framing, `forbidden_zero_bit == 0`, `nuh_reserved_zero_bit == 0`, and `nuh_temporal_id_plus1 != 0`.
+  8. Bounded AAC bitstream analyzer for non-fragmented `mp4a` MP4/MOV/M4A: `esds` FullBox and descriptor TLV, `AudioSpecificConfig` (AOT, frequency index, channel config), sample entry match, ADTS syncword guard, syntactic element start (`ID_CPE`, `ID_SCE`), and `ics_reserved_bit == 0`.
+  9. Bounded Opus bitstream analyzer for non-fragmented `Opus` MP4/MOV: `dOps` (`OpusSpecificBox`) configuration validity, sample entry match, TOC byte (`config` 0..31, mono stereo flag guard), Code 3 packet framing (`M != 0` forbidden frame count, duration <= 120ms), and sample framing.
+  10. Bounded FLAC bitstream analyzer for non-fragmented `fLaC` MP4/MOV: `dfLa` (`FLACSpecificBox`) FullBox version 0 and STREAMINFO 34-byte block, sample entry parameter match, frame header syncword (`0x3FFE`) and CRC-8, and trailing frame CRC-16.
+  11. Structural observations vs. normative rule separation (no false PASS, strict NOT_CHECKED isolation).
+  12. Specs/plans: `docs/superpowers/{specs,plans}/2026-10-17-content-check-workflow*`, `2026-10-17-hevc-bitstream-check*`, `2026-10-17-avc-bitstream-check*`, `2026-10-17-av1-bitstream-check*`, `2026-10-17-vp9-bitstream-check*`, `2026-10-17-apv-bitstream-check*`, `2026-10-18-vvc-bitstream-check*`, `2026-10-17-aac-bitstream-check*`, `2026-10-17-opus-bitstream-check*`, `2026-10-17-flac-bitstream-check*`.
 
 ## 2026-10-15 update — contextual media analysis merged (v1.23.0)
 
@@ -47,7 +48,7 @@ Read `AGENTS.md` (repo root) for build/test commands, workflow and hard rules. T
 | 8 | Timed metadata tracks (camm / gyro / GPS) on a timeline | **Shipped (merged into main)**. Spec/plan: `docs/superpowers/{specs,plans}/2026-10-13-timed-metadata-tracks-timeline*`. |
 | 9 | HDR scopes (nits false colour, waveform, vectorscope, gamut, gain-map headroom slider) | **Next action: ready to brainstorm / implement** |
 | 10 | ADB integration (device browse/pull, `media_codecs.xml` / `dumpsys media.codec`) | not started |
-| 11 | MPEG-TS, VVC, loudness (LUFS) | not started |
+| 11 | MPEG-TS, VVC, loudness (LUFS) | VVC (`vvc1`/`vvi1`) bitstream check shipped in Content Check (`docs/superpowers/{specs,plans}/2026-10-18-vvc-bitstream-check*`); MPEG-TS and loudness (LUFS) remaining. |
 
 ## What was completed in Item 3 (Motion photo deep analysis)
 

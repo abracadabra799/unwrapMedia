@@ -36,11 +36,11 @@
 
 **Interfaces:** Produce `object VvcRuleCatalog` with `fun rule(id: String): ConformanceRule?` and stable IDs: `vvc.config.vvcc`, `vvc.nal.framing`, `vvc.nal.forbidden_zero_bit`, `vvc.nal.reserved_zero_bit`, `vvc.nal.temporal_id_plus1`, `vvc.sample.framing`. `object VvcCBoxDecoder : BoxDecoder`.
 
-- [ ] **Step 1: Generate fixtures.** Create Python generator creating valid `default-vvc.mp4` with verified VVC NAL units and valid `vvcC` box, record byte offsets in README. Create mutations for `bad-vvcc-box.mp4`, `bad-forbidden-bit.mp4`, `bad-reserved-bit.mp4`, `bad-temporal-id.mp4`, `truncated-sample.mp4`, and `many-nal-failures.mp4`.
-- [ ] **Step 2: Write failing catalog and table tests.** Assert stable IDs, VVC-in-ISOBMFF and ITU-T H.266 sources, structural observation labeling, and `buildVideoSampleTable` resolution for `vvc1` and `vvi1`.
-- [ ] **Step 3: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.VvcRuleCatalogTest'`; expect RED.
-- [ ] **Step 4: Implement** `VvcCBoxDecoder`, `VvcRuleCatalog`, `VideoCodec.VVC`, `SAMPLE_ENTRY_CODECS` update in `IsoSampleTable.kt`, and `Decoders.kt` registration.
-- [ ] **Step 5: Run** focused tests; expect PASS. Commit `test: establish VVC conformance byte fixtures and rule catalog`.
+- [x] **Step 1: Generate fixtures.** Create Python generator creating valid `default-vvc.mp4` with verified VVC NAL units and valid `vvcC` box, record byte offsets in README. Create mutations for `bad-vvcc-box.mp4`, `bad-forbidden-bit.mp4`, `bad-reserved-bit.mp4`, `bad-temporal-id.mp4`, `truncated-sample.mp4`, and `many-nal-failures.mp4`.
+- [x] **Step 2: Write failing catalog and table tests.** Assert stable IDs, VVC-in-ISOBMFF and ITU-T H.266 sources, structural observation labeling, and `buildVideoSampleTable` resolution for `vvc1` and `vvi1`.
+- [x] **Step 3: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.VvcRuleCatalogTest'`; expect RED.
+- [x] **Step 4: Implement** `VvcCBoxDecoder`, `VvcRuleCatalog`, `VideoCodec.VVC`, `SAMPLE_ENTRY_CODECS` update in `IsoSampleTable.kt`, and `Decoders.kt` registration.
+- [x] **Step 5: Run** focused tests; expect PASS. Commit `test: establish VVC conformance byte fixtures and rule catalog`.
 
 ### Task 2: Bounded VVC sample and NAL header scanner
 
@@ -48,10 +48,10 @@
 
 **Interfaces:** `data class VvcConfigObservation(val vvccOffset: Long, val version: Int, val lengthSizeMinusOne: Int? = null, val ptlPresent: Boolean = false, val maxPictureWidth: Int? = null, val maxPictureHeight: Int? = null, val numOfArrays: Int? = null, val issue: String? = null)`; `fun parseVvcConfig(reader: ByteReader, vvcC: BoxNode): VvcConfigObservation`; `data class VvcNalObservation(val offset: Long, val size: Long, val forbiddenZeroBit: Boolean, val reservedZeroBit: Boolean, val layerId: Int, val nalUnitType: Int, val temporalIdPlus1: Int)`; `data class VvcSampleObservation(val sampleIndex: Int, val offset: Long, val size: Long, val nals: List<VvcNalObservation>, val issue: String? = null)`; `fun scanVvcSample(reader: ByteReader, sample: VideoSample, nalLengthSize: Int): VvcSampleObservation`. Scanner reads length-prefixed NAL units, verifies 2-byte header `forbidden_zero_bit == 0`, `nuh_reserved_zero_bit == 0`, and `nuh_temporal_id_plus1 != 0`.
 
-- [ ] **Step 1: Write failing scanner tests.** Assert raw offsets and bit fields on real `vvc1` fixtures; `badVvccBox`, `badForbiddenBit`, `badReservedBit`, `badTemporalId`, `truncatedSample`, and sample extent bounds have exact offsets/status and never PASS for unreadable data.
-- [ ] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.VvcSampleScannerTest'`; expect RED.
-- [ ] **Step 3: Implement** bounded scanner with checked addition and bounded buffer reads; callers check coroutine cancellation between samples.
-- [ ] **Step 4: Run** scanner tests; expect PASS. Commit `feat: scan VVC vvcC config and sample NAL headers with bounded reads`.
+- [x] **Step 1: Write failing scanner tests.** Assert raw offsets and bit fields on real `vvc1` fixtures; `badVvccBox`, `badForbiddenBit`, `badReservedBit`, `badTemporalId`, `truncatedSample`, and sample extent bounds have exact offsets/status and never PASS for unreadable data.
+- [x] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.VvcSampleScannerTest'`; expect RED.
+- [x] **Step 3: Implement** bounded scanner with checked addition and bounded buffer reads; callers check coroutine cancellation between samples.
+- [x] **Step 4: Run** scanner tests; expect PASS. Commit `feat: scan VVC vvcC config and sample NAL headers with bounded reads`.
 
 ### Task 3: Parameter-set evidence and rule aggregation
 
@@ -59,10 +59,10 @@
 
 **Interfaces:** `data class VvcBitstreamReport(val findings: List<ConformanceFinding>, val checkedSamples: Int, val indexedSamples: Int, val totalOccurrences: Map<String, Long>, val limitations: List<String>, val checkedTrack: String, val complete: Boolean)`; `suspend fun analyzeVvcBitstream(file: File, root: BoxNode, onProgress: (Int, Int?) -> Unit): VvcBitstreamReport`. The analyzer calls `buildVideoSampleTable`, validates `vvcC`, and runs the scanner from Task 2; it emits verified header findings and supported observations. Keep a fixed per-rule occurrence cap (100), reporting totals separately.
 
-- [ ] **Step 1: Write failing tests.** Valid `vvc1` reports checked/indexed counts and exact header ranges; corrupted forbidden/reserved/temporal bits have stable rule ID and observed bits; `malformedVvcc` yields NOT_CHECKED; 101 repeated violations show bounded findings and full occurrence count.
-- [ ] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.VvcBitstreamAnalyzerTest'`; expect RED.
-- [ ] **Step 3: Implement** aggregation and config applicability with documented parser limits. Retain exact sample/track evidence in details and ranges.
-- [ ] **Step 4: Run** focused analyzer tests; expect PASS. Commit `feat: evaluate bounded VVC bitstream rules`.
+- [x] **Step 1: Write failing tests.** Valid `vvc1` reports checked/indexed counts and exact header ranges; corrupted forbidden/reserved/temporal bits have stable rule ID and observed bits; `malformedVvcc` yields NOT_CHECKED; 101 repeated violations show bounded findings and full occurrence count.
+- [x] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.parser.conformance.VvcBitstreamAnalyzerTest'`; expect RED.
+- [x] **Step 3: Implement** aggregation and config applicability with documented parser limits. Retain exact sample/track evidence in details and ranges.
+- [x] **Step 4: Run** focused analyzer tests; expect PASS. Commit `feat: evaluate bounded VVC bitstream rules`.
 
 ### Task 4: Scope/coverage and workflow integration
 
@@ -70,14 +70,14 @@
 
 **Interfaces:** Codec stage invokes `analyzeVvcBitstream` when video entry is `vvc1` or `vvi1` with valid `vvcC`. Extend snapshot with `val vvcBitstream: VvcBitstreamReport? = null`; append VVC findings to conformance detail. Other tracks, fragments, encryption, mismatched tables, cap truncation, changed files, and cancelled scans expose named NOT_CHECKED coverage and cannot yield overall PASS.
 
-- [ ] **Step 1: Write failing tests.** `otherVideoTrackIsNotChecked`, fragment/encrypted/unreadable sample coverage, malformed `vvcC`, cap truncation, cancellation after sample 1, file changed before publish, and default `vvc1` availability in `MediaType.VIDEO`.
-- [ ] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.ui.VvcContentCheckIntegrationTest'`; expect RED.
-- [ ] **Step 3: Implement** capability detection in `ContentCheckStage.kt`, dispatcher/cancellation, progress, and UI presentation in `ContentCheckWindow.kt`.
-- [ ] **Step 4: Run** focused integration tests, `./gradlew :app:compileKotlin`, then `./gradlew :app:test`; expect PASS.
-- [ ] **Step 5: Commit** `feat: expose VVC rule coverage in Content Check`.
+- [x] **Step 1: Write failing tests.** `otherVideoTrackIsNotChecked`, fragment/encrypted/unreadable sample coverage, malformed `vvcC`, cap truncation, cancellation after sample 1, file changed before publish, and default `vvc1` availability in `MediaType.VIDEO`.
+- [x] **Step 2: Run** `./gradlew :app:test --tests 'com.multiviewer.ui.VvcContentCheckIntegrationTest'`; expect RED.
+- [x] **Step 3: Implement** capability detection in `ContentCheckStage.kt`, dispatcher/cancellation, progress, and UI presentation in `ContentCheckWindow.kt`.
+- [x] **Step 4: Run** focused integration tests, `./gradlew :app:compileKotlin`, then `./gradlew :app:test`; expect PASS.
+- [x] **Step 5: Commit** `feat: expose VVC rule coverage in Content Check`.
 
 ## Branch finish
 
-- [ ] Review exact normative citations and real-byte dumps against source standards; downgrade any unverified rule to structural observation or NOT_CHECKED.
-- [ ] Run `./gradlew :app:test` and `git diff --check`; fix nonflaky failures, review whole branch, and commit fixes.
-- [ ] Fast-forward local `main` only after review; do not push without explicit user authorization.
+- [x] Review exact normative citations and real-byte dumps against source standards; downgrade any unverified rule to structural observation or NOT_CHECKED.
+- [x] Run `./gradlew :app:test` and `git diff --check`; fix nonflaky failures, review whole branch, and commit fixes.
+- [x] Fast-forward local `main` only after review; do not push without explicit user authorization.
