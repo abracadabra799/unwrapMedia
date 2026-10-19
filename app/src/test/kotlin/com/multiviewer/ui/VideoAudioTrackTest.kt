@@ -17,6 +17,30 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class VideoAudioTrackTest {
+    @Test
+    fun `audio timeline keeps advancing after PCM input ends so late frames stay stale`() {
+        val timeline = AudioMasterTimeline()
+        assertEquals(2.0, timeline.position(2.0, audioEnded = false, playing = true, nowNanos = 1_000_000_000L))
+        val afterEof = timeline.position(2.0, audioEnded = true, playing = true, nowNanos = 2_000_000_000L)
+        assertEquals(3.0, afterEof)
+        assertEquals(FrameAction.Drop, frameSyncAction(frameStartSeconds = 1.0, audioClockSeconds = afterEof!!))
+    }
+
+    @Test
+    fun `audio timeline does not spend paused time after PCM input ends`() {
+        val timeline = AudioMasterTimeline()
+        timeline.position(2.0, audioEnded = false, playing = true, nowNanos = 1_000_000_000L)
+        assertEquals(3.0, timeline.position(2.0, audioEnded = true, playing = false, nowNanos = 2_000_000_000L))
+        assertEquals(3.0, timeline.position(2.0, audioEnded = true, playing = false, nowNanos = 3_000_000_000L))
+        assertEquals(3.0, timeline.position(2.0, audioEnded = true, playing = true, nowNanos = 3_000_000_000L))
+        assertEquals(3.5, timeline.position(2.0, audioEnded = true, playing = true, nowNanos = 3_500_000_000L))
+    }
+
+    @Test
+    fun `audio timeline has no master clock without an audio track`() {
+        assertEquals(null, AudioMasterTimeline().position(null, audioEnded = false, playing = true, nowNanos = 1L))
+    }
+
 
     @Test
     fun `frameSyncAction waits when the frame is ahead of the audio clock`() {
@@ -66,7 +90,7 @@ class VideoAudioTrackTest {
         override fun available() = bufferSize
         override fun getFramePosition() = getLongFramePosition().toInt()
         override fun getLongFramePosition() = written / fmt.frameSize
-        override fun getMicrosecondPosition() = getLongFramePosition() * 1_000_000L / fmt.sampleRate.toLong()
+        override fun getMicrosecondPosition() = if (open) getLongFramePosition() * 1_000_000L / fmt.sampleRate.toLong() else 0L
         override fun getLevel() = AudioSystem.NOT_SPECIFIED.toFloat()
         override fun getLineInfo() = DataLine.Info(SourceDataLine::class.java, fmt)
         override fun close() { open = false }
@@ -138,6 +162,21 @@ class VideoAudioTrackTest {
         val gone = System.currentTimeMillis() + 2000
         while (ProcessManager.isTracked(process) && System.currentTimeMillis() < gone) Thread.sleep(20)
         assertFalse(ProcessManager.isTracked(process), "process must be unregistered after EOF + destroy")
+    }
+
+    @Test
+    fun `audio clock retains its rendered position after the output line closes`() {
+        val process = FakePcmProcess(ByteArray(16000)) // 1s, 8kHz mono s16le
+        val track = VideoAudioTrack(
+            java.io.File("x.mp4"), 0.0, 8000, 1, AtomicBoolean(true), AtomicBoolean(false),
+            processFactory = { process }, lineFactory = { InstantLine(it) },
+        )
+        track.start()
+        val deadline = System.currentTimeMillis() + 2000
+        while (ProcessManager.isTracked(process) && System.currentTimeMillis() < deadline) Thread.sleep(10)
+        assertFalse(ProcessManager.isTracked(process), "expected the audio output line to close")
+        assertEquals(1.0, track.clockSeconds)
+        track.destroy()
     }
 
     @Test

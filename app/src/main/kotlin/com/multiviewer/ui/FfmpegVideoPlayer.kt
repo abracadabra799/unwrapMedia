@@ -378,6 +378,7 @@ fun FfmpegVideoPlayer(
     // Hoisted so both the DisposableEffect (which creates it) and the progress coroutine (which reads
     // its clock) see the same instance.
     var audioTrackRef by remember(file) { mutableStateOf<VideoAudioTrack?>(null) }
+    var audioTimelineRef by remember(file) { mutableStateOf<AudioMasterTimeline?>(null) }
 
     fun setPlaying(play: Boolean) {
         if (play && !isPlaying) {
@@ -547,6 +548,8 @@ fun FfmpegVideoPlayer(
             ).also { it.start() }
         }
         audioTrackRef = audioTrack
+        val audioTimeline = audioTrack?.let { AudioMasterTimeline() }
+        audioTimelineRef = audioTimeline
 
         val stopped = AtomicBoolean(false)
         val fallbackDurationSeconds = 1.0 / info.fps
@@ -574,14 +577,20 @@ fun FfmpegVideoPlayer(
                     val buffer = ByteArray(frameSize)
                     val input = process.inputStream
                     var frameIndex = 0
+                    var lastReadMillis = 0L
+                    var lastBitmapMillis = 0L
+                    var droppedFrames = 0L
+                    var lastStallLogNanos = 0L
 
                     fun readFrame(): Boolean {
+                        val readStarted = System.nanoTime()
                         var offset = 0
                         while (offset < frameSize) {
                             val read = input.read(buffer, offset, frameSize - offset)
                             if (read < 0) return false
                             offset += read
                         }
+                        lastReadMillis = (System.nanoTime() - readStarted) / 1_000_000L
                         return true
                     }
 
@@ -590,7 +599,9 @@ fun FfmpegVideoPlayer(
 
                     fun deliver(durationSeconds: Double?) {
                         val position = timestampIndex?.position(firstSourceFrameIndex + frameIndex - 1)
+                        val bitmapStarted = System.nanoTime()
                         val snapshot = pixelBufferToImageBitmap(actualWidth, actualHeight, buffer, ColorType.BGRA_8888, ColorAlphaType.PREMUL)
+                        lastBitmapMillis = (System.nanoTime() - bitmapStarted) / 1_000_000L
                         EventQueue.invokeLater {
                             if (stopped.get()) return@invokeLater
                             videoBitmap = snapshot
@@ -658,10 +669,14 @@ fun FfmpegVideoPlayer(
                         val frameStart = frameElapsed
                         frameElapsed += durationSeconds
 
-                        val audioClock = audioTrack?.takeIf { !it.failed && !it.ended }?.clockSeconds
+                        val audioClock = audioTimeline?.position(
+                            audioClockSeconds = audioTrack?.takeUnless { it.failed }?.clockSeconds,
+                            audioEnded = audioTrack?.ended == true,
+                            playing = audioPlayingAtomic.get(),
+                            nowNanos = System.nanoTime(),
+                        )
                         if (audioClock == null) {
-                            // No audio track, audio failed to start, or audio ended before the video -- fall back to
-                            // the self-pacing video-frame clock (unchanged behavior for audio-less files).
+                            // No audio track or audio failed: use the video-only pacing clock.
                             if (shouldSkipFrame(cumulativeLagMillis, budgetMillis)) {
                                 cumulativeLagMillis = laggedAfterSkip(cumulativeLagMillis, budgetMillis)
                                 EventQueue.invokeLater { playedSeconds += durationSeconds }
@@ -675,12 +690,23 @@ fun FfmpegVideoPlayer(
                         } else {
                             // Audio is the master clock. deliver(null): in audio mode playedSeconds is mirrored from
                             // the audio clock by a separate coroutine, not advanced here.
+                            val behindSeconds = audioClock - frameStart
+                            val nowNanos = System.nanoTime()
+                            if (behindSeconds > 0.5 && nowNanos - lastStallLogNanos >= 5_000_000_000L) {
+                                System.err.println(
+                                    "Video playback lag: ${"%.3f".format(java.util.Locale.US, behindSeconds)}s " +
+                                        "frame=$frameIndex size=${actualWidth}x$actualHeight " +
+                                        "read=${lastReadMillis}ms bitmap=${lastBitmapMillis}ms dropped=$droppedFrames " +
+                                        "audioEnded=${audioTrack?.ended}",
+                                )
+                                lastStallLogNanos = nowNanos
+                            }
                             when (val action = frameSyncAction(frameStart, audioClock)) {
                                 is FrameAction.WaitThenDeliver -> {
                                     if (action.millis > 0) Thread.sleep(action.millis)
                                     deliver(null)
                                 }
-                                FrameAction.Drop -> { /* Behind the audio clock: omit this frame. */ }
+                                FrameAction.Drop -> { droppedFrames++ }
                                 FrameAction.Deliver -> deliver(null)
                             }
                         }
@@ -706,6 +732,7 @@ fun FfmpegVideoPlayer(
             com.multiviewer.util.ProcessManager.terminateAsync(process)
             audioTrack?.destroy()
             audioTrackRef = null
+            audioTimelineRef = null
         }
     }
 
@@ -715,10 +742,14 @@ fun FfmpegVideoPlayer(
         if (audioInfo == null) return@LaunchedEffect
         while (true) {
             audioTrackRef?.let { track ->
-                // Stop mirroring once the track ends or the reader thread has finalized playback --
-                // at EOF the reader snaps playedSeconds to the true end and this must not overwrite
-                // it back to the (short) rendered clock position.
-                if (!track.failed && !track.ended && !hasEnded) playedSeconds = track.clockSeconds
+                if (!track.failed && !hasEnded) {
+                    audioTimelineRef?.position(
+                        audioClockSeconds = track.clockSeconds,
+                        audioEnded = track.ended,
+                        playing = audioPlayingAtomic.get(),
+                        nowNanos = System.nanoTime(),
+                    )?.let { playedSeconds = it }
+                }
             }
             delay(50)
         }

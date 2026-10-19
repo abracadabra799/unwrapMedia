@@ -20,6 +20,26 @@ sealed interface FrameAction {
     data class WaitThenDeliver(val millis: Long) : FrameAction
 }
 
+/** Carries the audio master clock through PCM EOF without counting time spent paused. */
+internal class AudioMasterTimeline {
+    private var seconds = 0.0
+    private var sampledAtNanos: Long? = null
+    private var wasPlaying = false
+
+    @Synchronized
+    fun position(audioClockSeconds: Double?, audioEnded: Boolean, playing: Boolean, nowNanos: Long): Double? {
+        if (audioClockSeconds == null) return null
+        val previous = sampledAtNanos
+        if (audioEnded && previous != null && wasPlaying) {
+            seconds += ((nowNanos - previous).coerceAtLeast(0L) / 1_000_000_000.0)
+        }
+        seconds = maxOf(seconds, audioClockSeconds)
+        sampledAtNanos = nowNanos
+        wasPlaying = playing
+        return seconds
+    }
+}
+
 fun frameSyncAction(frameStartSeconds: Double, audioClockSeconds: Double): FrameAction {
     val leadSeconds = frameStartSeconds - audioClockSeconds
     return when {
@@ -99,6 +119,7 @@ internal class VideoAudioTrack(
 
     @Volatile private var process: Process? = null
     @Volatile private var line: SourceDataLine? = null
+    private var lastRenderedMicros = 0L
     private val stopped = AtomicBoolean(false)
     @Volatile private var thread: Thread? = null
 
@@ -111,7 +132,11 @@ internal class VideoAudioTrack(
     // Frozen while the line is stopped (pause). 0.0 before the line opens. Only meaningful while
     // !failed && !ended -- after the line closes this keeps returning its last stale position.
     val clockSeconds: Double
-        get() = (line?.microsecondPosition ?: 0L) / 1_000_000.0
+        @Synchronized get() {
+            val current = runCatching { line?.microsecondPosition }.getOrNull()
+            if (current != null) lastRenderedMicros = maxOf(lastRenderedMicros, current)
+            return lastRenderedMicros / 1_000_000.0
+        }
 
     fun start() {
         if (stopped.get() || thread != null) return
@@ -178,6 +203,9 @@ internal class VideoAudioTrack(
                     }
                 }
                 runCatching { p.inputStream.close() }
+                // Some Windows mixers reset microsecondPosition to zero (or throw) after close.
+                // Preserve the final rendered position for the video's post-EOF timeline.
+                clockSeconds
                 ln?.stop()
                 ln?.flush()
                 ln?.close()
