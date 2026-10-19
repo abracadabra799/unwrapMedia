@@ -306,17 +306,17 @@ fun ffmpegPipeArgs(ffmpegPath: String, filePath: String, seekArgs: List<String>,
         // "passthrough" (ffmpeg's current name for legacy -vsync 0) outputs decoded frames as-is,
         // matching probeFrameTimestamps()'s real frame count exactly (verified: 94 == 94).
         "-fps_mode", "passthrough",
-        // Caps the piped raw frame at 1280px on its longer side (never upscales --
+        // Caps the piped raw frame at 640px on its longer side (never upscales --
         // force_original_aspect_ratio=decrease only shrinks). Source device footage
         // routinely exceeds 1920x1440, meaning >10MB of uncompressed BGRA per frame
         // over a plain OS pipe -- reported (and, per this file's other comments,
         // previously measured) to be dramatically slower on Windows than macOS/Linux
-        // for the same raw-pipe volume. The player only ever displays this bitmap
-        // scaled to fit its own panel, which is never near source resolution, so
-        // there is no visible quality cost. actualWidth/actualHeight below is read
+        // for the same raw-pipe volume. Playback uses a smaller preview frame to
+        // reduce pipe traffic; the popup's native-frame view still decodes the source
+        // resolution for inspection. actualWidth/actualHeight below is read
         // from ffmpeg's own stderr banner (watchForActualDimensions), so it already
         // reflects this filter's real output size with no separate prediction needed.
-        "-vf", listOfNotNull(selectFilter, "scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease:flags=fast_bilinear").joinToString(","),
+        "-vf", listOfNotNull(selectFilter, "scale='min(640,iw)':'min(640,ih)':force_original_aspect_ratio=decrease:flags=fast_bilinear").joinToString(","),
         "-f", "rawvideo", "-pix_fmt", "bgra", "-an", "-",
     )
 

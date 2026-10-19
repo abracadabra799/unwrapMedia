@@ -1,7 +1,7 @@
 {
-  "version": "1.30.3",
+  "version": "1.30.4",
   "releaseDate": "2026-10-19",
-  "releaseNotes": "• 컨텐츠 검사: MOV(아이폰·ffmpeg) 영상의 AAC 오디오도 바이트 검사 (QuickTime 사운드 디스크립션 V1/V2 해석)\n• 구조 트리: MOV 오디오의 wave/esds 표시, V2 오디오의 실제 샘플레이트·채널 수 표시\n• AAC: HE-AAC/HE-AAC v2 파일을 샘플 엔트리 불일치로 잘못 판정하던 문제 수정\n• FLAC: 96kHz 이상 파일을 샘플 엔트리 불일치로 잘못 판정하던 문제 수정",
+  "releaseNotes": "• 동영상·모션포토·팝업 재생: 재생 프레임의 긴 변 상한을 640px로 낮춰 BGRA 파이프 전송량 감소\n• 재생 동기화: 오디오 입력 종료 후 남은 비디오 프레임이 뒤늦게 재생되던 문제 수정",
   "windowsUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest",
   "macUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest"
 }

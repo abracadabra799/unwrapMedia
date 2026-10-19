@@ -9,6 +9,44 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class FfmpegVideoPlayerTest {
+    private fun playbackPipeSizeFor(sourceWidth: Int, sourceHeight: Int): Pair<Int, Int> {
+        val video = File.createTempFile("ffmpeg-player-scale-", ".mp4")
+        try {
+            val encode = ProcessBuilder(
+                "ffmpeg", "-y", "-f", "lavfi", "-i",
+                "testsrc2=duration=0.2:size=${sourceWidth}x${sourceHeight}:rate=10",
+                "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", video.absolutePath,
+            ).redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .redirectError(ProcessBuilder.Redirect.DISCARD).start()
+            val encoded = encode.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)
+            if (!encoded) encode.destroyForcibly()
+            assertTrue(encoded, "test video generation timed out")
+            assertEquals(0, encode.exitValue(), "test video generation failed")
+            val process = ProcessBuilder(ffmpegPipeArgs("ffmpeg", video.absolutePath, emptyList())).start()
+            try {
+                val dimensions = watchForActualDimensions(process, -1 to -1)
+                    .get(5, java.util.concurrent.TimeUnit.SECONDS)
+                val bytes = readProcessOutputWithTimeout(process, 5) { process.inputStream.readBytes() }
+                assertEquals(dimensions.first * dimensions.second * 4 * 2, bytes?.size, "unexpected BGRA frame count or size")
+                return dimensions
+            } finally {
+                process.destroyForcibly()
+            }
+        } finally {
+            video.delete()
+        }
+    }
+
+    @Test
+    fun `playback pipe halves a 1280 by 720 source to 640 by 360`() {
+        assertEquals(640 to 360, playbackPipeSizeFor(1280, 720))
+    }
+
+    @Test
+    fun `playback pipe does not upscale a source smaller than 640`() {
+        assertEquals(320 to 180, playbackPipeSizeFor(320, 180))
+    }
+
     @Test
     fun `popup initial seek starts at selected frame without replaying an old seek tick`() {
         assertEquals(PlaybackStart(0.120, 7), initialPlaybackStart(0.120, 7))
