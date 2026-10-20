@@ -1,5 +1,6 @@
 package com.multiviewer.parser.motionphoto
 
+import com.multiviewer.parser.contentExtension
 import com.multiviewer.parser.BoxNode
 import com.multiviewer.parser.SefCheckResult
 import com.multiviewer.parser.SefIntegritySeverity
@@ -226,13 +227,15 @@ private fun computeTimeDeltaSeconds(stillDateStr: String?, videoDateStr: String?
  * Looks for candidate pair file in the same directory:
  * - If given an image (HEIC/JPG/JPEG), looks for .MOV / .mp4 with matching base name.
  * - If given a video (MOV/MP4), looks for .HEIC / .JPG / .JPEG with matching base name.
+ * Both sides are judged by content (contentExtension), so a HEIC saved as .jpg or a MOV saved as .bin
+ * still pairs; a same-named file with the expected extension wins without reading anything. Reads files:
+ * background threads only.
  */
 fun findLivePhotoPairCandidate(sourceFile: File): File? {
     val parent = sourceFile.parentFile ?: return null
     val baseName = sourceFile.nameWithoutExtension
-    val ext = sourceFile.extension.lowercase()
 
-    val targetExtensions = when (ext) {
+    val targetExtensions = when (contentExtension(sourceFile)) {
         "heic", "jpg", "jpeg" -> setOf("mov", "mp4")
         "mov", "mp4" -> setOf("heic", "jpg", "jpeg")
         else -> emptySet()
@@ -240,15 +243,10 @@ fun findLivePhotoPairCandidate(sourceFile: File): File? {
 
     if (targetExtensions.isEmpty()) return null
 
-    val files = parent.listFiles() ?: return null
-    for (file in files) {
-        if (!file.isFile) continue
-        if (file.nameWithoutExtension.equals(baseName, ignoreCase = true) &&
-            file.extension.lowercase() in targetExtensions &&
+    val sameName = (parent.listFiles() ?: return null).filter { file ->
+        file.isFile && file.nameWithoutExtension.equals(baseName, ignoreCase = true) &&
             file.canonicalPath != sourceFile.canonicalPath
-        ) {
-            return file
-        }
     }
-    return null
+    return sameName.firstOrNull { it.extension.lowercase() in targetExtensions }
+        ?: sameName.firstOrNull { contentExtension(it) in targetExtensions }
 }

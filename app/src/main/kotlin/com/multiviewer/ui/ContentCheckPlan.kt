@@ -7,6 +7,10 @@ import com.multiviewer.parser.integrity.AudioStructureChecker
 import com.multiviewer.parser.integrity.AudioStructureReport
 import com.multiviewer.parser.integrity.ImageIntegrityChecker
 import com.multiviewer.parser.integrity.ImageStructureReport
+import com.multiviewer.parser.integrity.IntegrityCheckItem
+import com.multiviewer.parser.integrity.CheckStatus
+import com.multiviewer.parser.confidentFormat
+import com.multiviewer.parser.formatMismatch
 import java.io.File
 
 enum class ContentTab { STRUCTURE, CONFORMANCE, CODEC, IMAGE_DECODE, MOTION_PHOTO, GAINMAP, VIDEO_DECODE, VIDEO_PACKETS, AUDIO }
@@ -30,12 +34,36 @@ fun heavySteps(type: MediaType, motionDetected: Boolean): List<HeavyStep> = when
 }
 
 /** Structure report for any media type: images → ImageIntegrityChecker.check; others → parser warnings only. */
-fun contentStructureReport(file: File, root: BoxNode, type: MediaType): ImageStructureReport =
-    if (type == MediaType.IMAGE) ImageIntegrityChecker.check(file, root)
+fun contentStructureReport(file: File, root: BoxNode, type: MediaType): ImageStructureReport {
+    val report = if (type == MediaType.IMAGE) ImageIntegrityChecker.check(file, root)
     else ImageStructureReport(format = type.name, items = ImageIntegrityChecker.parserWarningItems(root))
+    val mismatch = extensionMismatchItem(file) ?: return report
+    return report.copy(items = listOf(mismatch) + report.items)
+}
 
-fun contentAudioStructureReport(file: File, root: BoxNode): AudioStructureReport =
-    AudioStructureChecker.check(file, root)
+fun contentAudioStructureReport(file: File, root: BoxNode): AudioStructureReport {
+    val report = AudioStructureChecker.check(file, root)
+    val mismatch = extensionMismatchItem(file) ?: return report
+    return report.copy(items = listOf(mismatch) + report.items)
+}
+
+/**
+ * WARN when the file's extension isn't one its detected content format is saved under (a HEIC named .jpg):
+ * tools that trust the name will mis-handle it. Null when it matches or the content isn't confidently
+ * detected. Reads the file's first bytes: background only.
+ */
+fun extensionMismatchItem(file: File): IntegrityCheckItem? {
+    val format = confidentFormat(file) ?: return null
+    val mismatch = formatMismatch(format, file.extension) ?: return null
+    val shown = if (mismatch.extension.isEmpty()) "no extension" else ".${mismatch.extension}"
+    return IntegrityCheckItem(
+        id = "file.extension_mismatch",
+        title = "File extension",
+        status = CheckStatus.WARN,
+        detail = "Extension $shown does not match the content (${format.displayName}; expected " +
+            format.extensions.joinToString("/") { ".$it" } + "). Tools that trust the extension may mis-handle this file.",
+    )
+}
 
 /** Uses existing observations only; no file reads and no normative video profile is inferred. */
 fun contentConformanceReport(

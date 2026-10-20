@@ -167,4 +167,16 @@ class AppleLivePhotoPairCheckerTest {
         val loneFile = File(tempDir, "IMG_9999.JPG").apply { writeBytes(ByteArray(10)); deleteOnExit() }
         assertNull(findLivePhotoPairCandidate(loneFile))
     }
+
+    @Test
+    fun `findLivePhotoPairCandidate pairs mis-named files by content`() {
+        val tempDir = kotlin.io.path.createTempDirectory("livephoto_content").toFile().apply { deleteOnExit() }
+        fun fixture(name: String) = File(AppleLivePhotoPairCheckerTest::class.java.getResource("/format-sniff/$name")!!.toURI())
+        val still = File(tempDir, "IMG_1.jpg").also { fixture("a.heic").copyTo(it); it.deleteOnExit() }
+        val video = File(tempDir, "IMG_1.bin").also { fixture("a.mov").copyTo(it); it.deleteOnExit() }
+        File(tempDir, "IMG_1.txt").apply { writeText("notes"); deleteOnExit() }
+
+        assertEquals(video.absolutePath, findLivePhotoPairCandidate(still)?.absolutePath)
+        assertEquals(still.absolutePath, findLivePhotoPairCandidate(video)?.absolutePath)
+    }
 }

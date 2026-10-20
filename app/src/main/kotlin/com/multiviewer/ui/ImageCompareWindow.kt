@@ -70,6 +70,9 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.multiviewer.parser.isOpenableMediaFile
+import com.multiviewer.parser.confidentFormat
+import com.multiviewer.parser.contentExtension
 import java.awt.EventQueue
 import java.awt.FileDialog
 import java.awt.Frame
@@ -285,7 +288,7 @@ fun ImageCompareWindow(
         // Check if file is already loaded in one of the AppState tabs
         val matchingTab = appState.tabs.find { it.file.absolutePath == file.absolutePath }
         if (matchingTab != null && matchingTab.root != null) {
-            val isVid = matchingTab.type == MediaType.VIDEO || isVideoExtension(file)
+            val isVid = matchingTab.type == MediaType.VIDEO || isVideoExtension(file, matchingTab.detectedFormat)
             val dur = extractVideoDuration(matchingTab.root, matchingTab.mediaSummary)
             session.deliver { onLoaded(
                 CompareMediaInfo(
@@ -310,7 +313,7 @@ fun ImageCompareWindow(
                 ByteReader.open(file).use { reader ->
                     val root = parseFile(file, reader)
                     val summary = buildMediaSummary(root, file, reader)
-                    val isVid = summary.category == MediaCategory.VIDEO || isVideoExtension(file)
+                    val isVid = summary.category == MediaCategory.VIDEO || isVideoExtension(file, confidentFormat(file))
                     val dur = extractVideoDuration(root, summary)
 
                     if (isVid) {
@@ -452,6 +455,7 @@ fun ImageCompareWindow(
     ) {
         var dragHoverSide by remember { mutableStateOf<Boolean?>(null) }
 
+        val dropScope = rememberCoroutineScope()
         LaunchedEffect(Unit) {
             fun xFractionOf(point: java.awt.Point): Float =
                 if (window.width > 0) point.x.toFloat() / window.width else 0f
@@ -462,13 +466,15 @@ fun ImageCompareWindow(
                     dragHoverSide = point?.let { xFractionOf(it) < 0.5f }
                 },
                 onFilesDropped = { files, point ->
-                    val mediaFiles = files.filter {
-                        it.isFile && it.extension.lowercase(Locale.US) in ALL_SUPPORTED_MEDIA_EXTENSIONS
-                    }
-                    if (mediaFiles.isNotEmpty()) {
-                        applyPick(resolveDroppedFiles(mediaFiles, xFractionOf(point)))
-                    }
                     dragHoverSide = null
+                    val xFraction = xFractionOf(point)
+                    // The content check reads unsupported-extension files: off the UI thread.
+                    dropScope.launch {
+                        val mediaFiles = withContext(Dispatchers.IO) { files.filter { isOpenableMediaFile(it) } }
+                        if (mediaFiles.isNotEmpty()) {
+                            applyPick(resolveDroppedFiles(mediaFiles, xFraction))
+                        }
+                    }
                 },
             )
         }
@@ -975,7 +981,10 @@ private fun FileDropdownOrLabel(
 
     // When folder is chosen via browse dialog, scan all supported media files in that specific folder
     // Listed off the UI thread (empty until it arrives).
-    val folderFiles = rememberFolderListing(selectedFolder)?.mediaFiles ?: emptyList()
+    val folderListing = rememberFolderListing(selectedFolder)
+    val folderFiles = folderListing?.mediaFiles ?: emptyList()
+    // Icon kind: the detected format's extension for files the listing found by content (no disk access).
+    fun kindExtensionOf(file: File): String = folderListing?.kindExtension(file) ?: file.extension.lowercase(Locale.US)
 
     Box {
         Surface(
@@ -995,7 +1004,7 @@ private fun FileDropdownOrLabel(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 val icon = if (selectedFile != null) {
-                    val ext = selectedFile.extension.lowercase(Locale.US)
+                    val ext = kindExtensionOf(selectedFile)
                     if (ext in VIDEO_EXTENSIONS) "🎬" else if (ext in AUDIO_EXTENSIONS) "🎵" else "🖼️"
                 } else ""
                 Text(
@@ -1040,7 +1049,7 @@ private fun FileDropdownOrLabel(
                     }
                     openTabFiles.forEach { file ->
                         val isCurrent = file.absolutePath == selectedFile?.absolutePath
-                        val ext = file.extension.lowercase(Locale.US)
+                        val ext = kindExtensionOf(file)
                         val icon = if (ext in VIDEO_EXTENSIONS) "🎬" else if (ext in AUDIO_EXTENSIONS) "🎵" else "🖼️"
                         DropdownMenuItem(
                             text = {
@@ -1087,7 +1096,7 @@ private fun FileDropdownOrLabel(
                     }
                     folderFiles.forEach { file ->
                         val isCurrent = file.absolutePath == selectedFile?.absolutePath
-                        val ext = file.extension.lowercase(Locale.US)
+                        val ext = kindExtensionOf(file)
                         val icon = if (ext in VIDEO_EXTENSIONS) "🎬" else if (ext in AUDIO_EXTENSIONS) "🎵" else "🖼️"
                         DropdownMenuItem(
                             text = {
@@ -1146,8 +1155,9 @@ internal fun formatSize(bytes: Long): String {
     }
 }
 
-private fun isVideoExtension(file: File): Boolean {
-    val ext = file.extension.lowercase(Locale.US)
+// By content when the format is known: a HEIC saved as .mp4 is not a video.
+private fun isVideoExtension(file: File, format: com.multiviewer.parser.ContainerFormat?): Boolean {
+    val ext = contentExtension(file, format)
     return ext in setOf("mp4", "mov", "mkv", "webm", "avi", "ts", "m4v", "flv", "wmv", "3gp")
 }
 

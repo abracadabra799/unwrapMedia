@@ -102,7 +102,7 @@ The small, synthetic showcase assets are in [`docs/showcase-media/`](docs/showca
 
 Codec playback and analysis depend on the container, stream profile, and available decoder. AV2 playback is currently Windows-only.
 
-Formats are detected from file content (magic bytes, ISO BMFF `ftyp` brands), not the extension. A file with a wrong or missing extension still opens when its content is a supported format; the mismatch is flagged with ⚠ on the tab and a `Content Format` row in the summary panel. Files whose content is not recognized open only when their extension is supported.
+Formats are detected from file content (magic bytes, ISO BMFF `ftyp` brands), not the extension. A file with a wrong or missing extension still opens when its content is a supported format; the mismatch is flagged with ⚠ on the tab and a `Content Format` row in the summary panel. Files whose content is not recognized open only when their extension is supported. The folder explorer and Compare window also list unsupported-extension files whose content is media (up to 200 checked per folder; obvious non-media extensions such as documents and archives are skipped), and Content Check reports an extension mismatch as a WARN in its Structure tab.
 
 ## Get started
 

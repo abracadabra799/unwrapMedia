@@ -35,6 +35,27 @@ class FolderListingTest {
         assertEquals(listing.mediaFiles, listFolderMediaFiles(dir))
     }
 
+    private fun File.copyOfFixture(fixture: String, name: String) =
+        File(this, name).also { File(FolderListingTest::class.java.getResource("/format-sniff/$fixture")!!.toURI()).copyTo(it); it.deleteOnExit() }
+
+    @Test
+    fun `files whose content is recognized media are listed despite their extension`() {
+        val dir = tempDir()
+        dir.copyOfFixture("a.heic", "photo.bin")
+        dir.copyOfFixture("a.mov", "clip")
+        dir.copyOfFixture("a.png", "image.txt") // known non-media extension: not sniffed
+        dir.file("random.xyz")
+        dir.copyOfFixture("a.jpg", "real.jpg")
+
+        val listing = listFolder(dir)
+
+        assertEquals(listOf("clip", "photo.bin", "real.jpg"), listing.mediaFiles.map { it.name })
+        assertEquals("heic", listing.kindExtension(File(dir, "photo.bin")))
+        assertEquals("mov", listing.kindExtension(File(dir, "clip")))
+        assertEquals("jpg", listing.kindExtension(File(dir, "real.jpg")))
+        assertEquals(listing.contentFormats, listing.matching("o").contentFormats)
+    }
+
     @Test
     fun `missing folder, a plain file and null are unavailable and empty`() {
         val dir = tempDir()

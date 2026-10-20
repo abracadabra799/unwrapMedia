@@ -146,7 +146,7 @@ fun FolderExplorerView(
     val filteredFiles = remember(allMediaFiles, searchQuery, selectedCategory) {
         allMediaFiles.filter { file ->
             val matchesQuery = searchQuery.isBlank() || file.name.contains(searchQuery, ignoreCase = true)
-            val ext = file.extension.lowercase(Locale.US)
+            val ext = listing?.kindExtension(file) ?: file.extension.lowercase(Locale.US)
             val matchesCategory = when (selectedCategory) {
                 MediaFilterCategory.ALL -> true
                 MediaFilterCategory.VIDEO -> ext in VIDEO_EXTENSIONS
@@ -403,7 +403,7 @@ fun FolderExplorerView(
                         items(filteredFiles, key = { it.absolutePath }) { file ->
                             val isSelected = file in selectedFiles
                             val isCurrentTab = currentTab?.file?.absolutePath == file.absolutePath
-                            val ext = file.extension.lowercase(Locale.US)
+                            val ext = listing?.kindExtension(file) ?: file.extension.lowercase(Locale.US)
                             val icon = when {
                                 ext in VIDEO_EXTENSIONS -> "🎬"
                                 ext in AUDIO_EXTENSIONS -> "🎵"
@@ -527,7 +527,7 @@ fun FolderExplorerView(
                         val openedTabIndex = appState.tabs.indexOfFirst { it.file.absolutePath == file.absolutePath }
                         val isOpened = openedTabIndex >= 0
                         val isCurrentTab = currentTab?.file?.absolutePath == file.absolutePath
-                        val ext = file.extension.lowercase(Locale.US)
+                        val ext = listing?.kindExtension(file) ?: file.extension.lowercase(Locale.US)
                         val (icon, badgeColor) = when {
                             ext in VIDEO_EXTENSIONS -> "🎬" to Color(0xFF61AFEF)
                             ext in AUDIO_EXTENSIONS -> "🎵" to Color(0xFF98C379)

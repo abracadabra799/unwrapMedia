@@ -1,5 +1,8 @@
 package com.multiviewer.ui
 
+import com.multiviewer.parser.isOpenableMediaFile
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -169,11 +172,14 @@ private object ExplorerThumbnailLoader {
             }
             workQueue.enqueue(path, initialPriority) {
                 val sourceFingerprint = ThumbnailSourceFingerprint.capture(file)
+                // Route by content, not name (worker thread, so the sniff's read is fine): a MOV saved as .bin
+                // still goes to ffmpeg, a HEIC saved as .mp4 to the image decoders.
+                val kindExt = com.multiviewer.parser.contentExtension(file)
                 val workerStarted = System.nanoTime()
                 val queueMs = (workerStarted - requestedAt) / 1_000_000
                 val sourceBytes = runCatching { file.length() }.getOrNull()
                 val decodeStarted = System.nanoTime()
-                var route = if (ext in VIDEO_EXTENSIONS) "ffmpeg" else "skia"
+                var route = if (kindExt in VIDEO_EXTENSIONS) "ffmpeg" else "skia"
                 var result = "failed"
                 var delivered = false
                 try {
@@ -204,10 +210,10 @@ private object ExplorerThumbnailLoader {
                     } else {
                         val coordinator = ThumbnailLoadCoordinator<ImageBitmap>(
                             preview = { source ->
-                                if (ext == "jpg" || ext == "jpeg") ImageAnalyzer.decodeEmbeddedJpegThumbnail(source, longestEdge = 240) else null
+                                if (kindExt == "jpg" || kindExt == "jpeg") ImageAnalyzer.decodeEmbeddedJpegThumbnail(source, longestEdge = 240) else null
                             },
                             decodeFinal = { source ->
-                                if (ext in VIDEO_EXTENSIONS) {
+                                if (kindExt in VIDEO_EXTENSIONS) {
                                     route = "ffmpeg"
                                     FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap(
                                         listOf(FfmpegLocator.ffmpegPath(), "-y", "-ss", "0.5", "-i", source.absolutePath,
@@ -355,6 +361,8 @@ fun FastStoneExplorerView(
         }
     }
     val folderListing = loadedListing?.takeIf { it.first == currentFolder }?.second
+    // Icon/badge kind: the detected format's extension for files listed by content (no disk access).
+    fun kindExtensionOf(file: File): String = folderListing?.kindExtension(file) ?: file.extension.lowercase(Locale.US)
 
     val subDirectories = folderListing?.subfolders ?: emptyList()
 
@@ -380,6 +388,7 @@ fun FastStoneExplorerView(
         compareSelection.filesForCompare()?.let(onOpenCompare)
     }
 
+    val pickScope = rememberCoroutineScope()
     fun pickFileForSlot(slotIndex: Int) {
         val selectedFile = if (slotIndex == 0) compareSelection.slotA else compareSelection.slotB
         val dialog = FileDialog(
@@ -395,15 +404,15 @@ fun FastStoneExplorerView(
             ?: appState.lastOpenedDirectory?.takeIf { it.isDirectory }?.absolutePath
             ?: currentFolder.absolutePath
         dialog.isMultipleMode = false
-        dialog.filenameFilter = java.io.FilenameFilter { _, name ->
-            name.substringAfterLast('.', "").lowercase(Locale.US) in ALL_SUPPORTED_MEDIA_EXTENSIONS
-        }
+        // No name filter: a mis-named media file must stay pickable; the content check below decides.
         dialog.isVisible = true
         val pickedFile = dialog.file?.let { name -> dialog.directory?.let { directory -> File(directory, name) } }
             ?: return
-        if (pickedFile.extension.lowercase(Locale.US) !in ALL_SUPPORTED_MEDIA_EXTENSIONS) return
-        compareSelection = compareSelection.assign(slotIndex, pickedFile)
-        appState.updateLastOpenedDirectory(pickedFile)
+        pickScope.launch {
+            if (!withContext(Dispatchers.IO) { isOpenableMediaFile(pickedFile) }) return@launch
+            compareSelection = compareSelection.assign(slotIndex, pickedFile)
+            appState.updateLastOpenedDirectory(pickedFile)
+        }
     }
 
     val explorerFocusRequester = remember { FocusRequester() }
@@ -717,7 +726,7 @@ fun FastStoneExplorerView(
                                                     modifier = Modifier.fillMaxSize(),
                                                 )
                                             } else {
-                                                val isVid = file.extension.lowercase(Locale.US) in VIDEO_EXTENSIONS
+                                                val isVid = kindExtensionOf(file) in VIDEO_EXTENSIONS
                                                 Text(
                                                     text = if (isVid) "🎬" else "🖼️",
                                                     fontSize = 28.sp,
@@ -733,13 +742,13 @@ fun FastStoneExplorerView(
                                                 horizontalArrangement = Arrangement.SpaceBetween,
                                                 verticalAlignment = Alignment.Top,
                                             ) {
-                                                val isVid = file.extension.lowercase(Locale.US) in VIDEO_EXTENSIONS
+                                                val isVid = kindExtensionOf(file) in VIDEO_EXTENSIONS
                                                 Surface(
                                                     color = Color.Black.copy(alpha = 0.65f),
                                                     shape = RoundedCornerShape(3.dp),
                                                 ) {
                                                     Text(
-                                                        text = if (isVid) "VIDEO" else file.extension.uppercase(Locale.US),
+                                                        text = if (isVid) "VIDEO" else kindExtensionOf(file).uppercase(Locale.US),
                                                         fontSize = 8.sp,
                                                         fontWeight = FontWeight.Bold,
                                                         color = if (isVid) AppColors.NeonPurple else AppColors.NeonBlue,
@@ -858,7 +867,7 @@ fun FastStoneExplorerView(
                                                         modifier = Modifier.fillMaxSize(),
                                                     )
                                                 } else {
-                                                    val isVid = file.extension.lowercase(Locale.US) in VIDEO_EXTENSIONS
+                                                    val isVid = kindExtensionOf(file) in VIDEO_EXTENSIONS
                                                     Text(if (isVid) "🎬" else "🖼️", fontSize = 12.sp)
                                                 }
                                             }

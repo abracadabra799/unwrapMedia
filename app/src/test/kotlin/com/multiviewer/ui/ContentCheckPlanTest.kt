@@ -10,6 +10,7 @@ import com.multiviewer.parser.integrity.jpegBytes
 import com.multiviewer.parser.parseFile
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertNull
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.assertFalse
@@ -191,5 +192,33 @@ class ContentCheckPlanTest {
         assertFalse(section.contains("이미지 디코딩"), prompt)
         assertFalse(prompt.contains(file.absolutePath), prompt)
         assertTrue(prompt.contains("이미지 디코딩: 미실행"), prompt)
+    }
+
+    private fun renamed(fixture: String, name: String): File {
+        val dir = kotlin.io.path.createTempDirectory("content-check-ext").toFile().apply { deleteOnExit() }
+        return File(dir, name).also {
+            File(ContentCheckPlanTest::class.java.getResource("/format-sniff/$fixture")!!.toURI()).copyTo(it)
+            it.deleteOnExit()
+        }
+    }
+
+    @Test
+    fun `structure report warns when the extension does not match the content`() {
+        val file = renamed("a.heic", "photo.jpg")
+        val report = contentStructureReport(file, com.multiviewer.parser.parseFile(file), MediaType.IMAGE)
+        val item = report.items.first()
+        assertEquals("file.extension_mismatch", item.id)
+        assertEquals(com.multiviewer.parser.integrity.CheckStatus.WARN, item.status)
+        assertTrue(item.detail.contains(".jpg") && item.detail.contains("HEIF"), item.detail)
+
+        val audio = renamed("a.m4a", "song.bin")
+        assertEquals("file.extension_mismatch", contentAudioStructureReport(audio, com.multiviewer.parser.parseFile(audio)).items.first().id)
+    }
+
+    @Test
+    fun `no extension item when the extension matches or content is unrecognized`() {
+        val file = renamed("a.jpg", "photo.jpeg")
+        assertNull(extensionMismatchItem(file))
+        assertNull(extensionMismatchItem(File.createTempFile("ccp-unrecognized", ".mp4").apply { deleteOnExit(); writeBytes(ByteArray(4)) }))
     }
 }

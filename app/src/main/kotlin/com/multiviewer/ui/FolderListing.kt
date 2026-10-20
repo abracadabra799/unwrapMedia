@@ -3,6 +3,8 @@ package com.multiviewer.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import com.multiviewer.parser.ContainerFormat
+import com.multiviewer.parser.confidentFormat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -19,7 +21,17 @@ data class FolderListing(
     val available: Boolean,
     /** True when the folder exists but could not be listed (permission or access restriction). */
     val unreadable: Boolean = false,
+    /**
+     * Files listed because of their content rather than their extension (absolute path -> detected format).
+     * Files with a supported extension are not sniffed (a photo folder would cost one read per file), so they
+     * never appear here.
+     */
+    val contentFormats: Map<String, ContainerFormat> = emptyMap(),
 ) {
+    /** The extension to pick an icon/category by: the detected format's for content-listed files. No disk access. */
+    fun kindExtension(file: File): String =
+        contentFormats[file.absolutePath]?.extensions?.first() ?: file.extension.lowercase(Locale.US)
+
     /** Entries whose name contains [query] (ignoring case); a blank query keeps everything. No disk access. */
     fun matching(query: String): FolderListing =
         if (query.isBlank()) {
@@ -39,6 +51,17 @@ data class FolderListing(
 
 private val BY_LOWERCASE_NAME = compareBy<File> { it.name.lowercase(Locale.US) }
 
+// Unsupported-extension files are sniffed (first bytes read) to find mis-named media. Bounded so a huge or
+// remote folder of documents doesn't turn one listing into thousands of reads; obvious non-media is skipped.
+private const val MAX_CONTENT_SNIFFS_PER_LISTING = 200
+private val NON_MEDIA_EXTENSIONS = setOf(
+    "txt", "md", "json", "xml", "csv", "tsv", "log", "ini", "cfg", "conf", "yaml", "yml", "toml", "plist",
+    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "hwp", "rtf", "odt",
+    "zip", "7z", "rar", "gz", "tgz", "bz2", "xz", "tar", "jar", "apk", "dmg", "iso", "exe", "msi", "dll", "so", "dylib",
+    "html", "htm", "css", "js", "ts", "kt", "kts", "java", "py", "c", "cpp", "h", "sh", "bat", "cmd", "ps1",
+    "srt", "vtt", "ass", "ttf", "otf", "woff", "woff2", "db", "sqlite", "lnk", "url", "thumb", "tmp", "part",
+)
+
 /**
  * Lists [dir] once (one `listFiles` plus a stat per entry). Blocking file I/O: call it off the UI thread,
  * e.g. through [rememberFolderListing]. Never throws.
@@ -50,15 +73,29 @@ fun listFolder(dir: File?): FolderListing {
         val entries = dir.listFiles() ?: return FolderListing.UNREADABLE
         val media = ArrayList<File>()
         val subfolders = ArrayList<File>()
+        val contentFormats = HashMap<String, ContainerFormat>()
+        var sniffed = 0
         for (entry in entries) {
             if (entry.isHidden) continue
             if (entry.isDirectory) {
                 subfolders += entry
-            } else if (entry.isFile && entry.extension.lowercase(Locale.US) in ALL_SUPPORTED_MEDIA_EXTENSIONS) {
-                media += entry
+            } else if (entry.isFile) {
+                val ext = entry.extension.lowercase(Locale.US)
+                if (ext in ALL_SUPPORTED_MEDIA_EXTENSIONS) {
+                    media += entry
+                } else if (ext !in NON_MEDIA_EXTENSIONS && sniffed < MAX_CONTENT_SNIFFS_PER_LISTING) {
+                    sniffed++
+                    confidentFormat(entry)?.let { format ->
+                        media += entry
+                        contentFormats[entry.absolutePath] = format
+                    }
+                }
             }
         }
-        FolderListing(media.sortedWith(BY_LOWERCASE_NAME), subfolders.sortedWith(BY_LOWERCASE_NAME), available = true)
+        FolderListing(
+            media.sortedWith(BY_LOWERCASE_NAME), subfolders.sortedWith(BY_LOWERCASE_NAME), available = true,
+            contentFormats = contentFormats,
+        )
     } catch (_: SecurityException) {
         FolderListing.UNREADABLE
     } catch (_: Exception) {

@@ -38,6 +38,17 @@ dump could not be opened, and a HEIC renamed to `.mp4` would have been treated a
 See `docs/validation/format-sniff-fixtures/generate.sh` (ffmpeg + sips; `qt  `, `isom`, `M4A `, `heic`+`mif1`,
 `avif`+`mif1`, ADTS `FFF1`, MP3 `FFFB`, ID3, ASF GUID).
 
-## Out of scope (phase 2)
-Folder explorer listing by content, Compare window drag/drop & picker, Live Photo pair lookup by name,
-a Content Check "extension mismatch" item.
+## Phase 2 (implemented on `feat/content-format-phase2`)
+- **Folder listing** (`listFolder`, already off the UI thread): files with a supported extension are listed
+  without reading them (unchanged cost for photo folders). Other files are sniffed with `confidentFormat` and
+  listed when recognized, recorded in `FolderListing.contentFormats`; at most 200 sniffs per listing, and
+  obvious non-media extensions (documents, archives, source, subtitles, fonts …) are skipped.
+  `FolderListing.kindExtension(file)` gives icons/category filters the detected kind without disk access.
+  Supported-extension files are not sniffed, so a HEIC named .mp4 still shows a video icon until opened.
+- **Compare window:** the file picker no longer filters by name; picked and dropped files go through
+  `isOpenableMediaFile` (supported extension or confident content) on `Dispatchers.IO`. Video/image routing
+  of loading and explorer thumbnails uses `contentExtension`.
+- **Live Photo pair lookup:** source and candidates judged by `contentExtension`; same-named files with the
+  expected extension win without any read, then other same-named files are sniffed.
+- **Content Check:** `extensionMismatchItem` adds `file.extension_mismatch` (WARN) at the top of the image /
+  video / audio structure report.

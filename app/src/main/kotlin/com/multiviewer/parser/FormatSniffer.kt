@@ -1,6 +1,7 @@
 package com.multiviewer.parser
 
 import com.multiviewer.parser.integrity.parseMpegFrame
+import com.multiviewer.ui.ALL_SUPPORTED_MEDIA_EXTENSIONS
 import com.multiviewer.ui.AUDIO_EXTENSIONS
 import com.multiviewer.ui.IMAGE_EXTENSIONS
 import com.multiviewer.ui.MediaType
@@ -99,6 +100,13 @@ fun contentExtension(file: File, format: ContainerFormat?): String {
 
 /** [contentExtension] for callers that have only the file (sniffs it: background threads only). */
 fun contentExtension(file: File): String = contentExtension(file, confidentFormat(file))
+
+/**
+ * Whether the file may be opened at all: a supported extension, or content recognized with confidence (the
+ * same rule as AppState.openFile). Reads the file when the extension isn't supported: background only.
+ */
+fun isOpenableMediaFile(file: File): Boolean =
+    file.isFile && (file.extension.lowercase(Locale.US) in ALL_SUPPORTED_MEDIA_EXTENSIONS || confidentFormat(file) != null)
 
 /** Image/video/audio by content, else by extension (same rule as AppState.openFile). Background threads only. */
 fun contentMediaType(file: File, format: ContainerFormat? = confidentFormat(file)): MediaType {
