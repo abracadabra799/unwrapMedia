@@ -29,9 +29,65 @@ class AppStateTest {
         assertTrue("av2" in VIDEO_EXTENSIONS)
     }
 
-    // .mp4, not .bin: openFile() now rejects unsupported extensions before parsing at all (see
-    // AppState.openFile's hard extension gate), so fixtures need a real supported extension even
-    // when the byte content itself is a trivial placeholder.
+    private fun renamedFixture(name: String, newExtension: String): File {
+        val source = File(javaClass.getResource("/format-sniff/$name")!!.toURI())
+        val dir = kotlin.io.path.createTempDirectory("format-sniff-").toFile().apply { deleteOnExit() }
+        val target = File(dir, if (newExtension.isEmpty()) "renamed" else "renamed.$newExtension")
+        source.copyTo(target)
+        target.deleteOnExit()
+        return target
+    }
+
+    private fun openAndLoad(file: File): TabState {
+        val appState = AppState()
+        appState.openFile(file)
+        val tab = appState.tabs.single()
+        waitForLoad(tab)
+        return tab
+    }
+
+    @Test
+    fun `a HEIC saved as jpg opens as a HEIF image with a mismatch warning`() {
+        val tab = openAndLoad(renamedFixture("a.heic", "jpg"))
+        assertEquals(MediaType.IMAGE, tab.type)
+        assertEquals(com.multiviewer.parser.ContainerFormat.HEIF, tab.detectedFormat)
+        assertEquals(com.multiviewer.parser.ExtensionMismatch("jpg", com.multiviewer.parser.ContainerFormat.HEIF), tab.extensionMismatch)
+        assertEquals("Content Format", tab.mediaSummary?.sections?.first()?.fields?.first()?.label)
+    }
+
+    @Test
+    fun `an unsupported extension opens when the content is a recognized format`() {
+        val mov = openAndLoad(renamedFixture("a.mov", "bin"))
+        assertEquals(MediaType.VIDEO, mov.type)
+        assertEquals(com.multiviewer.parser.ContainerFormat.MOV, mov.detectedFormat)
+        assertTrue(mov.root!!.children.any { it.type == "moov" })
+
+        val m4a = openAndLoad(renamedFixture("a.m4a", ""))
+        assertEquals(MediaType.AUDIO, m4a.type)
+        assertEquals("", m4a.extensionMismatch?.extension)
+
+        val mp3 = openAndLoad(renamedFixture("a_noid3.mp3", "dat"))
+        assertEquals(MediaType.AUDIO, mp3.type)
+    }
+
+    @Test
+    fun `a matching extension has no mismatch warning`() {
+        val tab = openAndLoad(renamedFixture("a.jpg", "jpeg"))
+        assertEquals(com.multiviewer.parser.ContainerFormat.JPEG, tab.detectedFormat)
+        assertEquals(null, tab.extensionMismatch)
+        assertTrue(tab.mediaSummary?.sections?.flatMap { it.fields }?.none { it.label == "Content Format" } ?: true)
+    }
+
+    @Test
+    fun `unrecognized content with a supported extension still opens by extension`() {
+        val tab = openAndLoad(tempFile("unrecognized"))
+        assertEquals(MediaType.VIDEO, tab.type)
+        assertEquals(null, tab.detectedFormat)
+        assertEquals(null, tab.extensionMismatch)
+    }
+
+    // .mp4, not .bin: openFile() refuses unsupported extensions whose bytes aren't a recognized
+    // format, so placeholder-content fixtures need a real supported extension.
     private fun tempFile(name: String): File {
         val tmp = File.createTempFile(name, ".mp4")
         tmp.deleteOnExit()
@@ -253,8 +309,16 @@ class AppStateTest {
         val appState = AppState()
         appState.openFile(file)
 
+        // The content check reads the file, so it runs off the UI thread: the placeholder tab is
+        // discarded (before any parsing) once the bytes turn out not to be a recognized format.
+        val deadline = System.currentTimeMillis() + 5000
+        while (appState.openFileError == null) {
+            check(System.currentTimeMillis() < deadline) { "Timed out waiting for the refusal" }
+            Thread.sleep(10)
+        }
         assertTrue(appState.tabs.isEmpty())
         assertTrue(appState.openFileError?.contains(".xyz") == true)
+        assertTrue(appState.openFileError?.contains("지원하지 않는 파일 형식") == true)
     }
 
     @Test

@@ -183,7 +183,7 @@ suspend fun inspectImageDecode(
     ffmpeg: String = FfmpegLocator.ffmpegPath(),
     timeoutMs: Long = 120_000,
 ): ImageDecodeReport = withContext(Dispatchers.IO) {
-    val isRaw = structure.format == "TIFF" && file.extension.lowercase(Locale.US) in RAW_IMAGE_EXTENSIONS
+    val isRaw = structure.format == "TIFF" && com.multiviewer.parser.contentExtension(file) in RAW_IMAGE_EXTENSIONS
     val preview: Pair<Long, ByteArray>? = if (isRaw) {
         ByteReader.open(file).use { r -> TiffIntegrity.largestJpegPreview(r)?.let { (off, n) -> off to r.readBytes(off, n.toInt()) } }
     } else null

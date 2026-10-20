@@ -87,7 +87,8 @@ data class MpfImageEntry(
 object GainmapParser {
 
     fun findGainmapInfo(file: File, root: BoxNode): GainmapInfo? {
-        val extension = file.extension.lowercase()
+        // By content, not name: a HEIC saved as .jpg still has its gain map in HEIF items.
+        val extension = contentExtension(file)
         val found = when (extension) {
             "heic", "heif" -> findGainmapInHeic(file, root)
             "avif" -> findGainmapInAvif(file, root) ?: findGainmapInHeic(file, root)

@@ -165,7 +165,7 @@ private fun validateTabForMotionPhoto(
     if (tab.gifAnimation != null) {
         return I18n.errMotionPhotoAnimatedGif(language)
     }
-    val ext = tab.file.extension.lowercase(java.util.Locale.US)
+    val ext = com.multiviewer.parser.contentExtension(tab.file, tab.detectedFormat)
     val isHeic = ext in setOf("heic", "heif")
     if (version == com.multiviewer.parser.MotionPhotoFormatVersion.V1_MICRO_VIDEO && isHeic) {
         return I18n.errMotionPhotoV1HeicNotSupported(language)
@@ -221,7 +221,7 @@ private fun createMotionPhotoFromCurrentTab(
         return
     }
 
-    val isHeic = tab.file.extension.lowercase(java.util.Locale.US) in setOf("heic", "heif")
+    val isHeic = com.multiviewer.parser.contentExtension(tab.file, tab.detectedFormat) in setOf("heic", "heif")
     val defaultExt = if (isHeic) "heic" else "jpg"
     val suffix = if (version == com.multiviewer.parser.MotionPhotoFormatVersion.V1_MICRO_VIDEO) "_microvideo" else "_motion"
     val saveTitle = if (language == AppLanguage.KO) "모션포토 저장" else "Save Motion Photo"
@@ -612,7 +612,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
             appMenu(I18n.menuMotionPhoto(language), mnemonic = 'M') {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 val isImage = currentTab != null && !currentTab.isLoading && currentTab.type == MediaType.IMAGE
-                val isHeic = currentTab?.file?.extension?.lowercase(java.util.Locale.US) in setOf("heic", "heif")
+                val isHeic = currentTab?.let { com.multiviewer.parser.contentExtension(it.file, it.detectedFormat) } in setOf("heic", "heif")
                 item(
                     I18n.menuMotionFrameDropAnalysis(language),
                     enabled = currentTab?.embeddedVideo != null,
@@ -1127,15 +1127,26 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                                     @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
                                     androidx.compose.foundation.TooltipArea(
                                         tooltip = {
-                                            Text(
-                                                tab.file.absolutePath,
-                                                style = AppTypography.labelLarge,
-                                                color = AppColors.TextPrimary,
+                                            val mismatch = tab.extensionMismatch
+                                            Column(
                                                 modifier = Modifier
                                                     .background(AppColors.Panel, RoundedCornerShape(4.dp))
                                                     .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
                                                     .padding(horizontal = 8.dp, vertical = 4.dp),
-                                            )
+                                            ) {
+                                                Text(
+                                                    tab.file.absolutePath,
+                                                    style = AppTypography.labelLarge,
+                                                    color = AppColors.TextPrimary,
+                                                )
+                                                if (mismatch != null) {
+                                                    Text(
+                                                        "⚠ " + I18n.extensionMismatch(language, mismatch.extension, mismatch.actual.displayName),
+                                                        style = AppTypography.labelLarge,
+                                                        color = AppColors.NeonOrange,
+                                                    )
+                                                }
+                                            }
                                         },
                                     ) {
                                     Tab(
@@ -1159,6 +1170,10 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                                             // horizontally, and the full path is in the tooltip. No weight/fillMaxWidth
                                             // here -- under the row's unbounded width they collapse the name to 0.
                                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                                if (tab.extensionMismatch != null) {
+                                                    Text("⚠", color = AppColors.NeonOrange, style = AppTypography.labelLarge)
+                                                    Spacer(Modifier.width(4.dp))
+                                                }
                                                 Text(
                                                     text = tab.file.name,
                                                     style = AppTypography.labelLarge,

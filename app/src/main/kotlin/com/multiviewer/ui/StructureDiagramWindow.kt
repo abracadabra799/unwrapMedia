@@ -147,7 +147,7 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
         val fileSize = tab.parsedIdentity?.length ?: r.size
         try {
             value = withContext(Dispatchers.Default) {
-                val diag = HierarchicalDiagramBuilder.build(r, fileSize, tab.file.name)
+                val diag = HierarchicalDiagramBuilder.build(r, fileSize, tab.file.name, diagramDispatchName(tab))
                 val layout = HierarchicalLayoutEngine.layout(diag)
                 val image = HierarchicalDiagramExporter.renderPng(layout, scale = HIERARCHICAL_PNG_SCALE)
                 RenderedHierarchical(diag, layout, image.toComposeImageBitmap())
@@ -180,7 +180,7 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
         val fileSize = tab.parsedIdentity?.length ?: r.size
         try {
             value = withContext(Dispatchers.Default) {
-                val spec = SpecDiagramDispatcher.build(r, fileSize, tab.file.name)
+                val spec = SpecDiagramDispatcher.build(r, fileSize, tab.file.name, diagramDispatchName(tab))
                 val layout = SpecDiagramLayoutEngine.layout(spec)
                 val image = SpecDiagramExporter.renderPng(layout)
                 RenderedSpec(layout, image.toComposeImageBitmap())
@@ -827,4 +827,7 @@ private fun findNodeByMarker(root: com.multiviewer.parser.BoxNode, marker: Strin
     return null
 }
 
-
+// The diagram builders pick a layout by extension first; give them the content-implied one so a
+// HEIC saved as .jpg gets the HEIF diagram, not the JPEG one.
+private fun diagramDispatchName(tab: TabState): String =
+    "${tab.file.nameWithoutExtension}.${com.multiviewer.parser.contentExtension(tab.file, tab.detectedFormat)}"

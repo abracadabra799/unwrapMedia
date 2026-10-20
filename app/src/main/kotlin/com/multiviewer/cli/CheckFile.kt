@@ -1,17 +1,16 @@
 package com.multiviewer.cli
 
+import com.multiviewer.ui.MediaType
+import com.multiviewer.parser.contentMediaType
 import com.multiviewer.parser.WarningEntry
 import com.multiviewer.parser.collectWarnings
 import com.multiviewer.parser.MediaSummary
 import com.multiviewer.parser.buildMediaSummary
 import com.multiviewer.parser.integrity.ImageIntegrityChecker
 import com.multiviewer.ui.I18n
-import com.multiviewer.ui.AUDIO_EXTENSIONS
 import com.multiviewer.ui.AudioIntegrityReport
 import com.multiviewer.ui.inspectAudioIntegrity
-import com.multiviewer.ui.IMAGE_EXTENSIONS
 import com.multiviewer.ui.MotionPhotoIntegrityAnalyzer
-import com.multiviewer.ui.VIDEO_EXTENSIONS
 import com.multiviewer.ui.VideoIntegrityReport
 import com.multiviewer.ui.hasMotionPhotoData
 import com.multiviewer.ui.inspectImageDecode
@@ -35,9 +34,10 @@ fun checkFile(file: File, includeCase: Boolean = false, decode: Boolean = false,
               integrityReport: VideoIntegrityReport? = null): CheckResult = when (val result = parseForCli(file)) {
     is CliParseResult.Success -> try {
         val extension = result.file.extension.lowercase(Locale.US)
-        val isVideo = extension in VIDEO_EXTENSIONS
-        val isImage = extension in IMAGE_EXTENSIONS
-        val isAudio = extension in AUDIO_EXTENSIONS
+        val mediaType = contentMediaType(result.file)
+        val isVideo = mediaType == MediaType.VIDEO
+        val isImage = mediaType == MediaType.IMAGE
+        val isAudio = mediaType == MediaType.AUDIO
         require(!decode || isVideo || isImage || isAudio) { "--decode requires a video, image or audio file" }
         val integrity = integrityReport ?: if (decode && isVideo) runBlocking { inspectVideoIntegrity(result.file) } else null
         val audio = if (decode && (isAudio || isVideo)) runBlocking { inspectAudioIntegrity(result.file) } else null

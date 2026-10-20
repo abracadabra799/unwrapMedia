@@ -2111,7 +2111,7 @@ object MotionPhotoBuilder {
         require(videoFile.exists()) { "Video file not found: ${videoFile.absolutePath}" }
         require(videoFile.length() > 0) { "Video file is empty: ${videoFile.absolutePath}" }
 
-        val ext = imageFile.extension.lowercase(Locale.US)
+        val ext = contentExtension(imageFile)
         val rawImageBytes = if (ext == "jpg" || ext == "jpeg") {
             imageFile.readBytes()
         } else {
@@ -2219,7 +2219,7 @@ object MotionPhotoBuilder {
         outputFile: File,
         version: MotionPhotoFormatVersion = MotionPhotoFormatVersion.V2_MOTION_PHOTO,
     ) {
-        val ext = imageFile.extension.lowercase(Locale.US)
+        val ext = contentExtension(imageFile)
         val outExt = outputFile.extension.lowercase(Locale.US)
         if (ext in setOf("heic", "heif") || outExt in setOf("heic", "heif")) {
             createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile, version)

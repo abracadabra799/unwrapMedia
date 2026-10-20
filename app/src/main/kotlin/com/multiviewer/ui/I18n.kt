@@ -140,6 +140,11 @@ object I18n {
     fun updateBtnLater(lang: AppLanguage) = if (lang == AppLanguage.KO) "나중에" else "Later"
     fun updateBtnViewOnWeb(lang: AppLanguage) = if (lang == AppLanguage.KO) "웹사이트에서 보기" else "View on Web"
     fun updateBtnRetry(lang: AppLanguage) = if (lang == AppLanguage.KO) "다시 시도" else "Retry"
+    // Shown when a file's extension doesn't match what its bytes are (FormatSniffer.kt's formatMismatch).
+    fun extensionMismatch(lang: AppLanguage, extension: String, actual: String): String {
+        val ext = if (extension.isEmpty()) (if (lang == AppLanguage.KO) "확장자 없음" else "no extension") else ".$extension"
+        return if (lang == AppLanguage.KO) "확장자 불일치: $ext ≠ 실제 $actual" else "Extension mismatch: $ext ≠ actual $actual"
+    }
     fun updateBtnClose(lang: AppLanguage) = if (lang == AppLanguage.KO) "닫기" else "Close"
     fun updateDownloading(lang: AppLanguage, percent: Int) = if (lang == AppLanguage.KO) "업데이트 다운로드 중... ($percent%)" else "Downloading update... ($percent%)"
     fun updateDownloadComplete(lang: AppLanguage) = if (lang == AppLanguage.KO) "다운로드가 완료되었습니다. 앱을 재시작하여 업데이트를 설치합니다." else "Download complete. Restarting app to apply the update."

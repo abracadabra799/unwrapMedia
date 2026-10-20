@@ -42,4 +42,18 @@ class ParseForCliTest {
         assertTrue(success.root.children.any { it.type == "IHDR" }, "Expected a PNG IHDR node, got: ${success.root.children.map { it.type }}")
         file.delete()
     }
+
+    @Test
+    fun `parseForCli accepts a recognized format under an unsupported extension`() {
+        val source = File(javaClass.getResource("/format-sniff/a.png")!!.toURI())
+        val file = File.createTempFile("parse-for-cli-test-", ".xyz")
+        file.deleteOnExit()
+        source.copyTo(file, overwrite = true)
+
+        val result = parseForCli(file)
+
+        assertTrue(result is CliParseResult.Success, "Expected Success, got: $result")
+        assertTrue((result as CliParseResult.Success).root.children.any { it.type == "IHDR" })
+        file.delete()
+    }
 }

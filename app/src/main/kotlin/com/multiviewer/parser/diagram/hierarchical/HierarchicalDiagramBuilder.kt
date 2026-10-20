@@ -6,8 +6,10 @@ import com.multiviewer.parser.diagram.RegionStatus
 
 object HierarchicalDiagramBuilder {
 
-    fun build(root: BoxNode, fileSize: Long, fileName: String): HierarchicalDiagram {
-        val lower = fileName.lowercase()
+    // dispatchName: the name whose extension picks the builder -- the content-implied one
+    // (contentExtension) when it differs from the real file name, which stays the display label.
+    fun build(root: BoxNode, fileSize: Long, fileName: String, dispatchName: String = fileName): HierarchicalDiagram {
+        val lower = dispatchName.lowercase()
         val types = root.children.map { it.type }.toSet()
 
         return when {

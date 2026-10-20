@@ -19,7 +19,7 @@ object GainmapValidator {
 
     fun validate(file: File, root: BoxNode, info: GainmapInfo, baseWidth: Int?, baseHeight: Int?): List<IntegrityCheckItem> = buildList {
         val p = info.parameters
-        val isJpeg = file.extension.lowercase().let { it == "jpg" || it == "jpeg" }
+        val isJpeg = contentExtension(file).let { it == "jpg" || it == "jpeg" }
 
         add(
             when {

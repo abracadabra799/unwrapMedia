@@ -123,7 +123,7 @@ internal fun checkMp3Structure(reader: ByteReader): List<IntegrityCheckItem> {
     return items
 }
 
-private data class MpegFrame(
+internal data class MpegFrame(
     val version: Int,
     val layer: Int,
     val sampleRate: Int,
@@ -134,7 +134,7 @@ private data class MpegFrame(
 
 private data class VbrInfo(val frames: Long?, val bytes: Long?, val offset: Long)
 
-private fun parseMpegFrame(reader: ByteReader, position: Long, end: Long): MpegFrame? {
+internal fun parseMpegFrame(reader: ByteReader, position: Long, end: Long): MpegFrame? {
     if (end - position < 4) return null
     val b0 = reader.readUInt8(position)
     val b1 = reader.readUInt8(position + 1)

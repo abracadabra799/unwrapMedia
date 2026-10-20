@@ -120,6 +120,11 @@ class TabState(val file: File) {
 
     var isLoading: Boolean by mutableStateOf(true)
     var type by mutableStateOf(MediaType.UNKNOWN)
+    // What the bytes say the file is (FormatSniffer.kt), set with root once parsing finishes; null
+    // when content detection wasn't confident and the tab fell back to its extension.
+    var detectedFormat: com.multiviewer.parser.ContainerFormat? by mutableStateOf(null)
+    // Non-null when the extension doesn't belong to detectedFormat's family (a HEIC saved as .jpg).
+    var extensionMismatch: com.multiviewer.parser.ExtensionMismatch? by mutableStateOf(null)
     var root: BoxNode? by mutableStateOf(null)
     var mediaSummary: MediaSummary? by mutableStateOf(null)
     var imageForensic: ImageForensicData? by mutableStateOf(null)
@@ -678,16 +683,11 @@ class AppState {
             pendingRawAudioFile = file
             return
         }
-        // Reject anything else outright rather than falling through to parseFile(): its magic-byte
-        // dispatch (ParseFile.kt) has no "unrecognized" case for the box-parser branch, so an
-        // arbitrary non-media file would previously be handed to the MP4/MOV box walker and parsed
-        // as if it might be one -- undefined behavior on genuinely arbitrary bytes, not something
-        // this app can promise won't hang or crash. See README's "Supported Specs & Limits".
-        if (extension !in IMAGE_EXTENSIONS && extension !in VIDEO_EXTENSIONS && extension !in AUDIO_EXTENSIONS) {
-            val supported = (IMAGE_EXTENSIONS + VIDEO_EXTENSIONS + AUDIO_EXTENSIONS + RAW_PIXEL_EXTENSIONS + RAW_AUDIO_EXTENSIONS).joinToString(", ")
-            openFileError = "지원하지 않는 파일 형식입니다 (.$extension).\n지원 형식: $supported"
-            return
-        }
+        // Supported extensions open as before. Anything else is only opened when its bytes are a format
+        // we recognize with confidence (decided on the background thread below, since it reads the
+        // file) -- never handed to parseFile()'s ISO BMFF fallback on arbitrary bytes, which this app
+        // can't promise won't hang or crash. See README's "Supported Specs & Limits".
+        val extensionSupported = extension in IMAGE_EXTENSIONS || extension in VIDEO_EXTENSIONS || extension in AUDIO_EXTENSIONS
         statusMessage = null
         val tab = TabState(file)
         tabs.add(tab)
@@ -701,19 +701,28 @@ class AppState {
         // for the ffmpeg HEIC fallback decode below.
         tab.backgroundTasks.submit {
             try {
+                val format = com.multiviewer.parser.confidentFormat(file)
+                if (format == null && !extensionSupported) {
+                    tab.postIfOpen { discardOpeningTab(tab, unsupportedFileMessage(extension)) }
+                    return@submit
+                }
                 val parsedIdentity = ContentFileIdentity.capture(file)
                 val (root, mediaSummary, resolution, hardBlockMessage, embeddedVideo, motionPhotoPreview, gainmapInfo, finalImageForensic, type) = ByteReader.open(file).use { reader ->
                     val root = parseFile(file, reader)
 
                     val type = when {
+                        format != null -> format.mediaTypeFor(extension)
                         extension in IMAGE_EXTENSIONS -> MediaType.IMAGE
                         extension in VIDEO_EXTENSIONS -> MediaType.VIDEO
                         extension in AUDIO_EXTENSIONS -> MediaType.AUDIO
                         else -> MediaType.UNKNOWN
                     }
 
+                    val mismatch = format?.let { com.multiviewer.parser.formatMismatch(it, extension) }
                     val mediaSummary = try {
-                        buildMediaSummary(root, file, reader)
+                        buildMediaSummary(root, file, reader).let { summary ->
+                            if (mismatch != null) summary.withExtensionMismatch(mismatch) else summary
+                        }
                     } catch (e: Exception) {
                         null
                     }
@@ -761,17 +770,7 @@ class AppState {
                 }
 
                 if (hardBlockMessage != null) {
-                    tab.postIfOpen {
-                        val idx = tabs.indexOf(tab)
-                        if (idx >= 0) tabs.removeAt(idx)
-                        tab.isClosed = true
-                        tab.aiJob?.cancel()
-                        tab.backgroundTasks.close()
-                        tab.longScanTasks.close()
-                        releaseClosedTab(tab)
-                        if (selectedTabIndex >= tabs.size) selectedTabIndex = (tabs.size - 1).coerceAtLeast(0)
-                        openFileError = hardBlockMessage
-                    }
+                    tab.postIfOpen { discardOpeningTab(tab, hardBlockMessage) }
                     return@submit
                 }
 
@@ -779,6 +778,8 @@ class AppState {
 
                 tab.postIfOpen {
                     tab.parsedIdentity = parsedIdentity
+                    tab.detectedFormat = format
+                    tab.extensionMismatch = format?.let { com.multiviewer.parser.formatMismatch(it, extension) }
                     tab.root = root
                     tab.type = type
                     tab.mediaSummary = mediaSummary
@@ -860,7 +861,7 @@ class AppState {
                             }
                         }
 
-                        if (extension == "gif") {
+                        if (format == com.multiviewer.parser.ContainerFormat.GIF || (format == null && extension == "gif")) {
                             // Runs alongside the primary static decode above, not instead of it --
                             // the static decode still feeds the (now-hidden-for-GIF) thumbnail/
                             // primary boxes as a fallback for as long as this hasn't finished, and
@@ -882,6 +883,26 @@ class AppState {
                 }
             }
         }
+    }
+
+    private fun unsupportedFileMessage(extension: String): String {
+        val supported = (IMAGE_EXTENSIONS + VIDEO_EXTENSIONS + AUDIO_EXTENSIONS + RAW_PIXEL_EXTENSIONS + RAW_AUDIO_EXTENSIONS).joinToString(", ")
+        val shown = if (extension.isEmpty()) "확장자 없음" else ".$extension"
+        return "지원하지 않는 파일 형식입니다 ($shown).\n파일 내용으로도 지원하는 포맷을 확인하지 못했습니다.\n지원 형식: $supported"
+    }
+
+    // Removes a tab openFile created but then refused (unrecognized content, oversized resolution)
+    // and reports why. Must run on the UI thread (via tab.postIfOpen).
+    private fun discardOpeningTab(tab: TabState, message: String) {
+        val idx = tabs.indexOf(tab)
+        if (idx >= 0) tabs.removeAt(idx)
+        tab.isClosed = true
+        tab.aiJob?.cancel()
+        tab.backgroundTasks.close()
+        tab.longScanTasks.close()
+        releaseClosedTab(tab)
+        if (selectedTabIndex >= tabs.size) selectedTabIndex = (tabs.size - 1).coerceAtLeast(0)
+        openFileError = message
     }
 
     fun closeTab(index: Int) {

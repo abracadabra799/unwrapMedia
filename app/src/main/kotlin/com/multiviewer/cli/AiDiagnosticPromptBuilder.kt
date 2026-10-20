@@ -43,7 +43,7 @@ object AiDiagnosticPromptBuilder {
         @Suppress("NAME_SHADOWING")
         val contentCheck = contentCheck?.takeUnless { staleContentCheck }
         val fileSizeStr = formatFileSize(file.length())
-        val extension = file.extension.lowercase(Locale.US)
+        val extension = com.multiviewer.parser.contentExtension(file)
         val ftyp = root?.let { findFirst(it) { node -> node.type == "ftyp" } }
         val majorBrand = ftyp?.fields?.find { it.name == "major_brand" }?.value?.trim() ?: "unknown"
         val compatibleBrands = ftyp?.fields?.find { it.name == "compatible_brands" }?.value?.trim() ?: ""

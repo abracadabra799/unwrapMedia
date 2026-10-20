@@ -364,9 +364,9 @@ fun ContentCheckWindow(
             val v = video
             val treePending = tab.root == null && !fileChanged
             val formatText = when (type) {
-                MediaType.IMAGE -> s?.format ?: tab.file.extension.uppercase()
-                MediaType.AUDIO -> audioStructure?.format ?: tab.file.extension.uppercase()
-                else -> conformance?.format ?: tab.file.extension.uppercase()
+                MediaType.IMAGE -> s?.format ?: tab.detectedFormat?.displayName ?: tab.file.extension.uppercase()
+                MediaType.AUDIO -> audioStructure?.format ?: tab.detectedFormat?.displayName ?: tab.file.extension.uppercase()
+                else -> conformance?.format ?: tab.detectedFormat?.displayName ?: tab.file.extension.uppercase()
             }
             val actions = contentCheckActionState(
                 type,

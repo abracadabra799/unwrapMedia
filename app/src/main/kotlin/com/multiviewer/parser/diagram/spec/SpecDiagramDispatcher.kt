@@ -4,8 +4,9 @@ import com.multiviewer.parser.BoxNode
 
 object SpecDiagramDispatcher {
 
-    fun build(root: BoxNode, fileSize: Long, fileName: String): SpecDiagram {
-        val lowerName = fileName.lowercase()
+    // dispatchName: see HierarchicalDiagramBuilder.build.
+    fun build(root: BoxNode, fileSize: Long, fileName: String, dispatchName: String = fileName): SpecDiagram {
+        val lowerName = dispatchName.lowercase()
         val types = root.children.map { it.type }.toSet()
 
         return when {

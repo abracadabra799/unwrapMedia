@@ -184,7 +184,7 @@ suspend fun inspectAudioIntegrity(
         probeLogs.add("Audio probing failed (exit $probeExit)")
         return@withContext AudioIntegrityReport(IntegrityStatus.FAILED, emptyList(), probeLogs.lines, probeLogs.truncated)
     }
-    if (streams.isEmpty() && file.extension.lowercase(Locale.US) in AUDIO_EXTENSIONS) {
+    if (streams.isEmpty() && com.multiviewer.parser.contentMediaType(file) == MediaType.AUDIO) {
         probeLogs.add("No audio streams found in an audio file")
         return@withContext AudioIntegrityReport(IntegrityStatus.FAILED, emptyList(), probeLogs.lines, probeLogs.truncated)
     }

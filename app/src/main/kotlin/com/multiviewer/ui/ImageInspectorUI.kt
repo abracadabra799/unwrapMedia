@@ -146,7 +146,7 @@ fun ImageInspectorUI(
                 // panel -- the panel's own allocated space is what shrank (see DashboardLayout's
                 // rightPanelDefaultWidthDp/verticalSplit), not this content within it.
                 val gifAnimation = tab.gifAnimation
-                if (tab.file.extension.lowercase() == "gif" && gifAnimation != null) {
+                if (com.multiviewer.parser.contentExtension(tab.file, tab.detectedFormat) == "gif" && gifAnimation != null) {
                     GifFilmstripPlayer(
                         tab = tab,
                         animation = gifAnimation,
