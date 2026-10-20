@@ -34,6 +34,8 @@ import androidx.compose.ui.input.pointer.isMetaPressed
 import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
@@ -640,177 +642,99 @@ fun HexView(
         val isDecodedTextClipped = hexWidth < minWidthForDecodedText
 
         Column(modifier = Modifier.fillMaxSize()) {
-            // Toolbar with 010 Editor / UltraEdit Action Bar
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = AppColors.Surface,
-                tonalElevation = 2.dp,
-            ) {
-                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Row(
-                            modifier = Modifier.weight(1f, fill = false),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            FilledTonalButton(
-                                onClick = {
-                                    showFindBar = !showFindBar
-                                    if (showFindBar) showGoToBar = false
-                                },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                modifier = Modifier.height(26.dp),
-                                colors = if (showFindBar) ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.NeonBlue.copy(alpha = 0.3f)) else ButtonDefaults.filledTonalButtonColors(),
-                            ) {
-                                Text("🔍 Find (Ctrl+F)", fontSize = 10.sp, softWrap = false)
-                            }
+            // Toolbar: flat text buttons (FlatControls.kt), find / go-to bars open beneath it.
+            Column(modifier = Modifier.fillMaxWidth().background(AppColors.Surface)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    FlatToolButton(
+                        text = "Find",
+                        hint = "Ctrl+F",
+                        active = showFindBar,
+                        onClick = {
+                            showFindBar = !showFindBar
+                            if (showFindBar) showGoToBar = false
+                        },
+                    )
+                    FlatToolButton(
+                        text = "Go to",
+                        hint = "Ctrl+G",
+                        active = showGoToBar,
+                        onClick = {
+                            showGoToBar = !showGoToBar
+                            if (showGoToBar) showFindBar = false
+                        },
+                    )
+                    FlatToolButton(
+                        text = "Inspector",
+                        hint = "Ctrl+I",
+                        active = showInspector,
+                        accent = AppColors.NeonGreen,
+                        onClick = { showInspector = !showInspector },
+                    )
 
-                            FilledTonalButton(
-                                onClick = {
-                                    showGoToBar = !showGoToBar
-                                    if (showGoToBar) showFindBar = false
-                                },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                modifier = Modifier.height(26.dp),
-                                colors = if (showGoToBar) ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.NeonBlue.copy(alpha = 0.3f)) else ButtonDefaults.filledTonalButtonColors(),
-                            ) {
-                                Text("📍 Go to (Ctrl+G)", fontSize = 10.sp, softWrap = false)
-                            }
+                    Spacer(modifier = Modifier.weight(1f))
 
-                            FilledTonalButton(
-                                onClick = { showInspector = !showInspector },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                modifier = Modifier.height(26.dp),
-                                colors = if (showInspector) ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.NeonGreen.copy(alpha = 0.3f)) else ButtonDefaults.filledTonalButtonColors(),
-                            ) {
-                                Text("📊 Data Inspector (Ctrl+I)", fontSize = 10.sp, softWrap = false)
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.weight(1f))
-
-                        if (isDecodedTextClipped) {
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = AppColors.NeonYellow.copy(alpha = 0.12f),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.NeonYellow.copy(alpha = 0.5f)),
-                                modifier = Modifier.padding(end = 6.dp),
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                ) {
-                                    Text("◀", color = AppColors.NeonYellow, fontSize = 8.sp)
-                                    Text(
-                                        "패널을 넓히면 Decoded Text 표시",
-                                        color = AppColors.NeonYellow,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        softWrap = false,
-                                    )
-                                    Text("▶", color = AppColors.NeonYellow, fontSize = 8.sp)
-                                }
-                            }
-                        }
-
-                        // Font Zoom Controls
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Font:", fontSize = 10.sp, color = AppColors.TextSecondary, softWrap = false)
-                        IconButton(
-                            onClick = { fontSizeSp = (fontSizeSp - 1f).coerceIn(MIN_HEX_FONT_SP, MAX_HEX_FONT_SP) },
-                            modifier = Modifier.size(22.dp),
-                        ) {
-                            Text("-", fontSize = 12.sp, color = AppColors.TextPrimary)
-                        }
-                        Text("%.0fsp".format(fontSizeSp), fontSize = 10.sp, color = AppColors.NeonBlue, softWrap = false)
-                        IconButton(
-                            onClick = { fontSizeSp = (fontSizeSp + 1f).coerceIn(MIN_HEX_FONT_SP, MAX_HEX_FONT_SP) },
-                            modifier = Modifier.size(22.dp),
-                        ) {
-                            Text("+", fontSize = 12.sp, color = AppColors.TextPrimary)
-                        }
+                    if (isDecodedTextClipped) {
+                        Text(
+                            "패널을 넓히면 Decoded Text 표시",
+                            color = AppColors.NeonYellow,
+                            fontSize = 10.sp,
+                            softWrap = false,
+                            modifier = Modifier.padding(end = 8.dp),
+                        )
                     }
+
+                    // Font zoom
+                    FlatToolButton(text = "−", onClick = { fontSizeSp = (fontSizeSp - 1f).coerceIn(MIN_HEX_FONT_SP, MAX_HEX_FONT_SP) })
+                    Text("%.0fpt".format(fontSizeSp), fontSize = 10.sp, color = AppColors.TextSecondary, softWrap = false)
+                    FlatToolButton(text = "+", onClick = { fontSizeSp = (fontSizeSp + 1f).coerceIn(MIN_HEX_FONT_SP, MAX_HEX_FONT_SP) })
                 }
 
                 // Expandable Search Bar (Ctrl+F)
                 if (showFindBar) {
+                    HorizontalDivider(color = AppColors.Border)
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 4.dp)
-                            .background(Color(0xFF252525), RoundedCornerShape(4.dp))
-                            .border(1.dp, AppColors.NeonBlue.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
-                                .clickable {
-                                    isHexSearchMode = !isHexSearchMode
-                                    performSearch()
-                                }
-                                .padding(horizontal = 6.dp, vertical = 4.dp),
-                        ) {
-                            Text(
-                                if (isHexSearchMode) "HEX" else "TEXT",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isHexSearchMode) AppColors.NeonYellow else AppColors.NeonBlue,
-                            )
-                        }
-
+                        FlatToolButton(
+                            text = "Text",
+                            active = !isHexSearchMode,
+                            onClick = { if (isHexSearchMode) { isHexSearchMode = false; performSearch() } },
+                        )
+                        FlatToolButton(
+                            text = "Hex",
+                            active = isHexSearchMode,
+                            accent = AppColors.NeonYellow,
+                            onClick = { if (!isHexSearchMode) { isHexSearchMode = true; performSearch() } },
+                        )
                         // Only meaningful for a text pattern: hex digits already parse in either
                         // case, so the control is hidden rather than left there doing nothing.
                         if (!isHexSearchMode) {
-                            Row(
-                                modifier = Modifier
-                                    .border(
-                                        1.dp,
-                                        if (ignoreSearchCase) AppColors.NeonBlue.copy(alpha = 0.7f) else AppColors.Border,
-                                        RoundedCornerShape(4.dp),
-                                    )
-                                    .clickable {
-                                        ignoreSearchCase = !ignoreSearchCase
-                                        performSearch()
-                                    }
-                                    .padding(horizontal = 6.dp, vertical = 4.dp),
-                            ) {
-                                Text(
-                                    "Aa",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (ignoreSearchCase) AppColors.NeonBlue else AppColors.TextMuted,
-                                )
-                            }
+                            FlatToolButton(
+                                text = "Aa",
+                                active = ignoreSearchCase,
+                                onClick = {
+                                    ignoreSearchCase = !ignoreSearchCase
+                                    performSearch()
+                                },
+                            )
                         }
-
-                        androidx.compose.foundation.text.BasicTextField(
+                        Spacer(Modifier.width(4.dp))
+                        FlatTextField(
                             value = searchQuery,
                             onValueChange = {
                                 searchQuery = it
                                 performSearch()
                             },
-                            singleLine = true,
-                            textStyle = androidx.compose.ui.text.TextStyle(
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontFamily = FontFamily.Monospace,
-                            ),
-                            cursorBrush = androidx.compose.ui.graphics.SolidColor(AppColors.NeonBlue),
+                            placeholder = if (isHexSearchMode) "FF D8 FF E0" else "ftyp, moov …",
                             modifier = Modifier
                                 .weight(1f)
-                                .height(26.dp)
                                 .focusRequester(findFocusRequester)
-                                .background(Color(0xFF1A1A1A), RoundedCornerShape(4.dp))
-                                .border(1.dp, Color(0xFF444444), RoundedCornerShape(4.dp))
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
                                 .onKeyEvent { keyEvent ->
                                     if (keyEvent.type == KeyEventType.KeyDown) {
                                         when (keyEvent.key) {
@@ -826,67 +750,35 @@ fun HexView(
                                         }
                                     } else false
                                 },
-                            decorationBox = { innerTextField ->
-                                Box(contentAlignment = Alignment.CenterStart) {
-                                    if (searchQuery.isEmpty()) {
-                                        Text(
-                                            if (isHexSearchMode) "Hex sequence (e.g. FF D8 FF E0)" else "Text string (e.g. ftyp, moov)",
-                                            fontSize = 11.sp,
-                                            color = Color.Gray,
-                                        )
-                                    }
-                                    innerTextField()
-                                }
-                            },
                         )
-
-                        FilledTonalButton(
-                            onClick = { prevMatch() },
-                            enabled = searchMatches.isNotEmpty(),
-                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                            modifier = Modifier.height(24.dp),
-                        ) {
-                            Text("◀ Prev", fontSize = 10.sp)
-                        }
-
-                        FilledTonalButton(
-                            onClick = { nextMatch() },
-                            enabled = searchMatches.isNotEmpty(),
-                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                            modifier = Modifier.height(24.dp),
-                        ) {
-                            Text("Next ▶", fontSize = 10.sp)
-                        }
-
-                        if (searchMatches.isNotEmpty()) {
-                            Text(
-                                "${currentMatchIndex + 1} / ${searchMatches.size}",
-                                fontSize = 10.sp,
-                                color = AppColors.NeonGreen,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        } else if (searchQuery.isNotEmpty()) {
-                            Text("No match", fontSize = 10.sp, color = AppColors.NeonRed)
-                        }
-
-                        IconButton(onClick = {
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            when {
+                                searchMatches.isNotEmpty() -> "${currentMatchIndex + 1} / ${searchMatches.size}"
+                                searchQuery.isNotEmpty() -> "No match"
+                                else -> ""
+                            },
+                            fontSize = 10.sp,
+                            color = if (searchMatches.isEmpty() && searchQuery.isNotEmpty()) AppColors.NeonRed else AppColors.TextSecondary,
+                            softWrap = false,
+                            modifier = Modifier.widthIn(min = 52.dp),
+                        )
+                        FlatToolButton(text = "↑", enabled = searchMatches.isNotEmpty(), onClick = { prevMatch() })
+                        FlatToolButton(text = "↓", enabled = searchMatches.isNotEmpty(), onClick = { nextMatch() })
+                        FlatToolButton(text = "✕", onClick = {
                             showFindBar = false
                             searchJob?.cancel()
                             searchMatches = emptyList()
-                        }, modifier = Modifier.size(20.dp)) {
-                            Text("✕", fontSize = 11.sp, color = AppColors.TextSecondary)
-                        }
+                        })
                     }
 
-                    // Quick Preset Chips for common signatures / FourCCs
+                    // Quick presets for common signatures / FourCCs: plain text links.
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 2.dp, start = 4.dp),
+                        modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 6.dp, bottom = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Text("프리셋:", fontSize = 10.sp, color = AppColors.TextSecondary)
+                        Text("Presets", fontSize = 10.sp, color = AppColors.TextMuted)
                         val presets = listOf(
                             "ftyp" to false,
                             "moov" to false,
@@ -897,67 +789,53 @@ fun HexView(
                             "89 50 4E 47" to true,
                         )
                         presets.forEach { (preset, isHex) ->
-                            Surface(
-                                color = Color(0xFF1E1E1E),
-                                shape = RoundedCornerShape(3.dp),
-                                border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFF444444)),
-                                modifier = Modifier.clickable {
-                                    isHexSearchMode = isHex
-                                    searchQuery = preset
-                                    performSearch()
-                                },
-                            ) {
-                                Text(
-                                    preset,
-                                    fontSize = 9.sp,
-                                    color = if (isHex) AppColors.NeonYellow else AppColors.NeonBlue,
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                                )
-                            }
+                            Text(
+                                preset,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = AppColors.TextSecondary,
+                                softWrap = false,
+                                modifier = Modifier
+                                    .clickable {
+                                        isHexSearchMode = isHex
+                                        searchQuery = preset
+                                        performSearch()
+                                    }
+                                    .pointerHoverIcon(PointerIcon(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR))),
+                            )
                         }
                     }
                 }
 
                 // Expandable Go To Offset Bar (Ctrl+G)
                 if (showGoToBar) {
+                    HorizontalDivider(color = AppColors.Border)
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 4.dp)
-                            .background(Color(0xFF252525), RoundedCornerShape(4.dp))
-                            .border(1.dp, AppColors.NeonBlue.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        Text("Go to Offset:", fontSize = 11.sp, color = AppColors.TextPrimary)
-                        androidx.compose.foundation.text.BasicTextField(
+                        Text("Offset", fontSize = 11.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(horizontal = 6.dp))
+                        fun goToEnteredOffset() {
+                            val offset = parseOffsetInput(goToInput, fileLength)
+                            if (offset != null) {
+                                selectionAnchor = offset
+                                selectionEnd = offset
+                                scrollToOffset(offset)
+                            }
+                        }
+                        FlatTextField(
                             value = goToInput,
                             onValueChange = { goToInput = it },
-                            singleLine = true,
-                            textStyle = androidx.compose.ui.text.TextStyle(
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontFamily = FontFamily.Monospace,
-                            ),
-                            cursorBrush = androidx.compose.ui.graphics.SolidColor(AppColors.NeonBlue),
+                            placeholder = "0x1A40 · 4096 · 50%",
                             modifier = Modifier
                                 .weight(1f)
-                                .height(26.dp)
                                 .focusRequester(goToFocusRequester)
-                                .background(Color(0xFF1A1A1A), RoundedCornerShape(4.dp))
-                                .border(1.dp, Color(0xFF444444), RoundedCornerShape(4.dp))
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
                                 .onKeyEvent { keyEvent ->
                                     if (keyEvent.type == KeyEventType.KeyDown) {
                                         when (keyEvent.key) {
                                             Key.Enter -> {
-                                                val offset = parseOffsetInput(goToInput, fileLength)
-                                                if (offset != null) {
-                                                    selectionAnchor = offset
-                                                    selectionEnd = offset
-                                                    scrollToOffset(offset)
-                                                }
+                                                goToEnteredOffset()
                                                 true
                                             }
                                             Key.Escape -> {
@@ -968,36 +846,14 @@ fun HexView(
                                         }
                                     } else false
                                 },
-                            decorationBox = { innerTextField ->
-                                Box(contentAlignment = Alignment.CenterStart) {
-                                    if (goToInput.isEmpty()) {
-                                        Text("e.g. 0x1A40 or 4096 or 50%", fontSize = 11.sp, color = Color.Gray)
-                                    }
-                                    innerTextField()
-                                }
-                            },
                         )
-                        FilledTonalButton(
-                            onClick = {
-                                val offset = parseOffsetInput(goToInput, fileLength)
-                                if (offset != null) {
-                                    selectionAnchor = offset
-                                    selectionEnd = offset
-                                    scrollToOffset(offset)
-                                }
-                            },
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                            modifier = Modifier.height(24.dp),
-                        ) {
-                            Text("Go", fontSize = 10.sp)
-                        }
-                        IconButton(onClick = { showGoToBar = false }, modifier = Modifier.size(20.dp)) {
-                            Text("✕", fontSize = 11.sp, color = AppColors.TextSecondary)
-                        }
+                        Spacer(Modifier.width(4.dp))
+                        FlatToolButton(text = "Go", onClick = { goToEnteredOffset() })
+                        FlatToolButton(text = "✕", onClick = { showGoToBar = false })
                     }
                 }
+                HorizontalDivider(color = AppColors.Border)
             }
-        }
 
         // Selection / Box Range / Copy Info Bar
         activeCopyRange?.let { range ->
@@ -1005,11 +861,11 @@ fun HexView(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(if (isManualSelection) Color(0xFF1E281E) else Color(0xFF16253A))
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    .background(AppColors.Panel)
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
             ) {
                 val byteCount = range.last - range.first + 1
-                val labelPrefix = if (isManualSelection) "📍 선택 영역" else "📦 선택된 박스/마커"
+                val labelPrefix = if (isManualSelection) "선택 영역" else "선택된 박스/마커"
                 val text = if (byteCount == 1L) {
                     raf.seek(range.first)
                     val value = raf.read()
@@ -1029,7 +885,7 @@ fun HexView(
                         style = AppTypography.labelLarge.copy(
                             color = if (isManualSelection) AppColors.NeonGreen else AppColors.NeonBlue,
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
                         ),
                         maxLines = 1,
                         softWrap = false,
@@ -1049,88 +905,55 @@ fun HexView(
 
                     // Copy Toast Feedback Indicator
                     copyToastMessage?.let { toast ->
-                        Surface(
-                            color = AppColors.NeonGreen.copy(alpha = 0.2f),
-                            shape = RoundedCornerShape(4.dp),
+                        Text(
+                            "✓ $toast",
+                            fontSize = 10.sp,
+                            color = AppColors.NeonGreen,
+                            softWrap = false,
                             modifier = Modifier.padding(start = 4.dp),
-                        ) {
-                            Text(
-                                "✓ $toast",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = AppColors.NeonGreen,
-                                softWrap = false,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                            )
-                        }
+                        )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(3.dp))
+                Spacer(modifier = Modifier.height(2.dp))
 
                 // Bottom Actions Row: Horizontal scrollable button strip
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     Text(
-                        "복사:",
+                        "복사",
                         fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = AppColors.TextPrimary,
+                        color = AppColors.TextSecondary,
                         softWrap = false,
-                        modifier = Modifier.padding(end = 2.dp),
+                        modifier = Modifier.padding(end = 4.dp),
                     )
 
                     // Quick copy buttons
-                    FilledTonalButton(
-                        onClick = {
-                            copyBytesAsFormattedDump(raf, range)
-                            copyToastMessage = "덤프 복사됨"
-                        },
-                        contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp),
-                        modifier = Modifier.height(24.dp),
-                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.NeonBlue.copy(alpha = 0.25f)),
-                    ) {
-                        Text("📋 덤프 복사", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AppColors.NeonBlue, softWrap = false)
-                    }
-                    FilledTonalButton(
-                        onClick = {
-                            copyBytesAsHex(raf, range, multiLine = true)
-                            copyToastMessage = "Hex 복사됨"
-                        },
-                        contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp),
-                        modifier = Modifier.height(24.dp),
-                    ) {
-                        Text("🔢 Hex 복사", fontSize = 10.sp, softWrap = false)
-                    }
-                    FilledTonalButton(
-                        onClick = {
-                            copyBytesAsText(raf, range)
-                            copyToastMessage = "텍스트 복사됨"
-                        },
-                        contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp),
-                        modifier = Modifier.height(24.dp),
-                    ) {
-                        Text("🔤 텍스트 복사", fontSize = 10.sp, softWrap = false)
-                    }
+                    FlatToolButton(text = "덤프", onClick = {
+                        copyBytesAsFormattedDump(raf, range)
+                        copyToastMessage = "덤프 복사됨"
+                    })
+                    FlatToolButton(text = "Hex", onClick = {
+                        copyBytesAsHex(raf, range, multiLine = true)
+                        copyToastMessage = "Hex 복사됨"
+                    })
+                    FlatToolButton(text = "텍스트", onClick = {
+                        copyBytesAsText(raf, range)
+                        copyToastMessage = "텍스트 복사됨"
+                    })
 
                     var showMoreFormatsMenu by remember { mutableStateOf(false) }
                     Box {
-                        FilledTonalButton(
-                            onClick = { showMoreFormatsMenu = !showMoreFormatsMenu },
-                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                            modifier = Modifier.height(24.dp),
-                        ) {
-                            Text("기타 포맷 ▾", fontSize = 10.sp, softWrap = false)
-                        }
+                        FlatToolButton(text = "기타 ▾", active = showMoreFormatsMenu, onClick = { showMoreFormatsMenu = !showMoreFormatsMenu })
                         DropdownMenu(
                             expanded = showMoreFormatsMenu,
                             onDismissRequest = { showMoreFormatsMenu = false },
                         ) {
                             DropdownMenuItem(
-                                text = { Text("📦 Base64 문자열 복사", fontSize = 11.sp) },
+                                text = { Text("Base64 문자열", fontSize = 11.sp) },
                                 onClick = {
                                     showMoreFormatsMenu = false
                                     copyBytesAsBase64(raf, range)
@@ -1138,7 +961,7 @@ fun HexView(
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("💻 C/C++ 배열 복사 (0xXX, ...)", fontSize = 11.sp) },
+                                text = { Text("C/C++ 배열 (0xXX, ...)", fontSize = 11.sp) },
                                 onClick = {
                                     showMoreFormatsMenu = false
                                     copyBytesAsCodeArray(raf, range)
@@ -1146,7 +969,7 @@ fun HexView(
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("🐍 Python Bytes 복사 (b'\\x00...')", fontSize = 11.sp) },
+                                text = { Text("Python bytes (b'\\x00...')", fontSize = 11.sp) },
                                 onClick = {
                                     showMoreFormatsMenu = false
                                     copyBytesAsPythonBytes(raf, range)
@@ -1154,7 +977,7 @@ fun HexView(
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("🔗 연속 16진수(Hex Stream) 복사", fontSize = 11.sp) },
+                                text = { Text("연속 16진수 (Hex stream)", fontSize = 11.sp) },
                                 onClick = {
                                     showMoreFormatsMenu = false
                                     copyBytesAsContinuousHex(raf, range)
@@ -1162,7 +985,7 @@ fun HexView(
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("🔤 출력 가능한 ASCII 문자만 복사", fontSize = 11.sp) },
+                                text = { Text("출력 가능한 ASCII만", fontSize = 11.sp) },
                                 onClick = {
                                     showMoreFormatsMenu = false
                                     copyBytesAsPrintableAscii(raf, range)
@@ -1171,7 +994,7 @@ fun HexView(
                             )
                             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = AppColors.Border)
                             DropdownMenuItem(
-                                text = { Text("💾 선택 바이트 파일로 추출 (Export Bytes...)", fontSize = 11.sp, color = AppColors.NeonGreen, fontWeight = FontWeight.Bold) },
+                                text = { Text("선택 바이트를 파일로 저장…", fontSize = 11.sp) },
                                 onClick = {
                                     showMoreFormatsMenu = false
                                     val defaultName = "${file.nameWithoutExtension}_0x${range.first.toString(16).uppercase()}_0x${range.last.toString(16).uppercase()}.bin"
@@ -1184,22 +1007,15 @@ fun HexView(
                         }
                     }
 
-                    Spacer(Modifier.width(2.dp))
+                    FlatToolSeparator()
 
-                    FilledTonalButton(
-                        onClick = {
-                            val defaultName = "${file.nameWithoutExtension}_0x${range.first.toString(16).uppercase()}_0x${range.last.toString(16).uppercase()}.bin"
-                            promptSaveRangeBytesWithDialog(
-                                file, range, defaultName,
-                                onResult = { copyToastMessage = it },
-                            )
-                        },
-                        contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp),
-                        modifier = Modifier.height(24.dp),
-                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.NeonGreen.copy(alpha = 0.25f)),
-                    ) {
-                        Text("💾 파일 추출", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AppColors.NeonGreen, softWrap = false)
-                    }
+                    FlatToolButton(text = "파일로 저장…", onClick = {
+                        val defaultName = "${file.nameWithoutExtension}_0x${range.first.toString(16).uppercase()}_0x${range.last.toString(16).uppercase()}.bin"
+                        promptSaveRangeBytesWithDialog(
+                            file, range, defaultName,
+                            onResult = { copyToastMessage = it },
+                        )
+                    })
                 }
             }
         }
