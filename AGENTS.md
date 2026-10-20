@@ -53,7 +53,7 @@ Commit messages: conventional style (`feat:`, `fix:`, `docs:`, `test:`, `refacto
    warning, not PASS.
 8. **Version bump = 3 places:** `app/build.gradle.kts` `packageVersion`, `ui/I18n.kt` `APP_VERSION` (what the
    UI shows and the update checker compares), and `version.json` (update manifest: version, releaseDate,
-   releaseNotes with `\n`-separated "• " lines). Current: 1.31.0.
+   releaseNotes with `\n`-separated "• " lines). Current: 1.32.0.
 9. **Structural highlighting is tree-driven:** drive hex/image highlights from tree selection
    (`tab.selected`, `tab.parameterSetHighlightRange: LongRange`), not new always-on overlays or click gestures.
 10. No new heavy dependencies; the codebase hand-writes CBOR/CSV/JSON handling on purpose.

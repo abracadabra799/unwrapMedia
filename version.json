@@ -1,7 +1,7 @@
 {
-  "version": "1.31.0",
+  "version": "1.32.0",
   "releaseDate": "2026-10-20",
-  "releaseNotes": "• 확장자가 틀리거나 없어도 파일 내용(매직 바이트·ftyp 브랜드)이 지원 포맷이면 열기 (CLI dump/check 포함)\n• 확장자와 실제 포맷이 다르면 탭 제목 ⚠ 및 요약 패널 'Content Format' 행으로 표시\n• HEIC 판정·GIF·게인맵·RAW·모션포토 생성·구조 다이어그램 등이 확장자 대신 실제 포맷 기준으로 동작",
+  "releaseNotes": "• 폴더 탐색기: 확장자가 지원 목록에 없어도 내용이 미디어면 목록에 표시 (폴더당 최대 200개 확인, 문서·압축 등 제외)\n• 비교 창: 파일 선택·드래그앤드롭에서 이름이 잘못된 미디어 허용, 로딩·썸네일을 실제 포맷 기준으로 처리\n• Live Photo 짝 찾기를 실제 포맷 기준으로 수행\n• 컨텐츠 검사: 확장자와 실제 포맷이 다르면 구조 탭에 '확장자 불일치' 경고(WARN)",
   "windowsUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest",
   "macUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest"
 }

@@ -124,7 +124,7 @@ object I18n {
     // Empty state
     fun placeholderEmptyState(lang: AppLanguage) = if (lang == AppLanguage.KO) "📂 파일들을 끌어다 놓거나 클릭하여 열기 (다중 파일 지원)" else "📂 Drag & Drop or Click to Open (Multiple Files Supported)"
 
-    const val APP_VERSION = "1.31.0"
+    const val APP_VERSION = "1.32.0"
     fun menuHelp(lang: AppLanguage) = if (lang == AppLanguage.KO) "도움말" else "Help"
     fun btnCheckForUpdates(lang: AppLanguage) = if (lang == AppLanguage.KO) "업데이트 확인" else "Check for Updates"
     fun menuOnlineRepo(lang: AppLanguage) = if (lang == AppLanguage.KO) "GitHub 저장소 및 릴리즈" else "GitHub Repository & Releases"
