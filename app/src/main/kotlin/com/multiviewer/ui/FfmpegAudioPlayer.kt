@@ -37,7 +37,7 @@ import javax.sound.sampled.AudioFormat
 import javax.sound.sampled.AudioSystem
 import javax.sound.sampled.SourceDataLine
 
-data class AudioFileInfo(val sampleRate: Int, val channels: Int, val duration: Double)
+data class AudioFileInfo(val sampleRate: Int, val channels: Int, val duration: Double, val startTimeSeconds: Double = 0.0)
 
 // Solo one channel of a stereo file for listening. The soloed channel is sent to BOTH output
 // channels so it plays in both ears; output stays 2ch so the SourceDataLine format is unchanged.
@@ -57,7 +57,7 @@ fun probeAudioFormat(file: File): AudioFileInfo? {
     return try {
         val process = ProcessBuilder(
             FfmpegLocator.ffprobePath(), "-v", "error", "-select_streams", "a:0",
-            "-show_entries", "stream=sample_rate,channels,duration:format=duration",
+            "-show_entries", "stream=sample_rate,channels,duration,start_time:format=duration",
             "-of", "default=noprint_wrappers=1", file.absolutePath,
         ).redirectErrorStream(false).redirectError(ProcessBuilder.Redirect.DISCARD)
             .also { FfmpegLocator.configureEnvironment(it) }.start()
@@ -83,7 +83,7 @@ fun probeAudioFormat(file: File): AudioFileInfo? {
         val sampleRate = values["sample_rate"]?.toIntOrNull() ?: return null
         val channels = values["channels"]?.toIntOrNull() ?: return null
         val duration = validDurations.firstOrNull() ?: 0.0
-        AudioFileInfo(sampleRate, channels, duration)
+        AudioFileInfo(sampleRate, channels, duration, values["start_time"]?.toDoubleOrNull() ?: 0.0)
     } catch (e: Exception) {
         null
     }

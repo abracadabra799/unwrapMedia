@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -117,6 +118,15 @@ fun VideoInspectorUI(
     // Filmstrip gets a compact share (~0.32) so it does not dominate the center panel,
     // with the GOP timeline taking 0.68. User-draggable anytime via divider.
     var gopFilmstripSplit by remember { mutableStateOf(0.68f) }
+    var avTimelineExpanded by remember(tab) { mutableStateOf(false) }
+    var livePlayerPlaying by remember(tab) { mutableStateOf(false) }
+    var livePlayerDisplayed by remember(tab) { mutableStateOf<FramePosition?>(null) }
+
+    LaunchedEffect(tab, avTimelineExpanded, tab.videoReadyForAnalysis) {
+        if (avTimelineExpanded && tab.videoReadyForAnalysis && !tab.isAnalyzingFrames && tab.gopFrames == null) {
+            appState.analyzeFrames(tab)
+        }
+    }
 
     DashboardLayout(
         leftPanel = leftPanel,
@@ -127,11 +137,10 @@ fun VideoInspectorUI(
                 }
                 Row(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .weight(if (avTimelineExpanded) 0.65f else 1f)
+                        .fillMaxWidth()
                         .onGloballyPositioned { topContainerWidthPx = it.size.width }
                 ) {
-                    var livePlayerPlaying by remember(tab) { mutableStateOf(false) }
-                    var livePlayerDisplayed by remember(tab) { mutableStateOf<FramePosition?>(null) }
 
                     // Left: Live Player (full height of the top region)
                     Box(
@@ -225,6 +234,34 @@ fun VideoInspectorUI(
                                 )
                             }
                         }
+                    }
+                }
+                if (!isAv2VideoTrack(tab.root)) {
+                    TextButton(
+                        onClick = { avTimelineExpanded = !avTimelineExpanded },
+                        modifier = Modifier.fillMaxWidth().height(26.dp),
+                    ) {
+                        Text(
+                            (if (avTimelineExpanded) "▾  " else "▸  ") +
+                                if (language == AppLanguage.KO) "A/V 타임라인 · 프레임 / 파형 / 패킷 PTS"
+                                else "A/V Timeline · frames / waveform / packet PTS",
+                            color = AppColors.NeonBlue, fontSize = 11.sp,
+                        )
+                    }
+                    if (avTimelineExpanded) {
+                        VideoAudioTimelineView(
+                            tab = tab,
+                            frames = tab.gopFrames.orEmpty(),
+                            currentVideoPts = livePlayerDisplayed?.ptsSeconds,
+                            language = language,
+                            onSelectFrame = { frame ->
+                                tab.selectedFrame = frame
+                                tab.selected = null
+                                tab.seekTargetSeconds = frame.ptsSeconds
+                                tab.seekRequestTick++
+                            },
+                            modifier = Modifier.weight(0.35f).fillMaxWidth(),
+                        )
                     }
                 }
             }
