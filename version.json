@@ -1,7 +1,7 @@
 {
-  "version": "1.30.4",
-  "releaseDate": "2026-10-19",
-  "releaseNotes": "• 동영상·모션포토·팝업 재생: 재생 프레임의 긴 변 상한을 640px로 낮춰 BGRA 파이프 전송량 감소\n• 재생 동기화: 오디오 입력 종료 후 남은 비디오 프레임이 뒤늦게 재생되던 문제 수정",
+  "version": "1.31.0",
+  "releaseDate": "2026-10-20",
+  "releaseNotes": "• 확장자가 틀리거나 없어도 파일 내용(매직 바이트·ftyp 브랜드)이 지원 포맷이면 열기 (CLI dump/check 포함)\n• 확장자와 실제 포맷이 다르면 탭 제목 ⚠ 및 요약 패널 'Content Format' 행으로 표시\n• HEIC 판정·GIF·게인맵·RAW·모션포토 생성·구조 다이어그램 등이 확장자 대신 실제 포맷 기준으로 동작",
   "windowsUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest",
   "macUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest"
 }
