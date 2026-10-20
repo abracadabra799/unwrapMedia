@@ -290,12 +290,21 @@ fun AiChatPanel(
                             )
                             Spacer(Modifier.width(4.dp))
                             Text(
-                                if (isInstalled) label("준비됨", "Ready") else label("미설치", "Not Installed"),
+                                if (isInstalled) label("CLI 설치됨", "CLI installed") else label("미설치", "Not Installed"),
                                 color = if (isInstalled) AppColors.NeonGreen else AppColors.NeonOrange,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Medium,
                             )
                         }
+                    }
+                }
+                if (caps?.executablePath != null) {
+                    TextButton(
+                        onClick = { appState.aiLoginProvider = provider },
+                        enabled = !running,
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                    ) {
+                        Text(label("${provider.displayName} 계정 연결", "Connect ${provider.displayName} account"), fontSize = 11.sp, color = AppColors.NeonBlue)
                     }
                 }
 
@@ -572,12 +581,17 @@ fun AiChatPanel(
                                 color = AppColors.NeonOrange.copy(alpha = 0.1f),
                                 border = BorderStroke(1.dp, AppColors.NeonOrange.copy(alpha = 0.3f)),
                             ) {
-                                Text(
-                                    "⚠️ " + m.text,
-                                    color = AppColors.NeonOrange,
-                                    fontSize = 11.sp,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                )
+                                Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                                    Text("⚠️ " + m.text, color = AppColors.NeonOrange, fontSize = 11.sp)
+                                    if (m.id == conversation.messages.lastOrNull()?.id &&
+                                        conversation.failure == AiFailure.AUTH_REQUIRED &&
+                                        m.provider != null && appState.aiCapabilities[m.provider]?.executablePath != null
+                                    ) {
+                                        TextButton(onClick = { appState.aiLoginProvider = m.provider }) {
+                                            Text(label("${m.provider.displayName} 로그인 열기", "Open ${m.provider.displayName} sign-in"), fontSize = 11.sp)
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

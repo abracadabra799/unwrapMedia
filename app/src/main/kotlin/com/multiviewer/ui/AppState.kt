@@ -391,6 +391,7 @@ class AppState {
     var aiPanelOpen: Boolean by mutableStateOf(false)
     var aiPanelWidthDp: Float by mutableStateOf(400f)
     var aiProvider: com.multiviewer.ui.ai.AiProviderId? by mutableStateOf(null)
+    var aiLoginProvider: com.multiviewer.ui.ai.AiProviderId? by mutableStateOf(null)
     var aiCapabilities: Map<com.multiviewer.ui.ai.AiProviderId, com.multiviewer.ui.ai.AiProviderCapabilities> by mutableStateOf(emptyMap())
     var aiLanguage: AppLanguage by mutableStateOf(AppLanguage.KO)
     /** On by default: web search can be toggled off by the user. */

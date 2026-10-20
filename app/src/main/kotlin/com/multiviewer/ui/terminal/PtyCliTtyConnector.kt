@@ -13,9 +13,10 @@ import java.nio.charset.StandardCharsets
  */
 internal class PtyCliTtyConnector(
     private val process: Process,
+    private val title: String = "PowerShell",
 ) : ProcessTtyConnector(process, StandardCharsets.UTF_8, null) {
 
-    override fun getName(): String = "PowerShell"
+    override fun getName(): String = title
 
     override fun resize(termSize: TermSize) {
         val p = process

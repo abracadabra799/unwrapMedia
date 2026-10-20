@@ -99,6 +99,7 @@ class AiChatControllerTest {
         })
         auth.send(a, "q", AiProviderId.GEMINI, File("/bin/true"))
         waitFor { a.aiConversation.status == AiRunStatus.FAILED }
+        assertEquals(AiFailure.AUTH_REQUIRED, a.aiConversation.failure)
         assertEquals(AiCapabilityUpdate(AiProviderId.GEMINI, failure = AiFailure.AUTH_REQUIRED), auth.lastCapabilityUpdate)
         assertTrue(a.aiConversation.messages.last().text.contains("IneligibleTierError"), a.aiConversation.messages.last().text)
 

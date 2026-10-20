@@ -904,6 +904,20 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     appState.aiPromptTargetWarning = null
                 }
             }
+            appState.aiLoginProvider?.let { provider ->
+                val executable = appState.aiCapabilities[provider]?.executablePath
+                if (executable != null) {
+                    com.multiviewer.ui.ai.AiLoginWindow(
+                        provider = provider,
+                        executable = File(executable),
+                        language = language,
+                        themeMode = themeMode,
+                        onCloseRequest = { appState.aiLoginProvider = null },
+                    )
+                } else {
+                    appState.aiLoginProvider = null
+                }
+            }
             if (avSyncWindowOpen) {
                 val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
                 if (currentTab != null) {

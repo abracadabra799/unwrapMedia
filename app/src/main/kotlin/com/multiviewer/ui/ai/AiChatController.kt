@@ -280,10 +280,10 @@ class AiChatController(
             val history = tab.aiConversation.messages
             val (started, run) = tab.aiConversation.withUserMessage(text, context, provider, now())
             tab.aiConversation = started
-            fun end(status: AiRunStatus, notice: String) {
+            fun end(status: AiRunStatus, notice: String, failure: AiFailure? = null) {
                 // Local diagnostics only: the run status and the app notice, never the question or context.
                 System.err.println("[AI] ${provider.name} run $run ended $status: $notice")
-                tab.aiConversation = tab.aiConversation.withRunEnded(run, status, notice, now())
+                tab.aiConversation = tab.aiConversation.withRunEnded(run, status, notice, now(), failure)
             }
             if (snapshot.fileChangedSinceOpen) {
                 end(AiRunStatus.FAILED, label(
@@ -363,7 +363,7 @@ class AiChatController(
                             AiFailure.EMPTY_OUTPUT -> label("응답이 비어 있습니다.", "The answer was empty.")
                             AiFailure.LAUNCH_FAILED -> label("CLI를 실행하지 못했습니다: ", "Could not start the CLI: ") + result.detail
                             AiFailure.EXIT_ERROR -> label("CLI가 오류로 끝났습니다 (종료 코드 ${result.exitCode}): ", "The CLI failed (exit ${result.exitCode}): ") + result.detail
-                        })
+                        }, result.reason)
                         report(AiCapabilityUpdate(provider, failure = result.reason))
                     }
                     AiCliResult.TimedOut -> end(AiRunStatus.TIMED_OUT, label(

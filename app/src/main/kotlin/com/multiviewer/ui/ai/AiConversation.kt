@@ -63,6 +63,7 @@ data class AiConversationState(
     val status: AiRunStatus = AiRunStatus.IDLE,
     val runId: Long = 0,
     val provider: AiProviderId? = null,
+    val failure: AiFailure? = null,
 ) {
     private fun nextId() = (messages.maxOfOrNull { it.id } ?: 0) + 1
 
@@ -87,7 +88,7 @@ data class AiConversationState(
         val run = runId + 1
         val state = copy(
             messages = messages + AiMessage(nextId(), AiRole.USER, text, provider, now, outgoingContext),
-            status = AiRunStatus.RUNNING, runId = run, provider = provider,
+            status = AiRunStatus.RUNNING, runId = run, provider = provider, failure = null,
             activity = activity + AiActivity(now, "→ ${provider.displayName}: ${outgoingContext.length} chars of context"),
         ).bounded()
         return state to run
@@ -103,11 +104,11 @@ data class AiConversationState(
     }
 
     /** Ends the current run without an answer; [notice] becomes a visible app message. */
-    fun withRunEnded(run: Long, status: AiRunStatus, notice: String, now: Long): AiConversationState {
+    fun withRunEnded(run: Long, status: AiRunStatus, notice: String, now: Long, failure: AiFailure? = null): AiConversationState {
         if (run != runId || this.status != AiRunStatus.RUNNING) return this
         return copy(
             messages = messages + AiMessage(nextId(), AiRole.NOTICE, notice, provider, now),
-            status = status,
+            status = status, failure = failure,
             activity = activity + AiActivity(now, "${status.name}: $notice"),
         ).bounded()
     }
