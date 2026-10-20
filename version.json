@@ -1,7 +1,7 @@
 {
-  "version": "1.32.0",
-  "releaseDate": "2026-10-20",
-  "releaseNotes": "• 폴더 탐색기: 확장자가 지원 목록에 없어도 내용이 미디어면 목록에 표시 (폴더당 최대 200개 확인, 문서·압축 등 제외)\n• 비교 창: 파일 선택·드래그앤드롭에서 이름이 잘못된 미디어 허용, 로딩·썸네일을 실제 포맷 기준으로 처리\n• Live Photo 짝 찾기를 실제 포맷 기준으로 수행\n• 컨텐츠 검사: 확장자와 실제 포맷이 다르면 구조 탭에 '확장자 불일치' 경고(WARN)",
+  "version": "1.33.0",
+  "releaseDate": "2026-10-21",
+  "releaseNotes": "• UI 정리: 알약 모양 버튼·칩을 없애고 앱 전체를 요약 패널 탭과 같은 사각형 스타일(4dp 모서리, 얇은 테두리)로 통일\n• 헥스 뷰어: 툴바·찾기·이동·복사 바를 단순한 평면 버튼으로 정리하고 이모지 제거",
   "windowsUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest",
   "macUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest"
 }
