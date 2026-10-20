@@ -5,7 +5,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -118,12 +117,14 @@ fun VideoInspectorUI(
     // Filmstrip gets a compact share (~0.32) so it does not dominate the center panel,
     // with the GOP timeline taking 0.68. User-draggable anytime via divider.
     var gopFilmstripSplit by remember { mutableStateOf(0.68f) }
+    val supportsAvTimeline = !isAv2VideoTrack(tab.root)
     var avTimelineExpanded by remember(tab) { mutableStateOf(false) }
     var livePlayerPlaying by remember(tab) { mutableStateOf(false) }
     var livePlayerDisplayed by remember(tab) { mutableStateOf<FramePosition?>(null) }
 
-    LaunchedEffect(tab, avTimelineExpanded, tab.videoReadyForAnalysis) {
-        if (avTimelineExpanded && tab.videoReadyForAnalysis && !tab.isAnalyzingFrames && tab.gopFrames == null) {
+    LaunchedEffect(tab, supportsAvTimeline, avTimelineExpanded, tab.videoReadyForAnalysis) {
+        if (supportsAvTimeline && avTimelineExpanded && tab.videoReadyForAnalysis &&
+            !tab.isAnalyzingFrames && tab.gopFrames == null) {
             appState.analyzeFrames(tab)
         }
     }
@@ -137,7 +138,7 @@ fun VideoInspectorUI(
                 }
                 Row(
                     modifier = Modifier
-                        .weight(if (avTimelineExpanded) 0.65f else 1f)
+                        .weight(if (supportsAvTimeline && avTimelineExpanded) 0.65f else 1f)
                         .fillMaxWidth()
                         .onGloballyPositioned { topContainerWidthPx = it.size.width }
                 ) {
@@ -167,10 +168,13 @@ fun VideoInspectorUI(
                                 file = tab.file,
                                 seekRequestSeconds = tab.seekTargetSeconds,
                                 seekRequestTick = tab.seekRequestTick,
+                                playPauseRequestTick = tab.videoPlayPauseRequestTick,
+                                inspectionLanguage = language,
                                 knownFrameTimestamps = tab.gopFrames?.takeIf { !tab.isAnalyzingFrames && it.isNotEmpty() }?.map { it.ptsSeconds },
                                 onProbeComplete = { tab.videoReadyForAnalysis = true },
                                 onPlaybackStateChanged = { isPlaying ->
                                     livePlayerPlaying = isPlaying
+                                    tab.videoPlaybackPlaying = isPlaying
                                     if (!isPlaying) {
                                         livePlayerDisplayed?.let { pos ->
                                             tab.gopFrames?.getOrNull(pos.number - 1)?.let { tab.selectedFrame = it }
@@ -179,6 +183,7 @@ fun VideoInspectorUI(
                                 },
                                 onFramePresented = { pos ->
                                     livePlayerDisplayed = pos
+                                    tab.currentVideoPtsSeconds = pos.ptsSeconds
                                     if (!livePlayerPlaying) {
                                         tab.gopFrames?.getOrNull(pos.number - 1)?.let { tab.selectedFrame = it }
                                     }
@@ -236,33 +241,27 @@ fun VideoInspectorUI(
                         }
                     }
                 }
-                if (!isAv2VideoTrack(tab.root)) {
-                    TextButton(
-                        onClick = { avTimelineExpanded = !avTimelineExpanded },
-                        modifier = Modifier.fillMaxWidth().height(26.dp),
-                    ) {
-                        Text(
-                            (if (avTimelineExpanded) "▾  " else "▸  ") +
-                                if (language == AppLanguage.KO) "A/V 타임라인 · 프레임 / 파형 / 패킷 PTS"
-                                else "A/V Timeline · frames / waveform / packet PTS",
-                            color = AppColors.NeonBlue, fontSize = 11.sp,
-                        )
-                    }
-                    if (avTimelineExpanded) {
-                        VideoAudioTimelineView(
-                            tab = tab,
-                            frames = tab.gopFrames.orEmpty(),
-                            currentVideoPts = livePlayerDisplayed?.ptsSeconds,
-                            language = language,
-                            onSelectFrame = { frame ->
-                                tab.selectedFrame = frame
-                                tab.selected = null
-                                tab.seekTargetSeconds = frame.ptsSeconds
-                                tab.seekRequestTick++
-                            },
-                            modifier = Modifier.weight(0.35f).fillMaxWidth(),
-                        )
-                    }
+                if (supportsAvTimeline) {
+                    VideoAudioTimelineView(
+                        tab = tab,
+                        frames = tab.gopFrames.orEmpty(),
+                        currentVideoPts = livePlayerDisplayed?.ptsSeconds,
+                        language = language,
+                        expanded = avTimelineExpanded,
+                        onToggleExpanded = { avTimelineExpanded = !avTimelineExpanded },
+                        onOpenPopup = {
+                            avTimelineExpanded = false
+                            tab.avTimelinePopupOpen = true
+                        },
+                        onSelectFrame = { frame ->
+                            tab.selectedFrame = frame
+                            tab.selected = null
+                            tab.seekTargetSeconds = frame.ptsSeconds
+                            tab.seekRequestTick++
+                        },
+                        modifier = if (avTimelineExpanded) Modifier.weight(0.35f).fillMaxWidth()
+                                   else Modifier.fillMaxWidth(),
+                    )
                 }
             }
         },

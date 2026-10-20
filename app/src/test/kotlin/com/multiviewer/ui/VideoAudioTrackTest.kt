@@ -2,9 +2,11 @@ package com.multiviewer.ui
 
 import com.multiviewer.util.ProcessManager
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import javax.sound.sampled.AudioFormat
 import javax.sound.sampled.AudioSystem
 import javax.sound.sampled.Control
@@ -17,6 +19,15 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class VideoAudioTrackTest {
+    @Test
+    fun `software volume scales signed little endian PCM and mute silences it`() {
+        val pcm = byteArrayOf(0x20, 0x4e, 0xe0.toByte(), 0xb1.toByte()) // +20000, -20000
+        scalePcm16Le(pcm, pcm.size, 50)
+        assertEquals(listOf(0x10, 0x27, 0xf0, 0xd8), pcm.map { it.toInt() and 0xff }) // +10000, -10000
+        scalePcm16Le(pcm, pcm.size, 0)
+        assertEquals(listOf(0, 0, 0, 0), pcm.map { it.toInt() and 0xff })
+    }
+
     @Test
     fun `audio timeline keeps advancing after PCM input ends so late frames stay stale`() {
         val timeline = AudioMasterTimeline()
@@ -75,10 +86,15 @@ class VideoAudioTrackTest {
         @Volatile private var open = false
         @Volatile private var running = false
         private var written = 0L
+        val output = ByteArrayOutputStream()
         override fun open(format: AudioFormat, bufferSize: Int) { open = true }
         override fun open(format: AudioFormat) { open = true }
         override fun open() { open = true }
-        override fun write(b: ByteArray, off: Int, len: Int): Int { written += len; return len }
+        override fun write(b: ByteArray, off: Int, len: Int): Int {
+            output.write(b, off, len)
+            written += len
+            return len
+        }
         override fun drain() {}
         override fun flush() {}
         override fun start() { running = true }
@@ -103,8 +119,10 @@ class VideoAudioTrackTest {
     }
 
     /** Fake process whose stdout is a fixed PCM byte blob then EOF. */
-    private class FakePcmProcess(bytes: ByteArray) : Process() {
-        private val stdout: InputStream = ByteArrayInputStream(bytes)
+    private class FakePcmProcess(bytes: ByteArray, chunkSize: Int = 8192) : Process() {
+        private val stdout: InputStream = object : ByteArrayInputStream(bytes) {
+            override fun read(b: ByteArray, off: Int, len: Int): Int = super.read(b, off, minOf(len, chunkSize))
+        }
         @Volatile private var alive = true
         override fun getOutputStream(): OutputStream = OutputStream.nullOutputStream()
         override fun getInputStream(): InputStream = stdout
@@ -162,6 +180,27 @@ class VideoAudioTrackTest {
         val gone = System.currentTimeMillis() + 2000
         while (ProcessManager.isTracked(process) && System.currentTimeMillis() < gone) Thread.sleep(20)
         assertFalse(ProcessManager.isTracked(process), "process must be unregistered after EOF + destroy")
+    }
+
+    @Test
+    fun `audio track applies volume even when PCM arrives one byte at a time`() {
+        val pcm = byteArrayOf(0x20, 0x4e, 0xe0.toByte(), 0xb1.toByte())
+        val output = InstantLine(AudioFormat(8000f, 16, 1, true, false))
+        val track = VideoAudioTrack(
+            java.io.File("x.mp4"), 0.0, 8000, 1, AtomicBoolean(true), AtomicBoolean(false),
+            volumePercent = AtomicInteger(50),
+            processFactory = { FakePcmProcess(pcm, chunkSize = 1) },
+            lineFactory = { output },
+        )
+        try {
+            track.start()
+            val deadline = System.currentTimeMillis() + 2000
+            while (!track.ended && System.currentTimeMillis() < deadline) Thread.sleep(10)
+            assertTrue(track.ended, "expected the track to reach EOF")
+            assertEquals(listOf(0x10, 0x27, 0xf0, 0xd8), output.output.toByteArray().map { it.toInt() and 0xff })
+        } finally {
+            track.destroy()
+        }
     }
 
     @Test

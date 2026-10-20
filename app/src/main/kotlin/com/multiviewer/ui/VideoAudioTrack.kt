@@ -3,11 +3,13 @@ package com.multiviewer.ui
 import com.multiviewer.util.ProcessManager
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import javax.sound.sampled.AudioFormat
 import javax.sound.sampled.AudioSystem
 import javax.sound.sampled.BooleanControl
 import javax.sound.sampled.FloatControl
 import javax.sound.sampled.SourceDataLine
+import kotlin.math.roundToInt
 
 // Pure pacing decision for the video reader loop when audio is the master clock. Kept free of
 // I/O / Thread / Compose so it is directly unit-testable, same convention as shouldSkipFrame in
@@ -91,6 +93,23 @@ internal fun applyMuteControl(line: SourceDataLine, muted: Boolean) {
     }
 }
 
+/** Applies a 0–100% level to complete signed 16-bit little-endian PCM samples in place. */
+internal fun scalePcm16Le(bytes: ByteArray, length: Int, percent: Int) {
+    require(length in 0..bytes.size && length % 2 == 0)
+    val level = percent.coerceIn(0, 100)
+    if (level == 100) return
+    if (level == 0) {
+        bytes.fill(0, 0, length)
+        return
+    }
+    for (i in 0 until length step 2) {
+        val sample = (((bytes[i + 1].toInt() shl 8) or (bytes[i].toInt() and 0xff))).toShort().toInt()
+        val scaled = (sample * level / 100f).roundToInt().coerceIn(-32768, 32767)
+        bytes[i] = scaled.toByte()
+        bytes[i + 1] = (scaled shr 8).toByte()
+    }
+}
+
 // A sidecar audio engine for FfmpegVideoPlayer: one ffmpeg process piping s16le PCM, one
 // SourceDataLine writer thread. The video reader loop paces itself against clockSeconds. Same
 // reader-loop shape as FfmpegAudioPlayer's DisposableEffect (deliberately duplicated -- see the
@@ -103,6 +122,7 @@ internal class VideoAudioTrack(
     private val channels: Int,
     private val playing: AtomicBoolean,
     private val muted: AtomicBoolean,
+    private val volumePercent: AtomicInteger = AtomicInteger(100),
     private val processFactory: (List<String>) -> Process = { args ->
         ProcessBuilder(args)
             .redirectError(ProcessBuilder.Redirect.DISCARD)
@@ -164,6 +184,7 @@ internal class VideoAudioTrack(
                 var wasPlaying = true
                 var appliedMute = false
                 val buffer = ByteArray(8192)
+                var pendingByte: Byte? = null
                 val input = p.inputStream
                 while (!stopped.get()) {
                     if (muted.get() != appliedMute) {
@@ -176,9 +197,17 @@ internal class VideoAudioTrack(
                         continue
                     }
                     if (!wasPlaying) { ln.start(); wasPlaying = true }
-                    val n = input.read(buffer)
+                    val offset = if (pendingByte != null) {
+                        buffer[0] = pendingByte
+                        1
+                    } else 0
+                    val n = input.read(buffer, offset, buffer.size - offset)
                     if (n < 0) { ended = true; break }
-                    ln.write(buffer, 0, n)
+                    val completeBytes = (offset + n) and -2
+                    pendingByte = if (completeBytes < offset + n) buffer[completeBytes] else null
+                    if (completeBytes == 0) continue
+                    scalePcm16Le(buffer, completeBytes, if (muted.get()) 0 else volumePercent.get())
+                    ln.write(buffer, 0, completeBytes)
                 }
             } catch (e: InterruptedException) {
                 // Expected on destroy() -- not an error.

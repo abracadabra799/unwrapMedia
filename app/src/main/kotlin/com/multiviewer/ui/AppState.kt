@@ -263,6 +263,10 @@ class TabState(val file: File) {
     // fullSizeFrameBitmap is the actual native-resolution decode (separate from the small
     // thumbnailCache entry for the same frame).
     var fullSizeFramePreviewOpen: Boolean by mutableStateOf(false)
+    var avTimelinePopupOpen: Boolean by mutableStateOf(false)
+    var currentVideoPtsSeconds: Double? by mutableStateOf(null)
+    var videoPlaybackPlaying: Boolean by mutableStateOf(false)
+    var videoPlayPauseRequestTick: Int by mutableStateOf(0)
     var fullSizeFrameBitmap: androidx.compose.ui.graphics.ImageBitmap? by mutableStateOf(null)
     var codecViewFrameBitmap: androidx.compose.ui.graphics.ImageBitmap? by mutableStateOf(null)
     var isDecodingCodecViewFrame: Boolean by mutableStateOf(false)

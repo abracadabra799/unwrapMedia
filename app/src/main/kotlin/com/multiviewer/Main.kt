@@ -1026,6 +1026,9 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 }
             }
             appState.tabs.forEach { tab ->
+                if (tab.avTimelinePopupOpen) {
+                    VideoAudioTimelineWindow(appState, tab, language, onCloseRequest = { tab.avTimelinePopupOpen = false })
+                }
                 if (tab.fullSizeFramePreviewOpen) {
                     FrameFullSizePreviewWindow(appState, tab, language, onCloseRequest = { tab.fullSizeFramePreviewOpen = false })
                 }

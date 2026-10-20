@@ -26,6 +26,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -71,6 +74,8 @@ import java.awt.EventQueue
 import java.io.File
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.math.roundToInt
 
 // startTime: the container's format start_time (non-zero for e.g. MPEG-TS). Frame PTS from ffprobe are absolute,
 // the player's own positions are relative to it -- see playerSeek.
@@ -373,7 +378,11 @@ fun FfmpegVideoPlayer(
     var lastHandledPlayPauseTick by remember(file) { mutableStateOf(playPauseRequestTick) }
     val audioPlayingAtomic = remember(file) { AtomicBoolean(false) }
     val audioMutedAtomic = remember(file) { AtomicBoolean(false) }
+    val audioVolumeAtomic = remember(file) { AtomicInteger(100) }
     var isMuted by remember(file) { mutableStateOf(false) }
+    var volumePercent by remember(file) { mutableStateOf(100) }
+    var volumeMenuOpen by remember(file) { mutableStateOf(false) }
+    var displayedFramePosition by remember(file) { mutableStateOf<FramePosition?>(null) }
     var audioInfo by remember(file) { mutableStateOf<AudioFileInfo?>(null) }
     // Hoisted so both the DisposableEffect (which creates it) and the progress coroutine (which reads
     // its clock) see the same instance.
@@ -393,6 +402,12 @@ fun FfmpegVideoPlayer(
     fun setMuted(muted: Boolean) {
         isMuted = muted
         audioMutedAtomic.set(muted)
+    }
+
+    fun setVolume(percent: Int) {
+        volumePercent = percent.coerceIn(0, 100)
+        audioVolumeAtomic.set(volumePercent)
+        if (volumePercent > 0 && isMuted) setMuted(false)
     }
 
     var probedInfo by remember(file) { mutableStateOf<VideoInfo?>(null) }
@@ -505,8 +520,10 @@ fun FfmpegVideoPlayer(
     DisposableEffect(file, restartTrigger, audioInfo) {
         playedSeconds = 0.0
         videoBitmap = null
+        displayedFramePosition = null
         audioPlayingAtomic.set(isPlaying)
         audioMutedAtomic.set(isMuted)
+        audioVolumeAtomic.set(volumePercent)
         val seekSeconds = startFromSeconds
         val timestampIndex = frameTimestamps?.let(::FrameTimestampIndex)
         // Same epsilon as the exact-frame select: a frame whose PTS is a rounding hair below the seek still counts.
@@ -545,6 +562,7 @@ fun FfmpegVideoPlayer(
                 channels = ai.channels,
                 playing = audioPlayingAtomic,
                 muted = audioMutedAtomic,
+                volumePercent = audioVolumeAtomic,
             ).also { it.start() }
         }
         audioTrackRef = audioTrack
@@ -605,6 +623,7 @@ fun FfmpegVideoPlayer(
                         EventQueue.invokeLater {
                             if (stopped.get()) return@invokeLater
                             videoBitmap = snapshot
+                            displayedFramePosition = position
                             if (position != null) onFramePresented(position.copy(ptsSeconds = position.ptsSeconds + info.startTime))
                             if (durationSeconds != null) {
                                 playedSeconds += durationSeconds
@@ -954,20 +973,69 @@ fun FfmpegVideoPlayer(
                 if (audioInfo != null) {
                     Spacer(Modifier.width(6.dp))
                     Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.25f))
-                            .clickable { setMuted(!isMuted) },
                         contentAlignment = Alignment.Center,
                     ) {
-                        SpeakerIcon(muted = isMuted, modifier = Modifier.size(14.dp), color = Color.White)
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = if (volumeMenuOpen) 0.4f else 0.25f))
+                                .clickable { volumeMenuOpen = !volumeMenuOpen },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            SpeakerIcon(muted = isMuted || volumePercent == 0, modifier = Modifier.size(14.dp), color = Color.White)
+                        }
+                        DropdownMenu(
+                            expanded = volumeMenuOpen,
+                            onDismissRequest = { volumeMenuOpen = false },
+                            modifier = Modifier.width(208.dp),
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    if (inspectionLanguage == AppLanguage.KO) "음량" else "Volume",
+                                    color = AppColors.TextPrimary,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text("${if (isMuted) 0 else volumePercent}%", color = AppColors.TextSecondary, fontSize = 11.sp)
+                            }
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Box(
+                                    modifier = Modifier.size(28.dp).clip(CircleShape)
+                                        .clickable {
+                                            if (isMuted || volumePercent == 0) {
+                                                if (volumePercent == 0) setVolume(50)
+                                                setMuted(false)
+                                            } else setMuted(true)
+                                        },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    SpeakerIcon(muted = isMuted || volumePercent == 0, modifier = Modifier.size(17.dp), color = AppColors.TextPrimary)
+                                }
+                                Slider(
+                                    value = volumePercent / 100f,
+                                    onValueChange = { setVolume((it * 100).roundToInt()) },
+                                    modifier = Modifier.weight(1f).height(32.dp),
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = Color.White,
+                                        activeTrackColor = AppColors.NeonBlue,
+                                    ),
+                                )
+                            }
+                        }
                     }
                 }
 
                 Spacer(Modifier.width(6.dp))
 
-                PreviewCaption("${info.width}x${info.height}$rotationSuffix")
+                val frameSuffix = displayedFramePosition?.let { " · #${it.number}" } ?: ""
+                PreviewCaption("${info.width}x${info.height}$rotationSuffix$frameSuffix")
 
                 Spacer(Modifier.weight(1f))
 

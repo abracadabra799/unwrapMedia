@@ -54,6 +54,18 @@ fun openInSystemExplorer(dir: File) {
     }, "open-in-system-explorer").apply { isDaemon = true }.start()
 }
 
+/** Browse from the current folder and open the file picked in the app. */
+fun showOpenFileFromFolderDialog(appState: AppState, folder: File, language: AppLanguage) {
+    val title = if (language == AppLanguage.KO) "파일 선택하여 열기" else "Select File to Open"
+    val dialog = FileDialog(null as Frame?, title, FileDialog.LOAD)
+    dialog.directory = folder.absolutePath
+    dialog.isVisible = true
+    val directory = dialog.directory ?: return
+    val name = dialog.file ?: return
+    val selected = File(directory, name)
+    if (selected.isFile) appState.openFile(selected)
+}
+
 fun showOpenFolderDialog(appState: AppState) {
     val isMac = System.getProperty("os.name").lowercase(Locale.US).contains("mac")
     if (isMac) {
@@ -268,7 +280,7 @@ fun FolderExplorerView(
                             Text("🔄", fontSize = 11.sp)
                         }
                         IconButton(
-                            onClick = { openInSystemExplorer(targetFolder) },
+                            onClick = { showOpenFileFromFolderDialog(appState, targetFolder, language) },
                             modifier = Modifier.size(24.dp),
                         ) {
                             Text("📂", fontSize = 11.sp)

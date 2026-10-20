@@ -118,3 +118,10 @@ fun nearestAudioTimelinePacket(packets: List<AudioTimelinePacket>, ptsSeconds: D
     val nearest = listOfNotNull(before, after).minByOrNull { abs(it.ptsSeconds - ptsSeconds) } ?: return null
     return nearest.takeIf { abs(it.ptsSeconds - ptsSeconds) <= 0.1 }
 }
+
+/** Steps through the frames in timeline (presentation) order, using the shared selected frame. */
+fun stepTimelineFrame(frames: List<FrameInfo>, selected: FrameInfo?, delta: Int): FrameInfo? {
+    if (frames.isEmpty()) return null
+    val current = frames.indexOfFirst { it.index == selected?.index }
+    return frames[if (current < 0) 0 else (current + delta).coerceIn(frames.indices)]
+}

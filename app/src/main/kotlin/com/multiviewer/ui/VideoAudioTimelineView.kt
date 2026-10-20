@@ -2,14 +2,14 @@ package com.multiviewer.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,23 +17,32 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -59,6 +68,17 @@ private fun nearestVideoFrame(frames: List<FrameInfo>, seconds: Double): FrameIn
         .minByOrNull { kotlin.math.abs(it.ptsSeconds - seconds) }
 }
 
+@Composable
+private fun TimelineHeaderAction(text: String, fontSize: TextUnit = 10.sp, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier.height(28.dp).clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, color = AppColors.NeonBlue, fontSize = fontSize)
+    }
+}
+
 /** Shared presentation-time axis for video frames and the first audio stream. */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -67,6 +87,11 @@ fun VideoAudioTimelineView(
     frames: List<FrameInfo>,
     currentVideoPts: Double?,
     language: AppLanguage,
+    expanded: Boolean,
+    onToggleExpanded: (() -> Unit)?,
+    onTogglePlayback: (() -> Unit)? = null,
+    onOpenPopup: (() -> Unit)? = null,
+    focusOnOpen: Boolean = false,
     onSelectFrame: (FrameInfo) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -80,9 +105,16 @@ fun VideoAudioTimelineView(
     var peaksDone by remember(tab) { mutableStateOf(false) }
     var chosenPacket by remember(tab) { mutableStateOf<AudioTimelinePacket?>(null) }
 
-    // This composable exists only while the strip is expanded. Collapse/tab close cancels the
-    // interruptible worker; each ffmpeg/ffprobe helper terminates its child in its finally path.
-    LaunchedEffect(tab) {
+    // Collapsing or closing the tab cancels the interruptible worker; ffmpeg/ffprobe helpers
+    // terminate their child process in their finally paths.
+    LaunchedEffect(tab, expanded) {
+        if (!expanded || (infoDone && (audioInfo == null || (packetsDone && peaksDone)))) return@LaunchedEffect
+        infoDone = false
+        packetsDone = false
+        peaksDone = false
+        audioInfo = null
+        packetResult = null
+        peaks = null
         val info = runInterruptible(Dispatchers.IO) { probeAudioFormat(tab.file) }
         audioInfo = info
         infoDone = true
@@ -108,37 +140,78 @@ fun VideoAudioTimelineView(
     }
     val packets = packetResult?.packets.orEmpty()
     val range = remember(orderedFrames, audioInfo, packetResult) { audioVideoTimelineRange(orderedFrames, audioInfo, packets) }
+    val lastVideoPts = orderedFrames.lastOrNull()?.ptsSeconds
+    val audioEndPts = audioInfo?.let { it.startTimeSeconds + it.duration }
     var view by remember(tab) { mutableStateOf(AudioViewWindow(0.0, range.durationSeconds)) }
     LaunchedEffect(range) { view = AudioViewWindow(0.0, range.durationSeconds) }
     val selectedFrame = tab.selectedFrame
     val selectedPacket = chosenPacket ?: selectedFrame?.let { nearestAudioTimelinePacket(packets, it.ptsSeconds) }
+    val focusRequester = remember(tab) { FocusRequester() }
+    val currentView by rememberUpdatedState(view)
+    LaunchedEffect(focusOnOpen, expanded) {
+        if (focusOnOpen && expanded) focusRequester.requestFocus()
+    }
 
-    Column(modifier.background(AppColors.Surface).padding(horizontal = 7.dp, vertical = 2.dp)) {
-        Row(Modifier.fillMaxWidth().height(25.dp), verticalAlignment = Alignment.CenterVertically) {
+    fun stepFrame(delta: Int): Boolean {
+        val frame = stepTimelineFrame(orderedFrames, selectedFrame, delta) ?: return false
+        chosenPacket = null
+        onSelectFrame(frame)
+        return true
+    }
+
+    Column(modifier.background(AppColors.Surface).padding(horizontal = 7.dp, vertical = 1.dp)) {
+        Row(Modifier.fillMaxWidth().height(30.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 "${ptsLabel(range.startSeconds + view.startSeconds)} – ${ptsLabel(range.startSeconds + view.startSeconds + view.durationSeconds)}",
                 color = AppColors.TextSecondary, fontSize = 10.sp,
+                modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.weight(1f))
-            TextButton(modifier = Modifier.height(24.dp), contentPadding = PaddingValues(horizontal = 5.dp), onClick = {
-                view = zoomAround(view, view.startSeconds + view.durationSeconds / 2, view.durationSeconds * 2, range.durationSeconds)
-            }) { Text("−", fontSize = 12.sp) }
-            TextButton(modifier = Modifier.height(24.dp), contentPadding = PaddingValues(horizontal = 5.dp), onClick = {
-                view = zoomAround(view, view.startSeconds + view.durationSeconds / 2, view.durationSeconds / 2, range.durationSeconds)
-            }) { Text("+", fontSize = 12.sp) }
-            TextButton(modifier = Modifier.height(24.dp), contentPadding = PaddingValues(horizontal = 5.dp),
-                onClick = { view = AudioViewWindow(0.0, range.durationSeconds) }) {
-                Text(label("전체", "Fit"), fontSize = 10.sp)
+            if (expanded) {
+                if (onTogglePlayback != null) {
+                    TimelineHeaderAction(
+                        if (tab.videoPlaybackPlaying) label("Ⅱ 일시정지", "Ⅱ Pause") else label("▶ 재생", "▶ Play"),
+                        onClick = onTogglePlayback,
+                    )
+                }
+                TimelineHeaderAction("−", fontSize = 12.sp, onClick = {
+                    view = zoomAround(view, view.startSeconds + view.durationSeconds / 2, view.durationSeconds * 2, range.durationSeconds)
+                })
+                TimelineHeaderAction("+", fontSize = 12.sp, onClick = {
+                    view = zoomAround(view, view.startSeconds + view.durationSeconds / 2, view.durationSeconds / 2, range.durationSeconds)
+                })
+                TimelineHeaderAction(label("전체", "Fit")) { view = AudioViewWindow(0.0, range.durationSeconds) }
+            }
+            if (onToggleExpanded != null) {
+                TimelineHeaderAction(if (expanded) label("▾ A/V 타임라인 접기", "▾ Collapse A/V Timeline")
+                                     else label("▸ A/V 타임라인 펼치기", "▸ Expand A/V Timeline"),
+                    onClick = onToggleExpanded)
+            }
+            if (onOpenPopup != null) {
+                TimelineHeaderAction(label("팝업 ↗", "Popup ↗"), onClick = onOpenPopup)
             }
         }
 
+        if (!expanded) return@Column
+
         Row(Modifier.fillMaxWidth().weight(1f), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.width(42.dp).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
-                Text(label("영상", "Video"), color = VIDEO_TICK, fontSize = 9.sp)
+                Text("V PTS", color = VIDEO_TICK, fontSize = 9.sp)
                 Text(label("파형", "Wave"), color = AUDIO_WAVE, fontSize = 9.sp)
                 Text("A PTS", color = AUDIO_TICK, fontSize = 9.sp)
             }
-            Box(Modifier.fillMaxSize().background(AppColors.Background)) {
+            Box(
+                Modifier.fillMaxSize().background(AppColors.Background)
+                    .focusRequester(focusRequester).focusable()
+                    .onKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                        when (event.key) {
+                            Key.DirectionLeft -> stepFrame(-1)
+                            Key.DirectionRight -> stepFrame(1)
+                            Key.Spacebar -> if (onTogglePlayback != null) { onTogglePlayback(); true } else false
+                            else -> false
+                        }
+                    },
+            ) {
                 Canvas(
                     Modifier.fillMaxSize()
                         .onPointerEvent(PointerEventType.Scroll, pass = PointerEventPass.Initial) { event ->
@@ -156,6 +229,7 @@ fun VideoAudioTimelineView(
                         }
                         .pointerInput(orderedFrames, packets, range) {
                             detectTapGestures { tap ->
+                                focusRequester.requestFocus()
                                 val time = timelineTimeAtFraction(tap.x / size.width, range, view)
                                 if (tap.y < size.height * 0.25f) {
                                     nearestVideoFrame(orderedFrames, time)?.let { frame ->
@@ -217,6 +291,11 @@ fun VideoAudioTimelineView(
                         frameIndex = max(frameIndex + 1, if (found < 0) -found - 1 else found)
                     }
 
+                    lastVideoPts?.let { pts ->
+                        val x = xFor(pts)
+                        if (x in 0f..w) drawCircle(VIDEO_TICK, radius = 4f, center = Offset(x, h * 0.12f))
+                    }
+
                     val info = audioInfo
                     val wave = peaks
                     if (info != null && wave != null && info.duration > 0.0) {
@@ -242,6 +321,11 @@ fun VideoAudioTimelineView(
                                 }
                             }
                         }
+                    }
+
+                    audioEndPts?.let { pts ->
+                        val x = xFor(pts)
+                        if (x in 0f..w) drawLine(AUDIO_WAVE, Offset(x, h * 0.27f), Offset(x, h * 0.76f), strokeWidth = 2f)
                     }
 
                     val packetStart = packets.binarySearch { it.ptsSeconds.compareTo(visibleStart) }
@@ -278,6 +362,45 @@ fun VideoAudioTimelineView(
             }
         }
 
+        if (view.durationSeconds < range.durationSeconds) {
+            val scrollbarColor = AppColors.NeonBlue
+            Row(Modifier.fillMaxWidth().height(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.width(42.dp))
+                Canvas(
+                    Modifier.fillMaxSize()
+                        .padding(vertical = 2.dp)
+                        .pointerInput(range.durationSeconds) {
+                            detectTapGestures { tap ->
+                                if (size.width > 0) {
+                                    view = clampWindow(
+                                        tap.x / size.width * range.durationSeconds - currentView.durationSeconds / 2,
+                                        currentView.durationSeconds,
+                                        range.durationSeconds,
+                                    )
+                                }
+                            }
+                        }
+                        .pointerInput(range.durationSeconds) {
+                            detectDragGestures { change, drag ->
+                                if (size.width > 0) {
+                                    view = clampWindow(
+                                        currentView.startSeconds + drag.x / size.width * range.durationSeconds,
+                                        currentView.durationSeconds,
+                                        range.durationSeconds,
+                                    )
+                                }
+                                change.consume()
+                            }
+                        },
+                ) {
+                    drawRect(Color.White.copy(alpha = 0.12f))
+                    val left = (view.startSeconds / range.durationSeconds * size.width).toFloat()
+                    val width = (view.durationSeconds / range.durationSeconds * size.width).toFloat()
+                    drawRect(scrollbarColor, Offset(left, 0f), androidx.compose.ui.geometry.Size(width, size.height))
+                }
+            }
+        }
+
         val statuses = buildList {
             if (tab.gopFrames == null || tab.isAnalyzingFrames) add(label("영상 프레임 PTS 읽는 중…", "Reading video frame PTS…"))
             else if (tab.gopFrames?.isEmpty() == true) add(label("영상 프레임 PTS 없음", "No video frame PTS"))
@@ -296,6 +419,16 @@ fun VideoAudioTimelineView(
             statuses.joinToString(" · "), color = AppColors.TextMuted, fontSize = 10.sp,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
+        if (lastVideoPts != null || audioEndPts != null) {
+            Text(
+                listOfNotNull(
+                    lastVideoPts?.let { "${label("영상 마지막 PTS", "Video last PTS")} ${ptsLabel(it)}" },
+                    audioEndPts?.let { "${label("오디오 끝", "Audio end")} ${ptsLabel(it)}" },
+                ).joinToString(" · "),
+                color = AppColors.TextSecondary, fontSize = 10.sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+        }
         if (selectedFrame != null || selectedPacket != null) {
             val detail = buildList {
                 selectedFrame?.let { add("V #${it.index} PTS ${ptsLabel(it.ptsSeconds)}") }

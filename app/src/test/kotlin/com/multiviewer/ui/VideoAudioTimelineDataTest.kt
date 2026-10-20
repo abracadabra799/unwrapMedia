@@ -9,6 +9,21 @@ import kotlin.test.assertTrue
 
 class VideoAudioTimelineDataTest {
     @Test
+    fun `arrow navigation follows presentation order and stops at the ends`() {
+        val frames = listOf(
+            FrameInfo(0, 'I', 100, 0.0),
+            FrameInfo(2, 'B', 100, 0.04),
+            FrameInfo(1, 'P', 100, 0.08),
+        )
+        assertEquals(2, stepTimelineFrame(frames, frames[0], 1)?.index)
+        assertEquals(1, stepTimelineFrame(frames, frames[1], 1)?.index)
+        assertEquals(2, stepTimelineFrame(frames, frames[2], -1)?.index)
+        assertEquals(1, stepTimelineFrame(frames, frames[2], 1)?.index)
+        assertEquals(0, stepTimelineFrame(frames, null, 1)?.index)
+        assertNull(stepTimelineFrame(emptyList(), null, 1))
+    }
+
+    @Test
     fun `AAC priming packet keeps negative PTS from real ffprobe compact output`() {
         val packet = parseAudioTimelinePacket("pts_time=-0.021333|duration_time=0.021333|size=212|pos=3338|", 0)
         assertNotNull(packet)
