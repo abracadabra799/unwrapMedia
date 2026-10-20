@@ -31,7 +31,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -287,31 +286,6 @@ fun FrameThumbnailFilmstrip(
                                 contentScale = ContentScale.Crop,
                             )
                         }
-                    }
-                    Row(
-                        modifier = Modifier
-                            .height(18.dp)
-                            .padding(horizontal = 2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(3.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            "#${frame.index}",
-                            fontSize = 10.sp,
-                            color = if (isSelected) AppColors.NeonBlue else AppColors.TextSecondary,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                        )
-                        Text(
-                            frame.type.toString(),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = when (frame.type) {
-                                'I' -> AppColors.FrameTypeI
-                                'P' -> AppColors.FrameTypeP
-                                'B' -> AppColors.FrameTypeB
-                                else -> AppColors.TextSecondary
-                            },
-                        )
                     }
                 }
             }

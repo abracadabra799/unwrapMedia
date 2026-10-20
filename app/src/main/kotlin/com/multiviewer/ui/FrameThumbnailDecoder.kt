@@ -10,7 +10,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 
-private const val THUMBNAIL_DECODE_WIDTH_PX = 120
+private const val THUMBNAIL_DECODE_MAX_DIMENSION_PX = 200
 private const val BATCH_TIMEOUT_MS = 15000L
 private const val THUMB_FILENAME_PREFIX = "thumb_"
 private const val THUMB_FILENAME_SUFFIX = ".jpg"
@@ -112,7 +112,7 @@ object FrameThumbnailDecoder {
                 "-ss", startPtsSeconds.toString(),
                 "-i", file.absolutePath,
                 "-frames:v", count.toString(),
-                "-vf", "scale=$THUMBNAIL_DECODE_WIDTH_PX:-1",
+                "-vf", "scale=$THUMBNAIL_DECODE_MAX_DIMENSION_PX:$THUMBNAIL_DECODE_MAX_DIMENSION_PX:force_original_aspect_ratio=decrease",
                 "-q:v", "2",
                 "-vsync", "0",
                 File(tempDir, "$THUMB_FILENAME_PREFIX%05d$THUMB_FILENAME_SUFFIX").absolutePath,
