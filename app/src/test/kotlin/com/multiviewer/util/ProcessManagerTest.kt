@@ -3,12 +3,59 @@ package com.multiviewer.util
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ProcessManagerTest {
+    @Test
+    fun `concurrent terminate waits for ongoing termination`() {
+        val enteredDestroy = CountDownLatch(1)
+        val releaseDestroy = CountDownLatch(1)
+        val process = object : Process() {
+            @Volatile private var alive = true
+            override fun getOutputStream() = java.io.OutputStream.nullOutputStream()
+            override fun getInputStream() = java.io.InputStream.nullInputStream()
+            override fun getErrorStream() = java.io.InputStream.nullInputStream()
+            override fun waitFor(): Int = 0
+            override fun exitValue(): Int = if (alive) throw IllegalThreadStateException() else 0
+            override fun destroy() {
+                enteredDestroy.countDown()
+                releaseDestroy.await(3, TimeUnit.SECONDS)
+                alive = false
+            }
+            override fun isAlive(): Boolean = alive
+        }
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            ProcessManager.register(process)
+            val first = pool.submit { ProcessManager.terminate(process) }
+            assertTrue(enteredDestroy.await(2, TimeUnit.SECONDS))
+            val secondStarted = CountDownLatch(1)
+            val second = pool.submit {
+                secondStarted.countDown()
+                ProcessManager.terminate(process)
+            }
+            assertTrue(secondStarted.await(2, TimeUnit.SECONDS))
+            try {
+                second.get(100, TimeUnit.MILLISECONDS)
+                kotlin.test.fail("Concurrent termination returned before the process was dead")
+            } catch (_: TimeoutException) {
+                // The second caller must wait for the first terminator.
+            }
+            releaseDestroy.countDown()
+            first.get(3, TimeUnit.SECONDS)
+            second.get(3, TimeUnit.SECONDS)
+            assertFalse(process.isAlive)
+        } finally {
+            releaseDestroy.countDown()
+            pool.shutdownNow()
+            ProcessManager.unregister(process)
+        }
+    }
+
     @Test
     fun `watch timeout terminates a silent process before any output arrives`() {
         val process = ProcessManager.register(ProcessBuilder("sleep", "30").start())
