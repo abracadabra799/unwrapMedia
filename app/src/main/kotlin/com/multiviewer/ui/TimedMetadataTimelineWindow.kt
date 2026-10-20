@@ -177,7 +177,7 @@ fun TimedMetadataTimelineWindow(
                             )
                         }
 
-                        OutlinedButton(onClick = { saveCsv() }) {
+                        OutlinedButton(onClick = { saveCsv() }, shape = AppControlShape) {
                             Text(label("CSV 저장", "Save CSV"), fontSize = 12.sp)
                         }
                     }
@@ -239,8 +239,8 @@ fun TimedMetadataTimelineWindow(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(240.dp)
-                            .background(AppColors.Panel, RoundedCornerShape(6.dp))
-                            .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp))
+                            .background(AppColors.Panel, RoundedCornerShape(4.dp))
+                            .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
                             .padding(8.dp),
                     )
 
@@ -249,8 +249,8 @@ fun TimedMetadataTimelineWindow(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
-                            .background(AppColors.Panel, RoundedCornerShape(6.dp))
-                            .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp))
+                            .background(AppColors.Panel, RoundedCornerShape(4.dp))
+                            .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
                             .padding(8.dp),
                     ) {
                         Text(

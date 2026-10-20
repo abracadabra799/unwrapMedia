@@ -762,8 +762,8 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     Column(
                         modifier = Modifier
                             .width(360.dp)
-                            .background(AppColors.Surface, RoundedCornerShape(8.dp))
-                            .border(1.dp, AppColors.Border, RoundedCornerShape(8.dp))
+                            .background(AppColors.Surface, RoundedCornerShape(4.dp))
+                            .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
                             .padding(20.dp),
                     ) {
                         Text("파일 종류 선택", style = AppTypography.headlineSmall)
@@ -776,11 +776,11 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                         )
                         Spacer(Modifier.height(20.dp))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            TextButton(onClick = { appState.cancelRawFileChoice() }) { Text("취소") }
+                            TextButton(onClick = { appState.cancelRawFileChoice() }, shape = AppControlShape) { Text("취소") }
                             Spacer(Modifier.width(8.dp))
-                            Button(onClick = { appState.chooseRawFileAsAudio() }) { Text("오디오") }
+                            Button(onClick = { appState.chooseRawFileAsAudio() }, shape = AppControlShape, colors = appButtonColors(), border = appButtonBorder(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) { Text("오디오") }
                             Spacer(Modifier.width(8.dp))
-                            Button(onClick = { appState.chooseRawFileAsPixel() }) { Text("이미지") }
+                            Button(onClick = { appState.chooseRawFileAsPixel() }, shape = AppControlShape, colors = appButtonColors(), border = appButtonBorder(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) { Text("이미지") }
                         }
                     }
                 }
@@ -806,8 +806,8 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     Column(
                         modifier = Modifier
                             .width(400.dp)
-                            .background(AppColors.Surface, RoundedCornerShape(8.dp))
-                            .border(1.dp, AppColors.NeonRed, RoundedCornerShape(8.dp))
+                            .background(AppColors.Surface, RoundedCornerShape(4.dp))
+                            .border(1.dp, AppColors.NeonRed, RoundedCornerShape(4.dp))
                             .padding(20.dp),
                     ) {
                         Text("파일을 열 수 없습니다", style = AppTypography.headlineSmall, color = AppColors.NeonRed)
@@ -815,7 +815,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                         Text(message, style = AppTypography.labelLarge.copy(fontSize = 12.sp, color = AppColors.TextPrimary))
                         Spacer(Modifier.height(20.dp))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            Button(onClick = { appState.openFileError = null }) { Text("확인") }
+                            Button(onClick = { appState.openFileError = null }, shape = AppControlShape, colors = appButtonColors(), border = appButtonBorder(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) { Text("확인") }
                         }
                     }
                 }
@@ -1094,6 +1094,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                                     contentColor = AppColors.NeonBlue,
                                 ),
                                 border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.Border),
+                                shape = AppControlShape,
                             ) {
                                 Text(if (language == AppLanguage.KO) "📂 파일 열기" else "📂 Open File")
                             }
@@ -1230,7 +1231,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                                 modifier = Modifier.padding(end = 12.dp, start = 6.dp),
                             ) {
                                 Surface(
-                                    shape = RoundedCornerShape(6.dp),
+                                    shape = RoundedCornerShape(4.dp),
                                     color = btnBg,
                                     border = androidx.compose.foundation.BorderStroke(1.2.dp, btnBorder),
                                     modifier = Modifier.clickable {
@@ -1457,9 +1458,9 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     ) {
                         Surface(
                             color = AppColors.Surface,
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(4.dp),
                             shadowElevation = 8.dp,
-                            modifier = Modifier.border(1.dp, AppColors.NeonBlue, RoundedCornerShape(8.dp)),
+                            modifier = Modifier.border(1.dp, AppColors.NeonBlue, RoundedCornerShape(4.dp)),
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),

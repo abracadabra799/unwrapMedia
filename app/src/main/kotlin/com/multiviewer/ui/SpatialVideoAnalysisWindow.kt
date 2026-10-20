@@ -197,7 +197,7 @@ fun SpatialVideoAnalysisWindow(
                             )
                         }
 
-                        OutlinedButton(onClick = { saveCsv() }) {
+                        OutlinedButton(onClick = { saveCsv() }, shape = AppControlShape) {
                             Text(label("CSV 저장", "Save CSV"), fontSize = 12.sp)
                         }
                     }
@@ -217,8 +217,8 @@ fun SpatialVideoAnalysisWindow(
                         Column(
                             modifier = Modifier
                                 .weight(1f)
-                                .background(AppColors.Panel, RoundedCornerShape(6.dp))
-                                .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp))
+                                .background(AppColors.Panel, RoundedCornerShape(4.dp))
+                                .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
                                 .padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
@@ -249,8 +249,8 @@ fun SpatialVideoAnalysisWindow(
                         Column(
                             modifier = Modifier
                                 .weight(1f)
-                                .background(AppColors.Panel, RoundedCornerShape(6.dp))
-                                .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp))
+                                .background(AppColors.Panel, RoundedCornerShape(4.dp))
+                                .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
                                 .padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
@@ -283,8 +283,8 @@ fun SpatialVideoAnalysisWindow(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(AppColors.Panel, RoundedCornerShape(6.dp))
-                            .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp))
+                            .background(AppColors.Panel, RoundedCornerShape(4.dp))
+                            .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
@@ -306,7 +306,7 @@ fun SpatialVideoAnalysisWindow(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(12.dp)
-                                .background(Color(0xFF2A2E35), RoundedCornerShape(6.dp)),
+                                .background(Color(0xFF2A2E35), RoundedCornerShape(4.dp)),
                         ) {
                             Row(modifier = Modifier.fillMaxSize()) {
                                 Box(
@@ -335,8 +335,8 @@ fun SpatialVideoAnalysisWindow(
                             modifier = Modifier
                                 .weight(0.35f)
                                 .fillMaxSize()
-                                .background(AppColors.Panel, RoundedCornerShape(6.dp))
-                                .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp))
+                                .background(AppColors.Panel, RoundedCornerShape(4.dp))
+                                .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
                                 .padding(8.dp),
                         ) {
                             Text(
@@ -383,8 +383,8 @@ fun SpatialVideoAnalysisWindow(
                             modifier = Modifier
                                 .weight(0.65f)
                                 .fillMaxSize()
-                                .background(AppColors.Panel, RoundedCornerShape(6.dp))
-                                .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp))
+                                .background(AppColors.Panel, RoundedCornerShape(4.dp))
+                                .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
                                 .padding(8.dp),
                         ) {
                             Text(

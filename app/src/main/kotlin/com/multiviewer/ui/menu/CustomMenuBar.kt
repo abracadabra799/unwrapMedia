@@ -51,7 +51,7 @@ import com.multiviewer.ui.AppColors
 // VS Code's menu selection colour (Dark Modern and Light Modern both use #0078D4 with white text).
 private val SelectionBackground = Color(0xFF0078D4)
 private val SelectionForeground = Color.White
-private val MenuShape = RoundedCornerShape(5.dp)
+private val MenuShape = RoundedCornerShape(4.dp)
 
 // The platform UI font (Segoe UI on Windows, the system sans elsewhere), like VS Code's menus, rather
 // than the app's own typography.
@@ -104,7 +104,7 @@ fun CustomAppMenuBar(
             Box(
                 modifier = Modifier
                     .padding(horizontal = 1.dp)
-                    .clip(RoundedCornerShape(5.dp))
+                    .clip(RoundedCornerShape(4.dp))
                     .background(background)
                     .onGloballyPositioned { layout.headerBounds[index] = it.boundsInRoot() }
                     // Switch only on real pointer movement: Compose re-sends Enter when layout changes

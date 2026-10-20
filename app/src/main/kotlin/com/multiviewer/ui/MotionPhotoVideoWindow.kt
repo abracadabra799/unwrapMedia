@@ -88,7 +88,7 @@ fun MotionPhotoVideoWindow(
                     if (language == AppLanguage.KO) "←/→ 한 프레임 이동 · Space 재생/일시정지" else "←/→ one frame · Space play/pause",
                     color = AppColors.TextSecondary,
                 )
-                OutlinedButton(onClick = { intervalOpen = true }) {
+                OutlinedButton(onClick = { intervalOpen = true }, shape = AppControlShape) {
                     Text(if (language == AppLanguage.KO) "프레임 간격 분석" else "Frame interval analysis")
                 }
             }

@@ -1076,8 +1076,8 @@ fun GainmapOverviewSummaryBox(
         modifier = Modifier
             .fillMaxWidth()
             .padding(8.dp)
-            .border(1.dp, AppColors.NeonOrange.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-            .background(Color(0xFF191D24), RoundedCornerShape(8.dp))
+            .border(1.dp, AppColors.NeonOrange.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+            .background(Color(0xFF191D24), RoundedCornerShape(4.dp))
             .padding(12.dp),
     ) {
         Row(

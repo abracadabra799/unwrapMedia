@@ -1,5 +1,6 @@
 package com.multiviewer.ui
 
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -78,8 +79,8 @@ fun RawPixelOpenDialog(
         Column(
             modifier = Modifier
                 .width(420.dp)
-                .background(AppColors.Surface, RoundedCornerShape(8.dp))
-                .border(1.dp, AppColors.Border, RoundedCornerShape(8.dp))
+                .background(AppColors.Surface, RoundedCornerShape(4.dp))
+                .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
                 .padding(20.dp),
         ) {
             Text("Raw 픽셀 데이터 열기", style = AppTypography.headlineSmall)
@@ -215,11 +216,15 @@ fun RawPixelOpenDialog(
             Spacer(Modifier.height(20.dp))
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onCancel) { Text("취소") }
+                TextButton(onClick = onCancel, shape = AppControlShape) { Text("취소") }
                 Spacer(Modifier.width(8.dp))
                 Button(
                     onClick = { onConfirm(width!!, height!!, format, byteOrder, if (frameCount > 1) fps!! else 1.0) },
                     enabled = canOpen,
+                    shape = AppControlShape,
+                    colors = appButtonColors(),
+                    border = appButtonBorder(enabled = canOpen),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                 ) { Text("열기") }
             }
         }

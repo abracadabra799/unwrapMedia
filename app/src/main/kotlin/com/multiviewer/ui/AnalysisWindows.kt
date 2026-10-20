@@ -159,8 +159,8 @@ fun StructureDumpWindow(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxWidth()
-                                .background(Color(0xFF13161A), RoundedCornerShape(6.dp))
-                                .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp)),
+                                .background(Color(0xFF13161A), RoundedCornerShape(4.dp))
+                                .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp)),
                         ) {
                             SelectionContainer {
                                 Box(
@@ -272,7 +272,7 @@ private fun CliConfirmDialog(
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        TextButton(onClick = onDismiss) {
+                        TextButton(onClick = onDismiss, shape = AppControlShape) {
                             Text("취소", fontSize = 12.sp, color = AppColors.TextSecondary)
                         }
                         Spacer(Modifier.width(8.dp))
@@ -550,8 +550,8 @@ fun AiPromptPreviewWindow(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxWidth()
-                                .background(Color(0xFF13161A), RoundedCornerShape(6.dp))
-                                .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp)),
+                                .background(Color(0xFF13161A), RoundedCornerShape(4.dp))
+                                .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp)),
                         ) {
                             SelectionContainer {
                                 Box(
@@ -647,8 +647,8 @@ fun AiPromptPreviewWindow(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .background(AppColors.Panel, RoundedCornerShape(6.dp))
-                                        .border(1.dp, AppColors.NeonPurple.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+                                        .background(AppColors.Panel, RoundedCornerShape(4.dp))
+                                        .border(1.dp, AppColors.NeonPurple.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
                                         .padding(horizontal = 10.dp, vertical = 6.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),

@@ -1,5 +1,6 @@
 package com.multiviewer.ui
 
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -242,19 +243,19 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (showHierarchical) Button(onClick = {}) { Text(label("계층 구조도", "Hierarchical")) }
-                else OutlinedButton(onClick = { showHierarchical = true; showSpec = false; showTable = false }) { Text(label("계층 구조도", "Hierarchical")) }
+                if (showHierarchical) Button(onClick = {}, shape = AppControlShape, colors = appButtonColors(), border = appButtonBorder(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) { Text(label("계층 구조도", "Hierarchical")) }
+                else OutlinedButton(onClick = { showHierarchical = true; showSpec = false; showTable = false }, shape = AppControlShape) { Text(label("계층 구조도", "Hierarchical")) }
 
-                if (showSpec) Button(onClick = {}) { Text(label("규격도", "Spec Diagram")) }
-                else OutlinedButton(onClick = { showSpec = true; showHierarchical = false; showTable = false }) { Text(label("규격도", "Spec Diagram")) }
+                if (showSpec) Button(onClick = {}, shape = AppControlShape, colors = appButtonColors(), border = appButtonBorder(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) { Text(label("규격도", "Spec Diagram")) }
+                else OutlinedButton(onClick = { showSpec = true; showHierarchical = false; showTable = false }, shape = AppControlShape) { Text(label("규격도", "Spec Diagram")) }
 
                 for ((value, name) in listOf(0 to label("개요", "Overview"), 1 to label("상세", "Detail"), 2 to label("세부", "Deep"))) {
-                    if (depth == value && !showTable && !showSpec && !showHierarchical) Button(onClick = {}) { Text(name) }
-                    else OutlinedButton(onClick = { depth = value; showTable = false; showSpec = false; showHierarchical = false }) { Text(name) }
+                    if (depth == value && !showTable && !showSpec && !showHierarchical) Button(onClick = {}, shape = AppControlShape, colors = appButtonColors(), border = appButtonBorder(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) { Text(name) }
+                    else OutlinedButton(onClick = { depth = value; showTable = false; showSpec = false; showHierarchical = false }, shape = AppControlShape) { Text(name) }
                 }
 
-                if (showTable) Button(onClick = {}) { Text(label("표", "Table")) }
-                else OutlinedButton(onClick = { showTable = true; showSpec = false; showHierarchical = false }) { Text(label("표", "Table")) }
+                if (showTable) Button(onClick = {}, shape = AppControlShape, colors = appButtonColors(), border = appButtonBorder(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) { Text(label("표", "Table")) }
+                else OutlinedButton(onClick = { showTable = true; showSpec = false; showHierarchical = false }, shape = AppControlShape) { Text(label("표", "Table")) }
 
                 val hasImage = when {
                     showHierarchical -> renderedHier != null
@@ -282,7 +283,8 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
                             copying = false
                         }
                     }
-                }) { Text(label("이미지 복사", "Copy image")) }
+                },
+                    shape = AppControlShape,) { Text(label("이미지 복사", "Copy image")) }
 
                 OutlinedButton(enabled = hasImage && !saving && !fileChanged, onClick = {
                     val render = currentPngRenderer() ?: return@OutlinedButton
@@ -309,7 +311,8 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
                             saving = false
                         }
                     }
-                }) { Text(label("📥 빠른 다운로드", "📥 Quick Download")) }
+                },
+                    shape = AppControlShape,) { Text(label("📥 빠른 다운로드", "📥 Quick Download")) }
 
                 OutlinedButton(enabled = hasImage && !saving && !fileChanged, onClick = {
                     val render = currentPngRenderer() ?: return@OutlinedButton
@@ -319,7 +322,8 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
                             check(ImageIO.write(image, "png", out)) { "No PNG writer" }
                         }
                     }
-                }) { Text(label("PNG 저장", "Save PNG")) }
+                },
+                    shape = AppControlShape,) { Text(label("PNG 저장", "Save PNG")) }
 
                 OutlinedButton(enabled = hasImage && !saving && !fileChanged, onClick = {
                     val svg = when {
@@ -330,13 +334,15 @@ fun StructureDiagramWindow(tab: TabState, language: AppLanguage, onCloseRequest:
                     save("svg") { file ->
                         Files.writeString(file.toPath(), svg, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)
                     }
-                }) { Text(label("SVG 저장", "Save SVG")) }
+                },
+                    shape = AppControlShape,) { Text(label("SVG 저장", "Save SVG")) }
 
                 OutlinedButton(enabled = d != null && !fileChanged, onClick = {
                     val table = d?.let(::structureDiagramMarkdownTable) ?: return@OutlinedButton
                     message = if (ClipboardUtil.copyToClipboard(table)) label("Markdown 표를 복사했습니다", "Markdown table copied")
                     else label("클립보드에 복사하지 못했습니다 (다른 앱이 사용 중일 수 있음)", "Could not copy to the clipboard (another app may be using it)")
-                }) { Text(label("표 복사 (Markdown)", "Copy table (Markdown)")) }
+                },
+                    shape = AppControlShape,) { Text(label("표 복사 (Markdown)", "Copy table (Markdown)")) }
             }
             Text(
                 when {
@@ -472,7 +478,7 @@ private fun DiagramImage(
 
         // Floating zoom HUD (zoom in/out, percent, reset)
         Surface(
-            shape = RoundedCornerShape(8.dp),
+            shape = RoundedCornerShape(4.dp),
             color = AppColors.Surface.copy(alpha = 0.92f),
             border = BorderStroke(1.dp, AppColors.Border),
             shadowElevation = 2.dp,
@@ -634,7 +640,7 @@ private fun SpecDiagramImage(rendered: RenderedSpec) {
 
         // Floating zoom HUD (zoom in/out, percent, reset)
         Surface(
-            shape = RoundedCornerShape(8.dp),
+            shape = RoundedCornerShape(4.dp),
             color = AppColors.Surface.copy(alpha = 0.92f),
             border = BorderStroke(1.dp, AppColors.Border),
             shadowElevation = 2.dp,
@@ -767,7 +773,7 @@ private fun HierarchicalDiagramImage(
 
         // Floating zoom HUD (zoom in/out, percent, reset)
         Surface(
-            shape = RoundedCornerShape(8.dp),
+            shape = RoundedCornerShape(4.dp),
             color = AppColors.Surface.copy(alpha = 0.92f),
             border = BorderStroke(1.dp, AppColors.Border),
             shadowElevation = 2.dp,

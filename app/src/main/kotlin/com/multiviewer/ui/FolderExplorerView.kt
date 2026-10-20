@@ -220,6 +220,7 @@ fun FolderExplorerView(
                             contentColor = AppColors.NeonBlue,
                         ),
                         border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.Border),
+                        shape = AppControlShape,
                     ) {
                         Text(if (language == AppLanguage.KO) "📂 폴더 열기 / 선택" else "📂 Open Folder")
                     }
@@ -434,7 +435,7 @@ fun FolderExplorerView(
                             ) {
                                 Surface(
                                     color = if (isCurrentTab) AppColors.Surface else AppColors.Surface.copy(alpha = 0.4f),
-                                    shape = RoundedCornerShape(6.dp),
+                                    shape = RoundedCornerShape(4.dp),
                                     border = androidx.compose.foundation.BorderStroke(
                                         if (isSelected) 1.5.dp else 1.dp,
                                         if (isSelected) AppColors.NeonBlue else if (isCurrentTab) AppColors.NeonGreen else AppColors.Border,
@@ -666,7 +667,7 @@ fun FolderExplorerView(
                 if (selectedFiles.isNotEmpty()) {
                     Surface(
                         color = AppColors.Surface,
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(4.dp),
                         shadowElevation = 8.dp,
                         border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.NeonBlue),
                         modifier = Modifier
@@ -703,6 +704,7 @@ fun FolderExplorerView(
                                 colors = ButtonDefaults.buttonColors(containerColor = AppColors.NeonBlue),
                                 modifier = Modifier.height(28.dp),
                                 contentPadding = PaddingValues(horizontal = 10.dp),
+                                shape = AppControlShape,
                             ) {
                                 Text(
                                     text = if (language == AppLanguage.KO) "⚖️ 비교 열기" else "⚖️ Compare",

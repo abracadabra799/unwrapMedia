@@ -1,5 +1,6 @@
 package com.multiviewer.ui
 
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -340,10 +341,15 @@ fun QualityCompareWindow(appState: AppState? = null, language: AppLanguage = App
                     onClick = { runComparison() },
                     enabled = !isRunning && (psnrEnabled || ssimEnabled || (vmafEnabled && vmafAvailable == true)) &&
                         candidatePairs.any { pairStatuses[it.id] == true || autoScaleEnabled },
+                    shape = AppControlShape,
+                    colors = appButtonColors(),
+                    border = appButtonBorder(enabled = !isRunning && (psnrEnabled || ssimEnabled || (vmafEnabled && vmafAvailable == true)) &&
+                        candidatePairs.any { pairStatuses[it.id] == true || autoScaleEnabled }),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                 ) { Text("비교 시작") }
                 if (isRunning) {
                     Spacer(Modifier.width(8.dp))
-                    Button(onClick = { cancelRequested.set(true) }) { Text("취소") }
+                    Button(onClick = { cancelRequested.set(true) }, shape = AppControlShape, colors = appButtonColors(), border = appButtonBorder(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) { Text("취소") }
                 }
             }
             if (isRunning) {
@@ -364,9 +370,9 @@ fun QualityCompareWindow(appState: AppState? = null, language: AppLanguage = App
             results?.let { currentResults ->
                 Spacer(Modifier.height(16.dp))
                 Row {
-                    Button(onClick = { exportCsv() }) { Text("CSV로 내보내기") }
+                    Button(onClick = { exportCsv() }, shape = AppControlShape, colors = appButtonColors(), border = appButtonBorder(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) { Text("CSV로 내보내기") }
                     Spacer(Modifier.width(8.dp))
-                    Button(onClick = { exportJson() }) { Text("JSON으로 내보내기") }
+                    Button(onClick = { exportJson() }, shape = AppControlShape, colors = appButtonColors(), border = appButtonBorder(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) { Text("JSON으로 내보내기") }
                 }
                 Spacer(Modifier.height(8.dp))
                 Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())) {

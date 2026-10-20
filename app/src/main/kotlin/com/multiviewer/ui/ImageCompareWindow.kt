@@ -576,7 +576,7 @@ fun ImageCompareWindow(
                     // FastStone Top Mode Bar: Back to Explorer & Compare Info
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(6.dp),
+                        shape = RoundedCornerShape(4.dp),
                         modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
                     ) {
                         Row(
@@ -590,6 +590,7 @@ fun ImageCompareWindow(
                                     colors = ButtonDefaults.buttonColors(containerColor = AppColors.NeonBlue),
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
                                     modifier = Modifier.height(28.dp),
+                                    shape = AppControlShape,
                                 ) {
                                     Text(
                                         text = if (language == AppLanguage.KO) "📂 파일 탐색기 (ESC)" else "📂 File Explorer (ESC)",
@@ -792,7 +793,7 @@ private fun MediaSelectionBar(
                 // Media A Slot Pill
                 Surface(
                     color = if (activeSlot == CompareSlot.SLOT_A) Color(0xFF61AFEF).copy(alpha = 0.18f) else Color.Transparent,
-                    shape = RoundedCornerShape(6.dp),
+                    shape = RoundedCornerShape(4.dp),
                     border = androidx.compose.foundation.BorderStroke(
                         if (activeSlot == CompareSlot.SLOT_A || dragHoverSide == true) 1.5.dp else 1.dp,
                         if (activeSlot == CompareSlot.SLOT_A || dragHoverSide == true) Color(0xFF61AFEF) else AppColors.Border,
@@ -881,7 +882,7 @@ private fun MediaSelectionBar(
                 // Media B Slot Pill
                 Surface(
                     color = if (activeSlot == CompareSlot.SLOT_B) Color(0xFF98C379).copy(alpha = 0.18f) else Color.Transparent,
-                    shape = RoundedCornerShape(6.dp),
+                    shape = RoundedCornerShape(4.dp),
                     border = androidx.compose.foundation.BorderStroke(
                         if (activeSlot == CompareSlot.SLOT_B || dragHoverSide == false) 1.5.dp else 1.dp,
                         if (activeSlot == CompareSlot.SLOT_B || dragHoverSide == false) Color(0xFF98C379) else AppColors.Border,

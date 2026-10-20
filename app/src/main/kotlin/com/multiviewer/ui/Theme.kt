@@ -167,8 +167,40 @@ fun AppTheme(mode: ThemeMode, showPixelGrid: Boolean, content: @Composable () ->
         } else {
             darkColorScheme(background = AppColors.Background)
         }
-        MaterialTheme(colorScheme = colorScheme, typography = AppTypography) {
+        MaterialTheme(colorScheme = colorScheme, typography = AppTypography, shapes = AppShapes) {
             content()
         }
     }
 }
+
+// Squared-off look app-wide, matching the summary panel's Overview/Detailed Properties/Warnings tabs
+// (4dp corners, 1dp border): Material3's defaults (8-28dp corners, pill buttons and chips) read as
+// toy-like in a dense analysis tool. Chips, menus, cards, dialogs and text fields take these;
+// buttons hard-code a full pill in Material3, so every button call passes AppControlShape instead.
+val AppShapes = androidx.compose.material3.Shapes(
+    extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
+    small = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
+    medium = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
+    large = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
+    extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
+)
+
+/** Shape for every Button / OutlinedButton / TextButton (Material3 defaults them to a pill). */
+val AppControlShape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+
+/**
+ * Filled-button look matching the summary panel tabs' selected state: light accent tint, accent
+ * text, 1dp accent border (see [appButtonBorder]) -- instead of Material3's solid primary fill.
+ */
+@androidx.compose.runtime.Composable
+fun appButtonColors(accent: androidx.compose.ui.graphics.Color = AppColors.NeonBlue) =
+    androidx.compose.material3.ButtonDefaults.buttonColors(
+        containerColor = accent.copy(alpha = 0.18f),
+        contentColor = accent,
+        disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+        disabledContentColor = AppColors.TextMuted,
+    )
+
+@androidx.compose.runtime.Composable
+fun appButtonBorder(enabled: Boolean = true, accent: androidx.compose.ui.graphics.Color = AppColors.NeonBlue) =
+    androidx.compose.foundation.BorderStroke(1.dp, if (enabled) accent.copy(alpha = 0.8f) else AppColors.Border)

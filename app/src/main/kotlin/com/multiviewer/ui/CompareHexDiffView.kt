@@ -225,7 +225,7 @@ internal fun HexDiffView(language: AppLanguage, fileA: File?, fileB: File?) {
         Surface(
             modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-            shape = RoundedCornerShape(6.dp),
+            shape = RoundedCornerShape(4.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
@@ -277,6 +277,7 @@ internal fun HexDiffView(language: AppLanguage, fileA: File?, fileB: File?) {
                             modifier = Modifier.height(26.dp),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                            shape = AppControlShape,
                         ) {
                             Text(
                                 if (language == AppLanguage.KO) "◀ 이전 차이 (F7)" else "◀ Prev Diff (F7)",
@@ -342,6 +343,7 @@ internal fun HexDiffView(language: AppLanguage, fileA: File?, fileB: File?) {
                             modifier = Modifier.height(26.dp),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                            shape = AppControlShape,
                         ) {
                             Text(
                                 if (language == AppLanguage.KO) "다음 차이 ▶ (F8)" else "Next Diff ▶ (F8)",

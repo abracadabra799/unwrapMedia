@@ -1,5 +1,6 @@
 package com.multiviewer.ui
 
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -71,8 +72,8 @@ fun RawAudioOpenDialog(
         Column(
             modifier = Modifier
                 .width(420.dp)
-                .background(AppColors.Surface, RoundedCornerShape(8.dp))
-                .border(1.dp, AppColors.Border, RoundedCornerShape(8.dp))
+                .background(AppColors.Surface, RoundedCornerShape(4.dp))
+                .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
                 .padding(20.dp),
         ) {
             Text("Raw PCM 오디오 열기", style = AppTypography.headlineSmall)
@@ -199,13 +200,17 @@ fun RawAudioOpenDialog(
             Spacer(Modifier.height(12.dp))
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onCancel) { Text("취소") }
+                TextButton(onClick = onCancel, shape = AppControlShape) { Text("취소") }
                 Spacer(Modifier.width(8.dp))
                 Button(
                     onClick = {
                         onConfirm(RawAudioParams(sampleRate!!, channels!!, format, byteOrder, offsetBytes!!))
                     },
                     enabled = canOpen,
+                    shape = AppControlShape,
+                    colors = appButtonColors(),
+                    border = appButtonBorder(enabled = canOpen),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                 ) { Text("열기") }
             }
         }

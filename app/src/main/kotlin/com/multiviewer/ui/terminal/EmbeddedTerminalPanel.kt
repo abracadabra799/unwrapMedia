@@ -1,5 +1,6 @@
 package com.multiviewer.ui.terminal
 
+import com.multiviewer.ui.AppControlShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -261,6 +262,7 @@ internal fun EmbeddedTerminalPanel(
                 TextButton(
                     onClick = onRestart,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    shape = AppControlShape,
                 ) {
                     Text("↻ PowerShell 다시 시작", fontSize = 11.sp, color = AppColors.NeonGreen, maxLines = 1)
                 }
@@ -269,6 +271,7 @@ internal fun EmbeddedTerminalPanel(
                     onClick = { pastePrompt() },
                     enabled = readySignal.isReady,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    shape = AppControlShape,
                 ) {
                     Text(
                         if (readySignal.isReady) "프롬프트 붙여넣기" else "붙여넣기(CLI 진입 후)",
@@ -281,6 +284,7 @@ internal fun EmbeddedTerminalPanel(
             TextButton(
                 onClick = onEndSession,
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                shape = AppControlShape,
             ) {
                 Text(if (ended) "닫기" else "세션 종료", fontSize = 11.sp, color = AppColors.TextSecondary, maxLines = 1)
             }
@@ -296,6 +300,7 @@ internal fun EmbeddedTerminalPanel(
                         onClick = { sendCommand(cli.command) },
                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
                         modifier = Modifier.height(22.dp),
+                        shape = AppControlShape,
                     ) {
                         Text(cli.displayName, fontSize = 10.sp, color = AppColors.NeonBlue, maxLines = 1)
                     }

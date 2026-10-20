@@ -205,8 +205,8 @@ fun FileXmpWindow(
                                     modifier = Modifier
                                         .weight(1f)
                                         .fillMaxWidth()
-                                        .background(Color(0xFF13161A), RoundedCornerShape(6.dp))
-                                        .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp)),
+                                        .background(Color(0xFF13161A), RoundedCornerShape(4.dp))
+                                        .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp)),
                                 ) {
                                     val verticalScroll = rememberScrollState()
                                     val horizontalScroll = rememberScrollState()

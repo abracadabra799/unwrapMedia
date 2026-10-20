@@ -1,5 +1,6 @@
 package com.multiviewer.ui.ai
 
+import com.multiviewer.ui.AppControlShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -211,7 +212,7 @@ fun AiChatPanel(
     ) {
         // 1. 상단 컨트롤 카드 (헤더 + 도구 선택 + 상태 + 부가 옵션)
         Surface(
-            shape = RoundedCornerShape(8.dp),
+            shape = RoundedCornerShape(4.dp),
             color = AppColors.Surface,
             border = BorderStroke(1.dp, AppColors.Border),
             modifier = Modifier.fillMaxWidth(),
@@ -246,7 +247,7 @@ fun AiChatPanel(
                         OutlinedButton(
                             onClick = { providerMenu = true },
                             enabled = !running,
-                            shape = RoundedCornerShape(6.dp),
+                            shape = RoundedCornerShape(4.dp),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                             modifier = Modifier.height(28.dp),
                         ) {
@@ -274,7 +275,7 @@ fun AiChatPanel(
                     // 설치/준비 상태 뱃지
                     val isInstalled = caps?.executablePath != null
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(4.dp),
                         color = if (isInstalled) AppColors.NeonGreen.copy(alpha = 0.12f) else AppColors.NeonOrange.copy(alpha = 0.12f),
                         border = BorderStroke(1.dp, if (isInstalled) AppColors.NeonGreen.copy(alpha = 0.35f) else AppColors.NeonOrange.copy(alpha = 0.35f)),
                     ) {
@@ -303,6 +304,7 @@ fun AiChatPanel(
                         onClick = { appState.aiLoginProvider = provider },
                         enabled = !running,
                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                        shape = AppControlShape,
                     ) {
                         Text(label("${provider.displayName} 계정 연결", "Connect ${provider.displayName} account"), fontSize = 11.sp, color = AppColors.NeonBlue)
                     }
@@ -343,7 +345,7 @@ fun AiChatPanel(
                         // 웹 검색 옵션 (충분한 독립 공간 확보 및 클릭 가능한 칩 스타일)
                         if (showWebSearch) {
                             Surface(
-                                shape = RoundedCornerShape(6.dp),
+                                shape = RoundedCornerShape(4.dp),
                                 color = if (appState.aiWebSearch) AppColors.NeonPurple.copy(alpha = 0.12f) else AppColors.Background,
                                 border = BorderStroke(
                                     1.dp,
@@ -385,7 +387,7 @@ fun AiChatPanel(
                         if (hasImageSource) {
                             Button(
                                 onClick = { tab.aiMarkMode = !tab.aiMarkMode },
-                                shape = RoundedCornerShape(6.dp),
+                                shape = RoundedCornerShape(4.dp),
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = if (tab.aiMarkMode) AppColors.NeonPurple else AppColors.Background,
                                     contentColor = if (tab.aiMarkMode) Color.White else AppColors.TextPrimary,
@@ -475,7 +477,7 @@ fun AiChatPanel(
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             suggestions.forEach { q ->
                                 Surface(
-                                    shape = RoundedCornerShape(16.dp),
+                                    shape = RoundedCornerShape(4.dp),
                                     color = AppColors.Surface,
                                     border = BorderStroke(1.dp, AppColors.Border),
                                     modifier = Modifier.clickable { input = q },
@@ -577,7 +579,7 @@ fun AiChatPanel(
                     AiRole.NOTICE -> {
                         Box(Modifier.fillMaxWidth().padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
                             Surface(
-                                shape = RoundedCornerShape(6.dp),
+                                shape = RoundedCornerShape(4.dp),
                                 color = AppColors.NeonOrange.copy(alpha = 0.1f),
                                 border = BorderStroke(1.dp, AppColors.NeonOrange.copy(alpha = 0.3f)),
                             ) {
@@ -587,7 +589,7 @@ fun AiChatPanel(
                                         conversation.failure == AiFailure.AUTH_REQUIRED &&
                                         m.provider != null && appState.aiCapabilities[m.provider]?.executablePath != null
                                     ) {
-                                        TextButton(onClick = { appState.aiLoginProvider = m.provider }) {
+                                        TextButton(onClick = { appState.aiLoginProvider = m.provider }, shape = AppControlShape) {
                                             Text(label("${m.provider.displayName} 로그인 열기", "Open ${m.provider.displayName} sign-in"), fontSize = 11.sp)
                                         }
                                     }
@@ -597,7 +599,7 @@ fun AiChatPanel(
                     }
                     AiRole.TOOL -> {
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
+                            shape = RoundedCornerShape(4.dp),
                             color = AppColors.Background,
                             border = BorderStroke(1.dp, AppColors.Border),
                             modifier = Modifier.fillMaxWidth(),
@@ -630,7 +632,7 @@ fun AiChatPanel(
 
         // 3. 하단 입력 영역
         Surface(
-            shape = RoundedCornerShape(8.dp),
+            shape = RoundedCornerShape(4.dp),
             color = AppColors.Surface,
             border = BorderStroke(1.dp, AppColors.Border),
             modifier = Modifier.fillMaxWidth(),
@@ -675,7 +677,7 @@ fun AiChatPanel(
                         focusedBorderColor = AppColors.NeonPurple, unfocusedBorderColor = AppColors.Border,
                         focusedContainerColor = AppColors.Background, unfocusedContainerColor = AppColors.Background,
                     ),
-                    shape = RoundedCornerShape(6.dp),
+                    shape = RoundedCornerShape(4.dp),
                 )
 
                 Row(
@@ -702,12 +704,14 @@ fun AiChatPanel(
                                 }
                             },
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                            shape = AppControlShape,
                         ) {
                             Text(if (preview == null) label("👁️ 컨텍스트", "👁️ Context") else label("✕ 닫기", "✕ Close"), fontSize = 11.sp, color = AppColors.TextSecondary)
                         }
                         TextButton(
                             onClick = onOpenFallback,
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                            shape = AppControlShape,
                         ) {
                             Text(label("🌐 브라우저", "🌐 Browser"), fontSize = 11.sp, color = AppColors.TextSecondary)
                         }
@@ -715,6 +719,7 @@ fun AiChatPanel(
                             enabled = !running,
                             onClick = { rediscover++ },
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                            shape = AppControlShape,
                         ) {
                             Text(label("🔄 재검색", "🔄 Re-scan"), fontSize = 11.sp, color = AppColors.TextSecondary)
                         }
@@ -722,6 +727,7 @@ fun AiChatPanel(
                             TextButton(
                                 onClick = { showActivity = !showActivity },
                                 contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                shape = AppControlShape,
                             ) {
                                 Text("📋 ${conversation.activity.size}", fontSize = 11.sp, color = AppColors.TextSecondary)
                             }
@@ -734,7 +740,7 @@ fun AiChatPanel(
                         Button(
                             onClick = { controller.stop(tab) },
                             colors = ButtonDefaults.buttonColors(containerColor = AppColors.NeonOrange),
-                            shape = RoundedCornerShape(6.dp),
+                            shape = RoundedCornerShape(4.dp),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                             modifier = Modifier.height(28.dp),
                         ) {
@@ -747,7 +753,7 @@ fun AiChatPanel(
                             OutlinedButton(
                                 enabled = provider != null && !fileChanged,
                                 onClick = { send(lastQuestion) },
-                                shape = RoundedCornerShape(6.dp),
+                                shape = RoundedCornerShape(4.dp),
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                                 modifier = Modifier.height(28.dp),
                             ) {
@@ -759,7 +765,7 @@ fun AiChatPanel(
                             enabled = input.isNotBlank() && provider != null && caps?.executablePath != null && !fileChanged && !tab.isLoading && tab.root != null,
                             onClick = { send(input) },
                             colors = ButtonDefaults.buttonColors(containerColor = AppColors.NeonPurple),
-                            shape = RoundedCornerShape(6.dp),
+                            shape = RoundedCornerShape(4.dp),
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
                             modifier = Modifier.height(28.dp),
                         ) {
@@ -772,7 +778,7 @@ fun AiChatPanel(
 
         if (showActivity) {
             Surface(
-                shape = RoundedCornerShape(6.dp),
+                shape = RoundedCornerShape(4.dp),
                 color = AppColors.Background,
                 border = BorderStroke(1.dp, AppColors.Border),
                 modifier = Modifier.fillMaxWidth().heightIn(max = 120.dp),

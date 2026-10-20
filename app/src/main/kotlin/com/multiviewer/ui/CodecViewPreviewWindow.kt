@@ -209,7 +209,7 @@ fun CodecViewPreviewWindow(
                     modifier = Modifier
                         .align(Alignment.CenterStart)
                         .padding(12.dp)
-                        .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(20.dp)),
+                        .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(4.dp)),
                 ) {
                     Text("◀", color = Color.White, fontSize = 16.sp)
                 }
@@ -219,7 +219,7 @@ fun CodecViewPreviewWindow(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .padding(12.dp)
-                        .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(20.dp)),
+                        .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(4.dp)),
                 ) {
                     Text("▶", color = Color.White, fontSize = 16.sp)
                 }
@@ -242,8 +242,8 @@ fun CodecViewPreviewWindow(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .padding(top = 10.dp)
-                        .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(6.dp))
-                        .border(1.dp, Color(0xFF4CAF50).copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                        .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(4.dp))
+                        .border(1.dp, Color(0xFF4CAF50).copy(alpha = 0.5f), RoundedCornerShape(4.dp))
                         .padding(horizontal = 10.dp, vertical = 4.dp),
                 ) {
                     Text(

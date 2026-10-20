@@ -57,7 +57,7 @@ internal fun MetadataDiffView(
         if (captureMismatches.isNotEmpty()) {
             Surface(
                 color = Color(0xFFEF6C00).copy(alpha = 0.18f),
-                shape = RoundedCornerShape(6.dp),
+                shape = RoundedCornerShape(4.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF6C00)),
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             ) {

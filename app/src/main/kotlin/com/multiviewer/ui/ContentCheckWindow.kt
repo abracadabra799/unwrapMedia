@@ -437,6 +437,9 @@ fun ContentCheckWindow(
                         },
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                         modifier = Modifier.height(28.dp),
+                        shape = AppControlShape,
+                        colors = appButtonColors(),
+                        border = appButtonBorder(enabled = actions.canRun && tab.root != null),
                     ) {
                         Text(label("모든 검사 실행", "Run all checks"), fontSize = 11.5.sp)
                     }
@@ -449,6 +452,7 @@ fun ContentCheckWindow(
                             },
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                             modifier = Modifier.height(28.dp),
+                            shape = AppControlShape,
                         ) {
                             Text(label("취소", "Cancel"), fontSize = 11.5.sp)
                         }
@@ -459,6 +463,7 @@ fun ContentCheckWindow(
                             onClick = { exportMenuExpanded = true },
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                             modifier = Modifier.height(28.dp),
+                            shape = AppControlShape,
                         ) {
                             Text(label("결과 내보내기", "Export results"), fontSize = 11.5.sp)
                         }
@@ -546,6 +551,7 @@ fun ContentCheckWindow(
                         onClick = onAiDiagnosis,
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                         modifier = Modifier.height(28.dp),
+                        shape = AppControlShape,
                     ) {
                         Text(label("AI 진단", "AI diagnosis"), fontSize = 11.5.sp)
                     }
@@ -633,6 +639,7 @@ fun ContentCheckWindow(
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 OutlinedButton(
                                     onClick = { selectedTab = ContentTab.VIDEO_DECODE },
+                                    shape = AppControlShape,
                                 ) {
                                     Text(
                                         label("프레임 디코딩 결과", "Frame decode results"),
@@ -643,6 +650,7 @@ fun ContentCheckWindow(
                                 }
                                 OutlinedButton(
                                     onClick = { selectedTab = ContentTab.VIDEO_PACKETS },
+                                    shape = AppControlShape,
                                 ) {
                                     Text(
                                         label("비디오 패킷 목록", "Video packet list"),
@@ -698,7 +706,7 @@ fun ContentCheckWindow(
                 }
                 ContentTab.IMAGE_DECODE -> ImageDecodePanel(imageDecode, ko)
                 ContentTab.MOTION_PHOTO -> {
-                    OutlinedButton(onClick = onOpenMotionPhotoInspector) {
+                    OutlinedButton(onClick = onOpenMotionPhotoInspector, shape = AppControlShape) {
                         Text(label("모션포토 상세 분석", "Open motion photo inspector"))
                     }
                     val m = motion

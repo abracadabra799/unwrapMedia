@@ -412,6 +412,7 @@ fun ContentCheckOverviewTable(
                                                 onClick = { onRunStage(row.stage) },
                                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                                                 modifier = Modifier.height(24.dp).fillMaxWidth(),
+                                                shape = AppControlShape,
                                             ) {
                                                 Text(row.actionLabel, fontSize = 10.5.sp)
                                             }

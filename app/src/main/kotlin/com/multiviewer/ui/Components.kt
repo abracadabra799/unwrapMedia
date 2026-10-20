@@ -120,7 +120,7 @@ fun SummaryBox(
         modifier = Modifier
             .fillMaxWidth()
             .padding(8.dp)
-            .border(1.dp, AppColors.Border, RoundedCornerShape(8.dp))
+            .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
             .padding(12.dp),
     ) {
         Row(
@@ -396,7 +396,10 @@ fun EmbeddedTableView(file: File, table: TableData) {
                 onClick = { page = (page - 1).coerceAtLeast(0) },
                 enabled = page > 0,
                 modifier = Modifier.height(24.dp),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                shape = AppControlShape,
+                colors = appButtonColors(),
+                border = appButtonBorder(enabled = page > 0),
             ) {
                 Text("PREV", fontSize = 10.sp)
             }
@@ -405,7 +408,10 @@ fun EmbeddedTableView(file: File, table: TableData) {
                 onClick = { page = (page + 1).coerceAtMost(pageCount - 1) },
                 enabled = page < pageCount - 1,
                 modifier = Modifier.height(24.dp),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                shape = AppControlShape,
+                colors = appButtonColors(),
+                border = appButtonBorder(enabled = page < pageCount - 1),
             ) {
                 Text("NEXT", fontSize = 10.sp)
             }

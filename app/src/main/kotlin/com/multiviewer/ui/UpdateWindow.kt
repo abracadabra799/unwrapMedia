@@ -147,6 +147,7 @@ fun UpdateWindow(
                     OutlinedButton(
                         onClick = { isSettingsOpen = !isSettingsOpen },
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                        shape = AppControlShape,
                     ) {
                         Text(if (isSettingsOpen) "닫기" else "⚙️ 저장소 설정", fontSize = 12.sp)
                     }
@@ -165,8 +166,8 @@ fun UpdateWindow(
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(AppColors.Surface, RoundedCornerShape(8.dp))
-                                .border(1.dp, AppColors.Border, RoundedCornerShape(8.dp))
+                                .background(AppColors.Surface, RoundedCornerShape(4.dp))
+                                .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
                                 .padding(16.dp),
                         ) {
                             Text(
@@ -217,12 +218,13 @@ fun UpdateWindow(
                                     updateConfig = def
                                     inputRepoUrl = def.repoUrl
                                     inputApiToken = def.apiToken
-                                }) {
+                                },
+                                    shape = AppControlShape,) {
                                     Text("기본값 복원", fontSize = 12.sp, color = AppColors.TextSecondary)
                                 }
 
                                 Row {
-                                    OutlinedButton(onClick = { isSettingsOpen = false }) {
+                                    OutlinedButton(onClick = { isSettingsOpen = false }, shape = AppControlShape) {
                                         Text("취소", fontSize = 12.sp)
                                     }
                                     Spacer(Modifier.width(8.dp))
@@ -237,6 +239,7 @@ fun UpdateWindow(
                                             checkUpdate()
                                         },
                                         colors = ButtonDefaults.buttonColors(containerColor = AppColors.NeonBlue),
+                                        shape = AppControlShape,
                                     ) {
                                         Text("저장 및 다시 확인", fontSize = 12.sp, color = Color.White)
                                     }
@@ -315,8 +318,8 @@ fun UpdateWindow(
                                         modifier = Modifier
                                             .weight(1f)
                                             .fillMaxWidth()
-                                            .background(AppColors.Surface, RoundedCornerShape(6.dp))
-                                            .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp))
+                                            .background(AppColors.Surface, RoundedCornerShape(4.dp))
+                                            .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
                                             .padding(12.dp)
                                             .verticalScroll(scrollState),
                                     ) {
@@ -419,7 +422,7 @@ fun UpdateWindow(
                 ) {
                     when (currentState) {
                         UpdateState.CHECKING -> {
-                            OutlinedButton(onClick = onCloseRequest) {
+                            OutlinedButton(onClick = onCloseRequest, shape = AppControlShape) {
                                 Text(I18n.updateBtnClose(language))
                             }
                         }
@@ -428,6 +431,7 @@ fun UpdateWindow(
                             Button(
                                 onClick = onCloseRequest,
                                 colors = ButtonDefaults.buttonColors(containerColor = AppColors.NeonBlue),
+                                shape = AppControlShape,
                             ) {
                                 Text(I18n.updateBtnClose(language), color = Color.White)
                             }
@@ -440,12 +444,13 @@ fun UpdateWindow(
                                     try {
                                         Desktop.getDesktop().browse(URI.create(info.releaseUrl))
                                     } catch (_: Exception) {}
-                                }) {
+                                },
+                                    shape = AppControlShape,) {
                                     Text(I18n.updateBtnViewOnWeb(language), fontSize = 12.sp, color = AppColors.TextSecondary)
                                 }
                             }
                             Spacer(Modifier.weight(1f))
-                            OutlinedButton(onClick = onCloseRequest) {
+                            OutlinedButton(onClick = onCloseRequest, shape = AppControlShape) {
                                 Text(I18n.updateBtnLater(language))
                             }
                             Spacer(Modifier.width(8.dp))
@@ -489,6 +494,7 @@ fun UpdateWindow(
                                     }
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = AppColors.NeonGreen),
+                                shape = AppControlShape,
                             ) {
                                 Text(I18n.updateBtnDownload(language), color = Color.Black, fontWeight = FontWeight.Bold)
                             }
@@ -498,7 +504,8 @@ fun UpdateWindow(
                             OutlinedButton(onClick = {
                                 isDownloadCanceled = true
                                 currentState = UpdateState.UPDATE_AVAILABLE
-                            }) {
+                            },
+                                shape = AppControlShape,) {
                                 Text("취소")
                             }
                         }
@@ -509,17 +516,18 @@ fun UpdateWindow(
                                     downloadedFile?.let { UpdateChecker.launchInstallerAndExit(it) }
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = AppColors.NeonGreen),
+                                shape = AppControlShape,
                             ) {
                                 Text(I18n.updateBtnInstallAndRestart(language), color = Color.Black, fontWeight = FontWeight.Bold)
                             }
                         }
 
                         UpdateState.ERROR -> {
-                            OutlinedButton(onClick = onCloseRequest) {
+                            OutlinedButton(onClick = onCloseRequest, shape = AppControlShape) {
                                 Text(I18n.updateBtnClose(language))
                             }
                             Spacer(Modifier.width(8.dp))
-                            Button(onClick = { checkUpdate() }) {
+                            Button(onClick = { checkUpdate() }, shape = AppControlShape, colors = appButtonColors(), border = appButtonBorder(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
                                 Text(I18n.updateBtnRetry(language))
                             }
                         }

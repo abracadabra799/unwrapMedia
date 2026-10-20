@@ -448,7 +448,7 @@ fun FastStoneExplorerView(
         // 1. Top Navigation Bar: Breadcrumb + Search + View Mode
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-            shape = RoundedCornerShape(8.dp),
+            shape = RoundedCornerShape(4.dp),
             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
         ) {
             Row(
@@ -473,6 +473,7 @@ fun FastStoneExplorerView(
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                         modifier = Modifier.height(28.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                        shape = AppControlShape,
                     ) {
                         Text(
                             text = "⬆ 상위 폴더",
@@ -538,6 +539,7 @@ fun FastStoneExplorerView(
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                     modifier = Modifier.height(28.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = AppControlShape,
                 ) {
                     Text(
                         text = if (isGridView) "📋 목록" else "▦ 그리드",
@@ -551,7 +553,7 @@ fun FastStoneExplorerView(
         // Independent A/B file pickers complement the current-folder thumbnail selection below.
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-            shape = RoundedCornerShape(8.dp),
+            shape = RoundedCornerShape(4.dp),
             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         ) {
@@ -586,7 +588,7 @@ fun FastStoneExplorerView(
                     .width(180.dp)
                     .fillMaxHeight(),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-                shape = RoundedCornerShape(6.dp),
+                shape = RoundedCornerShape(4.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             ) {
                 Column(modifier = Modifier.fillMaxSize().padding(6.dp)) {
@@ -631,7 +633,7 @@ fun FastStoneExplorerView(
                     .weight(1f)
                     .fillMaxHeight(),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(6.dp),
+                shape = RoundedCornerShape(4.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             ) {
                 if (mediaFiles.isEmpty()) {
@@ -693,7 +695,7 @@ fun FastStoneExplorerView(
                                 }
 
                                 Surface(
-                                    shape = RoundedCornerShape(8.dp),
+                                    shape = RoundedCornerShape(4.dp),
                                     color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surface,
                                     border = androidx.compose.foundation.BorderStroke(
                                         width = if (isSelected) 2.dp else 1.dp,
@@ -760,7 +762,7 @@ fun FastStoneExplorerView(
                                                     val badge = if (selectedIndex == 0) "①" else "②"
                                                     Surface(
                                                         color = AppColors.NeonBlue,
-                                                        shape = RoundedCornerShape(10.dp),
+                                                        shape = RoundedCornerShape(4.dp),
                                                     ) {
                                                         Text(
                                                             text = " $badge ",
@@ -906,7 +908,7 @@ fun FastStoneExplorerView(
 
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-            shape = RoundedCornerShape(8.dp),
+            shape = RoundedCornerShape(4.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Row(
@@ -977,6 +979,7 @@ fun FastStoneExplorerView(
                         ),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                         modifier = Modifier.height(34.dp),
+                        shape = AppControlShape,
                     ) {
                         Text(
                             text = if (language == AppLanguage.KO) "⚖️ 2분할 비교 열기 (Space / Enter)" else "⚖️ Open 2-Split Compare (Space / Enter)",
@@ -1004,7 +1007,7 @@ private fun CompareExplorerFileSlot(
 ) {
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(6.dp),
+        shape = RoundedCornerShape(4.dp),
         color = MaterialTheme.colorScheme.surface,
         border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.55f)),
     ) {
@@ -1035,6 +1038,7 @@ private fun CompareExplorerFileSlot(
                 onClick = onChoose,
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
                 modifier = Modifier.height(30.dp),
+                shape = AppControlShape,
             ) {
                 Text(if (language == AppLanguage.KO) "파일 찾기…" else "Browse…", fontSize = 11.sp)
             }

@@ -113,8 +113,8 @@ private fun FrameMatchSection(match: FrameMatchResult) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF202020), RoundedCornerShape(6.dp))
-                .border(1.dp, Color(0xFF333333), RoundedCornerShape(6.dp))
+                .background(Color(0xFF202020), RoundedCornerShape(4.dp))
+                .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
                 .padding(10.dp),
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -200,8 +200,8 @@ private fun LivePhotoPairSection(pair: LivePhotoPairReport) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF202020), RoundedCornerShape(6.dp))
-                .border(1.dp, Color(0xFF333333), RoundedCornerShape(6.dp))
+                .background(Color(0xFF202020), RoundedCornerShape(4.dp))
+                .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
                 .padding(10.dp),
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -282,8 +282,8 @@ private fun CompatibilityMatrixSection(detectedProfile: String, entries: List<Pl
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF202020), RoundedCornerShape(6.dp))
-                .border(1.dp, Color(0xFF333333), RoundedCornerShape(6.dp))
+                .background(Color(0xFF202020), RoundedCornerShape(4.dp))
+                .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
                 .padding(8.dp),
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {

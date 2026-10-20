@@ -188,7 +188,7 @@ private fun AvSyncReportContent(
         // 2. At-a-glance sync bar + verdict, then the annotated skew curve
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(8.dp),
+            shape = RoundedCornerShape(4.dp),
             colors = CardDefaults.cardColors(containerColor = AppColors.Surface)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
@@ -314,7 +314,7 @@ private fun MetricCard(
 ) {
     Card(
         modifier = modifier,
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(4.dp),
         colors = CardDefaults.cardColors(containerColor = AppColors.Surface)
     ) {
         Column(
@@ -340,7 +340,7 @@ private fun DiagnosisCard(diag: SyncDiagnosis) {
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(4.dp),
         colors = CardDefaults.cardColors(containerColor = AppColors.Surface),
         border = androidx.compose.foundation.BorderStroke(1.dp, borderColor.copy(alpha = 0.6f))
     ) {
@@ -408,8 +408,8 @@ private fun DiagnosisCard(diag: SyncDiagnosis) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(AppColors.Background, RoundedCornerShape(6.dp))
-                        .border(1.dp, Color(0xFF0288D1).copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                        .background(AppColors.Background, RoundedCornerShape(4.dp))
+                        .border(1.dp, Color(0xFF0288D1).copy(alpha = 0.5f), RoundedCornerShape(4.dp))
                         .padding(10.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
@@ -467,7 +467,8 @@ private fun DiagnosisCard(diag: SyncDiagnosis) {
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0288D1)),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                            modifier = Modifier.height(30.dp)
+                            modifier = Modifier.height(30.dp),
+                            shape = AppControlShape,
                         ) {
                             Text(
                                 if (copied) "✓ 복사 완료!" else "명령어 복사",

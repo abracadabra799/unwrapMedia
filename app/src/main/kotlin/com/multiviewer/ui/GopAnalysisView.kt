@@ -1,5 +1,6 @@
 package com.multiviewer.ui
 
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.HorizontalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -117,7 +118,7 @@ fun GopAnalysisView(tab: TabState, onAnalyze: () -> Unit, modifier: Modifier = M
                     modifier = Modifier.align(Alignment.Center),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Button(onClick = onAnalyze, enabled = tab.videoReadyForAnalysis) {
+                    Button(onClick = onAnalyze, enabled = tab.videoReadyForAnalysis, shape = AppControlShape, colors = appButtonColors(), border = appButtonBorder(enabled = tab.videoReadyForAnalysis), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
                         Text("프레임 분석 시작")
                     }
                     if (!tab.videoReadyForAnalysis) {

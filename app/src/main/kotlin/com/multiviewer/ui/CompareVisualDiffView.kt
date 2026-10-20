@@ -204,7 +204,7 @@ internal fun VisualDiffView(
         if (isVideoCompare) {
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(6.dp),
+                shape = RoundedCornerShape(4.dp),
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             ) {
                 Row(
@@ -245,7 +245,7 @@ internal fun VisualDiffView(
 
         // View Area
         Box(
-            modifier = Modifier.weight(1f).fillMaxWidth().background(Color(0xFF1E1E1E), RoundedCornerShape(6.dp)).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(6.dp)),
+            modifier = Modifier.weight(1f).fillMaxWidth().background(Color(0xFF1E1E1E), RoundedCornerShape(4.dp)).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(4.dp)),
             contentAlignment = Alignment.Center,
         ) {
             if (displayBitmapA == null || displayBitmapB == null) {
@@ -617,7 +617,7 @@ private fun SideBySideCompareView(
         // FastStone Style Zoom Control Toolbar (Fit, 100%, 200%, 400%)
         Surface(
             color = Color.Black.copy(alpha = 0.80f),
-            shape = RoundedCornerShape(6.dp),
+            shape = RoundedCornerShape(4.dp),
             border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.3f)),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -702,7 +702,7 @@ private fun BlinkCompareView(
         // Blink Control Toolbar
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-            shape = RoundedCornerShape(6.dp),
+            shape = RoundedCornerShape(4.dp),
             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
         ) {
             Row(
@@ -716,6 +716,7 @@ private fun BlinkCompareView(
                     ),
                     modifier = Modifier.height(32.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp),
+                    shape = AppControlShape,
                 ) {
                     Text(
                         text = if (showA) "현재: [A] 전환(Space)" else "현재: [B] 전환(Space)",
@@ -833,7 +834,7 @@ private fun BlinkCompareView(
             // Zoom Presets
             Surface(
                 color = Color.Black.copy(alpha = 0.80f),
-                shape = RoundedCornerShape(6.dp),
+                shape = RoundedCornerShape(4.dp),
                 border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.3f)),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
@@ -1062,7 +1063,7 @@ private fun QuadCompareView(
         // FastStone Style Zoom Toolbar
         Surface(
             color = Color.Black.copy(alpha = 0.80f),
-            shape = RoundedCornerShape(6.dp),
+            shape = RoundedCornerShape(4.dp),
             border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.3f)),
             modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp),
         ) {

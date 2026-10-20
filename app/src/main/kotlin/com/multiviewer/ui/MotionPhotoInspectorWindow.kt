@@ -447,8 +447,8 @@ private fun InspectionAccordionCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(AppColors.Surface, RoundedCornerShape(6.dp))
-            .border(1.dp, if (section.status == CheckStatus.FAIL) AppColors.NeonRed.copy(alpha = 0.5f) else AppColors.Panel, RoundedCornerShape(6.dp)),
+            .background(AppColors.Surface, RoundedCornerShape(4.dp))
+            .border(1.dp, if (section.status == CheckStatus.FAIL) AppColors.NeonRed.copy(alpha = 0.5f) else AppColors.Panel, RoundedCornerShape(4.dp)),
     ) {
         // Section Header Row
         Row(

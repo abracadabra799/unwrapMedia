@@ -153,7 +153,7 @@ fun HdrMetadataWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -
                 scanning -> {
                     Text(label("메타데이터 스캔 중…", "Scanning metadata…"), color = AppColors.TextPrimary)
                     LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
-                    OutlinedButton(onClick = { cancelRequested.set(true) }) { Text(label("취소", "Cancel")) }
+                    OutlinedButton(onClick = { cancelRequested.set(true) }, shape = AppControlShape) { Text(label("취소", "Cancel")) }
                 }
                 cancelled -> Text(label("취소됨", "Cancelled"), color = AppColors.TextSecondary)
                 error != null -> Text(label("오류: ", "Error: ") + error, color = AppColors.NeonRed)
@@ -221,10 +221,10 @@ fun HdrMetadataWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -
                             absoluteText, { absoluteText = it }, label = { Text("nits") }, singleLine = true,
                             isError = absoluteValue == null, modifier = Modifier.width(110.dp),
                         )
-                        OutlinedButton(onClick = { saveCsv(label("프레임 CSV 저장", "Save frames CSV"), "${tab.file.nameWithoutExtension}-hdr-frames.csv", buildHdrFramesCsv(records)) }) {
+                        OutlinedButton(onClick = { saveCsv(label("프레임 CSV 저장", "Save frames CSV"), "${tab.file.nameWithoutExtension}-hdr-frames.csv", buildHdrFramesCsv(records)) }, shape = AppControlShape) {
                             Text(label("프레임 CSV", "Frames CSV"))
                         }
-                        OutlinedButton(onClick = { saveCsv(label("이상 목록 CSV 저장", "Save anomalies CSV"), "${tab.file.nameWithoutExtension}-hdr-anomalies.csv", buildHdrAnomaliesCsv(anomalies)) }) {
+                        OutlinedButton(onClick = { saveCsv(label("이상 목록 CSV 저장", "Save anomalies CSV"), "${tab.file.nameWithoutExtension}-hdr-anomalies.csv", buildHdrAnomaliesCsv(anomalies)) }, shape = AppControlShape) {
                             Text(label("이상 목록 CSV", "Anomalies CSV"))
                         }
                     }

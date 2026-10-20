@@ -137,8 +137,8 @@ fun AboutWindow(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .background(AppColors.Surface, RoundedCornerShape(8.dp))
-                        .border(1.dp, AppColors.Border, RoundedCornerShape(8.dp))
+                        .background(AppColors.Surface, RoundedCornerShape(4.dp))
+                        .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
                         .padding(16.dp)
                         .verticalScroll(scrollState),
                     verticalArrangement = Arrangement.spacedBy(12.dp),

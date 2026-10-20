@@ -1,5 +1,6 @@
 package com.multiviewer.ui
 
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -196,6 +197,10 @@ fun RawPixelInspectorUI(
                                 appState.seekRawPixelFrame(tab, tab.rawPixelFrameIndex - 1)
                             },
                             enabled = tab.rawPixelFrameIndex > 0,
+                            shape = AppControlShape,
+                            colors = appButtonColors(),
+                            border = appButtonBorder(enabled = tab.rawPixelFrameIndex > 0),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                         ) { Text("◀ 이전 프레임", fontSize = 11.sp) }
                         Spacer(Modifier.width(12.dp))
                         Text(
@@ -227,6 +232,10 @@ fun RawPixelInspectorUI(
                                 appState.seekRawPixelFrame(tab, tab.rawPixelFrameIndex + 1)
                             },
                             enabled = tab.rawPixelFrameIndex < params.frameCount - 1,
+                            shape = AppControlShape,
+                            colors = appButtonColors(),
+                            border = appButtonBorder(enabled = tab.rawPixelFrameIndex < params.frameCount - 1),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                         ) { Text("다음 프레임 ▶", fontSize = 11.sp) }
                     }
                 }

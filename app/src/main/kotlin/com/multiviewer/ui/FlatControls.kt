@@ -25,11 +25,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.awt.Cursor
 
-// Flat, rectangular controls for dense tool strips (hex viewer). Material3's FilledTonalButton is a
-// full pill, which reads as bulky and toy-like in an editor toolbar; these are 2dp-cornered,
-// borderless until hovered/active, and take their colors from the theme palette (light + dark).
+// Flat, rectangular controls for dense tool strips, styled like the summary panel's
+// Overview/Detailed Properties/Warnings tabs: 4dp corners, a 1dp border that turns accent-coloured
+// with a light tint when active. Material3's buttons are full pills, which read as bulky in an
+// editor toolbar. Colours come from the theme palette (light + dark).
 
-private val FlatShape = RoundedCornerShape(2.dp)
+private val FlatShape = RoundedCornerShape(4.dp)
 
 /**
  * A text button for tool strips. [active] marks a toggle that's on (a panel shown, a mode
@@ -49,7 +50,7 @@ fun FlatToolButton(
     val hovered by interaction.collectIsHoveredAsState()
     val background = when {
         active -> accent.copy(alpha = 0.18f)
-        hovered && enabled -> AppColors.TextPrimary.copy(alpha = 0.08f)
+        hovered && enabled -> AppColors.TextPrimary.copy(alpha = 0.06f)
         else -> Color.Transparent
     }
     val textColor = when {
@@ -59,13 +60,13 @@ fun FlatToolButton(
     }
     Row(
         modifier = modifier
-            .height(22.dp)
+            .height(24.dp)
             .background(background, FlatShape)
-            .then(if (active) Modifier.border(1.dp, accent.copy(alpha = 0.45f), FlatShape) else Modifier)
+            .border(1.dp, if (active) accent.copy(alpha = 0.8f) else AppColors.Border, FlatShape)
             .hoverable(interaction, enabled)
             .clickable(enabled = enabled, interactionSource = interaction, indication = null, onClick = onClick)
             .then(if (enabled) Modifier.pointerHoverIcon(PointerIcon(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR))) else Modifier)
-            .padding(horizontal = 7.dp),
+            .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
@@ -97,7 +98,7 @@ fun FlatTextField(
         textStyle = TextStyle(color = AppColors.TextPrimary, fontSize = 12.sp, fontFamily = FontFamily.Monospace),
         cursorBrush = SolidColor(AppColors.NeonBlue),
         modifier = modifier
-            .height(22.dp)
+            .height(24.dp)
             .background(AppColors.Background, FlatShape)
             .border(1.dp, AppColors.Border, FlatShape)
             .padding(horizontal = 6.dp),

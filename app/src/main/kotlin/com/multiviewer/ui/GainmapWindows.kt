@@ -162,8 +162,8 @@ fun GainmapAnalyzerWindow(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxWidth()
-                                .background(Color(0xFF13161A), RoundedCornerShape(6.dp))
-                                .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp)),
+                                .background(Color(0xFF13161A), RoundedCornerShape(4.dp))
+                                .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp)),
                         ) {
                             when (page) {
                                 GainmapAnalyzerPage.OVERVIEW -> GainmapParametersCardView(gainmap, language)
@@ -341,8 +341,8 @@ private fun GainmapParametersCardView(gainmap: GainmapInfo, language: AppLanguag
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF1E232B), RoundedCornerShape(6.dp))
-                        .border(1.dp, AppColors.NeonOrange.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                        .background(Color(0xFF1E232B), RoundedCornerShape(4.dp))
+                        .border(1.dp, AppColors.NeonOrange.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
                         .padding(14.dp),
                 ) {
                     Row(
@@ -385,7 +385,7 @@ private fun GainmapParametersCardView(gainmap: GainmapInfo, language: AppLanguag
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(12.dp)
-                            .background(Color(0xFF101317), RoundedCornerShape(6.dp)),
+                            .background(Color(0xFF101317), RoundedCornerShape(4.dp)),
                     ) {
                         Box(
                             modifier = Modifier
@@ -421,8 +421,8 @@ private fun GainmapParametersCardView(gainmap: GainmapInfo, language: AppLanguag
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF191D24), RoundedCornerShape(6.dp))
-                        .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp))
+                        .background(Color(0xFF191D24), RoundedCornerShape(4.dp))
+                        .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -457,8 +457,8 @@ private fun GainmapParametersCardView(gainmap: GainmapInfo, language: AppLanguag
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF191D24), RoundedCornerShape(6.dp))
-                        .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp))
+                        .background(Color(0xFF191D24), RoundedCornerShape(4.dp))
+                        .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -495,8 +495,8 @@ private fun GainmapParametersCardView(gainmap: GainmapInfo, language: AppLanguag
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color(0xFF191D24), RoundedCornerShape(6.dp))
-                            .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp))
+                            .background(Color(0xFF191D24), RoundedCornerShape(4.dp))
+                            .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
                             .padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
@@ -521,8 +521,8 @@ private fun GainmapParametersCardView(gainmap: GainmapInfo, language: AppLanguag
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF191D24), RoundedCornerShape(6.dp))
-                        .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp))
+                        .background(Color(0xFF191D24), RoundedCornerShape(4.dp))
+                        .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {

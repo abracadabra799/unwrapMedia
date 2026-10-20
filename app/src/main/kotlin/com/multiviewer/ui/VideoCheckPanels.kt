@@ -40,7 +40,7 @@ internal fun VideoDecodePanel(
             "Decoder logs do not establish byte locations; interpretations are hypotheses."), color = AppColors.TextSecondary)
         if (report.logsTruncated) Text(label("로그 저장 한도에 도달했습니다. 일부 로그는 생략됩니다.", "Log limit reached; some messages omitted."))
         ContentFindingTable(videoFindings(report).decoderFindings, Long.MAX_VALUE, ko, Modifier.weight(1f))
-        if (report.logs.isNotEmpty()) TextButton(onClick = onShowPackets) {
+        if (report.logs.isNotEmpty()) TextButton(onClick = onShowPackets, shape = AppControlShape) {
             Text(label("패킷 목록에서 직접 확인", "Inspect packet list manually"))
         }
     }

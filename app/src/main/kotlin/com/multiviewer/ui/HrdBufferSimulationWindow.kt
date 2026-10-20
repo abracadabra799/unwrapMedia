@@ -234,7 +234,7 @@ fun HrdBufferSimulationWindow(
                             )
                         }
 
-                        OutlinedButton(onClick = { saveCsv() }) {
+                        OutlinedButton(onClick = { saveCsv() }, shape = AppControlShape) {
                             Text(label("CSV 저장", "Save CSV"), fontSize = 12.sp)
                         }
                     }
@@ -282,8 +282,8 @@ fun HrdBufferSimulationWindow(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(220.dp)
-                            .background(AppColors.Panel, RoundedCornerShape(6.dp))
-                            .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp))
+                            .background(AppColors.Panel, RoundedCornerShape(4.dp))
+                            .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
                             .padding(8.dp),
                     )
 
@@ -297,8 +297,8 @@ fun HrdBufferSimulationWindow(
                             modifier = Modifier
                                 .weight(0.35f)
                                 .fillMaxSize()
-                                .background(AppColors.Panel, RoundedCornerShape(6.dp))
-                                .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp))
+                                .background(AppColors.Panel, RoundedCornerShape(4.dp))
+                                .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
                                 .padding(8.dp),
                         ) {
                             Text(
@@ -354,8 +354,8 @@ fun HrdBufferSimulationWindow(
                             modifier = Modifier
                                 .weight(0.65f)
                                 .fillMaxSize()
-                                .background(AppColors.Panel, RoundedCornerShape(6.dp))
-                                .border(1.dp, AppColors.Border, RoundedCornerShape(6.dp))
+                                .background(AppColors.Panel, RoundedCornerShape(4.dp))
+                                .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
                                 .padding(8.dp),
                         ) {
                             Text(
