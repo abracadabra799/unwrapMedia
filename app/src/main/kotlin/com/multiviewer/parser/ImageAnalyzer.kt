@@ -142,7 +142,7 @@ object ImageAnalyzer {
         return oriented.toComposeImageBitmap()
     }
 
-    private fun heifOrientationToCode(root: BoxNode): Int? {
+    internal fun heifOrientationToCode(root: BoxNode): Int? {
         val irot = findPrimaryItemProperty(root, "irot") ?: findFirst(root) { it.type == "irot" }
         val imir = findPrimaryItemProperty(root, "imir") ?: findFirst(root) { it.type == "imir" }
         val angle = irot?.fields?.find { it.name == "angle" }?.value?.toIntOrNull()
@@ -299,7 +299,12 @@ object ImageAnalyzer {
         }
     }
 
-    /** Decodes only an EXIF/embedded JPEG thumbnail, without rasterizing the primary image. */
+    /**
+     * Decodes only an EXIF/embedded JPEG thumbnail, without rasterizing the primary image.
+     * Stops header scanning at SOS (`0xFFDA`) so multi-MB JPEG/MotionPhoto payloads and SEF trailers
+     * are never read, and applies EXIF IFD1/IFD0 orientation so the extracted thumbnail can serve
+     * directly as the final explorer thumbnail (FastStone-style embedded EXIF fast-path).
+     */
     fun decodeEmbeddedJpegThumbnail(file: File, longestEdge: Int): ImageBitmap? {
         require(longestEdge > 0) { "longestEdge must be positive" }
         return try {
@@ -309,28 +314,80 @@ object ImageAnalyzer {
                 }
                 val root = BoxNode(
                     type = "root", offset = 0, headerSize = 0, size = reader.length,
-                    children = parseJpegSegments(reader, 0, reader.length),
+                    children = parseJpegHeaderSegmentsUntilSos(reader, 0, reader.length),
                 )
-                val image = tryExtractEmbeddedJpeg(reader, root).image ?: return@use null
+                val rawImage = tryExtractEmbeddedJpeg(reader, root).image ?: return@use null
                 try {
-                    val (width, height) = thumbnailDecodeDimensions(image.width, image.height, longestEdge)
-                    if (width == image.width && height == image.height) {
-                        image.toComposeImageBitmap()
-                    } else {
-                        val surface = Surface.makeRasterN32Premul(width, height)
-                        try {
-                            surface.canvas.drawImageRect(image, Rect.makeWH(width.toFloat(), height.toFloat()))
-                            surface.makeImageSnapshot().use { it.toComposeImageBitmap() }
-                        } finally {
-                            surface.close()
+                    var orientationCode: Int? = null
+                    var thumbOrientationCode: Int? = null
+                    fun findOrientation(node: BoxNode) {
+                        if (node.type == "IFD0" || node.type == "Exif") {
+                            node.fields.find { it.name == "Orientation" }?.value?.let {
+                                orientationCode = parseOrientationCode(it) ?: orientationCode
+                            }
                         }
+                        if (node.type == "IFD1") {
+                            node.fields.find { it.name == "Orientation" }?.value?.let {
+                                thumbOrientationCode = parseOrientationCode(it) ?: thumbOrientationCode
+                            }
+                        }
+                        node.children.forEach { findOrientation(it) }
+                    }
+                    findOrientation(root)
+                    val effectiveOrientation = thumbOrientationCode ?: orientationCode
+                    val image = orientSkiaImage(rawImage, effectiveOrientation)
+                    try {
+                        val (width, height) = thumbnailDecodeDimensions(image.width, image.height, longestEdge)
+                        if (width == image.width && height == image.height) {
+                            image.toComposeImageBitmap()
+                        } else {
+                            val surface = Surface.makeRasterN32Premul(width, height)
+                            try {
+                                surface.canvas.drawImageRect(image, Rect.makeWH(width.toFloat(), height.toFloat()))
+                                surface.makeImageSnapshot().use { it.toComposeImageBitmap() }
+                            } finally {
+                                surface.close()
+                            }
+                        }
+                    } finally {
+                        if (image !== rawImage) image.close()
                     }
                 } finally {
-                    image.close()
+                    rawImage.close()
                 }
             }
         } catch (_: Exception) {
             null
+        }
+    }
+
+    internal fun tryDecodeEmbeddedHeicJpegThumbnail(
+        reader: ByteReader,
+        root: BoxNode,
+        longestEdge: Int,
+        orientationCode: Int?,
+    ): ImageBitmap? {
+        val rawImage = tryExtractEmbeddedJpeg(reader, root).image ?: return null
+        return try {
+            val image = orientSkiaImage(rawImage, orientationCode)
+            try {
+                val (width, height) = thumbnailDecodeDimensions(image.width, image.height, longestEdge)
+                if (width == image.width && height == image.height) {
+                    image.toComposeImageBitmap()
+                } else {
+                    val surface = Surface.makeRasterN32Premul(width, height)
+                    try {
+                        surface.canvas.drawImageRect(image, Rect.makeWH(width.toFloat(), height.toFloat()))
+                        surface.makeImageSnapshot().use { it.toComposeImageBitmap() }
+                    } finally {
+                        surface.close()
+                    }
+                }
+            } finally {
+                if (image !== rawImage) image.close()
+            }
+        } finally {
+            rawImage.close()
         }
     }
 

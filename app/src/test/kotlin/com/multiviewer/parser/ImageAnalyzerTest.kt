@@ -55,6 +55,17 @@ class ImageAnalyzerTest {
     }
 
     @Test
+    fun `decodeEmbeddedJpegThumbnail applies IFD0 orientation and stops scanning at SOS`() {
+        val file = jpegWithIfd1Thumbnail(outOfBounds = false, orientation = 6)
+
+        val bitmap = ImageAnalyzer.decodeEmbeddedJpegThumbnail(file, longestEdge = 24)
+
+        // 48x24 rotated 90 CW (orientation=6) becomes 24x48 -> scaled to longestEdge=24 becomes 12x24
+        assertEquals(12, bitmap?.width)
+        assertEquals(24, bitmap?.height)
+    }
+
+    @Test
     fun `decodeEmbeddedJpegThumbnail returns null when IFD1 thumbnail is absent`() {
         val file = jpegWithIfd1Thumbnail(outOfBounds = false, includeThumbnail = false)
 
@@ -68,7 +79,7 @@ class ImageAnalyzerTest {
         assertNull(ImageAnalyzer.decodeEmbeddedJpegThumbnail(file, longestEdge = 24))
     }
 
-    private fun jpegWithIfd1Thumbnail(outOfBounds: Boolean, includeThumbnail: Boolean = true): File {
+    private fun jpegWithIfd1Thumbnail(outOfBounds: Boolean, includeThumbnail: Boolean = true, orientation: Int? = null): File {
         val mainImage = BufferedImage(80, 40, BufferedImage.TYPE_INT_RGB)
         val mainFile = File.createTempFile("embedded-thumbnail-main", ".jpg").apply { deleteOnExit() }
         ImageIO.write(mainImage, "jpg", mainFile)
@@ -81,13 +92,22 @@ class ImageAnalyzerTest {
         val tiff = ArrayList<Byte>()
         tiff.addAll("II".encodeToByteArray().toList())
         tiff.addAll(byteArrayOf(42, 0).toList())
-        tiff.addAll(u32(8).toList()) // IFD0
-        tiff.addAll(u16(0).toList())
-        tiff.addAll(u32(14).toList()) // IFD1 follows the empty IFD0
+        tiff.addAll(u32(8).toList()) // IFD0 at offset 8
+        val ifd0Count = if (orientation != null) 1 else 0
+        val ifd1Offset = 8 + 2 + ifd0Count * 12 + 4
+        tiff.addAll(u16(ifd0Count).toList())
+        if (orientation != null) {
+            tiff.addAll(u16(0x0112).toList()) // Orientation tag
+            tiff.addAll(u16(3).toList()) // SHORT
+            tiff.addAll(u32(1).toList())
+            tiff.addAll(u16(orientation).toList()); tiff.addAll(u16(0).toList())
+        }
+        tiff.addAll(u32(ifd1Offset).toList()) // IFD1 follows IFD0
         if (includeThumbnail) {
+            val thumbOffset = ifd1Offset + 2 + 2 * 12 + 4
             tiff.addAll(u16(2).toList())
             tiff.addAll(u16(0x0201).toList()); tiff.addAll(u16(4).toList()); tiff.addAll(u32(1).toList())
-            tiff.addAll(u32(if (outOfBounds) 0x7fffffff else 44).toList())
+            tiff.addAll(u32(if (outOfBounds) 0x7fffffff else thumbOffset).toList())
             tiff.addAll(u16(0x0202).toList()); tiff.addAll(u16(4).toList()); tiff.addAll(u32(1).toList())
             tiff.addAll(u32(thumbnail.size).toList())
             tiff.addAll(u32(0).toList())

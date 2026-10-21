@@ -55,7 +55,18 @@ private fun subsamplingLabel(samplingFactors: Int): String {
     return "0x${samplingFactors.toString(16).padStart(2, '0')} (${horizontal}x${vertical})"
 }
 
-fun parseJpegSegments(reader: ByteReader, start: Long, end: Long): List<BoxNode> {
+fun parseJpegSegments(reader: ByteReader, start: Long, end: Long): List<BoxNode> =
+    parseJpegSegments(reader, start, end, stopAtSos = false)
+
+/**
+ * Lightweight JPEG segment scanner that stops as soon as the Start-of-Scan (`SOS`, `0xFFDA`) marker
+ * is encountered instead of scanning the compressed image bitstream, SEF trailer, or embedded MP4.
+ * Used by FastStone-style embedded EXIF thumbnail extraction to read only the front header (typically < 64 KB).
+ */
+internal fun parseJpegHeaderSegmentsUntilSos(reader: ByteReader, start: Long, end: Long): List<BoxNode> =
+    parseJpegSegments(reader, start, end, stopAtSos = true)
+
+private fun parseJpegSegments(reader: ByteReader, start: Long, end: Long, stopAtSos: Boolean): List<BoxNode> {
     val result = mutableListOf<BoxNode>()
     var pos = start
     while (pos < end) {
@@ -67,6 +78,7 @@ fun parseJpegSegments(reader: ByteReader, start: Long, end: Long): List<BoxNode>
 
         val markerPrefix = reader.readUInt8(pos)
         if (markerPrefix != 0xFF) {
+            if (stopAtSos) break
             val trailingVideoNode = tryDecodeSefdTrailer(reader, pos, end) ?: tryDecodeTrailingVideo(reader, pos, end)
             result.add(
                 trailingVideoNode ?: BoxNode(
@@ -82,6 +94,10 @@ fun parseJpegSegments(reader: ByteReader, start: Long, end: Long): List<BoxNode>
             result.add(BoxNode(markerName(marker), pos, 2, 2))
             pos += 2
             continue
+        }
+
+        if (stopAtSos && marker == 0xDA) {
+            break
         }
 
         if (remaining < 4) {
@@ -128,7 +144,7 @@ fun parseJpegSegments(reader: ByteReader, start: Long, end: Long): List<BoxNode>
         result.add(decodeSegment(reader, marker, pos, declaredSize, totalSize))
         pos += totalSize
     }
-    return com.multiviewer.parser.c2pa.attachC2paToJpegSegments(reader, result)
+    return if (stopAtSos) result else com.multiviewer.parser.c2pa.attachC2paToJpegSegments(reader, result)
 }
 
 private fun decodeSegment(reader: ByteReader, marker: Int, offset: Long, declaredSize: Long, totalSize: Long): BoxNode {

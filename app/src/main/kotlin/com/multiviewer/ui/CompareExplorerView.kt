@@ -108,10 +108,11 @@ private object ExplorerThumbnailLoader {
     private val lookaheadScheduler = ThumbnailLookaheadScheduler<File> { index, file ->
         requestThumbnail(file, index, onLoaded = null)
     }
-    private val workers = Executors.newFixedThreadPool(3) { r ->
-        Thread(r).apply { isDaemon = true }
+    private val workerCount = (Runtime.getRuntime().availableProcessors() - 1).coerceIn(4, 8)
+    private val workers = Executors.newFixedThreadPool(workerCount) { r ->
+        Thread(r, "explorer-thumb-worker").apply { isDaemon = true }
     }.also { executor ->
-        repeat(3) {
+        repeat(workerCount) {
             executor.submit {
                 while (!Thread.currentThread().isInterrupted) {
                     try {
@@ -140,7 +141,16 @@ private object ExplorerThumbnailLoader {
             prefetchIndices.forEach { index -> files.getOrNull(index)?.let { prefetchPaths += it.absolutePath } }
             workQueue.reprioritize { key -> priorityForPath(key) }
         }
-        if (!listMode) lookaheadScheduler.update(files, visibleIndices, columnCount)
+        if (!listMode) {
+            lookaheadScheduler.update(files, visibleIndices, columnCount)
+            // FastStone-style background folder pre-warm: enqueue remaining files in the folder at lowest
+            // priority (2) so scrolling down a 50+ image folder hits warm memory cache with zero lag.
+            for (i in files.indices) {
+                if (i !in visibleIndices) {
+                    requestThumbnail(files[i], i, onLoaded = null)
+                }
+            }
+        }
     }
 
     fun getThumbnail(file: File, itemIndex: Int? = null, onLoaded: (ImageBitmap) -> Unit): ImageBitmap? =
@@ -208,11 +218,26 @@ private object ExplorerThumbnailLoader {
                             requests.finish(path)
                         }
                     } else {
+                        var embeddedThumb: ImageBitmap? = null
                         val coordinator = ThumbnailLoadCoordinator<ImageBitmap>(
                             preview = { source ->
-                                if (kindExt == "jpg" || kindExt == "jpeg") ImageAnalyzer.decodeEmbeddedJpegThumbnail(source, longestEdge = 240) else null
+                                if (kindExt == "jpg" || kindExt == "jpeg") {
+                                    ImageAnalyzer.decodeEmbeddedJpegThumbnail(source, longestEdge = 240)?.also {
+                                        embeddedThumb = it
+                                    }
+                                } else {
+                                    null
+                                }
                             },
                             decodeFinal = { source ->
+                                // FastStone-style embedded EXIF fast-path: if the JPEG already has a usable
+                                // embedded EXIF thumbnail (longest edge >= 120px), finalize it immediately
+                                // without reading or decoding the 12MP–200MP primary image or trailing MP4.
+                                val existingPreview = embeddedThumb
+                                if (existingPreview != null && maxOf(existingPreview.width, existingPreview.height) >= 120) {
+                                    route = "exif_embedded"
+                                    return@ThumbnailLoadCoordinator existingPreview
+                                }
                                 if (kindExt in VIDEO_EXTENSIONS) {
                                     route = "ffmpeg"
                                     FfmpegImageSnapshotDecoder.decodeSingleFrameToBitmap(
@@ -224,6 +249,12 @@ private object ExplorerThumbnailLoader {
                                             "-vf", "scale=160:-1", "-frames:v", "1", "-update", "1"),
                                         tempExtension = ".jpg", timeoutMs = 8_000L,
                                     )
+                                } else if (kindExt in HEIF_FAMILY_EXTENSIONS) {
+                                    // Avoid reading the entire multi-MB HEIC/AVIF into memory for Skia (which cannot
+                                    // decode HEIC on desktop JVM); go straight to the embedded thmb / ffmpeg path.
+                                    route = "heic_thumb"
+                                    FfmpegImageSnapshotDecoder.decodeThumbnailToBitmap(source, longestEdge = 240)
+                                        ?: ImageAnalyzer.decodeThumbnail(source, longestEdge = 240)
                                 } else {
                                     val primary = ImageAnalyzer.decodeThumbnail(source, longestEdge = 240)
                                     if (primary != null) primary else {
@@ -318,6 +349,7 @@ private object ExplorerThumbnailLoader {
 }
 
 private val LOSSLESS_THUMBNAIL_EXTENSIONS = setOf("png", "apng", "gif", "webp", "tif", "tiff")
+private val HEIF_FAMILY_EXTENSIONS = setOf("heic", "heif", "hif", "avif")
 
 
 @Composable
@@ -777,6 +809,7 @@ fun FastStoneExplorerView(
                                         }
 
                                         // File info
+                                        val fileSizeText = remember(file.absolutePath) { formatCompareFileSize(file.length()) }
                                         Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
                                             Text(
                                                 text = file.name,
@@ -787,7 +820,7 @@ fun FastStoneExplorerView(
                                                 overflow = TextOverflow.Ellipsis,
                                             )
                                             Text(
-                                                text = formatCompareFileSize(file.length()),
+                                                text = fileSizeText,
                                                 fontSize = 9.sp,
                                                 color = AppColors.TextSecondary,
                                             )
@@ -886,8 +919,9 @@ fun FastStoneExplorerView(
                                             )
                                         }
 
+                                        val fileSizeText = remember(file.absolutePath) { formatCompareFileSize(file.length()) }
                                         Text(
-                                            text = formatCompareFileSize(file.length()),
+                                            text = fileSizeText,
                                             fontSize = 11.sp,
                                             color = AppColors.TextSecondary,
                                         )

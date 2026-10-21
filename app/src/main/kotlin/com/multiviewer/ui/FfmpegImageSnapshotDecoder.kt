@@ -3,6 +3,7 @@ package com.multiviewer.ui
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import com.multiviewer.parser.BoxNode
+import com.multiviewer.parser.ImageAnalyzer
 import com.multiviewer.parser.extractHevcThumbnailAnnexB
 import org.jetbrains.skia.Image
 import java.awt.EventQueue
@@ -35,12 +36,67 @@ object FfmpegImageSnapshotDecoder {
         )
     }
 
-    fun decodeThumbnailToBitmap(file: File, longestEdge: Int): ImageBitmap? =
-        decodeSingleFrameToBitmap(
+    fun decodeThumbnailToBitmap(file: File, longestEdge: Int): ImageBitmap? {
+        require(longestEdge > 0) { "longestEdge must be positive" }
+        tryDecodeHeicEmbeddedThumbnail(file, longestEdge)?.let { return it }
+        return decodeSingleFrameToBitmap(
+            thumbnailDecodeArguments(file, longestEdge),
+            tempExtension = ".jpg",
+            timeoutMs = 10_000L,
+        ) ?: decodeSingleFrameToBitmap(
             thumbnailDecodeArguments(file, longestEdge),
             tempExtension = ".png",
             timeoutMs = 10_000L,
         )
+    }
+
+    /**
+     * FastStone-style embedded HEIC `thmb` fast-path: parses only the top-level `ftyp`/`meta` boxes
+     * (skipping `mdat`, `mpvd`, `sefd`) and extracts either a JPEG-coded `thmb` item or a standalone
+     * HEVC-coded `thmb` Annex-B stream (~20-50 KB), avoiding decoding the full 12MP–200MP grid.
+     */
+    private fun tryDecodeHeicEmbeddedThumbnail(file: File, longestEdge: Int): ImageBitmap? {
+        return try {
+            com.multiviewer.parser.ByteReader.open(file).use { reader ->
+                if (reader.length < 12 || reader.readFourCC(4) != "ftyp") return@use null
+                com.multiviewer.parser.registerAllDecoders()
+                val children = com.multiviewer.parser.parseBoxes(
+                    reader, 0, reader.length,
+                    decodeTopLevelTypes = setOf("ftyp", "meta"),
+                )
+                val root = BoxNode("root", 0, 0, reader.length, children = children)
+                val orientationCode = ImageAnalyzer.heifOrientationToCode(root)
+
+                // 1. Check if `thmb` is a JPEG item that Skia can decode directly in-process
+                ImageAnalyzer.tryDecodeEmbeddedHeicJpegThumbnail(reader, root, longestEdge, orientationCode)?.let {
+                    return@use it
+                }
+
+                // 2. Check if `thmb` is an `hvc1` item (single small HEVC frame, ~20-50 KB)
+                val annexB = extractHevcThumbnailAnnexB(file, root) ?: return@use null
+                val tempH265 = File.createTempFile("hevc-thumb-fast-", ".h265")
+                val rawBitmap = try {
+                    tempH265.writeBytes(annexB)
+                    decodeSingleFrameToBitmap(
+                        listOf(
+                            FfmpegLocator.ffmpegPath(), "-y",
+                            "-f", "hevc", "-i", tempH265.absolutePath,
+                            "-vf", "scale=$longestEdge:$longestEdge:force_original_aspect_ratio=decrease",
+                            "-frames:v", "1", "-update", "1",
+                        ),
+                        tempExtension = ".jpg",
+                        timeoutMs = 5_000L,
+                    )
+                } finally {
+                    tempH265.delete()
+                } ?: return@use null
+
+                ImageAnalyzer.orientImageBitmap(rawBitmap, orientationCode)
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
 
     fun decodeFirstFrameAsync(
         file: File, root: BoxNode? = null,

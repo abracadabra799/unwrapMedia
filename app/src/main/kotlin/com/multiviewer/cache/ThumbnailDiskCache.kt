@@ -27,31 +27,30 @@ class ThumbnailDiskCache(
         require(maxBytes >= 0L) { "maxBytes must not be negative" }
     }
 
-    @Synchronized
     fun get(source: File, longestEdge: Int): ByteArray? =
         get(source, longestEdge, ThumbnailSourceFingerprint.capture(source))
 
-    @Synchronized
     fun get(source: File, longestEdge: Int, fingerprint: ThumbnailSourceFingerprint): ByteArray? {
         val cachedFile = cacheFile(source, longestEdge, fingerprint)
         if (!cachedFile.isFile) return null
         return try {
-            cachedFile.readBytes().also {
-                cachedFile.setLastModified(System.currentTimeMillis())
+            val bytes = cachedFile.readBytes()
+            synchronized(this) {
                 accessOrder[cachedFile.name] = ++nextAccessOrder
             }
+            bytes
         } catch (_: Exception) {
-            cachedFile.delete()
-            accessOrder.remove(cachedFile.name)
+            synchronized(this) {
+                cachedFile.delete()
+                accessOrder.remove(cachedFile.name)
+            }
             null
         }
     }
 
-    @Synchronized
     fun put(source: File, longestEdge: Int, encodedThumbnail: ByteArray) =
         put(source, longestEdge, encodedThumbnail, ThumbnailSourceFingerprint.capture(source))
 
-    @Synchronized
     fun put(source: File, longestEdge: Int, encodedThumbnail: ByteArray, fingerprint: ThumbnailSourceFingerprint) {
         if (encodedThumbnail.isEmpty() || maxBytes == 0L) return
         if (!directory.exists() && !directory.mkdirs()) return
@@ -61,15 +60,16 @@ class ThumbnailDiskCache(
         try {
             FileOutputStream(temp).use { stream ->
                 stream.write(encodedThumbnail)
-                stream.fd.sync()
             }
-            try {
-                Files.move(temp.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
-            } catch (_: Exception) {
-                Files.move(temp.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            synchronized(this) {
+                try {
+                    Files.move(temp.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+                } catch (_: Exception) {
+                    Files.move(temp.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                }
+                accessOrder[destination.name] = ++nextAccessOrder
+                evictToLimit(protectedFile = destination)
             }
-            accessOrder[destination.name] = ++nextAccessOrder
-            evictToLimit(protectedFile = destination)
         } catch (_: Exception) {
             temp.delete()
         }
