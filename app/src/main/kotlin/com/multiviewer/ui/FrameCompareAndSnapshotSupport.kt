@@ -322,7 +322,7 @@ internal fun FrameAbCompareView(
                 ) {
                     // Left: Reference Frame Target Selector
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
@@ -330,6 +330,8 @@ internal fun FrameAbCompareView(
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = AppColors.NeonOrange,
+                            maxLines = 1,
+                            softWrap = false,
                         )
                         val pinned = tab.pinnedReferenceFrame
                         FilterChip(
@@ -340,6 +342,8 @@ internal fun FrameAbCompareView(
                                     if (pinned != null) label("📌 고정 #${pinned.index} (${pinned.type})", "📌 Pin #${pinned.index} (${pinned.type})")
                                     else label("📌 고정 프레임 (미지정 시 N-1)", "📌 Pinned (or N-1)"),
                                     fontSize = 10.5.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
                                 )
                             },
                             modifier = Modifier.height(26.dp),
@@ -347,13 +351,13 @@ internal fun FrameAbCompareView(
                         FilterChip(
                             selected = refTarget == FrameReferenceTarget.PREVIOUS_FRAME,
                             onClick = { onSelectRefTarget(FrameReferenceTarget.PREVIOUS_FRAME) },
-                            label = { Text(label("⏮ 직전 프레임 (N-1)", "⏮ Prev (N-1)"), fontSize = 10.5.sp) },
+                            label = { Text(label("⏮ 직전 프레임 (N-1)", "⏮ Prev (N-1)"), fontSize = 10.5.sp, maxLines = 1, softWrap = false) },
                             modifier = Modifier.height(26.dp),
                         )
                         FilterChip(
                             selected = refTarget == FrameReferenceTarget.GOP_KEYFRAME,
                             onClick = { onSelectRefTarget(FrameReferenceTarget.GOP_KEYFRAME) },
-                            label = { Text(label("🔑 GOP 첫 I-프레임", "🔑 GOP Keyframe"), fontSize = 10.5.sp) },
+                            label = { Text(label("🔑 GOP 첫 I-프레임", "🔑 GOP Keyframe"), fontSize = 10.5.sp, maxLines = 1, softWrap = false) },
                             modifier = Modifier.height(26.dp),
                         )
                         AssistChip(
@@ -363,6 +367,8 @@ internal fun FrameAbCompareView(
                                     label("📌 현재 프레임(#${currentFrame?.index ?: 0}) 고정", "📌 Pin Current (#${currentFrame?.index ?: 0})"),
                                     fontSize = 10.5.sp,
                                     color = AppColors.NeonOrange,
+                                    maxLines = 1,
+                                    softWrap = false,
                                 )
                             },
                             border = BorderStroke(1.dp, AppColors.NeonOrange.copy(alpha = 0.6f)),
@@ -371,7 +377,7 @@ internal fun FrameAbCompareView(
                         if (pinned != null) {
                             AssistChip(
                                 onClick = onClearPinnedRef,
-                                label = { Text(label("고정 해제 ✕", "Unpin ✕"), fontSize = 10.sp, color = AppColors.TextSecondary) },
+                                label = { Text(label("고정 해제 ✕", "Unpin ✕"), fontSize = 10.sp, color = AppColors.TextSecondary, maxLines = 1, softWrap = false) },
                                 modifier = Modifier.height(26.dp),
                             )
                         }
@@ -379,25 +385,25 @@ internal fun FrameAbCompareView(
 
                     // Right: Display Mode Selector
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         FilterChip(
                             selected = displayMode == FrameCompareDisplayMode.SIDE_BY_SIDE,
                             onClick = { displayMode = FrameCompareDisplayMode.SIDE_BY_SIDE },
-                            label = { Text(label("좌우 나란히", "Side-by-Side"), fontSize = 10.5.sp) },
+                            label = { Text(label("좌우 나란히", "Side-by-Side"), fontSize = 10.5.sp, maxLines = 1, softWrap = false) },
                             modifier = Modifier.height(26.dp),
                         )
                         FilterChip(
                             selected = displayMode == FrameCompareDisplayMode.SPLIT_WIPER,
                             onClick = { displayMode = FrameCompareDisplayMode.SPLIT_WIPER },
-                            label = { Text(label("분할 와이퍼", "Split Wiper"), fontSize = 10.5.sp) },
+                            label = { Text(label("분할 와이퍼", "Split Wiper"), fontSize = 10.5.sp, maxLines = 1, softWrap = false) },
                             modifier = Modifier.height(26.dp),
                         )
                         FilterChip(
                             selected = displayMode == FrameCompareDisplayMode.DIFF_HEATMAP,
                             onClick = { displayMode = FrameCompareDisplayMode.DIFF_HEATMAP },
-                            label = { Text(label("픽셀 차이 히트맵", "Diff Heatmap"), fontSize = 10.5.sp) },
+                            label = { Text(label("픽셀 차이 히트맵", "Diff Heatmap"), fontSize = 10.5.sp, maxLines = 1, softWrap = false) },
                             modifier = Modifier.height(26.dp),
                         )
                         FilterChip(
@@ -417,6 +423,8 @@ internal fun FrameAbCompareView(
                                         else label("교차: [B 현재] (클릭 전환)", "Blink: [B Cur]")
                                     } else label("깜빡임 교차", "Blink A/B"),
                                     fontSize = 10.5.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
                                 )
                             },
                             modifier = Modifier.height(26.dp),
@@ -447,14 +455,18 @@ internal fun FrameAbCompareView(
                             fontWeight = FontWeight.SemiBold,
                             color = AppColors.NeonOrange,
                             fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                            softWrap = false,
                         )
-                        Text("vs", fontSize = 10.sp, color = AppColors.TextSecondary)
+                        Text("vs", fontSize = 10.sp, color = AppColors.TextSecondary, maxLines = 1, softWrap = false)
                         Text(
                             text = "[B ${label("현재", "Cur")}] $curDesc",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = AppColors.NeonBlue,
                             fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                            softWrap = false,
                         )
                     }
                     val stats = diffStats
@@ -469,24 +481,32 @@ internal fun FrameAbCompareView(
                                 fontWeight = FontWeight.Bold,
                                 color = if (stats.psnrDb >= 38.0) AppColors.NeonGreen else if (stats.psnrDb >= 30.0) AppColors.NeonOrange else AppColors.FrameTypeI,
                                 fontFamily = FontFamily.Monospace,
+                                maxLines = 1,
+                                softWrap = false,
                             )
                             Text(
                                 text = "${label("평균 오차(MAE)", "MAE")}: ${String.format(Locale.US, "%.2f", stats.meanAbsDiff)}",
                                 fontSize = 10.5.sp,
                                 color = AppColors.TextPrimary,
                                 fontFamily = FontFamily.Monospace,
+                                maxLines = 1,
+                                softWrap = false,
                             )
                             Text(
                                 text = "Max ΔRGB: ${stats.maxAbsDiff}",
                                 fontSize = 10.5.sp,
                                 color = AppColors.TextPrimary,
                                 fontFamily = FontFamily.Monospace,
+                                maxLines = 1,
+                                softWrap = false,
                             )
                             Text(
                                 text = "${label("변경 픽셀", "Changed")}: ${String.format(Locale.US, "%.1f%%", stats.changedPixelPercent)}",
                                 fontSize = 10.5.sp,
                                 color = AppColors.TextSecondary,
                                 fontFamily = FontFamily.Monospace,
+                                maxLines = 1,
+                                softWrap = false,
                             )
                         }
                     } else {
@@ -494,6 +514,8 @@ internal fun FrameAbCompareView(
                             text = label("프레임 픽셀 차이 계산 중...", "Computing pixel difference..."),
                             fontSize = 10.5.sp,
                             color = AppColors.TextSecondary,
+                            maxLines = 1,
+                            softWrap = false,
                         )
                     }
                 }

@@ -133,7 +133,6 @@ fun VideoInspectorUI(
 
     DashboardLayout(
         leftPanel = leftPanel,
-        verticalSplitOverride = if (supportsAvTimeline && avTimelineExpanded) 0.25f else null,
         focusCenterPanel = supportsAvTimeline && avTimelineExpanded && avTimelineFocusMode,
         centerPanel = {
             Column(modifier = Modifier.fillMaxSize()) {
@@ -142,7 +141,7 @@ fun VideoInspectorUI(
                 }
                 Row(
                     modifier = Modifier
-                        .weight(if (supportsAvTimeline && avTimelineExpanded) 0.62f else 1f)
+                        .weight(1f)
                         .fillMaxWidth()
                         .onGloballyPositioned { topContainerWidthPx = it.size.width }
                 ) {
@@ -282,7 +281,7 @@ fun VideoInspectorUI(
                             tab.seekTargetSeconds = frame.ptsSeconds
                             tab.seekRequestTick++
                         },
-                        modifier = if (avTimelineExpanded) Modifier.weight(0.38f).fillMaxWidth()
+                        modifier = if (avTimelineExpanded) Modifier.height(108.dp).fillMaxWidth()
                                    else Modifier.fillMaxWidth(),
                     )
                 }

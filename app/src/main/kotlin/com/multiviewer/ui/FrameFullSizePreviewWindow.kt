@@ -12,9 +12,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPosition
+import androidx.compose.ui.window.rememberWindowState
 import java.util.Locale
 import kotlin.coroutines.resume
 import kotlinx.coroutines.delay
@@ -161,8 +164,23 @@ fun FrameFullSizePreviewWindow(
         }
     }
 
+    val windowState = rememberWindowState(
+        position = WindowPosition(Alignment.Center),
+        size = DpSize(1280.dp, 820.dp),
+    )
+
+    LaunchedEffect(compareMode) {
+        if (compareMode && windowState.size.width < 1260.dp) {
+            windowState.size = DpSize(
+                width = maxOf(windowState.size.width, 1280.dp),
+                height = maxOf(windowState.size.height, 820.dp),
+            )
+        }
+    }
+
     Window(
         onCloseRequest = onCloseRequest,
+        state = windowState,
         title = "${label("동영상 프레임 검사", "Video Frame Inspection")} - ${tab.file.name}",
         onKeyEvent = { event ->
             if (event.type != KeyEventType.KeyDown) false else when (event.key) {

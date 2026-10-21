@@ -478,8 +478,6 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
         var updateWindowOpen by remember { mutableStateOf(false) }
         var hasUpdateAvailable by remember { mutableStateOf(false) }
         var latestUpdateVersion by remember { mutableStateOf("") }
-        // Codec view popup window mode (Motion Vectors / QP Heatmap). null = popup closed.
-        var codecViewPopupWindowMode by remember { mutableStateOf<CodecViewMode?>(null) }
         // The menu DSL lambdas aren't composable, so the codec probe is remembered here per tree.
         val selectedTabRoot = appState.tabs.getOrNull(appState.selectedTabIndex)?.root
         val selectedTabHasC2pa = remember(selectedTabRoot) { selectedTabRoot?.let { com.multiviewer.parser.c2pa.hasC2paManifestStore(it) } == true }
@@ -586,16 +584,6 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     I18n.menuHdrSeiAnalysis(language),
                     enabled = hasMetadataCodec,
                     onClick = { hdrMetadataTab = currentTab },
-                )
-                item(
-                    I18n.menuMotionVectors(language),
-                    enabled = isVideo && codecViewSupportedFor(CodecViewMode.MOTION_VECTORS, currentTab?.videoCodecName),
-                    onClick = { codecViewPopupWindowMode = CodecViewMode.MOTION_VECTORS },
-                )
-                item(
-                    I18n.menuQpHeatmap(language),
-                    enabled = isVideo && codecViewSupportedFor(CodecViewMode.QP_HEATMAP, currentTab?.videoCodecName),
-                    onClick = { codecViewPopupWindowMode = CodecViewMode.QP_HEATMAP },
                 )
                 item(
                     I18n.menuSpatialVideoAnalysis(language),
@@ -1001,19 +989,6 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
             }
             if (updateWindowOpen) {
                 UpdateWindow(language = language, onCloseRequest = { updateWindowOpen = false })
-            }
-            val popupMode = codecViewPopupWindowMode
-            if (popupMode != null) {
-                val currentTab = appState.tabs.getOrNull(appState.selectedTabIndex)
-                if (currentTab != null) {
-                    CodecViewPreviewWindow(
-                        tab = currentTab,
-                        mode = popupMode,
-                        onCloseRequest = { codecViewPopupWindowMode = null },
-                    )
-                } else {
-                    codecViewPopupWindowMode = null
-                }
             }
 
             LaunchedEffect(Unit) {
