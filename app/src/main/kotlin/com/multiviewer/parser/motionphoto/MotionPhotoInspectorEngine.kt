@@ -19,6 +19,8 @@ import com.multiviewer.parser.integrity.CheckStatus
 import com.multiviewer.parser.integrity.ImageIntegrityChecker
 import com.multiviewer.parser.parseFile
 import com.multiviewer.parser.parseXmpDocument
+import com.multiviewer.parser.validateMotionPhotoPointer
+import com.multiviewer.parser.walkMp4TopLevelBoxes
 import com.multiviewer.ui.FfmpegLocator
 import com.multiviewer.ui.readProcessOutputWithTimeout
 import com.multiviewer.util.deleteWhenReleased
@@ -337,11 +339,55 @@ object MotionPhotoInspectorEngine {
         val items = mutableListOf<MotionPhotoInspectionItem>()
         val xmpNode = findFirst(root) { it.fields.any { f -> f.name == "xmp" } }
         val xmpText = xmpNode?.fields?.find { f -> f.name == "xmp" }?.value
+        val isHeicContainer = root.children.firstOrNull()?.type == "ftyp"
+        val mpvdNode = findFirst(root) { it.type == "mpvd" || it.type == "EmbeddedVideoData" }
+        val sefdNode = findFirst(root) { it.type == "sefd" }
+
+        if (isHeicContainer) {
+            if (mpvdNode != null) {
+                val mpvdEnd = mpvdNode.offset + mpvdNode.size
+                val boundsValid = mpvdNode.offset >= 0 && mpvdEnd <= file.length() &&
+                    (sefdNode == null || mpvdNode.offset >= sefdNode.offset || mpvdEnd == sefdNode.offset)
+                val ftypChild = mpvdNode.children.find { it.type == "ftyp" }
+                val mpvdValid = boundsValid && ftypChild != null
+                items.add(
+                    MotionPhotoInspectionItem(
+                        id = "heic.mpvd_box",
+                        status = if (mpvdValid) CheckStatus.PASS else CheckStatus.FAIL,
+                        label = "HEIC 임베디드 비디오 박스 (mpvd) [필수]",
+                        expected = "최상위 mpvd 박스 존재 (내부 MP4 ftyp 포함, 경계 일치)",
+                        actual = if (mpvdValid) "mpvd 존재 (offset=0x${mpvdNode.offset.toString(16)}, size=${mpvdNode.size} bytes)"
+                        else "mpvd 경계 또는 내부 ftyp 오류 (offset=0x${mpvdNode.offset.toString(16)}, size=${mpvdNode.size} bytes)",
+                        detail = if (mpvdValid) "HEIC 모션포토 필수 최상위 mpvd 박스(0x${mpvdNode.offset.toString(16)}..0x${mpvdEnd.toString(16)}, ${mpvdNode.size} bytes)가 임베디드 MP4 스트림을 올바르게 감싸고 있습니다."
+                        else "mpvd 박스의 크기/경계가 sefd 시작점 또는 파일 크기와 일치하지 않거나 내부에 MP4 ftyp 헤더가 없습니다.",
+                        offset = mpvdNode.offset,
+                        length = mpvdNode.size,
+                        remediation = if (mpvdValid) null else "HEIC 모션포토의 mpvd 박스 크기(8바이트 헤더 + MP4 바이트 길이)가 실제 MP4 스트림 및 뒤따르는 sefd 박스 시작 오프셋과 정확히 일치하도록 작성하십시오.",
+                    )
+                )
+            } else {
+                val exposedMoov = root.children.any { it.type == "moov" }
+                items.add(
+                    MotionPhotoInspectionItem(
+                        id = "heic.mpvd_box",
+                        status = CheckStatus.FAIL,
+                        label = "HEIC 임베디드 비디오 박스 (mpvd) [필수]",
+                        expected = "최상위 mpvd 박스 존재 ([4B size][\"mpvd\"][MP4 스트림])",
+                        actual = if (exposedMoov) "mpvd 박스 누락 (MP4 ftyp/mdat/moov가 최상위에 노출됨)" else "mpvd 박스 누락",
+                        detail = if (exposedMoov)
+                            "HEIC 모션포토 컨테이너에 필수인 최상위 mpvd 박스(8바이트 헤더)가 누락되어 임베디드 동영상의 ftyp/mdat/moov 박스가 HEIC 최상위 레벨에 노출되었으며, 이로 인해 SEF MotionPhoto_Data의 video_offset이 +8바이트 밀리는 오류가 발생합니다."
+                        else
+                            "HEIC 모션포토 컨테이너에 필수인 최상위 mpvd 박스가 존재하지 않습니다.",
+                        remediation = "HEIC 모션포토 규격에서는 임베디드 MP4 스트림을 반드시 최상위 'mpvd' 박스(8바이트 헤더: [4B BE size = mp4_length + 8][\"mpvd\"])로 감싸서 기록해야 합니다.",
+                    )
+                )
+            }
+        }
 
         if (xmpText == null) {
             // Check if it's HEIC mpvd or pure SEF
-            val hasMpvd = findFirst(root) { it.type == "mpvd" || it.type == "EmbeddedVideoData" } != null
-            val hasSef = findFirst(root) { it.type == "sefd" } != null
+            val hasMpvd = mpvdNode != null
+            val hasSef = sefdNode != null
             if (hasMpvd) {
                 items.add(
                     MotionPhotoInspectionItem(
@@ -973,24 +1019,73 @@ object MotionPhotoInspectorEngine {
         // 3. MotionPhoto_Data specific check
         val motionEntry = sefReport.directoryEntries.find { it.name == "MotionPhoto_Data" }
         if (motionEntry != null) {
-            val payloadHasFtyp = try {
-                reader.readFourCC(motionEntry.computedDataStart + 4) == "ftyp"
-            } catch (_: Exception) { false }
-            val motionValid = motionEntry.inBounds && payloadHasFtyp
+            val nameSize = try {
+                val b = reader.readBytes(motionEntry.computedDataStart + 4, 4)
+                ((b[3].toLong() and 0xFF) shl 24) or
+                    ((b[2].toLong() and 0xFF) shl 16) or
+                    ((b[1].toLong() and 0xFF) shl 8) or
+                    (b[0].toLong() and 0xFF)
+            } catch (_: Exception) { 0L }
+            val dataStart = motionEntry.computedDataStart + 8 + nameSize
+            val dataLength = motionEntry.computedDataEnd - dataStart
 
-            items.add(
-                MotionPhotoInspectionItem(
-                    id = "sef.motion_photo_data",
-                    status = if (motionValid) CheckStatus.PASS else CheckStatus.FAIL,
-                    label = "MotionPhoto_Data 엔트리 및 MP4 페이로드",
-                    expected = "0x${motionEntry.computedDataStart.toString(16)} 위치의 유효한 MP4",
-                    actual = if (payloadHasFtyp) "유효한 MP4 (길이: ${motionEntry.declaredLength} bytes)" else "MP4 매직(ftyp) 불일치",
-                    detail = "오프셋: 0x${motionEntry.computedDataStart.toString(16)} .. 0x${motionEntry.computedDataEnd.toString(16)}, 길이: ${motionEntry.declaredLength} bytes",
-                    offset = motionEntry.computedDataStart,
-                    length = motionEntry.declaredLength,
-                    remediation = if (motionValid) null else "SEF MotionPhoto_Data 오프셋(0x${motionEntry.computedDataStart.toString(16)})에 유효한 MP4 ftyp가 없습니다. '오프셋 = 파일크기 - 비디오시작위치' 계산식과 데이터 복사 로직을 점검하십시오.",
+            if (!motionEntry.inBounds || motionEntry.markerMatches != true || dataLength < 8L) {
+                items.add(
+                    MotionPhotoInspectionItem(
+                        id = "sef.motion_photo_data",
+                        status = CheckStatus.FAIL,
+                        label = "MotionPhoto_Data 엔트리 및 MP4 페이로드",
+                        expected = "유효한 SEF 블록 경계 및 MP4 페이로드/포인터",
+                        actual = "블록 경계/마커 오류 또는 페이로드 길이 부족($dataLength bytes)",
+                        detail = "오프셋: 0x${motionEntry.computedDataStart.toString(16)} .. 0x${motionEntry.computedDataEnd.toString(16)}, 선언 길이: ${motionEntry.declaredLength} bytes",
+                        offset = motionEntry.computedDataStart,
+                        length = motionEntry.declaredLength,
+                        remediation = "SEF MotionPhoto_Data 엔트리의 SEFH 오프셋/길이가 파일 경계를 벗어나거나 블록 헤더 마커가 일치하지 않습니다.",
+                    )
                 )
-            )
+            } else if (dataLength == 12L) {
+                val ptr = validateMotionPhotoPointer(reader, dataStart, sefdNode.offset, file.length(), "MotionPhoto_Data")
+                val ptrValid = ptr.severity == SefIntegritySeverity.PASS
+                items.add(
+                    MotionPhotoInspectionItem(
+                        id = "sef.motion_photo_data",
+                        status = if (ptrValid) CheckStatus.PASS else CheckStatus.FAIL,
+                        label = "MotionPhoto_Data 포인터 및 실제 동영상 위치/길이 검증 (HEIC)",
+                        expected = if (ptr.actualVideoOffset != null && ptr.actualVideoLength != null)
+                            "offset=${ptr.actualVideoOffset} (0x${ptr.actualVideoOffset.toString(16)}), length=${ptr.actualVideoLength} bytes (태그=mpv2)"
+                        else
+                            "파일 앞(0) 기준 실제 MP4 시작 오프셋(ftyp) 및 정확한 동영상 길이 (태그=mpv2)",
+                        actual = "offset=${ptr.declaredVideoOffset} (0x${ptr.declaredVideoOffset.toString(16)}), length=${ptr.declaredVideoLength} bytes (태그=${ptr.formatTag})",
+                        detail = ptr.koDetail,
+                        offset = ptr.declaredVideoOffset,
+                        length = ptr.declaredVideoLength,
+                        remediation = ptr.koRemediation,
+                    )
+                )
+            } else {
+                val walk = walkMp4TopLevelBoxes(reader, dataStart, motionEntry.computedDataEnd, stopAtZeroPadding = false)
+                val inlineValid = walk.hasFtyp && walk.error == null && walk.totalLength == dataLength
+                items.add(
+                    MotionPhotoInspectionItem(
+                        id = "sef.motion_photo_data",
+                        status = if (inlineValid) CheckStatus.PASS else CheckStatus.FAIL,
+                        label = "MotionPhoto_Data 엔트리 및 인라인 MP4 페이로드",
+                        expected = "0x${dataStart.toString(16)} 위치의 유효한 인라인 MP4 (페이로드 길이: $dataLength bytes)",
+                        actual = when {
+                            inlineValid -> "유효한 MP4 (박스: ${walk.boxes.joinToString("+")}, 길이: $dataLength bytes)"
+                            !walk.hasFtyp -> "MP4 매직(ftyp) 불일치"
+                            else -> "MP4 박스 길이(${walk.totalLength} bytes) ≠ SEFH 선언 페이로드 길이($dataLength bytes)"
+                        },
+                        detail = if (inlineValid)
+                            "SEF 블록: 0x${motionEntry.computedDataStart.toString(16)}..0x${motionEntry.computedDataEnd.toString(16)} (총 ${motionEntry.declaredLength} bytes), 인라인 MP4 페이로드: 0x${dataStart.toString(16)}..0x${motionEntry.computedDataEnd.toString(16)} ($dataLength bytes)"
+                        else
+                            "SEF 블록: 0x${motionEntry.computedDataStart.toString(16)}..0x${motionEntry.computedDataEnd.toString(16)}, 페이로드 시작: 0x${dataStart.toString(16)} ($dataLength bytes) — ${walk.error ?: "박스 총합(${walk.totalLength} bytes)과 선언 길이($dataLength bytes) 불일치"}",
+                        offset = dataStart,
+                        length = dataLength,
+                        remediation = if (inlineValid) null else "SEF MotionPhoto_Data 페이로드(0x${dataStart.toString(16)}, 선언 길이: $dataLength bytes)에 유효한 MP4 ftyp가 없거나 내부 MP4 박스 크기 합계가 SEFH 디렉토리의 길이와 일치하지 않습니다. SEFH 엔트리 오프셋/길이와 데이터 복사 로직을 점검하십시오.",
+                    )
+                )
+            }
         } else {
             items.add(
                 MotionPhotoInspectionItem(

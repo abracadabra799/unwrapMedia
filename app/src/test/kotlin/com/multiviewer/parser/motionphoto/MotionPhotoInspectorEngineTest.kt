@@ -118,9 +118,19 @@ class MotionPhotoInspectorEngineTest {
         val report = MotionPhotoInspectorEngine.inspect(heicFile, root)
 
         assertNotNull(report)
-        assertTrue(report.formatLabel.contains("HEIC") || report.formatLabel.contains("mpvd"))
+        assertTrue(report.formatLabel.contains("HEIC") || report.formatLabel.contains("mpvd") || report.formatLabel.contains("SEF"))
         assertEquals(CheckStatus.PASS, report.stillImageSection.status)
         assertTrue(report.allSections.size == 5)
+
+        // s26-motion-photo.heic is missing the required top-level mpvd box (exposing MP4 ftyp/mdat/moov at top level)
+        // and its MotionPhoto_Data pointer is shifted by +8 bytes; both must be reported as FAIL.
+        val mpvdItem = report.formatXmpSection.items.find { it.id == "heic.mpvd_box" }
+        assertNotNull(mpvdItem)
+        assertEquals(CheckStatus.FAIL, mpvdItem.status)
+
+        val sefMotionDataItem = report.sefSection.items.find { it.id == "sef.motion_photo_data" }
+        assertNotNull(sefMotionDataItem)
+        assertEquals(CheckStatus.FAIL, sefMotionDataItem.status)
     }
 
     @Test
@@ -180,6 +190,63 @@ class MotionPhotoInspectorEngineTest {
         val nonMotionItem = report.sefSection.items.find { it.id == "sef.non_motion_entries" }
         assertNotNull(nonMotionItem)
         assertEquals(CheckStatus.PASS, nonMotionItem.status)
+    }
+
+    @Test
+    fun `test SEF MotionPhoto_Data validation for HEIC 12-byte pointer and JPEG inline MP4`() {
+        val imagePrefix = ByteArray(64)
+        val mp4 = byteArrayOf(0, 0, 0, 16, 'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte()) +
+            "mp42".toByteArray() + ByteArray(4) +
+            byteArrayOf(0, 0, 0, 16, 'm'.code.toByte(), 'd'.code.toByte(), 'a'.code.toByte(), 't'.code.toByte()) +
+            ByteArray(8) +
+            byteArrayOf(0, 0, 0, 16, 'm'.code.toByte(), 'o'.code.toByte(), 'o'.code.toByte(), 'v'.code.toByte()) +
+            ByteArray(8) // 48 bytes at offset 64..112
+
+        fun pointer12(videoOffset: Int, videoLength: Int): ByteArray = ByteArray(12).also {
+            "mpv2".toByteArray().copyInto(it, 0)
+            it[4] = ((videoOffset ushr 24) and 0xFF).toByte()
+            it[5] = ((videoOffset ushr 16) and 0xFF).toByte()
+            it[6] = ((videoOffset ushr 8) and 0xFF).toByte()
+            it[7] = (videoOffset and 0xFF).toByte()
+            it[8] = ((videoLength ushr 24) and 0xFF).toByte()
+            it[9] = ((videoLength ushr 16) and 0xFF).toByte()
+            it[10] = ((videoLength ushr 8) and 0xFF).toByte()
+            it[11] = (videoLength and 0xFF).toByte()
+        }
+
+        // 1) Valid HEIC 12-byte pointer: video_offset=64, video_length=48 -> PASS
+        val trailerOk = buildSefTrailer(listOf(SefTestField(0x0a30, "MotionPhoto_Data", pointer12(64, mp4.size))))
+        val sefdHeader = byteArrayOf(0, 0, 0, (8 + trailerOk.size).toByte(), 's'.code.toByte(), 'e'.code.toByte(), 'f'.code.toByte(), 'd'.code.toByte())
+        val heicBytesOk = imagePrefix + mp4 + sefdHeader + trailerOk
+        val heicFileOk = File.createTempFile("sef-heic-ptr-ok", ".heic").apply { deleteOnExit(); writeBytes(heicBytesOk) }
+        val sefdNodeOk = BoxNode(type = "sefd", offset = 112L, headerSize = 8, size = (8 + trailerOk.size).toLong())
+        val rootOk = BoxNode(type = "root", offset = 0, headerSize = 0, size = heicBytesOk.size.toLong(), children = listOf(sefdNodeOk))
+        val reportOk = MotionPhotoInspectorEngine.inspect(heicFileOk, rootOk)
+        val mpItemOk = reportOk.sefSection.items.find { it.id == "sef.motion_photo_data" }
+        assertNotNull(mpItemOk)
+        assertEquals(CheckStatus.PASS, mpItemOk.status, mpItemOk.detail)
+
+        // 2) Mismatched HEIC 12-byte pointer: video_offset=72 (+8B off) -> FAIL
+        val trailerBad = buildSefTrailer(listOf(SefTestField(0x0a30, "MotionPhoto_Data", pointer12(72, mp4.size))))
+        val heicBytesBad = imagePrefix + mp4 + sefdHeader + trailerBad
+        val heicFileBad = File.createTempFile("sef-heic-ptr-bad", ".heic").apply { deleteOnExit(); writeBytes(heicBytesBad) }
+        val rootBad = BoxNode(type = "root", offset = 0, headerSize = 0, size = heicBytesBad.size.toLong(), children = listOf(sefdNodeOk))
+        val reportBad = MotionPhotoInspectorEngine.inspect(heicFileBad, rootBad)
+        val mpItemBad = reportBad.sefSection.items.find { it.id == "sef.motion_photo_data" }
+        assertNotNull(mpItemBad)
+        assertEquals(CheckStatus.FAIL, mpItemBad.status)
+        assertTrue(mpItemBad.detail.contains("64"), mpItemBad.detail)
+
+        // 3) Valid JPEG inline MP4 in MotionPhoto_Data -> PASS
+        val trailerInline = buildSefTrailer(listOf(SefTestField(0x0a30, "MotionPhoto_Data", mp4)))
+        val jpgBytes = imagePrefix + trailerInline
+        val jpgFile = File.createTempFile("sef-jpg-inline-ok", ".jpg").apply { deleteOnExit(); writeBytes(jpgBytes) }
+        val sefdNodeJpg = BoxNode(type = "sefd", offset = 64L, headerSize = 0, size = trailerInline.size.toLong())
+        val rootJpg = BoxNode(type = "root", offset = 0, headerSize = 0, size = jpgBytes.size.toLong(), children = listOf(sefdNodeJpg))
+        val reportJpg = MotionPhotoInspectorEngine.inspect(jpgFile, rootJpg)
+        val mpItemJpg = reportJpg.sefSection.items.find { it.id == "sef.motion_photo_data" }
+        assertNotNull(mpItemJpg)
+        assertEquals(CheckStatus.PASS, mpItemJpg.status, mpItemJpg.detail)
     }
 
     @Test

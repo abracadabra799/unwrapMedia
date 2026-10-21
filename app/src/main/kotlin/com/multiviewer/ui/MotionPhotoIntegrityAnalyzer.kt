@@ -203,21 +203,40 @@ internal fun probeVideoDurationUs(file: File, video: com.multiviewer.parser.Embe
 // this app's HEIC motion-photo path) is positioned within the file and has a real ftyp child --
 // the same box shape findEmbeddedVideo already reads to extract the video, but this reports on
 // its structural validity instead of just extracting it.
-internal fun analyzeAppleMpvdSection(root: BoxNode, fileLength: Long): List<SefCheckResult> {
+internal fun analyzeAppleMpvdSection(root: BoxNode, fileLength: Long, requireMpvd: Boolean = false): List<SefCheckResult> {
     val mpvdNode = com.multiviewer.parser.findFirst(root) { it.type == "mpvd" || it.type == "EmbeddedVideoData" }
-        ?: return emptyList()
+    if (mpvdNode == null) {
+        if (!requireMpvd) return emptyList()
+        val exposedMoov = root.children.any { it.type == "moov" }
+        val detail = if (exposedMoov) {
+            "HEIC 모션포토 컨테이너에 필수인 최상위 mpvd 박스가 누락되었습니다 (8바이트 mpvd 박스 헤더 없이 MP4 ftyp/mdat/moov 박스가 최상위에 그대로 노출됨)"
+        } else {
+            "HEIC 모션포토 컨테이너에 필수인 최상위 mpvd 박스가 누락되었습니다"
+        }
+        return listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "mpvd 박스 존재 여부", detail))
+    }
 
     if (mpvdNode.offset < 0 || mpvdNode.offset + mpvdNode.size > fileLength) {
         return listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "mpvd 박스 범위", "mpvd 박스가 파일 범위를 벗어납니다 (offset=${mpvdNode.offset}, size=${mpvdNode.size}, file=$fileLength)"))
     }
 
+    val checks = mutableListOf<SefCheckResult>()
+    checks.add(
+        SefCheckResult(
+            SefIntegritySeverity.PASS,
+            "mpvd 박스 존재 및 범위",
+            "offset=${mpvdNode.offset} (0x${mpvdNode.offset.toString(16)}), size=${mpvdNode.size} bytes (end=${mpvdNode.offset + mpvdNode.size})",
+        )
+    )
+
     val ftypChild = mpvdNode.children.find { it.type == "ftyp" }
-    return if (ftypChild == null) {
-        listOf(SefCheckResult(SefIntegritySeverity.WARNING, "mpvd 내부 ftyp", "mpvd 박스 내부에서 ftyp 자식 박스를 찾지 못했습니다"))
+    if (ftypChild == null) {
+        checks.add(SefCheckResult(SefIntegritySeverity.WARNING, "mpvd 내부 ftyp", "mpvd 박스 내부에서 ftyp 자식 박스를 찾지 못했습니다"))
     } else {
         val majorBrand = ftypChild.fields.find { it.name == "major_brand" }?.value?.trim() ?: "알 수 없음"
-        listOf(SefCheckResult(SefIntegritySeverity.PASS, "mpvd 내부 ftyp", "major_brand=\"$majorBrand\""))
+        checks.add(SefCheckResult(SefIntegritySeverity.PASS, "mpvd 내부 ftyp", "major_brand=\"$majorBrand\""))
     }
+    return checks
 }
 
 // Format-independent: extracts whichever video findEmbeddedVideo resolved (any of the 3 formats)
@@ -286,7 +305,9 @@ object MotionPhotoIntegrityAnalyzer {
             }
             val videoDurationUs = video?.let { probeVideoDurationUs(file, it) }
             val googleChecks = analyzeGoogleXmpSection(root, reader, videoDurationUs)
-            val appleChecks = analyzeAppleMpvdSection(root, file.length())
+            val isHeicContainer = root.children.firstOrNull()?.type == "ftyp"
+            val hasMotionPhoto = sefSection?.directoryEntries?.any { it.name == "MotionPhoto_Data" } == true || googleChecks.isNotEmpty()
+            val appleChecks = analyzeAppleMpvdSection(root, file.length(), requireMpvd = isHeicContainer && hasMotionPhoto)
             val decodeChecks = analyzeDecodability(file, video)
 
             val detectedFormats = buildList {

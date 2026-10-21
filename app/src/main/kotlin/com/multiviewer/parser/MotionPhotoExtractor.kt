@@ -10,8 +10,9 @@ import javax.xml.parsers.DocumentBuilderFactory
 data class EmbeddedVideo(val start: Long, val end: Long, val extension: String)
 
 fun findEmbeddedVideo(root: BoxNode, reader: ByteReader? = null): EmbeddedVideo? {
+    val sefdNode = findFirst(root) { it.type == "sefd" }
     val videoNode = root.children.find { it.type == "mpvd" || it.type == "EmbeddedVideoData" }
-        ?: findFirst(root) { it.type == "sefd" }
+        ?: sefdNode
             ?.children
             ?.filter { it.type != "MotionPhoto_AutoPlay" && it.children.firstOrNull()?.type == "ftyp" }
             ?.let { candidates -> candidates.find { it.type == "MotionPhoto_Data" } ?: candidates.firstOrNull() }
@@ -20,6 +21,26 @@ fun findEmbeddedVideo(root: BoxNode, reader: ByteReader? = null): EmbeddedVideo?
             ?.fields?.find { it.name == "major_brand" }?.value
         val extension = if (majorBrand?.trim() == "qt") "mov" else "mp4"
         return EmbeddedVideo(videoNode.offset + videoNode.headerSize, videoNode.offset + videoNode.size, extension)
+    }
+    if (sefdNode != null) {
+        val pointerNode = sefdNode.children.find { it.type == "MotionPhoto_Data" }
+        val declaredOffset = pointerNode?.fields?.find { it.name == "video_offset" }?.value?.toLongOrNull()
+        val declaredLength = pointerNode?.fields?.find { it.name == "video_length" }?.value?.toLongOrNull()
+        if (declaredOffset != null && declaredLength != null && declaredOffset > 0 && declaredLength > 0 && declaredOffset < root.size) {
+            val start = reader?.let { correctMp4StartOffset(it, declaredOffset) } ?: declaredOffset
+            val maxEnd = if (sefdNode.offset > start) sefdNode.offset else root.size
+            val end = (start + declaredLength).coerceAtMost(maxEnd)
+            if (end > start) {
+                val majorBrand = reader?.let {
+                    try {
+                        if (start + 12 <= it.length && it.readFourCC(start + 4) == "ftyp") it.readFourCC(start + 8) else null
+                    } catch (_: Exception) { null }
+                } ?: root.children.find { it.type == "ftyp" && it.offset == start }
+                    ?.fields?.find { it.name == "major_brand" }?.value
+                val extension = if (majorBrand?.trim() == "qt") "mov" else "mp4"
+                return EmbeddedVideo(start, end, extension)
+            }
+        }
     }
     return findGoogleMotionPhotoVideo(root, reader)
 }

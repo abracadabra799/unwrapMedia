@@ -232,7 +232,7 @@ class SefIntegrityAnalyzerTest {
     }
 
     @Test
-    fun `a gap between field blocks is reported INFO, never CRITICAL or WARNING`() {
+    fun `a gap between field blocks from a mismatched declared length is reported WARNING`() {
         val fieldA = SefTestField(0x0b01, "A", "aa".toByteArray())
         val fieldB = SefTestField(0x0b02, "B", "bb".toByteArray())
         val trailer = buildSefTrailer(listOf(fieldA, fieldB)).copyOf()
@@ -241,18 +241,44 @@ class SefIntegrityAnalyzerTest {
         val dirStart = block1Size + block2Size
         val entry1Pos = dirStart + 12
         // Shrink entry #1's declared size by 1 byte so a 1-byte gap opens up before entry #2.
-        // Must shrink by at most 2: block1's own header+name needs nameOffset(8)+nameSize(2)=10
-        // bytes minimum, and block1Size is 12, so shrinking by 3+ would trip an unrelated
-        // "name_size runs past end of block" CRITICAL instead of the gap this test targets
-        // (an off-by-enough bug caught by Task 1's implementer during a prior attempt at this
-        // exact plan -- verify this arithmetic yourself before trusting it further).
         trailer.putUInt32LE(entry1Pos + 8, (block1Size - 1).toLong())
         byteReaderOf(trailer, "sef-gap").use { reader ->
             val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, trailer.size.toLong(), trailer.size.toLong())
             val gapCheck = report.structuralChecks.first { it.label == "Field block gaps" }
-            assertEquals(SefIntegritySeverity.INFO, gapCheck.severity)
-            // INFO must never escalate overall severity on its own
-            assertEquals(SefIntegritySeverity.PASS, report.overallSeverity)
+            assertEquals(SefIntegritySeverity.WARNING, gapCheck.severity)
+            assertEquals(SefIntegritySeverity.WARNING, report.overallSeverity)
+        }
+    }
+
+    @Test
+    fun `a trailing gap before SEFH or an entry overrunning into SEFH is caught`() {
+        val fieldA = SefTestField(0x0b01, "A", "aa".toByteArray())
+        val fieldB = SefTestField(0x0b02, "B", "bb".toByteArray())
+        val block1Size = 8 + ("A".toByteArray().size + 1) + 2
+        val block2Size = 8 + ("B".toByteArray().size + 1) + 2
+        val dirStart = block1Size + block2Size
+        val entry2Pos = dirStart + 12 + 12
+
+        // 1) Shrink last entry (#2)'s declared length by 1 byte -> trailing gap before SEFH -> WARNING
+        val trailerShortLast = buildSefTrailer(listOf(fieldA, fieldB)).copyOf()
+        trailerShortLast.putUInt32LE(entry2Pos + 8, (block2Size - 1).toLong())
+        byteReaderOf(trailerShortLast, "sef-trailing-gap").use { reader ->
+            val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, trailerShortLast.size.toLong(), trailerShortLast.size.toLong())
+            val gapCheck = report.structuralChecks.first { it.label == "Field block gaps" }
+            assertEquals(SefIntegritySeverity.WARNING, gapCheck.severity)
+            assertTrue(gapCheck.detail.contains("SEFH header"))
+            assertEquals(SefIntegritySeverity.WARNING, report.overallSeverity)
+        }
+
+        // 2) Grow last entry (#2)'s declared length by 4 bytes so it overruns into SEFH -> CRITICAL
+        val trailerOverrunSefh = buildSefTrailer(listOf(fieldA, fieldB)).copyOf()
+        trailerOverrunSefh.putUInt32LE(entry2Pos + 8, (block2Size + 4).toLong())
+        byteReaderOf(trailerOverrunSefh, "sef-overrun-sefh").use { reader ->
+            val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, trailerOverrunSefh.size.toLong(), trailerOverrunSefh.size.toLong())
+            val entry2 = report.directoryEntries.first { it.entryIndex == 2 }
+            assertEquals(false, entry2.inBounds)
+            assertEquals(SefIntegritySeverity.CRITICAL, entry2.status)
+            assertEquals(SefIntegritySeverity.CRITICAL, report.overallSeverity)
         }
     }
 
@@ -340,25 +366,76 @@ class SefIntegrityAnalyzerTest {
         }
     }
 
+    private fun minimalMp4Bytes(): ByteArray {
+        val ftyp = byteArrayOf(0, 0, 0, 16, 'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte()) +
+            "mp42".toByteArray() + ByteArray(4)
+        val mdat = byteArrayOf(0, 0, 0, 16, 'm'.code.toByte(), 'd'.code.toByte(), 'a'.code.toByte(), 't'.code.toByte()) +
+            ByteArray(8)
+        val moov = byteArrayOf(0, 0, 0, 16, 'm'.code.toByte(), 'o'.code.toByte(), 'o'.code.toByte(), 'v'.code.toByte()) +
+            ByteArray(8)
+        return ftyp + mdat + moov // 48 bytes total
+    }
+
+    private fun buildPointerPayload(formatTag: String = "mpv2", videoOffset: Int, videoLength: Int): ByteArray {
+        val out = ByteArray(12)
+        val tagBytes = formatTag.toByteArray(Charsets.US_ASCII)
+        tagBytes.copyInto(out, 0, 0, minOf(4, tagBytes.size))
+        out[4] = ((videoOffset ushr 24) and 0xFF).toByte()
+        out[5] = ((videoOffset ushr 16) and 0xFF).toByte()
+        out[6] = ((videoOffset ushr 8) and 0xFF).toByte()
+        out[7] = (videoOffset and 0xFF).toByte()
+        out[8] = ((videoLength ushr 24) and 0xFF).toByte()
+        out[9] = ((videoLength ushr 16) and 0xFF).toByte()
+        out[10] = ((videoLength ushr 8) and 0xFF).toByte()
+        out[11] = (videoLength and 0xFF).toByte()
+        return out
+    }
+
     @Test
-    fun `MotionPhoto_Data bounds check passes within the file and fails past it`() {
-        val payloadOk = "mpv2".toByteArray() + ByteArray(8).also {
-            it[3] = 10 // video_offset = 10 (big-endian uint32)
-            it[7] = 5  // video_length = 5 (big-endian uint32)
-        }
-        val trailerOk = buildSefTrailer(listOf(SefTestField(0x0d01, "MotionPhoto_Data", payloadOk)))
-        byteReaderOf(trailerOk, "sef-mp-ok").use { reader ->
-            val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, trailerOk.size.toLong(), 1000L)
+    fun `MotionPhoto_Data bounds check passes when offset and length match actual MP4 and fails on mismatch or out-of-bounds`() {
+        val imagePrefix = ByteArray(32)
+        val mp4 = minimalMp4Bytes() // 48 bytes at offset 32..80
+        val sefdHeader = byteArrayOf(0, 0, 0, 0, 's'.code.toByte(), 'e'.code.toByte(), 'f'.code.toByte(), 'd'.code.toByte())
+
+        // 1) Exact match: video_offset = 32, video_length = 48, sefd at offset 80 -> PASS
+        val payloadOk = buildPointerPayload("mpv2", videoOffset = 32, videoLength = mp4.size)
+        val trailerOk = buildSefTrailer(listOf(SefTestField(0x0a30, "MotionPhoto_Data", payloadOk)))
+        val sefdBoxSize = 8 + trailerOk.size
+        sefdHeader[0] = ((sefdBoxSize ushr 24) and 0xFF).toByte()
+        sefdHeader[1] = ((sefdBoxSize ushr 16) and 0xFF).toByte()
+        sefdHeader[2] = ((sefdBoxSize ushr 8) and 0xFF).toByte()
+        sefdHeader[3] = (sefdBoxSize and 0xFF).toByte()
+        val fileBytesOk = imagePrefix + mp4 + sefdHeader + trailerOk
+        byteReaderOf(fileBytesOk, "sef-mp-ok").use { reader ->
+            val report = SefIntegrityAnalyzer.analyze(reader, 80L, 8, sefdBoxSize.toLong(), fileBytesOk.size.toLong())
             val check = report.semanticChecks.first { it.label.contains("MotionPhoto_Data") }
-            assertEquals(SefIntegritySeverity.PASS, check.severity)
+            assertEquals(SefIntegritySeverity.PASS, check.severity, check.detail)
         }
 
-        val payloadBad = "mpv2".toByteArray() + ByteArray(8).also {
-            it[0] = 0x7F.toByte() // video_offset = a huge number
-            it[1] = 0xFF.toByte()
-            it[2] = 0xFF.toByte()
-            it[3] = 0xFF.toByte()
+        // 2) video_offset shifted by +8 bytes (32 + 8 = 40) and encroaching 8 bytes into sefd -> CRITICAL
+        val payloadShiftedOffset = buildPointerPayload("mpv2", videoOffset = 40, videoLength = mp4.size)
+        val trailerShifted = buildSefTrailer(listOf(SefTestField(0x0a30, "MotionPhoto_Data", payloadShiftedOffset)))
+        val fileBytesShifted = imagePrefix + mp4 + sefdHeader + trailerShifted
+        byteReaderOf(fileBytesShifted, "sef-mp-shifted").use { reader ->
+            val report = SefIntegrityAnalyzer.analyze(reader, 80L, 8, sefdBoxSize.toLong(), fileBytesShifted.size.toLong())
+            val check = report.semanticChecks.first { it.label.contains("MotionPhoto_Data") }
+            assertEquals(SefIntegritySeverity.CRITICAL, check.severity)
+            assertTrue(check.detail.contains("actual MP4 \"ftyp\" starts at offset 32"), check.detail)
         }
+
+        // 3) video_length wrong (declared 32 instead of actual 48) -> CRITICAL
+        val payloadWrongLength = buildPointerPayload("mpv2", videoOffset = 32, videoLength = 32)
+        val trailerWrongLen = buildSefTrailer(listOf(SefTestField(0x0a30, "MotionPhoto_Data", payloadWrongLength)))
+        val fileBytesWrongLen = imagePrefix + mp4 + sefdHeader + trailerWrongLen
+        byteReaderOf(fileBytesWrongLen, "sef-mp-wrong-len").use { reader ->
+            val report = SefIntegrityAnalyzer.analyze(reader, 80L, 8, sefdBoxSize.toLong(), fileBytesWrongLen.size.toLong())
+            val check = report.semanticChecks.first { it.label.contains("MotionPhoto_Data") }
+            assertEquals(SefIntegritySeverity.CRITICAL, check.severity)
+            assertTrue(check.detail.contains("does not match actual MP4 byte length 48"), check.detail)
+        }
+
+        // 4) Out of file bounds -> CRITICAL
+        val payloadBad = buildPointerPayload("mpv2", videoOffset = 0x7FFF_FFFF, videoLength = 100)
         val trailerBad = buildSefTrailer(listOf(SefTestField(0x0d01, "MotionPhoto_Data", payloadBad)))
         byteReaderOf(trailerBad, "sef-mp-bad").use { reader ->
             val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, trailerBad.size.toLong(), 1000L)
@@ -368,24 +445,19 @@ class SefIntegrityAnalyzerTest {
     }
 
     @Test
-    fun `MotionPhoto_AutoPlay bounds check passes within the file and fails past it`() {
-        val payloadOk = "mpv2".toByteArray() + ByteArray(8).also {
-            it[3] = 10 // video_offset = 10 (big-endian uint32)
-            it[7] = 5  // video_length = 5 (big-endian uint32)
-        }
-        val trailerOk = buildSefTrailer(listOf(SefTestField(0x0a30, "MotionPhoto_AutoPlay", payloadOk)))
-        byteReaderOf(trailerOk, "sef-autoplay-ok").use { reader ->
-            val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, trailerOk.size.toLong(), 1000L)
+    fun `MotionPhoto_AutoPlay bounds check passes when offset and length match actual MP4 and fails past it`() {
+        val imagePrefix = ByteArray(32)
+        val mp4 = minimalMp4Bytes()
+        val payloadOk = buildPointerPayload("mpv2", videoOffset = 32, videoLength = mp4.size)
+        val trailerOk = buildSefTrailer(listOf(SefTestField(0x0a33, "MotionPhoto_AutoPlay", payloadOk)))
+        val fileBytesOk = imagePrefix + mp4 + trailerOk
+        byteReaderOf(fileBytesOk, "sef-autoplay-ok").use { reader ->
+            val report = SefIntegrityAnalyzer.analyze(reader, 80L, 0, trailerOk.size.toLong(), fileBytesOk.size.toLong())
             val check = report.semanticChecks.first { it.label.contains("MotionPhoto_AutoPlay") }
-            assertEquals(SefIntegritySeverity.PASS, check.severity)
+            assertEquals(SefIntegritySeverity.PASS, check.severity, check.detail)
         }
 
-        val payloadBad = "mpv2".toByteArray() + ByteArray(8).also {
-            it[0] = 0x7F.toByte() // video_offset = a huge number
-            it[1] = 0xFF.toByte()
-            it[2] = 0xFF.toByte()
-            it[3] = 0xFF.toByte()
-        }
+        val payloadBad = buildPointerPayload("mpv2", videoOffset = 0x7FFF_FFFF, videoLength = 5)
         val trailerBad = buildSefTrailer(listOf(SefTestField(0x0a30, "MotionPhoto_AutoPlay", payloadBad)))
         byteReaderOf(trailerBad, "sef-autoplay-bad").use { reader ->
             val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, trailerBad.size.toLong(), 1000L)
@@ -395,23 +467,69 @@ class SefIntegrityAnalyzerTest {
     }
 
     @Test
-    fun `inline ftyp video in MotionPhoto_Data and AutoPlay passes, other non-12 data warns`() {
+    fun `inline ftyp video in MotionPhoto_Data and AutoPlay passes when boxes match field length, fails on box length mismatch, other non-12 data warns`() {
         val inlineMp4 = byteArrayOf(0, 0, 0, 0x1c, 'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte()) +
-            "isom".toByteArray() + ByteArray(40)
+            "isom".toByteArray() + ByteArray(16) +
+            byteArrayOf(0, 0, 0, 0x18, 'm'.code.toByte(), 'o'.code.toByte(), 'o'.code.toByte(), 'v'.code.toByte()) +
+            ByteArray(16)
         for ((marker, name) in listOf(0x0d01 to "MotionPhoto_Data", 0x0a30 to "MotionPhoto_AutoPlay")) {
             val ok = buildSefTrailer(listOf(SefTestField(marker, name, inlineMp4)))
             byteReaderOf(ok, "sef-inline-$name").use { reader ->
                 val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, ok.size.toLong(), ok.size.toLong())
                 val check = report.semanticChecks.first { it.label.contains(name) }
-                assertEquals(SefIntegritySeverity.PASS, check.severity)
+                assertEquals(SefIntegritySeverity.PASS, check.severity, check.detail)
                 assertTrue(check.detail.contains("ftyp"))
                 assertEquals(name == "MotionPhoto_AutoPlay", check.detail.contains("header only; this preview clip is not decoded"), check.detail)
+            }
+            // Truncated/mismatched inline MP4 where box size (0x1c + 0x20 = 60) exceeds declared field data length (52) -> CRITICAL
+            val badInlineMp4 = byteArrayOf(0, 0, 0, 0x1c, 'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte()) +
+                "isom".toByteArray() + ByteArray(16) +
+                byteArrayOf(0, 0, 0, 0x20, 'm'.code.toByte(), 'o'.code.toByte(), 'o'.code.toByte(), 'v'.code.toByte()) +
+                ByteArray(16)
+            val badInline = buildSefTrailer(listOf(SefTestField(marker, name, badInlineMp4)))
+            byteReaderOf(badInline, "sef-bad-inline-$name").use { reader ->
+                val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, badInline.size.toLong(), badInline.size.toLong())
+                val check = report.semanticChecks.first { it.label.contains(name) }
+                assertEquals(SefIntegritySeverity.CRITICAL, check.severity)
             }
             val junk = buildSefTrailer(listOf(SefTestField(marker, name, ByteArray(40) { 7 })))
             byteReaderOf(junk, "sef-junk-$name").use { reader ->
                 val report = SefIntegrityAnalyzer.analyze(reader, 0L, 0, junk.size.toLong(), junk.size.toLong())
                 val check = report.semanticChecks.first { it.label.contains(name) }
                 assertEquals(SefIntegritySeverity.WARNING, check.severity)
+            }
+        }
+    }
+
+    @Test
+    fun `real Galaxy S26 JPEG and HEIC SEF fixtures validate directory offsets, lengths, and MotionPhoto_Data pointer`() {
+        val jpgFile = File("app/src/test/resources/c2pa/s26-camera.jpg")
+        if (jpgFile.exists()) {
+            val root = parseFile(jpgFile)
+            val sefd = findFirst(root) { it.type == "sefd" }!!
+            ByteReader.open(jpgFile).use { reader ->
+                val report = SefIntegrityAnalyzer.analyze(reader, sefd.offset, sefd.headerSize, sefd.size, jpgFile.length())
+                assertEquals(SefIntegritySeverity.PASS, report.overallSeverity)
+                assertEquals(10, report.directoryEntries.size)
+                assertTrue(report.directoryEntries.all { it.inBounds && it.markerMatches == true && it.status == SefIntegritySeverity.PASS })
+                assertEquals(SefIntegritySeverity.PASS, report.structuralChecks.first { it.label == "Field block gaps" }.severity)
+            }
+        }
+
+        val heicFile = File("app/src/test/resources/c2pa/s26-motion-photo.heic")
+        if (heicFile.exists()) {
+            val root = parseFile(heicFile)
+            val sefd = findFirst(root) { it.type == "sefd" }!!
+            ByteReader.open(heicFile).use { reader ->
+                val report = SefIntegrityAnalyzer.analyze(reader, sefd.offset, sefd.headerSize, sefd.size, heicFile.length())
+                // All 11 SEF directory entries in s26-motion-photo.heic pack [7997500, 8509091) with 0 gaps
+                assertEquals(11, report.directoryEntries.size)
+                assertTrue(report.directoryEntries.all { it.inBounds && it.markerMatches == true && it.status == SefIntegritySeverity.PASS })
+                assertEquals(SefIntegritySeverity.PASS, report.structuralChecks.first { it.label == "Field block gaps" }.severity)
+                // However, its MotionPhoto_Data pointer has video_offset=3035826 (+8B off from actual ftyp at 3035818)
+                val mpCheck = report.semanticChecks.first { it.label.contains("MotionPhoto_Data") }
+                assertEquals(SefIntegritySeverity.CRITICAL, mpCheck.severity)
+                assertTrue(mpCheck.detail.contains("3035818"), mpCheck.detail)
             }
         }
     }

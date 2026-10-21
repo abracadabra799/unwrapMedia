@@ -330,6 +330,19 @@ class MotionPhotoIntegrityAnalyzerTest {
     }
 
     @Test
+    fun `analyzeAppleMpvdSection reports CRITICAL when requireMpvd is true and mpvd box is missing`() {
+        val root = BoxNode(
+            type = "root", offset = 0, headerSize = 0, size = 1000,
+            children = listOf(
+                BoxNode(type = "ftyp", offset = 0, headerSize = 8, size = 24),
+                BoxNode(type = "moov", offset = 500, headerSize = 8, size = 200),
+            ),
+        )
+        val checks = analyzeAppleMpvdSection(root, fileLength = 1000, requireMpvd = true)
+        assertTrue(checks.any { it.severity == SefIntegritySeverity.CRITICAL && it.detail.contains("mpvd") })
+    }
+
+    @Test
     fun `analyzeAppleMpvdSection reports CRITICAL when the mpvd box overruns the file`() {
         val root = BoxNode(
             type = "root", offset = 0, headerSize = 0, size = 1000,
