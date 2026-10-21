@@ -249,7 +249,7 @@ fun probeVideo(file: File): VideoInfo? {
         val fps = values["avg_frame_rate"]?.let(::parseFrameRate)
             ?: values["r_frame_rate"]?.let(::parseFrameRate)
             ?: 30.0
-        val duration = validDurations.firstOrNull() ?: 0.0
+        val duration = validDurations.maxOrNull() ?: 0.0
         // ffmpeg auto-applies rotation side-data when transcoding to rawvideo, so the
         // actual piped frame dimensions are swapped from ffprobe's raw stream dimensions
         // whenever the stream is rotated a quarter turn.
@@ -476,11 +476,17 @@ fun FfmpegVideoPlayer(
         if (info != null && startFromSeconds > 0.0) {
             startFromSeconds = (startFromSeconds - info.startTime).coerceAtLeast(0.0)
         }
-        probedInfo = info
+        val mergedInfo = if (info != null && audioInfo != null) {
+            val audioEndRel = (audioInfo!!.startTimeSeconds + audioInfo!!.duration - info.startTime).coerceAtLeast(0.0)
+            info.copy(duration = maxOf(info.duration, audioInfo!!.duration, audioEndRel))
+        } else {
+            info
+        }
+        probedInfo = mergedInfo
         probing = false
-        if (info != null) {
+        if (mergedInfo != null) {
             val absolute = suppliedTimestamps ?: runInterruptible(Dispatchers.IO) { probeFrameTimestamps(file) }
-            val timestamps = absolute?.map { it - info.startTime }
+            val timestamps = absolute?.map { it - mergedInfo.startTime }
             frameTimestamps = timestamps
             onFrameTimestamps(absolute)
             if ((probedInfo?.duration ?: 0.0) <= 0.0 && !timestamps.isNullOrEmpty()) {
@@ -488,9 +494,9 @@ fun FfmpegVideoPlayer(
                 val inferredDuration = if (timestamps.size > 1) {
                     lastPts + (lastPts - timestamps[timestamps.size - 2]).coerceAtLeast(0.001)
                 } else {
-                    lastPts + (1.0 / info.fps)
+                    lastPts + (1.0 / mergedInfo.fps)
                 }
-                probedInfo = info.copy(duration = inferredDuration)
+                probedInfo = mergedInfo.copy(duration = inferredDuration)
             }
         }
         timestampScanComplete = true
@@ -659,14 +665,19 @@ fun FfmpegVideoPlayer(
                         val start = System.currentTimeMillis()
                         if (!readFrame()) {
                             // Video pipe exhausted. If the audio track is still rendering its
-                            // buffered tail, wait (bounded) for it to hit its own EOF before
-                            // finalizing -- setPlaying(false) parks the audio thread immediately,
-                            // so without this the last few hundred ms of sound are cut off.
+                            // buffered tail (or if the audio stream is longer than the video stream),
+                            // wait for it to hit its own EOF before finalizing -- setPlaying(false)
+                            // parks the audio thread immediately.
                             val at = audioTrack
                             if (at != null && !at.failed && !at.ended) {
-                                val deadline = System.currentTimeMillis() + 2000
-                                while (!at.ended && !stopped.get() && System.currentTimeMillis() < deadline) {
+                                val expectedRemainingSec = (info.duration - startFromSeconds - frameElapsed).coerceAtLeast(2.0)
+                                val maxWaitMs = (expectedRemainingSec * 1000.0).toLong() + 3000L
+                                var activeWaitMs = 0L
+                                while (!at.ended && !stopped.get() && activeWaitMs < maxWaitMs) {
                                     Thread.sleep(30)
+                                    if (audioPlayingAtomic.get()) {
+                                        activeWaitMs += 30L
+                                    }
                                 }
                             }
                             EventQueue.invokeLater {
@@ -679,6 +690,7 @@ fun FfmpegVideoPlayer(
                                 // progress bar freezes at a slightly different point every play.
                                 if (info.duration > 0) {
                                     playedSeconds = (info.duration - startFromSeconds).coerceAtLeast(0.0)
+                                    onElapsedChanged(startFromSeconds + playedSeconds)
                                 }
                             }
                             break // EOF
@@ -767,7 +779,10 @@ fun FfmpegVideoPlayer(
                         audioEnded = track.ended,
                         playing = audioPlayingAtomic.get(),
                         nowNanos = System.nanoTime(),
-                    )?.let { playedSeconds = it }
+                    )?.let {
+                        playedSeconds = it
+                        onElapsedChanged(startFromSeconds + it)
+                    }
                 }
             }
             delay(50)

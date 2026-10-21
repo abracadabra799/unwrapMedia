@@ -42,4 +42,25 @@ class HeifIntegrityTest {
     fun `grid with missing tile references fails`() {
         assertEquals(CheckStatus.FAIL, checkBytes(heifGridBytes(tileRefs = 1), "heic").item("heif.grid").status)
     }
+
+    @Test
+    fun `heif motion photo with exposed top-level ftyp and moov without mpvd fails ftyp check`() {
+        val base = heifBytes()
+        val extraFtyp = box("ftyp", "mp42".toByteArray(Charsets.US_ASCII) + be32(0) + "mp42isom".toByteArray(Charsets.US_ASCII))
+        val moov = box("moov", ByteArray(16))
+        val r = checkBytes(base + extraFtyp + moov, "heic")
+        val ftypItems = r.items.filter { it.id == "heif.ftyp" }
+        assertEquals(2, ftypItems.size)
+        assertEquals(CheckStatus.FAIL, ftypItems.last().status)
+        assertEquals(CheckStatus.FAIL, r.overall)
+    }
+
+    @Test
+    fun `heif with corrupted sefd trailer fails structure check`() {
+        val base = heifBytes()
+        val brokenSefd = box("sefd", ByteArray(16) + "SEFT".toByteArray(Charsets.US_ASCII))
+        val r = checkBytes(base + brokenSefd, "heic")
+        assertEquals(CheckStatus.FAIL, r.item("heif.sefd").status)
+        assertEquals(CheckStatus.FAIL, r.overall)
+    }
 }

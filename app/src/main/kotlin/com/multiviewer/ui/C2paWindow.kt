@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -52,7 +53,9 @@ import com.multiviewer.parser.c2pa.C2paManifestStore
 import com.multiviewer.parser.c2pa.C2paVerificationReport
 import com.multiviewer.parser.c2pa.readC2paManifestStore
 import com.multiviewer.parser.c2pa.toDiagnostic
+import com.multiviewer.util.ClipboardUtil
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image as SkiaImage
 
@@ -106,10 +109,60 @@ fun C2paWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -> Unit)
                         com.multiviewer.parser.c2pa.VerificationState.INVALID -> label("서명 검증 실패 (변조 의심)", "signature invalid (tampered)")
                         com.multiviewer.parser.c2pa.VerificationState.UNSUPPORTED -> label("서명 검증 미지원", "signature unsupported")
                     }
-                    Text(
-                        "${s.location.container} · ${label("매니페스트", "manifests")} ${s.manifests.size} · $sigStatusLabel",
-                        color = AppColors.TextPrimary, fontSize = 13.sp,
-                    )
+                    var copied by remember { mutableStateOf(false) }
+                    LaunchedEffect(copied) {
+                        if (copied) {
+                            delay(2000)
+                            copied = false
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "${s.location.container} · ${label("매니페스트", "manifests")} ${s.manifests.size} · $sigStatusLabel",
+                            color = AppColors.TextPrimary, fontSize = 13.sp,
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                val text = buildString {
+                                    appendLine("# C2PA Provenance Report — ${tab.file.name}")
+                                    appendLine("- Container: ${s.location.container}")
+                                    appendLine("- Active Manifest: ${m.label}")
+                                    appendLine("- Signature Status: $sigStatusLabel")
+                                    m.claim?.let { c ->
+                                        appendLine("- Title: ${c.title ?: "-"}")
+                                        appendLine("- Claim Generator: ${c.claimGenerator ?: "-"}")
+                                        appendLine("- Format: ${c.format ?: "-"}")
+                                    }
+                                    m.signature?.let { sig ->
+                                        appendLine("- Signer Subject: ${sig.certificateSubject ?: "-"}")
+                                        appendLine("- Signer Issuer: ${sig.certificateIssuer ?: "-"}")
+                                        appendLine("- Algorithm: ${sig.algorithm ?: "-"}")
+                                    }
+                                    if (m.assertions.isNotEmpty()) {
+                                        appendLine()
+                                        appendLine("## Assertions (${m.assertions.size})")
+                                        m.assertions.forEach { a ->
+                                            appendLine("- ${a.label}")
+                                        }
+                                    }
+                                }.trimEnd()
+                                if (ClipboardUtil.copyToClipboard(text)) {
+                                    copied = true
+                                }
+                            },
+                            shape = AppControlShape,
+                        ) {
+                            Text(
+                                if (copied) label("✓ 복사됨", "✓ Copied") else label("📋 리포트 복사", "📋 Copy Report"),
+                                fontSize = 12.sp,
+                                color = if (copied) AppColors.NeonGreen else AppColors.NeonBlue,
+                            )
+                        }
+                    }
                     Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         // Left Manifest List Card
                         Column(

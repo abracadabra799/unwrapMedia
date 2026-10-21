@@ -2,6 +2,7 @@ package com.multiviewer.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -103,24 +104,72 @@ fun AvSyncAnalysisWindow(
                 }
                 else -> {
                     val r = report!!
-                    AvSyncReportContent(
-                        report = r,
-                        selectedSyncPoint = selectedSyncPoint,
-                        onSelectSyncPoint = { selectedSyncPoint = it }
-                    )
+                    SelectionContainer {
+                        AvSyncReportContent(
+                            fileName = tab.file.name,
+                            report = r,
+                            selectedSyncPoint = selectedSyncPoint,
+                            onSelectSyncPoint = { selectedSyncPoint = it },
+                        )
+                    }
                 }
             }
         }
     }
 }
 
+fun formatAvSyncReportAsText(fileName: String, report: AvSyncReport): String = buildString {
+    appendLine("# A/V Sync & Timestamp Drift Report — $fileName")
+    appendLine("- Overall Severity: ${report.overallSeverity}")
+    appendLine("- Pattern Type: ${report.patternType.labelKo}")
+    appendLine("- Verdict: ${avSyncVerdict(report)}")
+    appendLine()
+    appendLine("## Track Alignment & Key Metrics")
+    appendLine(String.format(Locale.US, "- Video Track: %.3fs .. %.3fs (duration %.3fs, nominal step %.2fms)", report.videoStartPtsSec, report.videoEndPtsSec, report.videoDurationSec, report.nominalVideoStepMs))
+    appendLine(String.format(Locale.US, "- Audio Track: %.3fs .. %.3fs (duration %.3fs, nominal step %.2fms)", report.audioStartPtsSec, report.audioEndPtsSec, report.audioDurationSec, report.nominalAudioStepMs))
+    appendLine(String.format(Locale.US, "- Initial Offset (Skew): %+.2f ms", report.initialSkewMs))
+    appendLine(String.format(Locale.US, "- Tail Overhang (Audio - Video End): %+.2f ms", report.tailOverhangMs))
+    appendLine(String.format(Locale.US, "- Max Skew: %+.2f ms / Avg Skew: %+.2f ms", report.maxSkewMs, report.avgSkewMs))
+    appendLine(String.format(Locale.US, "- Drift Rate: %+.2f ms/min", report.driftRateMsPerMin))
+    appendLine(String.format(Locale.US, "- Discontinuities: Video Drops=%d (max gap %.1fms), Audio Gaps=%d (max gap %.1fms)", report.videoDropCount, report.maxVideoGapMs, report.audioGapCount, report.maxAudioGapMs))
+    if (report.anomalies.isNotEmpty()) {
+        appendLine()
+        appendLine("## PTS Discontinuity Events (${report.anomalies.size})")
+        appendLine("Stream\tPacket#\tPTS(s)\tDeltaPTS(ms)\tSeverity\tDescription")
+        report.anomalies.forEach { a ->
+            appendLine(String.format(Locale.US, "%s\t#%d\t%.3f\t%+.1f\t%s\t%s", a.mediaType.uppercase(Locale.US), a.packetIndex, a.ptsSeconds, a.gapMs, a.severity, a.description))
+        }
+    }
+    if (report.diagnoses.isNotEmpty()) {
+        appendLine()
+        appendLine("## Root-Cause Diagnoses")
+        report.diagnoses.forEach { d ->
+            appendLine("### [${d.severity}] ${d.category}")
+            appendLine("- Summary: ${d.summary}")
+            d.technicalDetails.forEach { appendLine("  * $it") }
+            appendLine("- Android Impact: ${d.androidImpact}")
+            appendLine("- Recommended Fix: ${d.recommendedFix}")
+            d.suggestedFfmpegCommand?.let { appendLine("- Suggested Command: `$it`") }
+        }
+    }
+}.trimEnd()
+
 @Composable
 private fun AvSyncReportContent(
+    fileName: String,
     report: AvSyncReport,
     selectedSyncPoint: SyncPoint?,
     onSelectSyncPoint: (SyncPoint?) -> Unit
 ) {
     val scrollState = rememberScrollState()
+    var chartMode by remember { mutableStateOf(0) } // 0 = Sync Skew (Δt), 1 = Frame/Packet Interval (ΔPTS Jitter)
+    var reportCopied by remember { mutableStateOf(false) }
+    LaunchedEffect(reportCopied) {
+        if (reportCopied) {
+            delay(2000)
+            reportCopied = false
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -129,73 +178,220 @@ private fun AvSyncReportContent(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 1. Overview Metric Cards
+        val statusColor = when (report.overallSeverity) {
+            SyncSeverity.PASS -> Color(0xFF2E7D32)
+            SyncSeverity.WARNING -> Color(0xFFF57F17)
+            SyncSeverity.CRITICAL -> Color(0xFFC62828)
+        }
+        val statusLabel = when (report.overallSeverity) {
+            SyncSeverity.PASS -> "정상 (PASS)"
+            SyncSeverity.WARNING -> "주의 (WARNING)"
+            SyncSeverity.CRITICAL -> "심각 (CRITICAL)"
+        }
+
+        // 0. Executive Summary Banner (원인 분류 & 실무 해석 요약)
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(4.dp),
+            colors = CardDefaults.cardColors(containerColor = AppColors.Surface),
+            border = androidx.compose.foundation.BorderStroke(1.dp, statusColor.copy(alpha = 0.6f)),
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .background(statusColor.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                .border(1.dp, statusColor, RoundedCornerShape(4.dp))
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                        ) {
+                            Text(
+                                statusLabel,
+                                style = AppTypography.bodySmall.copy(color = statusColor, fontWeight = FontWeight.Bold, fontSize = 11.5.sp),
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .background(Color(report.patternType.badgeColorHex).copy(alpha = 0.16f), RoundedCornerShape(4.dp))
+                                .border(0.8.dp, Color(report.patternType.badgeColorHex), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                        ) {
+                            Text(
+                                "진단 유형: ${report.patternType.labelKo}",
+                                style = AppTypography.bodySmall.copy(color = AppColors.TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 11.5.sp),
+                            )
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "ITU-R BT.1359 방송 권고: -125ms(오디오 지연) ~ +45ms(오디오 선행)",
+                            style = AppTypography.bodySmall.copy(color = AppColors.TextSecondary, fontSize = 11.sp),
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                if (ClipboardUtil.copyToClipboard(formatAvSyncReportAsText(fileName, report))) {
+                                    reportCopied = true
+                                }
+                            },
+                            shape = AppControlShape,
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                            modifier = Modifier.height(26.dp),
+                        ) {
+                            Text(
+                                if (reportCopied) "✓ 리포트 복사됨" else "📋 리포트 복사",
+                                fontSize = 11.sp,
+                                color = if (reportCopied) AppColors.NeonGreen else AppColors.NeonBlue,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                }
+                Text(
+                    avSyncVerdict(report),
+                    style = AppTypography.bodyMedium.copy(color = AppColors.TextPrimary, fontWeight = FontWeight.SemiBold),
+                )
+            }
+        }
+
+        // 1. 4 Separated Cause Metric Cards (시작 오프셋 / 종료 잔류 / 프레임 드랍·PTS갭 / 클럭 드리프트)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            val statusColor = when (report.overallSeverity) {
-                SyncSeverity.PASS -> Color(0xFF2E7D32)
-                SyncSeverity.WARNING -> Color(0xFFF57F17)
-                SyncSeverity.CRITICAL -> Color(0xFFC62828)
+            val frameEquiv = if (report.nominalVideoStepMs > 0) abs(report.initialSkewMs) / report.nominalVideoStepMs else 0.0
+            val initSkewSub = when {
+                abs(report.initialSkewMs) <= 5.0 -> "시작점 일치 (0f)"
+                report.initialSkewMs > 0 -> String.format(Locale.US, "오디오 %.1f프레임 선행 시작", frameEquiv)
+                else -> String.format(Locale.US, "비디오 %.1f프레임 선행 시작", frameEquiv)
             }
-            val statusLabel = when (report.overallSeverity) {
-                SyncSeverity.PASS -> "정상 (PASS)"
-                SyncSeverity.WARNING -> "주의 (WARNING)"
-                SyncSeverity.CRITICAL -> "심각 (CRITICAL)"
-            }
-
-            MetricCard(
-                modifier = Modifier.weight(1.2f),
-                title = "종합 상태",
-                value = statusLabel,
-                subtext = "전체 싱크 무결성",
-                valueColor = statusColor
-            )
-
             MetricCard(
                 modifier = Modifier.weight(1f),
-                title = "초기 립싱크 (Initial Skew)",
+                title = "① 시작 싱크 (Initial Offset)",
                 value = String.format(Locale.US, "%+.1f ms", report.initialSkewMs),
-                subtext = if (report.initialSkewMs > 0) "오디오 선행" else if (report.initialSkewMs < 0) "비디오 선행" else "완전 정렬",
+                subtext = initSkewSub,
                 valueColor = if (abs(report.initialSkewMs) > 100) Color(0xFFC62828) else if (abs(report.initialSkewMs) > 40) Color(0xFFF57F17) else Color(0xFF2E7D32)
             )
 
+            val tailSub = when {
+                abs(report.tailOverhangMs) <= 20.0 -> "종료 시점 일치"
+                report.tailOverhangMs > 0 -> "비디오 종료 후 오디오 잔류"
+                else -> "오디오 조기 종료 (비디오 잔류)"
+            }
             MetricCard(
                 modifier = Modifier.weight(1f),
-                title = "트랙 길이 차이 (Delta)",
-                value = String.format(Locale.US, "%+.1f ms", report.durationDeltaSec * 1000.0),
-                subtext = if (report.durationDeltaSec > 0) "비디오가 더 긺" else if (report.durationDeltaSec < 0) "오디오가 더 긺" else "동일",
-                valueColor = if (abs(report.durationDeltaSec) > 0.25) Color(0xFFC62828) else if (abs(report.durationDeltaSec) > 0.05) Color(0xFFF57F17) else Color(0xFF2E7D32)
+                title = "② 종료 길이 차이 (Tail Overhang)",
+                value = String.format(Locale.US, "%+.1f ms", report.tailOverhangMs),
+                subtext = tailSub,
+                valueColor = if (abs(report.tailOverhangMs) > 250) Color(0xFFC62828) else if (abs(report.tailOverhangMs) > 60) Color(0xFFF57F17) else Color(0xFF2E7D32)
             )
 
+            val totalAnomalies = report.videoDropCount + report.audioGapCount
+            val anomalyColor = when {
+                report.anomalies.any { it.severity == SyncSeverity.CRITICAL } -> Color(0xFFC62828)
+                totalAnomalies > 0 -> Color(0xFFF57F17)
+                else -> Color(0xFF2E7D32)
+            }
             MetricCard(
                 modifier = Modifier.weight(1f),
-                title = "점진적 드리프트율",
-                value = String.format(Locale.US, "%+.2f ms/m", report.driftRateMsPerMin),
-                subtext = "클럭 누적 편차율",
-                valueColor = if (abs(report.driftRateMsPerMin) > 20) Color(0xFFC62828) else if (abs(report.driftRateMsPerMin) > 5) Color(0xFFF57F17) else Color(0xFF2E7D32)
+                title = "③ 프레임 드랍 / PTS 점프",
+                value = "V:${report.videoDropCount}건 / A:${report.audioGapCount}건",
+                subtext = String.format(
+                    Locale.US,
+                    "최대 간격 V:%.0fms · A:%.0fms",
+                    report.maxVideoGapMs, report.maxAudioGapMs,
+                ),
+                valueColor = anomalyColor
+            )
+
+            val isRealDrift = avSyncIsProgressiveDrift(report.driftRateMsPerMin, report.durationDeltaSec * 1000.0)
+            val driftSub = when {
+                isRealDrift -> "실제 누적 클럭 드리프트 의심"
+                abs(report.durationDeltaSec) > 0.06 -> "끝단 길이 차이로 인한 환산치"
+                else -> "클럭 비율 안정적"
+            }
+            MetricCard(
+                modifier = Modifier.weight(1f),
+                title = "④ 환산 드리프트율 (Drift Rate)",
+                value = String.format(Locale.US, "%+.1f ms/분", report.driftRateMsPerMin),
+                subtext = driftSub,
+                valueColor = if (isRealDrift) Color(0xFFC62828) else if (abs(report.driftRateMsPerMin) > 20) Color(0xFFF57F17) else Color(0xFF2E7D32)
             )
         }
 
         if (report.editListAdjusted) {
             Text(
-                "ⓘ 시작 오프셋·트랙 길이는 컨테이너 start_time(편집 리스트 반영) 기준으로 계산했습니다 — 원시 패킷 PTS 값과 다를 수 있습니다.",
+                "ⓘ 시작 오프셋·트랙 길이는 컨테이너 start_time(MP4 elst 편집 리스트 반영) 기준으로 계산했습니다 — 원시 첫 패킷 PTS(Video ${String.format(Locale.US, "%+.1fms", report.rawVideoFirstPtsSec * 1000.0)}, Audio ${String.format(Locale.US, "%+.1fms", report.rawAudioFirstPtsSec * 1000.0)})와 차이가 있습니다.",
                 style = AppTypography.bodySmall.copy(color = AppColors.TextSecondary),
             )
         }
 
-        // 2. At-a-glance sync bar + verdict, then the annotated skew curve
+        // 1.5. Visual Track Alignment & ITU-R BT.1359 Lip-Sync Gauge
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(4.dp),
+            colors = CardDefaults.cardColors(containerColor = AppColors.Surface)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    "트랙 시작·종료 정렬 다이어그램 & ITU-R BT.1359 립싱크 허용 게이지",
+                    style = AppTypography.headlineSmall.copy(color = AppColors.TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                )
+                Text(
+                    "비디오와 오디오 트랙의 시작 오프셋(앞단)과 종료 시점 잘림/잔류(뒷단)를 분리하여 보여줍니다.",
+                    style = AppTypography.bodySmall.copy(color = AppColors.TextSecondary)
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(88.dp)
+                        .background(AppColors.Panel, RoundedCornerShape(4.dp))
+                        .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    AvTrackAlignmentDiagram(
+                        report = report,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .background(AppColors.Panel, RoundedCornerShape(4.dp))
+                        .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    ItuLipSyncGauge(
+                        initialSkewMs = report.initialSkewMs,
+                        minSkewMs = report.minSkewMs,
+                        maxSkewMs = report.maxSkewMs,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
+
+        // 2. At-a-glance sync bar + interactive chart (Sync Skew vs Frame/Packet ΔPTS Jitter)
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(4.dp),
             colors = CardDefaults.cardColors(containerColor = AppColors.Surface)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                // Layer 1: at-a-glance
                 Text(
-                    "한눈에 보는 동기화 상태",
-                    style = AppTypography.headlineSmall.copy(color = AppColors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    "시간대별 동기화 상태 바 (클릭하여 해당 시점 검사)",
+                    style = AppTypography.headlineSmall.copy(color = AppColors.TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 )
                 Spacer(Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -211,29 +407,61 @@ private fun AvSyncReportContent(
                     onSelectPoint = onSelectSyncPoint,
                     modifier = Modifier.fillMaxWidth().height(46.dp)
                 )
-                Spacer(Modifier.height(8.dp))
-                val verdictColor = when (report.overallSeverity) {
-                    SyncSeverity.PASS -> Color(0xFF2E7D32)
-                    SyncSeverity.WARNING -> Color(0xFFF57F17)
-                    SyncSeverity.CRITICAL -> Color(0xFFC62828)
+
+                Spacer(Modifier.height(16.dp))
+
+                // Chart Mode Selector Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column {
+                        Text(
+                            if (chartMode == 0) "① 구간별 A/V 타이밍 편차 곡선 (Δt = Video PTS − Audio PTS)"
+                            else "② 실측 프레임·패킷 간격 추이 (ΔPTS Jitter & 프레임 드랍 탐지)",
+                            style = AppTypography.headlineSmall.copy(color = AppColors.TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        )
+                        Text(
+                            if (chartMode == 0) "양수(+): 오디오가 영상보다 먼저 재생(선행)  |  음수(−): 비디오가 소리보다 먼저 재생(선행)"
+                            else "파란선: 비디오 프레임 간격(정상 ${String.format(Locale.US, "%.1fms", report.nominalVideoStepMs)})  |  초록선: 오디오 패킷 간격(정상 ${String.format(Locale.US, "%.1fms", report.nominalAudioStepMs)})  |  빨간점: 드랍/공백 이상 지점",
+                            style = AppTypography.bodySmall.copy(color = AppColors.TextSecondary)
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(
+                            0 to "싱크 편차 (Δt)",
+                            1 to "프레임/패킷 간격 (ΔPTS)",
+                        ).forEach { (idx, title) ->
+                            val selected = chartMode == idx
+                            Box(
+                                modifier = Modifier
+                                    .background(
+                                        if (selected) AppColors.NeonBlue.copy(alpha = 0.22f) else AppColors.Panel,
+                                        RoundedCornerShape(4.dp),
+                                    )
+                                    .border(
+                                        1.dp,
+                                        if (selected) AppColors.NeonBlue else AppColors.Border,
+                                        RoundedCornerShape(4.dp),
+                                    )
+                                    .clickable { chartMode = idx }
+                                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                            ) {
+                                Text(
+                                    title,
+                                    style = AppTypography.bodySmall.copy(
+                                        color = if (selected) AppColors.NeonBlue else AppColors.TextSecondary,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                        fontSize = 11.sp,
+                                    ),
+                                )
+                            }
+                        }
+                    }
                 }
-                Text(
-                    avSyncVerdict(report),
-                    style = AppTypography.bodyMedium.copy(color = verdictColor, fontWeight = FontWeight.SemiBold)
-                )
 
-                Spacer(Modifier.height(20.dp))
-
-                // Layer 2: annotated curve
-                Text(
-                    "A/V 타임스탬프 편차 곡선 (Δt = Video PTS − Audio PTS)",
-                    style = AppTypography.headlineSmall.copy(color = AppColors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                )
-                Text(
-                    "양수: 오디오 선행 / 음수: 비디오 선행",
-                    style = AppTypography.bodySmall.copy(color = AppColors.TextSecondary)
-                )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(10.dp))
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -247,9 +475,16 @@ private fun AvSyncReportContent(
                             style = AppTypography.bodyMedium.copy(color = AppColors.TextSecondary),
                             modifier = Modifier.align(Alignment.Center)
                         )
-                    } else {
+                    } else if (chartMode == 0) {
                         AvSyncGraph(
                             points = report.syncPoints,
+                            selectedPoint = selectedSyncPoint,
+                            onSelectPoint = onSelectSyncPoint,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        AvIntervalJitterGraph(
+                            report = report,
                             selectedPoint = selectedSyncPoint,
                             onSelectPoint = onSelectSyncPoint,
                             modifier = Modifier.fillMaxSize()
@@ -284,6 +519,84 @@ private fun AvSyncReportContent(
                                 text = "편차(Δt): ${String.format(Locale.US, "%+.1f", p.deltaMs)} ms (${if (p.deltaMs > 0) "오디오 선행" else if (p.deltaMs < 0) "비디오 선행" else "일치"})",
                                 style = AppTypography.bodySmall.copy(color = skewColor, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 11.5.sp)
                             )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2.5. Detected PTS Discontinuity & Frame Drop Event Table
+        if (report.anomalies.isNotEmpty()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(4.dp),
+                colors = CardDefaults.cardColors(containerColor = AppColors.Surface),
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "감지된 타임스탬프 불연속 / 프레임 드랍 지점 (${report.anomalies.size}건 · 클릭하여 차트 위치로 이동)",
+                            style = AppTypography.headlineSmall.copy(color = AppColors.TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                        )
+                        Text(
+                            "상위 ${minOf(report.anomalies.size, 12)}건 표시",
+                            style = AppTypography.bodySmall.copy(color = AppColors.TextSecondary, fontSize = 11.sp),
+                        )
+                    }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(AppColors.Panel, RoundedCornerShape(4.dp))
+                            .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
+                            .padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        report.anomalies.take(12).forEach { anomaly ->
+                            val sevColor = if (anomaly.severity == SyncSeverity.CRITICAL) Color(0xFFEF5350) else Color(0xFFFFB74D)
+                            val streamBadge = if (anomaly.mediaType == "video") "VIDEO" else "AUDIO"
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(AppColors.Surface.copy(alpha = 0.6f), RoundedCornerShape(3.dp))
+                                    .clickable {
+                                        val nearest = report.syncPoints.minByOrNull { abs(it.timeSeconds - anomaly.ptsSeconds) }
+                                        onSelectSyncPoint(nearest)
+                                    }
+                                    .padding(horizontal = 8.dp, vertical = 5.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        streamBadge,
+                                        style = AppTypography.bodySmall.copy(
+                                            color = if (anomaly.mediaType == "video") Color(0xFF64B5F6) else Color(0xFF81C784),
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 11.sp,
+                                        ),
+                                    )
+                                    Text(
+                                        String.format(Locale.US, "@ %.3fs (#%d)", anomaly.ptsSeconds, anomaly.packetIndex),
+                                        style = AppTypography.bodySmall.copy(color = AppColors.TextPrimary, fontFamily = FontFamily.Monospace, fontSize = 11.5.sp),
+                                    )
+                                    Text(
+                                        anomaly.description,
+                                        style = AppTypography.bodySmall.copy(color = AppColors.TextSecondary, fontSize = 11.5.sp),
+                                    )
+                                }
+                                Text(
+                                    String.format(Locale.US, "ΔPTS %+.1f ms", anomaly.gapMs),
+                                    style = AppTypography.bodySmall.copy(color = sevColor, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 11.5.sp),
+                                )
+                            }
                         }
                     }
                 }

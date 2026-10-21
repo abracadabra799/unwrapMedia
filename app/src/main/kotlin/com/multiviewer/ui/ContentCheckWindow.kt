@@ -3,6 +3,7 @@ package com.multiviewer.ui
 import com.multiviewer.parser.gainmapOverall
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -317,7 +318,65 @@ fun ContentCheckWindow(
                         }
                     }
                 }
-                if (current()) message = label("검사 완료", "Checks complete")
+                if (current()) {
+                    if (!manuallySelectedStage) {
+                        fun stageSeverity(stage: CheckStage): Int = when (stage) {
+                            CheckStage.CONTAINER_CONFORMANCE -> when (conformance?.overall) {
+                                ConformanceStatus.FAIL -> 2
+                                ConformanceStatus.WARN -> 1
+                                else -> 0
+                            }
+                            CheckStage.STRUCTURE -> {
+                                val st = if (type == MediaType.AUDIO) audioStructure?.overall else structure?.overall
+                                when (st) {
+                                    com.multiviewer.parser.integrity.CheckStatus.FAIL -> 2
+                                    com.multiviewer.parser.integrity.CheckStatus.WARN -> 1
+                                    else -> 0
+                                }
+                            }
+                            CheckStage.CODEC -> {
+                                val findings = codecBitstreams.flatMap { it.findings }
+                                when {
+                                    findings.any { it.status == ConformanceStatus.FAIL } -> 2
+                                    findings.any { it.status == ConformanceStatus.WARN } || codecGaps.isNotEmpty() -> 1
+                                    else -> 0
+                                }
+                            }
+                            CheckStage.VISUAL_DECODE -> if (type == MediaType.IMAGE) {
+                                when (imageDecode?.status) {
+                                    ImageDecodeStatus.FAILED, ImageDecodeStatus.ISSUES -> 2
+                                    else -> if (imageDecode?.resolutionStatus == com.multiviewer.parser.integrity.CheckStatus.WARN) 1 else 0
+                                }
+                            } else {
+                                when (video?.decodeStatus) {
+                                    IntegrityStatus.FAILED, IntegrityStatus.ISSUES -> 2
+                                    else -> 0
+                                }
+                            }
+                            CheckStage.AUDIO_DECODE -> when (audio?.status) {
+                                IntegrityStatus.FAILED, IntegrityStatus.ISSUES -> 2
+                                else -> 0
+                            }
+                            CheckStage.MOTION_PHOTO -> when (motion?.verdictStatus()) {
+                                com.multiviewer.parser.integrity.CheckStatus.FAIL -> 2
+                                com.multiviewer.parser.integrity.CheckStatus.WARN -> 1
+                                else -> 0
+                            }
+                            CheckStage.GAINMAP -> when (gainmapChecks?.let(::gainmapOverall)) {
+                                com.multiviewer.parser.integrity.CheckStatus.FAIL -> 2
+                                com.multiviewer.parser.integrity.CheckStatus.WARN -> 1
+                                else -> 0
+                            }
+                        }
+                        val firstProblemStage = runStages.firstOrNull { stageSeverity(it) == 2 }
+                            ?: runStages.firstOrNull { stageSeverity(it) == 1 }
+                        if (firstProblemStage != null) {
+                            selectedStage = firstProblemStage
+                            selectedTab = checkStageDetailTab(firstProblemStage, type)
+                        }
+                    }
+                    message = label("검사 완료", "Checks complete")
+                }
             } catch (e: ContentFileChangedException) {
                 if (myRun == runId) invalidateForFileChange()
             } catch (e: CancellationException) {
@@ -609,7 +668,8 @@ fun ContentCheckWindow(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            Column(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SelectionContainer(Modifier.weight(1f).fillMaxWidth()) {
+                Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -696,68 +756,69 @@ fun ContentCheckWindow(
                                 }
                             }
                         }
-                ContentTab.AUDIO -> AudioCheckPanel(audio, audioError, ko, Modifier.weight(1f))
-                ContentTab.STRUCTURE -> if (type == MediaType.AUDIO) {
-                    AudioStructurePanel(audioStructure, structureError, ko, fileLength) { offset, length ->
-                        tab.parameterSetHighlightRange = offset until (offset + length)
-                    }
-                } else ImageStructurePanel(s, structureError, ko, fileLength) { offset, length ->
-                    tab.parameterSetHighlightRange = offset until (offset + length)
-                }
-                ContentTab.IMAGE_DECODE -> ImageDecodePanel(imageDecode, ko)
-                ContentTab.MOTION_PHOTO -> {
-                    OutlinedButton(onClick = onOpenMotionPhotoInspector, shape = AppControlShape) {
-                        Text(label("모션포토 상세 분석", "Open motion photo inspector"))
-                    }
-                    val m = motion
-                    if (m == null && motionError != null) {
-                        Text(label("모션포토 분석 실패: ", "Motion photo analysis failed: ") + motionError, color = AppColors.NeonRed)
-                    } else if (m == null) {
-                        Text(
-                            contentCheckStartHint(ContentTab.MOTION_PHOTO, ko),
-                            color = AppColors.TextSecondary,
-                        )
-                    } else {
-                        ContentFindingTable(motionPhotoFindings(m), fileLength, ko, Modifier.fillMaxSize()) { offset, length ->
+                        ContentTab.AUDIO -> AudioCheckPanel(audio, audioError, ko, Modifier.weight(1f))
+                        ContentTab.STRUCTURE -> if (type == MediaType.AUDIO) {
+                            AudioStructurePanel(audioStructure, structureError, ko, fileLength) { offset, length ->
+                                tab.parameterSetHighlightRange = offset until (offset + length)
+                            }
+                        } else ImageStructurePanel(s, structureError, ko, fileLength) { offset, length ->
                             tab.parameterSetHighlightRange = offset until (offset + length)
                         }
-                    }
-                }
-                ContentTab.GAINMAP -> {
-                    val checks = gainmapChecks
-                    if (checks == null) {
-                        Text(label("게인맵 검사 중...", "Checking gain map..."), color = AppColors.TextSecondary)
-                    } else {
-                        ContentFindingTable(gainmapFindings(checks), fileLength, ko, Modifier.fillMaxSize()) { offset, length ->
-                            tab.parameterSetHighlightRange = offset until (offset + length)
+                        ContentTab.IMAGE_DECODE -> ImageDecodePanel(imageDecode, ko)
+                        ContentTab.MOTION_PHOTO -> {
+                            OutlinedButton(onClick = onOpenMotionPhotoInspector, shape = AppControlShape) {
+                                Text(label("모션포토 상세 분석", "Open motion photo inspector"))
+                            }
+                            val m = motion
+                            if (m == null && motionError != null) {
+                                Text(label("모션포토 분석 실패: ", "Motion photo analysis failed: ") + motionError, color = AppColors.NeonRed)
+                            } else if (m == null) {
+                                Text(
+                                    contentCheckStartHint(ContentTab.MOTION_PHOTO, ko),
+                                    color = AppColors.TextSecondary,
+                                )
+                            } else {
+                                ContentFindingTable(motionPhotoFindings(m), fileLength, ko, Modifier.fillMaxSize()) { offset, length ->
+                                    tab.parameterSetHighlightRange = offset until (offset + length)
+                                }
+                            }
                         }
-                    }
-                }
-                ContentTab.VIDEO_DECODE, ContentTab.VIDEO_PACKETS -> {
-                    if (v == null) {
-                        Text(
-                            contentCheckStartHint(shownTab, ko),
-                            color = AppColors.TextSecondary,
-                        )
-                    } else if (shownTab == ContentTab.VIDEO_DECODE) {
-                        VideoDecodePanel(
-                            v, ko,
-                            expandedDiagnostic = expandedDiagnostic,
-                            onExpandedDiagnosticChange = { expandedDiagnostic = it },
-                            onShowPackets = { selectedTab = ContentTab.VIDEO_PACKETS },
-                            modifier = Modifier.weight(1f),
-                        )
-                    } else {
-                        VideoPacketPanel(
-                            v, tab, ko,
-                            selectedPacket = selectedPacket,
-                            onSelectedPacketChange = { selectedPacket = it },
-                            modifier = Modifier.weight(1f),
-                        )
+                        ContentTab.GAINMAP -> {
+                            val checks = gainmapChecks
+                            if (checks == null) {
+                                Text(label("게인맵 검사 중...", "Checking gain map..."), color = AppColors.TextSecondary)
+                            } else {
+                                ContentFindingTable(gainmapFindings(checks), fileLength, ko, Modifier.fillMaxSize()) { offset, length ->
+                                    tab.parameterSetHighlightRange = offset until (offset + length)
+                                }
+                            }
+                        }
+                        ContentTab.VIDEO_DECODE, ContentTab.VIDEO_PACKETS -> {
+                            if (v == null) {
+                                Text(
+                                    contentCheckStartHint(shownTab, ko),
+                                    color = AppColors.TextSecondary,
+                                )
+                            } else if (shownTab == ContentTab.VIDEO_DECODE) {
+                                VideoDecodePanel(
+                                    v, ko,
+                                    expandedDiagnostic = expandedDiagnostic,
+                                    onExpandedDiagnosticChange = { expandedDiagnostic = it },
+                                    onShowPackets = { selectedTab = ContentTab.VIDEO_PACKETS },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            } else {
+                                VideoPacketPanel(
+                                    v, tab, ko,
+                                    selectedPacket = selectedPacket,
+                                    onSelectedPacketChange = { selectedPacket = it },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
                     }
                 }
             }
-        }
     }
 }
 }

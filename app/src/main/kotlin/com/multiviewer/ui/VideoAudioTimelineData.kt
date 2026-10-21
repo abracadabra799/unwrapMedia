@@ -102,8 +102,12 @@ fun audioVideoTimelineRange(
     return TimelineTimeRange(start, end)
 }
 
-/** Finds a packet covering [ptsSeconds], or one within 100 ms; distant partial indexes return null. */
-fun nearestAudioTimelinePacket(packets: List<AudioTimelinePacket>, ptsSeconds: Double): AudioTimelinePacket? {
+/** Finds a packet covering [ptsSeconds], or one within [maxDistanceSeconds]; distant partial indexes return null. */
+fun nearestAudioTimelinePacket(
+    packets: List<AudioTimelinePacket>,
+    ptsSeconds: Double,
+    maxDistanceSeconds: Double = 0.1,
+): AudioTimelinePacket? {
     if (packets.isEmpty() || !ptsSeconds.isFinite()) return null
     var low = 0
     var high = packets.size
@@ -116,7 +120,7 @@ fun nearestAudioTimelinePacket(packets: List<AudioTimelinePacket>, ptsSeconds: D
     if (after != null && abs(after.ptsSeconds - ptsSeconds) < 1e-9) return after
     if (before != null && ptsSeconds < before.ptsSeconds + (before.durationSeconds ?: 0.0)) return before
     val nearest = listOfNotNull(before, after).minByOrNull { abs(it.ptsSeconds - ptsSeconds) } ?: return null
-    return nearest.takeIf { abs(it.ptsSeconds - ptsSeconds) <= 0.1 }
+    return nearest.takeIf { abs(it.ptsSeconds - ptsSeconds) <= maxDistanceSeconds }
 }
 
 /** Steps through the frames in timeline (presentation) order, using the shared selected frame. */
@@ -124,4 +128,96 @@ fun stepTimelineFrame(frames: List<FrameInfo>, selected: FrameInfo?, delta: Int)
     if (frames.isEmpty()) return null
     val current = frames.indexOfFirst { it.index == selected?.index }
     return frames[if (current < 0) 0 else (current + delta).coerceIn(frames.indices)]
+}
+
+data class TimelineStepResult(
+    val frame: FrameInfo?,
+    val packet: AudioTimelinePacket?,
+    val cursorPtsSeconds: Double,
+)
+
+/**
+ * Steps through the timeline across both video frames and audio packets.
+ * When audio extends past the last video frame (or starts before the first video frame),
+ * stepping past the video boundary continues through the remaining audio packets so the
+ * timeline bar can reach the true end/start of the media.
+ */
+fun stepTimelineCursor(
+    orderedFrames: List<FrameInfo>,
+    packets: List<AudioTimelinePacket>,
+    selectedFrame: FrameInfo?,
+    chosenPacket: AudioTimelinePacket?,
+    delta: Int,
+): TimelineStepResult? {
+    if (orderedFrames.isEmpty() && packets.isEmpty()) return null
+    if (orderedFrames.isEmpty()) {
+        val currentIdx = packets.indexOfFirst { it.index == chosenPacket?.index }
+        val nextIdx = if (currentIdx < 0) 0 else (currentIdx + delta).coerceIn(packets.indices)
+        val pkt = packets[nextIdx]
+        return TimelineStepResult(frame = null, packet = pkt, cursorPtsSeconds = pkt.ptsSeconds)
+    }
+
+    val firstVideoPts = orderedFrames.first().ptsSeconds
+    val lastVideoPts = orderedFrames.last().ptsSeconds
+
+    if (chosenPacket != null && packets.isNotEmpty()) {
+        val currentPktIdx = packets.indexOfFirst { it.index == chosenPacket.index }
+            .takeIf { it >= 0 }
+            ?: packets.indices.minByOrNull { abs(packets[it].ptsSeconds - chosenPacket.ptsSeconds) }
+            ?: 0
+        val nextPktIdx = (currentPktIdx + delta).coerceIn(packets.indices)
+        val nextPacket = packets[nextPktIdx]
+        // If we were in the audio tail past the last video frame and stepped Left back onto/before the last video frame,
+        // return to video-frame stepping at the last video frame.
+        if (delta < 0 && chosenPacket.ptsSeconds > lastVideoPts + 1e-6 && nextPacket.ptsSeconds <= lastVideoPts + 1e-6) {
+            val lastFrame = orderedFrames.last()
+            return TimelineStepResult(frame = lastFrame, packet = null, cursorPtsSeconds = lastFrame.ptsSeconds)
+        }
+        // Symmetrically, if we were in the audio head before the first video frame and stepped Right into the video range:
+        if (delta > 0 && chosenPacket.ptsSeconds < firstVideoPts - 1e-6 && nextPacket.ptsSeconds >= firstVideoPts - 1e-6) {
+            val firstFrame = orderedFrames.first()
+            return TimelineStepResult(frame = firstFrame, packet = null, cursorPtsSeconds = firstFrame.ptsSeconds)
+        }
+        val nearestFrame = orderedFrames.minByOrNull { abs(it.ptsSeconds - nextPacket.ptsSeconds) }
+        return TimelineStepResult(frame = nearestFrame, packet = nextPacket, cursorPtsSeconds = nextPacket.ptsSeconds)
+    }
+
+    val currentFrameIdx = orderedFrames.indexOfFirst { it.index == selectedFrame?.index }
+    if (currentFrameIdx < 0) {
+        val first = orderedFrames.first()
+        return TimelineStepResult(frame = first, packet = null, cursorPtsSeconds = first.ptsSeconds)
+    }
+
+    val targetFrameIdx = currentFrameIdx + delta
+    if (targetFrameIdx in orderedFrames.indices) {
+        val nextFrame = orderedFrames[targetFrameIdx]
+        return TimelineStepResult(frame = nextFrame, packet = null, cursorPtsSeconds = nextFrame.ptsSeconds)
+    }
+
+    // Stepping past the last video frame: continue into trailing audio packets if any exist.
+    if (targetFrameIdx > orderedFrames.lastIndex && packets.isNotEmpty()) {
+        val firstTailPacket = packets.firstOrNull { it.ptsSeconds > lastVideoPts + 1e-6 }
+        if (firstTailPacket != null) {
+            return TimelineStepResult(
+                frame = orderedFrames.last(),
+                packet = firstTailPacket,
+                cursorPtsSeconds = firstTailPacket.ptsSeconds,
+            )
+        }
+    }
+
+    // Stepping before the first video frame: continue into leading audio packets if any exist.
+    if (targetFrameIdx < 0 && packets.isNotEmpty()) {
+        val lastHeadPacket = packets.lastOrNull { it.ptsSeconds < firstVideoPts - 1e-6 }
+        if (lastHeadPacket != null) {
+            return TimelineStepResult(
+                frame = orderedFrames.first(),
+                packet = lastHeadPacket,
+                cursorPtsSeconds = lastHeadPacket.ptsSeconds,
+            )
+        }
+    }
+
+    val clampedFrame = orderedFrames[targetFrameIdx.coerceIn(orderedFrames.indices)]
+    return TimelineStepResult(frame = clampedFrame, packet = null, cursorPtsSeconds = clampedFrame.ptsSeconds)
 }

@@ -2,12 +2,15 @@ package com.multiviewer.parser.integrity
 
 import com.multiviewer.parser.BoxNode
 import com.multiviewer.parser.ByteReader
+import com.multiviewer.parser.SefIntegrityAnalyzer
+import com.multiviewer.parser.SefIntegritySeverity
 import com.multiviewer.parser.decodeGridItemPayload
 import com.multiviewer.parser.extractItemBytes
 import com.multiviewer.parser.findFirst
 import com.multiviewer.parser.findItemProperty
 import com.multiviewer.parser.integrity.CheckStatus.FAIL
 import com.multiviewer.parser.integrity.CheckStatus.PASS
+import com.multiviewer.parser.integrity.CheckStatus.WARN
 
 object HeifIntegrity {
     private const val MAX_EXTENT_ITEMS = 20
@@ -35,12 +38,15 @@ object HeifIntegrity {
         } else {
             IntegrityCheckItem("heif.meta", "Item metadata (meta)", FAIL, "meta is missing: ${missing.joinToString()}", meta.offset, meta.size)
         }
-        child("hdlr")?.let { hdlr ->
+        val handlerType = child("hdlr")?.let { hdlr ->
             val handler = hdlr.field("handler_type")
             if (handler != null && handler != "pict") {
                 items += IntegrityCheckItem("heif.hdlr", "Handler (hdlr)", FAIL, "Handler type is '$handler', expected 'pict'", hdlr.offset, hdlr.size)
             }
+            handler
         }
+
+        items += checkTopLevelContainerAndTrailer(root, reader, len, isPictContainer = handlerType == null || handlerType == "pict")
 
         val itemTypes: Map<Long, String> = child("iinf")?.children.orEmpty()
             .filter { it.type == "infe" }
@@ -126,6 +132,66 @@ object HeifIntegrity {
                 "…and ${bad.size - MAX_EXTENT_ITEMS} more extent(s) outside the file")
             else -> bad
         }
+    }
+
+    private fun checkTopLevelContainerAndTrailer(
+        root: BoxNode,
+        reader: ByteReader,
+        fileLength: Long,
+        isPictContainer: Boolean,
+    ): List<IntegrityCheckItem> {
+        val findings = mutableListOf<IntegrityCheckItem>()
+        val topBoxes = root.children
+        val extraFtyps = topBoxes.drop(1).filter { it.type == "ftyp" }
+        val hasMpvd = topBoxes.any { it.type == "mpvd" || it.type == "EmbeddedVideoData" }
+        val exposedMoov = if (isPictContainer && !hasMpvd) topBoxes.firstOrNull { it.type == "moov" } else null
+        val sefdNode = topBoxes.firstOrNull { it.type == "sefd" }
+
+        for (extra in extraFtyps) {
+            val detail = if (!hasMpvd && (exposedMoov != null || sefdNode != null)) {
+                "Duplicate top-level 'ftyp' box at offset ${extra.offset}: embedded MP4 stream is not wrapped in a top-level 'mpvd' box"
+            } else {
+                "Duplicate top-level 'ftyp' box at offset ${extra.offset}; ISO-BMFF allows only one top-level ftyp"
+            }
+            findings += IntegrityCheckItem("heif.ftyp", "File type (ftyp)", FAIL, detail, extra.offset, extra.size)
+        }
+
+        if (exposedMoov != null && extraFtyps.isEmpty()) {
+            findings += IntegrityCheckItem(
+                "heif.ftyp",
+                "File type (ftyp)",
+                FAIL,
+                "Top-level 'moov' box at offset ${exposedMoov.offset} in a still-image ('pict') HEIF container without an enclosing 'mpvd' box",
+                exposedMoov.offset,
+                exposedMoov.size,
+            )
+        }
+
+        if (sefdNode != null) {
+            val sefReport = runCatching {
+                SefIntegrityAnalyzer.analyze(reader, sefdNode.offset, sefdNode.headerSize, sefdNode.size, fileLength)
+            }.getOrNull()
+            if (sefReport != null && (sefReport.overallSeverity == SefIntegritySeverity.CRITICAL || sefReport.overallSeverity == SefIntegritySeverity.WARNING)) {
+                val status = if (sefReport.overallSeverity == SefIntegritySeverity.CRITICAL) FAIL else WARN
+                val problemDetails = buildList {
+                    sefReport.structuralChecks.filter { it.severity == SefIntegritySeverity.CRITICAL || it.severity == SefIntegritySeverity.WARNING }
+                        .forEach { add("${it.label}: ${it.detail}") }
+                    sefReport.directoryEntries.filter { it.status == SefIntegritySeverity.CRITICAL || it.status == SefIntegritySeverity.WARNING }
+                        .forEach { add("Directory entry #${it.entryIndex} (${it.name ?: it.markerHex}): out of bounds or marker mismatch") }
+                    sefReport.semanticChecks.filter { it.severity == SefIntegritySeverity.CRITICAL || it.severity == SefIntegritySeverity.WARNING }
+                        .forEach { add("${it.label}: ${it.detail}") }
+                }.ifEmpty { listOf("SEF trailer integrity check reported ${sefReport.overallSeverity}") }
+                findings += IntegrityCheckItem(
+                    "heif.sefd",
+                    "Samsung SEF trailer (sefd)",
+                    status,
+                    problemDetails.joinToString("; "),
+                    sefdNode.offset,
+                    sefdNode.size,
+                )
+            }
+        }
+        return findings
     }
 
     private fun BoxNode.field(name: String): String? = fields.firstOrNull { it.name == name }?.value

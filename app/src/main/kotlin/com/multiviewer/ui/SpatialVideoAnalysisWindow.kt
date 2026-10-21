@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -41,6 +42,7 @@ import androidx.compose.ui.window.rememberWindowState
 import com.multiviewer.parser.spatial.SpatialSeverity
 import com.multiviewer.parser.spatial.SpatialVideoReport
 import com.multiviewer.parser.spatial.analyzeSpatialVideo
+import com.multiviewer.util.ClipboardUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -197,8 +199,38 @@ fun SpatialVideoAnalysisWindow(
                             )
                         }
 
-                        OutlinedButton(onClick = { saveCsv() }, shape = AppControlShape) {
-                            Text(label("CSV 저장", "Save CSV"), fontSize = 12.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    val text = buildString {
+                                        appendLine("# Spatial Video (MV-HEVC) Analysis Report — ${tab.file.name}")
+                                        appendLine("- Spatial Video: ${r.isSpatialVideo} (Layer Parity Match: ${r.layerParityMatch})")
+                                        appendLine("- Hero Eye: ${meta.heroEye ?: "N/A"} · Baseline: ${meta.baselineMm ?: "N/A"} mm · Horizontal FOV: ${meta.horizontalFovDeg ?: "N/A"}°")
+                                        appendLine("- Total Frames: ${r.totalFrames} · Layer 0 Bytes: ${r.layer0TotalBytes} (Keys: ${r.layer0KeyframeCount}) · Layer 1 Bytes: ${r.layer1TotalBytes} (Keys: ${r.layer1KeyframeCount})")
+                                        if (r.anomalies.isNotEmpty()) {
+                                            appendLine()
+                                            appendLine("## Anomalies (${r.anomalies.size})")
+                                            r.anomalies.forEach { a ->
+                                                appendLine("- [${a.severity}] ${a.message}")
+                                            }
+                                        }
+                                        appendLine()
+                                        appendLine("FrameIndex\tDTS(s)\tPTS(s)\tLayer0Bytes\tLayer1Bytes\tLayer0NALs\tLayer1NALs\tLayer0Key\tLayer1Key")
+                                        r.frames.forEach { f ->
+                                            appendLine(String.format(Locale.US, "%d\t%.4f\t%.4f\t%d\t%d\t%d\t%d\t%s\t%s", f.frameIndex, f.dtsSeconds, f.ptsSeconds, f.layer0Bytes, f.layer1Bytes, f.layer0NalCount, f.layer1NalCount, f.isLayer0Keyframe, f.isLayer1Keyframe))
+                                        }
+                                    }.trimEnd()
+                                    if (ClipboardUtil.copyToClipboard(text)) {
+                                        saveStatus = label("✓ 클립보드에 리포트 복사됨", "✓ Report copied to clipboard")
+                                    }
+                                },
+                                shape = AppControlShape,
+                            ) {
+                                Text(label("📋 리포트 복사", "📋 Copy Report"), fontSize = 12.sp)
+                            }
+                            OutlinedButton(onClick = { saveCsv() }, shape = AppControlShape) {
+                                Text(label("CSV 저장", "Save CSV"), fontSize = 12.sp)
+                            }
                         }
                     }
 
@@ -326,101 +358,103 @@ fun SpatialVideoAnalysisWindow(
                     }
 
                     // Details Section
-                    Row(
-                        modifier = Modifier.fillMaxWidth().weight(1f),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        // Left: Anomalies List
-                        Column(
-                            modifier = Modifier
-                                .weight(0.35f)
-                                .fillMaxSize()
-                                .background(AppColors.Panel, RoundedCornerShape(4.dp))
-                                .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
-                                .padding(8.dp),
+                    SelectionContainer(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            Text(
-                                label("이상 진단 항목 (${r.anomalies.size}건)", "Anomalies (${r.anomalies.size})"),
-                                color = AppColors.NeonBlue,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp,
-                            )
-                            if (r.anomalies.isEmpty()) {
+                            // Left: Anomalies List
+                            Column(
+                                modifier = Modifier
+                                    .weight(0.35f)
+                                    .fillMaxSize()
+                                    .background(AppColors.Panel, RoundedCornerShape(4.dp))
+                                    .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
+                                    .padding(8.dp),
+                            ) {
                                 Text(
-                                    label("양안 시차 및 레이어 대칭성에 이상이 없습니다.", "No spatial layer anomalies detected."),
-                                    color = AppColors.TextMuted,
-                                    fontSize = 11.sp,
-                                    modifier = Modifier.padding(top = 8.dp),
+                                    label("이상 진단 항목 (${r.anomalies.size}건)", "Anomalies (${r.anomalies.size})"),
+                                    color = AppColors.NeonBlue,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
                                 )
-                            } else {
-                                LazyColumn(modifier = Modifier.fillMaxSize().padding(top = 4.dp)) {
-                                    itemsIndexed(r.anomalies) { _, a ->
-                                        val color = when (a.severity) {
-                                            SpatialSeverity.ERROR -> AppColors.NeonRed
-                                            SpatialSeverity.WARN -> Color(0xFFFFB74D)
-                                            SpatialSeverity.INFO -> AppColors.TextSecondary
+                                if (r.anomalies.isEmpty()) {
+                                    Text(
+                                        label("양안 시차 및 레이어 대칭성에 이상이 없습니다.", "No spatial layer anomalies detected."),
+                                        color = AppColors.TextMuted,
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.padding(top = 8.dp),
+                                    )
+                                } else {
+                                    LazyColumn(modifier = Modifier.fillMaxSize().padding(top = 4.dp)) {
+                                        itemsIndexed(r.anomalies) { _, a ->
+                                            val color = when (a.severity) {
+                                                SpatialSeverity.ERROR -> AppColors.NeonRed
+                                                SpatialSeverity.WARN -> Color(0xFFFFB74D)
+                                                SpatialSeverity.INFO -> AppColors.TextSecondary
+                                            }
+                                            Text(
+                                                text = "[${a.severity}] ${a.message}",
+                                                color = color,
+                                                fontSize = 11.sp,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable(enabled = a.frameIndex != null) {
+                                                        val f = a.frameIndex ?: return@clickable
+                                                        selectedFrame = f
+                                                        scope.launch { tableState.animateScrollToItem(f) }
+                                                    }
+                                                    .padding(vertical = 3.dp),
+                                            )
                                         }
-                                        Text(
-                                            text = "[${a.severity}] ${a.message}",
-                                            color = color,
-                                            fontSize = 11.sp,
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable(enabled = a.frameIndex != null) {
-                                                    val f = a.frameIndex ?: return@clickable
-                                                    selectedFrame = f
-                                                    scope.launch { tableState.animateScrollToItem(f) }
-                                                }
-                                                .padding(vertical = 3.dp),
-                                        )
                                     }
                                 }
                             }
-                        }
 
-                        // Right: Frames Table
-                        Column(
-                            modifier = Modifier
-                                .weight(0.65f)
-                                .fillMaxSize()
-                                .background(AppColors.Panel, RoundedCornerShape(4.dp))
-                                .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
-                                .padding(8.dp),
-                        ) {
-                            Text(
-                                String.format(Locale.US, "%-6s %9s  %-12s %-12s %-6s %s", "frame", "dts", "L0(KB)", "L1(KB)", "NALs", "Key"),
-                                color = AppColors.TextSecondary,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 11.sp,
-                                maxLines = 1,
-                                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
-                            )
-                            LazyColumn(state = tableState, modifier = Modifier.fillMaxWidth().weight(1f)) {
-                                itemsIndexed(r.frames) { index, f ->
-                                    val isSelected = selectedFrame == index
-                                    val keyStr = "${if (f.isLayer0Keyframe) "K0" else "  "}/${if (f.isLayer1Keyframe) "K1" else "  "}"
-                                    val nalsStr = "${f.layer0NalCount}/${f.layer1NalCount}"
-                                    val line = String.format(
-                                        Locale.US,
-                                        "%-6d %8.3fs  %10.1f   %10.1f   %5s  %s",
-                                        f.frameIndex,
-                                        f.dtsSeconds,
-                                        f.layer0Bytes / 1024.0,
-                                        f.layer1Bytes / 1024.0,
-                                        nalsStr,
-                                        keyStr,
-                                    )
-                                    Text(
-                                        text = line,
-                                        color = if (isSelected) Color.White else AppColors.TextPrimary,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontSize = 11.sp,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .background(if (isSelected) AppColors.Selection else Color.Transparent)
-                                            .clickable { selectedFrame = index }
-                                            .padding(vertical = 2.dp),
-                                    )
+                            // Right: Frames Table
+                            Column(
+                                modifier = Modifier
+                                    .weight(0.65f)
+                                    .fillMaxSize()
+                                    .background(AppColors.Panel, RoundedCornerShape(4.dp))
+                                    .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
+                                    .padding(8.dp),
+                            ) {
+                                Text(
+                                    String.format(Locale.US, "%-6s %9s  %-12s %-12s %-6s %s", "frame", "dts", "L0(KB)", "L1(KB)", "NALs", "Key"),
+                                    color = AppColors.TextSecondary,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                                )
+                                LazyColumn(state = tableState, modifier = Modifier.fillMaxWidth().weight(1f)) {
+                                    itemsIndexed(r.frames) { index, f ->
+                                        val isSelected = selectedFrame == index
+                                        val keyStr = "${if (f.isLayer0Keyframe) "K0" else "  "}/${if (f.isLayer1Keyframe) "K1" else "  "}"
+                                        val nalsStr = "${f.layer0NalCount}/${f.layer1NalCount}"
+                                        val line = String.format(
+                                            Locale.US,
+                                            "%-6d %8.3fs  %10.1f   %10.1f   %5s  %s",
+                                            f.frameIndex,
+                                            f.dtsSeconds,
+                                            f.layer0Bytes / 1024.0,
+                                            f.layer1Bytes / 1024.0,
+                                            nalsStr,
+                                            keyStr,
+                                        )
+                                        Text(
+                                            text = line,
+                                            color = if (isSelected) Color.White else AppColors.TextPrimary,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 11.sp,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(if (isSelected) AppColors.Selection else Color.Transparent)
+                                                .clickable { selectedFrame = index }
+                                                .padding(vertical = 2.dp),
+                                        )
+                                    }
                                 }
                             }
                         }

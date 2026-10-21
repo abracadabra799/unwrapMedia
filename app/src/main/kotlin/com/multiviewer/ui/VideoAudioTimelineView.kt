@@ -90,6 +90,8 @@ fun VideoAudioTimelineView(
     expanded: Boolean,
     onToggleExpanded: (() -> Unit)?,
     onTogglePlayback: (() -> Unit)? = null,
+    focusMode: Boolean = false,
+    onToggleFocusMode: (() -> Unit)? = null,
     onOpenPopup: (() -> Unit)? = null,
     focusOnOpen: Boolean = false,
     onSelectFrame: (FrameInfo) -> Unit,
@@ -104,6 +106,8 @@ fun VideoAudioTimelineView(
     var peaks by remember(tab) { mutableStateOf<WaveformPeaks?>(null) }
     var peaksDone by remember(tab) { mutableStateOf(false) }
     var chosenPacket by remember(tab) { mutableStateOf<AudioTimelinePacket?>(null) }
+    var customCursorPts by remember(tab) { mutableStateOf<Double?>(null) }
+    var lastInternalFrame by remember(tab) { mutableStateOf<FrameInfo?>(null) }
 
     // Collapsing or closing the tab cancels the interruptible worker; ffmpeg/ffprobe helpers
     // terminate their child process in their finally paths.
@@ -140,22 +144,71 @@ fun VideoAudioTimelineView(
     }
     val packets = packetResult?.packets.orEmpty()
     val range = remember(orderedFrames, audioInfo, packetResult) { audioVideoTimelineRange(orderedFrames, audioInfo, packets) }
+    val firstVideoPts = orderedFrames.firstOrNull()?.ptsSeconds
     val lastVideoPts = orderedFrames.lastOrNull()?.ptsSeconds
+    val videoFrameTail = remember(orderedFrames) {
+        if (orderedFrames.size > 1 && firstVideoPts != null && lastVideoPts != null) {
+            ((lastVideoPts - firstVideoPts) / (orderedFrames.size - 1)).coerceIn(0.001, 1.0)
+        } else {
+            1.0 / 30.0
+        }
+    }
     val audioEndPts = audioInfo?.let { it.startTimeSeconds + it.duration }
     var view by remember(tab) { mutableStateOf(AudioViewWindow(0.0, range.durationSeconds)) }
     LaunchedEffect(range) { view = AudioViewWindow(0.0, range.durationSeconds) }
     val selectedFrame = tab.selectedFrame
-    val selectedPacket = chosenPacket ?: selectedFrame?.let { nearestAudioTimelinePacket(packets, it.ptsSeconds) }
+    // If the user selects a frame externally (e.g. from the GOP panel), reset audio-packet override
+    // so the timeline follows the newly selected video frame.
+    LaunchedEffect(selectedFrame) {
+        if (selectedFrame != null && selectedFrame != lastInternalFrame) {
+            chosenPacket = null
+            customCursorPts = null
+        }
+    }
+    val selectedPacket = chosenPacket ?: (customCursorPts ?: selectedFrame?.ptsSeconds)?.let { nearestAudioTimelinePacket(packets, it) }
+    val activeCursorPts = customCursorPts ?: chosenPacket?.ptsSeconds ?: selectedFrame?.ptsSeconds
     val focusRequester = remember(tab) { FocusRequester() }
     val currentView by rememberUpdatedState(view)
     LaunchedEffect(focusOnOpen, expanded) {
         if (focusOnOpen && expanded) focusRequester.requestFocus()
     }
 
+    fun ensureTimeVisible(ptsSeconds: Double) {
+        val visibleStart = range.startSeconds + view.startSeconds
+        val visibleEnd = visibleStart + view.durationSeconds
+        if (ptsSeconds < visibleStart || ptsSeconds > visibleEnd) {
+            val targetStart = ptsSeconds - range.startSeconds - view.durationSeconds * 0.5
+            view = clampWindow(targetStart, view.durationSeconds, range.durationSeconds)
+        }
+    }
+
+    fun applyCursorSelection(frame: FrameInfo?, packet: AudioTimelinePacket?, targetPtsSeconds: Double) {
+        chosenPacket = packet
+        customCursorPts = if (packet != null || frame == null || kotlin.math.abs(targetPtsSeconds - frame.ptsSeconds) > 1e-4) {
+            targetPtsSeconds
+        } else {
+            null
+        }
+        lastInternalFrame = frame
+        if (frame != null) {
+            onSelectFrame(frame)
+        }
+        if (customCursorPts != null) {
+            tab.seekTargetSeconds = targetPtsSeconds
+            tab.seekRequestTick++
+        }
+        ensureTimeVisible(targetPtsSeconds)
+    }
+
     fun stepFrame(delta: Int): Boolean {
-        val frame = stepTimelineFrame(orderedFrames, selectedFrame, delta) ?: return false
-        chosenPacket = null
-        onSelectFrame(frame)
+        val step = stepTimelineCursor(
+            orderedFrames = orderedFrames,
+            packets = packets,
+            selectedFrame = selectedFrame,
+            chosenPacket = chosenPacket,
+            delta = delta,
+        ) ?: return false
+        applyCursorSelection(step.frame, step.packet, step.cursorPtsSeconds)
         return true
     }
 
@@ -166,13 +219,13 @@ fun VideoAudioTimelineView(
                 color = AppColors.TextSecondary, fontSize = 10.sp,
                 modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
+            if (onTogglePlayback != null) {
+                TimelineHeaderAction(
+                    if (tab.videoPlaybackPlaying) label("Ⅱ 일시정지", "Ⅱ Pause") else label("▶ 재생", "▶ Play"),
+                    onClick = onTogglePlayback,
+                )
+            }
             if (expanded) {
-                if (onTogglePlayback != null) {
-                    TimelineHeaderAction(
-                        if (tab.videoPlaybackPlaying) label("Ⅱ 일시정지", "Ⅱ Pause") else label("▶ 재생", "▶ Play"),
-                        onClick = onTogglePlayback,
-                    )
-                }
                 TimelineHeaderAction("−", fontSize = 12.sp, onClick = {
                     view = zoomAround(view, view.startSeconds + view.durationSeconds / 2, view.durationSeconds * 2, range.durationSeconds)
                 })
@@ -180,6 +233,13 @@ fun VideoAudioTimelineView(
                     view = zoomAround(view, view.startSeconds + view.durationSeconds / 2, view.durationSeconds / 2, range.durationSeconds)
                 })
                 TimelineHeaderAction(label("전체", "Fit")) { view = AudioViewWindow(0.0, range.durationSeconds) }
+                if (onToggleFocusMode != null) {
+                    TimelineHeaderAction(
+                        if (focusMode) label("⛶ 기본 레이아웃 복귀", "⛶ Exit Focus View")
+                        else label("⛶ 포커스 최대화", "⛶ Focus View"),
+                        onClick = onToggleFocusMode,
+                    )
+                }
             }
             if (onToggleExpanded != null) {
                 TimelineHeaderAction(if (expanded) label("▾ A/V 타임라인 접기", "▾ Collapse A/V Timeline")
@@ -227,20 +287,22 @@ fun VideoAudioTimelineView(
                             } else return@onPointerEvent
                             event.changes.forEach { it.consume() }
                         }
-                        .pointerInput(orderedFrames, packets, range) {
+                        .pointerInput(orderedFrames, packets, range, firstVideoPts, lastVideoPts, videoFrameTail) {
                             detectTapGestures { tap ->
                                 focusRequester.requestFocus()
                                 val time = timelineTimeAtFraction(tap.x / size.width, range, view)
-                                if (tap.y < size.height * 0.25f) {
+                                val outsideVideoSpan = orderedFrames.isEmpty() ||
+                                    (lastVideoPts != null && time > lastVideoPts + videoFrameTail) ||
+                                    (firstVideoPts != null && time < firstVideoPts - videoFrameTail * 0.5)
+                                if (tap.y < size.height * 0.25f && !outsideVideoSpan) {
                                     nearestVideoFrame(orderedFrames, time)?.let { frame ->
-                                        chosenPacket = null
-                                        onSelectFrame(frame)
+                                        applyCursorSelection(frame, null, frame.ptsSeconds)
                                     }
                                 } else {
-                                    nearestAudioTimelinePacket(packets, time)?.let { packet ->
-                                        chosenPacket = packet
-                                        nearestVideoFrame(orderedFrames, packet.ptsSeconds)?.let(onSelectFrame)
-                                    }
+                                    val packet = nearestAudioTimelinePacket(packets, time, maxDistanceSeconds = 1.0)
+                                    val targetPts = packet?.ptsSeconds ?: time
+                                    val frame = nearestVideoFrame(orderedFrames, targetPts)
+                                    applyCursorSelection(frame, packet, targetPts)
                                 }
                             }
                         }
@@ -344,13 +406,27 @@ fun VideoAudioTimelineView(
                         packetIndex = max(packetIndex + 1, if (found < 0) -found - 1 else found)
                     }
 
-                    selectedFrame?.let { frame ->
-                        val x = xFor(frame.ptsSeconds)
-                        if (x in 0f..w) drawLine(VIDEO_TICK, Offset(x, 0f), Offset(x, h), strokeWidth = 2f)
-                    }
-                    selectedPacket?.let { packet ->
-                        val x = xFor(packet.ptsSeconds)
-                        if (x in 0f..w) drawLine(AUDIO_TICK, Offset(x, h * 0.78f), Offset(x, h), strokeWidth = 2f)
+                    if (chosenPacket != null || customCursorPts != null) {
+                        selectedFrame?.let { frame ->
+                            val fx = xFor(frame.ptsSeconds)
+                            if (fx in 0f..w) drawLine(VIDEO_TICK, Offset(fx, 0f), Offset(fx, h * 0.25f), strokeWidth = 2f)
+                        }
+                        activeCursorPts?.let { cPts ->
+                            val cx = xFor(cPts)
+                            if (cx in 0f..w) {
+                                drawLine(VIDEO_TICK.copy(alpha = 0.85f), Offset(cx, 0f), Offset(cx, h), strokeWidth = 2f)
+                                drawLine(AUDIO_TICK, Offset(cx, h * 0.25f), Offset(cx, h), strokeWidth = 2.5f)
+                            }
+                        }
+                    } else {
+                        selectedFrame?.let { frame ->
+                            val x = xFor(frame.ptsSeconds)
+                            if (x in 0f..w) drawLine(VIDEO_TICK, Offset(x, 0f), Offset(x, h), strokeWidth = 2f)
+                        }
+                        selectedPacket?.let { packet ->
+                            val x = xFor(packet.ptsSeconds)
+                            if (x in 0f..w) drawLine(AUDIO_TICK, Offset(x, h * 0.78f), Offset(x, h), strokeWidth = 2f)
+                        }
                     }
                 }
                 Canvas(Modifier.fillMaxSize()) {

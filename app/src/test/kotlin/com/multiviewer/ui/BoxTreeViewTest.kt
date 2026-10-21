@@ -139,4 +139,53 @@ class BoxTreeViewTest {
 
         assertEquals(listOf(root, branchB), findAncestors(root, targetB, emptyList()))
     }
+
+    @Test
+    fun `classifyBoxNode categorizes container, codec config, sample table, media data, metadata, and SEF nodes`() {
+        val root = BoxNode(type = "MP4", offset = 0, headerSize = 0, size = 1000)
+        val ftyp = BoxNode(type = "ftyp", offset = 0, headerSize = 8, size = 24)
+        val moov = BoxNode(type = "moov", offset = 24, headerSize = 8, size = 400)
+        val hvcC = BoxNode(type = "hvcC", offset = 100, headerSize = 8, size = 80)
+        val stts = BoxNode(type = "stts", offset = 200, headerSize = 8, size = 24)
+        val mdat = BoxNode(type = "mdat", offset = 424, headerSize = 8, size = 500)
+        val sefd = BoxNode(type = "sefd", offset = 924, headerSize = 8, size = 76)
+        val app1 = BoxNode(type = "APP1", offset = 2, headerSize = 4, size = 120)
+
+        assertEquals(BoxNodeCategory.ROOT, classifyBoxNode(root, isRoot = true))
+        assertEquals(BoxNodeCategory.HEADER_MARKER, classifyBoxNode(ftyp))
+        assertEquals(BoxNodeCategory.CONTAINER, classifyBoxNode(moov))
+        assertEquals(BoxNodeCategory.CODEC_CONFIG, classifyBoxNode(hvcC))
+        assertEquals(BoxNodeCategory.SAMPLE_TABLE, classifyBoxNode(stts))
+        assertEquals(BoxNodeCategory.MEDIA_DATA, classifyBoxNode(mdat))
+        assertEquals(BoxNodeCategory.TRAILER_SEF, classifyBoxNode(sefd))
+        assertEquals(BoxNodeCategory.METADATA, classifyBoxNode(app1))
+    }
+
+    @Test
+    fun `formatBoxTreeAsText formats hierarchical tree with ASCII connectors, sizes, offsets, and warnings`() {
+        val hvcC = BoxNode(
+            type = "hvcC",
+            offset = 64,
+            headerSize = 8,
+            size = 128,
+            summary = "Main 10 @ L5.1",
+            warnings = listOf("Missing SPS"),
+        )
+        val mdat = BoxNode(type = "mdat", offset = 192, headerSize = 8, size = 832)
+        val root = BoxNode(
+            type = "MP4",
+            offset = 0,
+            headerSize = 0,
+            size = 1024,
+            children = listOf(hvcC, mdat),
+        )
+
+        val text = formatBoxTreeAsText(root)
+        val lines = text.lines()
+
+        assertEquals(3, lines.size)
+        kotlin.test.assertTrue(lines[0].contains("[MP4] (Root, 1.0 KB @0x0)"))
+        kotlin.test.assertTrue(lines[1].contains("├─ [hvcC] (Codec Config, 128 B (12.5%) @0x40) — Main 10 @ L5.1 ⚠ [Missing SPS]"))
+        kotlin.test.assertTrue(lines[2].contains("└─ [mdat] (Media Data, 832 B (81.3%) @0xC0)"))
+    }
 }

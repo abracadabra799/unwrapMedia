@@ -2,6 +2,8 @@ package com.multiviewer.parser.integrity
 
 import com.multiviewer.parser.BoxNode
 import com.multiviewer.parser.ByteReader
+import com.multiviewer.parser.SefIntegrityAnalyzer
+import com.multiviewer.parser.SefIntegritySeverity
 import com.multiviewer.parser.integrity.CheckStatus.FAIL
 import com.multiviewer.parser.integrity.CheckStatus.INFO
 import com.multiviewer.parser.integrity.CheckStatus.PASS
@@ -75,7 +77,7 @@ object JpegIntegrity {
         } else {
             val eoi = nodes[eoiIndex]
             items += IntegrityCheckItem("jpeg.eoi", "End of image (EOI)", PASS, "EOI at offset ${eoi.offset}", eoi.offset, eoi.size)
-            items += trailingItem(nodes.drop(eoiIndex + 1), eoi.offset + eoi.size, fileLength)
+            items += trailingItem(reader, nodes.drop(eoiIndex + 1), eoi.offset + eoi.size, fileLength)
         }
 
         // SOF layout: FF Cx, length(2), precision(1), height(2), width(2)
@@ -86,7 +88,7 @@ object JpegIntegrity {
         return FormatCheckResult(items, size?.first, size?.second)
     }
 
-    private fun trailingItem(trailing: List<BoxNode>, eoiEnd: Long, fileLength: Long): IntegrityCheckItem {
+    private fun trailingItem(reader: ByteReader, trailing: List<BoxNode>, eoiEnd: Long, fileLength: Long): IntegrityCheckItem {
         if (trailing.isEmpty()) return IntegrityCheckItem("jpeg.trailing", "Data after EOI", PASS, "No data after EOI")
         val unknown = trailing.firstOrNull { it.type == "?" }
         if (unknown != null) {
@@ -95,6 +97,33 @@ object JpegIntegrity {
                 "${fileLength - unknown.offset} unrecognized byte(s) after the image at offset ${unknown.offset}",
                 unknown.offset, fileLength - unknown.offset,
             )
+        }
+        val sefdNode = trailing.firstOrNull { it.type == "sefd" }
+        if (sefdNode != null) {
+            val hasRealSefTail = sefdNode.offset >= 0 && sefdNode.size >= 12 &&
+                sefdNode.offset + sefdNode.size <= fileLength &&
+                runCatching { reader.readFourCC(sefdNode.offset + sefdNode.size - 4) == "SEFT" }.getOrDefault(false)
+            if (sefdNode.warnings.isNotEmpty() || hasRealSefTail) {
+                val sefReport = runCatching {
+                    SefIntegrityAnalyzer.analyze(reader, sefdNode.offset, sefdNode.headerSize, sefdNode.size, fileLength)
+                }.getOrNull()
+                if (sefReport != null && (sefReport.overallSeverity == SefIntegritySeverity.CRITICAL || sefReport.overallSeverity == SefIntegritySeverity.WARNING)) {
+                    val status = if (sefReport.overallSeverity == SefIntegritySeverity.CRITICAL) FAIL else WARN
+                    val problemDetails = buildList {
+                        sefReport.structuralChecks.filter { it.severity == SefIntegritySeverity.CRITICAL || it.severity == SefIntegritySeverity.WARNING }
+                            .forEach { add("${it.label}: ${it.detail}") }
+                        sefReport.directoryEntries.filter { it.status == SefIntegritySeverity.CRITICAL || it.status == SefIntegritySeverity.WARNING }
+                            .forEach { add("Directory entry #${it.entryIndex} (${it.name ?: it.markerHex}): out of bounds or marker mismatch") }
+                        sefReport.semanticChecks.filter { it.severity == SefIntegritySeverity.CRITICAL || it.severity == SefIntegritySeverity.WARNING }
+                            .forEach { add("${it.label}: ${it.detail}") }
+                    }.ifEmpty { listOf("SEF trailer integrity check reported ${sefReport.overallSeverity}") }
+                    return IntegrityCheckItem(
+                        "jpeg.trailing", "Data after EOI", status,
+                        "Samsung SEF trailer after EOI has errors: ${problemDetails.joinToString("; ")}",
+                        sefdNode.offset, sefdNode.size,
+                    )
+                }
+            }
         }
         val kinds = buildList {
             if (trailing.any { it.type == "SOI" }) add("embedded JPEG image(s) (MPF/secondary)")

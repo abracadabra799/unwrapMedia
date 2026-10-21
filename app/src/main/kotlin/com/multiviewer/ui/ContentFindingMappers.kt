@@ -123,6 +123,26 @@ fun imageDecodeFindings(report: ImageDecodeReport): List<ContentFinding> = build
 fun motionPhotoFindings(report: MotionPhotoIntegrityReport): List<ContentFinding> = buildList {
     report.sefSection?.let { sef ->
         addAll(sef.structuralChecks.mapIndexed { i, check -> check.toFinding("motion.sef.structural.$i", FindingStage.MOTION_PHOTO) })
+        if (sef.declaredEntryCountSeverity != com.multiviewer.parser.SefIntegritySeverity.SKIPPED) {
+            val declared = sef.declaredEntryCount ?: 0L
+            val found = sef.directoryEntries.size
+            val detail = if (declared == found.toLong()) {
+                "SEFH directory declares $declared entry(s) and $found entry(s) were read"
+            } else {
+                "SEFH directory declares $declared entry(s) but only $found entry(s) fit in the trailer (truncated directory)"
+            }
+            add(ContentFinding(
+                id = "motion.sef.entry_count",
+                stage = FindingStage.MOTION_PHOTO,
+                status = sef.declaredEntryCountSeverity.toCheckStatus(),
+                title = "SEFH directory entry count",
+                location = null,
+                offset = null,
+                length = null,
+                summary = detail,
+                verifiedFacts = listOf(detail),
+            ))
+        }
         addAll(sef.semanticChecks.mapIndexed { i, check -> check.toFinding("motion.sef.semantic.$i", FindingStage.MOTION_PHOTO) })
         addAll(sef.directoryEntries.map { row -> ContentFinding(
             id = "motion.sef.directory.${row.entryIndex}", stage = FindingStage.MOTION_PHOTO,
@@ -137,9 +157,9 @@ fun motionPhotoFindings(report: MotionPhotoIntegrityReport): List<ContentFinding
             ),
         ) })
     }
-    addAll(report.googleXmpChecks.map { it.toFinding("motion.google", FindingStage.MOTION_PHOTO) })
-    addAll(report.appleMpvdChecks.map { it.toFinding("motion.apple", FindingStage.MOTION_PHOTO) })
-    addAll(report.decodeChecks.map { it.toFinding("motion.decode", FindingStage.MOTION_PHOTO) })
+    addAll(report.googleXmpChecks.mapIndexed { i, check -> check.toFinding("motion.google.$i", FindingStage.MOTION_PHOTO) })
+    addAll(report.appleMpvdChecks.mapIndexed { i, check -> check.toFinding("motion.apple.$i", FindingStage.MOTION_PHOTO) })
+    addAll(report.decodeChecks.mapIndexed { i, check -> check.toFinding("motion.decode.$i", FindingStage.MOTION_PHOTO) })
 }.map(ContentFinding::sanitizeFindingPaths)
 
 fun videoFindings(report: VideoIntegrityReport): VideoFindingPresentation {

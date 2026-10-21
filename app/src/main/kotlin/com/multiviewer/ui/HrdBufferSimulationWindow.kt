@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -42,6 +43,7 @@ import com.multiviewer.parser.buildVideoSampleTable
 import com.multiviewer.parser.hrd.HrdSimulationReport
 import com.multiviewer.parser.hrd.VideoFrameItem
 import com.multiviewer.parser.hrd.simulateHrdBuffer
+import com.multiviewer.util.ClipboardUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -234,8 +236,36 @@ fun HrdBufferSimulationWindow(
                             )
                         }
 
-                        OutlinedButton(onClick = { saveCsv() }, shape = AppControlShape) {
-                            Text(label("CSV 저장", "Save CSV"), fontSize = 12.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    val text = buildString {
+                                        appendLine("# HRD / VBV Buffer Simulation Report — ${tab.file.name}")
+                                        appendLine("- Codec: $codecName · ${report.totalFrames} frames")
+                                        appendLine(String.format(Locale.US, "- Bitrate: %s kbps · CPB: %s KB · Initial Delay: %s s", bitrateKbpsText, cpbKbText, initialDelayText))
+                                        appendLine(String.format(Locale.US, "- Occupancy: avg %.1f%% · min %.1f%% · Underflows: %d · Warnings: %d", report.avgOccupancyPercent, report.minOccupancyPercent, report.underflowCount, report.warningFrames.size))
+                                        appendLine()
+                                        appendLine("FrameIndex\tDTS(s)\tKeyframe\tSize(Bytes)\tBufferLevel(Bytes)\tOccupancy(%)\tStatus")
+                                        report.points.forEach { p ->
+                                            val st = when {
+                                                p.isUnderflow -> "UNDERFLOW"
+                                                p.isWarning -> "WARN"
+                                                else -> "OK"
+                                            }
+                                            appendLine(String.format(Locale.US, "%d\t%.4f\t%s\t%d\t%d\t%.2f\t%s", p.frameIndex, p.dtsSeconds, if (p.isKeyframe) "K" else "-", p.frameSizeBytes, p.bufferLevelBytes, p.occupancyPercent, st))
+                                        }
+                                    }.trimEnd()
+                                    if (ClipboardUtil.copyToClipboard(text)) {
+                                        saveStatus = label("✓ 클립보드에 리포트 복사됨", "✓ Report copied to clipboard")
+                                    }
+                                },
+                                shape = AppControlShape,
+                            ) {
+                                Text(label("📋 리포트 복사", "📋 Copy Report"), fontSize = 12.sp)
+                            }
+                            OutlinedButton(onClick = { saveCsv() }, shape = AppControlShape) {
+                                Text(label("CSV 저장", "Save CSV"), fontSize = 12.sp)
+                            }
                         }
                     }
 
@@ -288,10 +318,11 @@ fun HrdBufferSimulationWindow(
                     )
 
                     // Legend & Detail Tables
-                    Row(
-                        modifier = Modifier.fillMaxWidth().weight(1f),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
+                    SelectionContainer(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
                         // Left: Underflow & Warning Frames List
                         Column(
                             modifier = Modifier
@@ -390,17 +421,18 @@ fun HrdBufferSimulationWindow(
                                         p.occupancyPercent,
                                         statusStr,
                                     )
-                                    Text(
-                                        text = line,
-                                        color = if (isSelected) Color.White else statusColor,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontSize = 11.sp,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .background(if (isSelected) AppColors.Selection else Color.Transparent)
-                                            .clickable { selectedFrame = index }
-                                            .padding(vertical = 2.dp),
-                                    )
+                                        Text(
+                                            text = line,
+                                            color = if (isSelected) Color.White else statusColor,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 11.sp,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(if (isSelected) AppColors.Selection else Color.Transparent)
+                                                .clickable { selectedFrame = index }
+                                                .padding(vertical = 2.dp),
+                                        )
+                                    }
                                 }
                             }
                         }

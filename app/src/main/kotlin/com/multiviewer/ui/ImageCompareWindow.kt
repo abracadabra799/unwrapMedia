@@ -252,6 +252,7 @@ fun ImageCompareWindow(
     var compareFiles by remember { mutableStateOf(startingFiles) }
 
     var selectedTab by remember { mutableStateOf(MediaCompareTab.VISUAL) }
+    var cleanCompareView by remember { mutableStateOf(false) }
     var fileA by remember { mutableStateOf(compareFiles.getOrNull(0) ?: initialFileA) }
     var fileB by remember { mutableStateOf(compareFiles.getOrNull(1) ?: initialFileB) }
     var fileC by remember { mutableStateOf(compareFiles.getOrNull(2)) }
@@ -531,6 +532,12 @@ fun ImageCompareWindow(
                             activeSlot = if (activeSlot == CompareSlot.SLOT_A) CompareSlot.SLOT_B else CompareSlot.SLOT_A
                             true
                         }
+                        Key.F -> {
+                            if (windowMode == CompareWindowMode.COMPARE) {
+                                cleanCompareView = !cleanCompareView
+                                true
+                            } else false
+                        }
                         Key.DirectionLeft -> {
                             if (keyEvent.isShiftPressed) {
                                 navigateSlot(CompareSlot.SLOT_A, -1)
@@ -612,45 +619,68 @@ fun ImageCompareWindow(
                                     color = AppColors.NeonGreen,
                                 )
                             }
-                            Text(
-                                text = if (language == AppLanguage.KO) "ESC 키를 누르면 탐색기로 돌아갑니다" else "Press ESC to return to Explorer",
-                                fontSize = 11.sp,
-                                color = AppColors.TextSecondary,
-                            )
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                AssistChip(
+                                    onClick = { cleanCompareView = !cleanCompareView },
+                                    label = {
+                                        Text(
+                                            if (cleanCompareView) {
+                                                if (language == AppLanguage.KO) "⛶ 파일 선택바 펼치기 (F)" else "⛶ Show File Bar (F)"
+                                            } else {
+                                                if (language == AppLanguage.KO) "⛶ 상단바 숨김 · 클린 뷰 (F)" else "⛶ Clean View (F)"
+                                            },
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = if (cleanCompareView) AppColors.NeonOrange else AppColors.NeonBlue,
+                                        )
+                                    },
+                                    modifier = Modifier.height(26.dp),
+                                )
+                                Text(
+                                    text = if (language == AppLanguage.KO) "ESC 키를 누르면 탐색기로 돌아갑니다" else "Press ESC to return to Explorer",
+                                    fontSize = 11.sp,
+                                    color = AppColors.TextSecondary,
+                                )
+                            }
                         }
                     }
 
-                    // 1. Media Selection Bar (Tabs dropdown + File Pickers)
-                    MediaSelectionBar(
-                        appState = appState,
-                        language = language,
-                        fileA = fileA,
-                        fileB = fileB,
-                        folderA = folderA,
-                        folderB = folderB,
-                        infoA = infoA,
-                        infoB = infoB,
-                        activeSlot = activeSlot,
-                        onSetActiveSlot = { activeSlot = it },
-                        openTabFiles = appState.tabs.map { it.file },
-                        tooManyPickedCount = tooManyPickedCount,
-                        dragHoverSide = dragHoverSide,
-                        onPick = ::applyPick,
-                        onSelectA = { fileA = it },
-                        onSelectB = { fileB = it },
-                        onNavigateSlotA = { navigateSlot(CompareSlot.SLOT_A, it) },
-                        onNavigateSlotB = { navigateSlot(CompareSlot.SLOT_B, it) },
-                        onSwap = {
-                            val tempFile = fileA
-                            fileA = fileB
-                            fileB = tempFile
-                            val tempFolder = folderA
-                            folderA = folderB
-                            folderB = tempFolder
-                        },
-                    )
+                    if (!cleanCompareView) {
+                        // 1. Media Selection Bar (Tabs dropdown + File Pickers)
+                        MediaSelectionBar(
+                            appState = appState,
+                            language = language,
+                            fileA = fileA,
+                            fileB = fileB,
+                            folderA = folderA,
+                            folderB = folderB,
+                            infoA = infoA,
+                            infoB = infoB,
+                            activeSlot = activeSlot,
+                            onSetActiveSlot = { activeSlot = it },
+                            openTabFiles = appState.tabs.map { it.file },
+                            tooManyPickedCount = tooManyPickedCount,
+                            dragHoverSide = dragHoverSide,
+                            onPick = ::applyPick,
+                            onSelectA = { fileA = it },
+                            onSelectB = { fileB = it },
+                            onNavigateSlotA = { navigateSlot(CompareSlot.SLOT_A, it) },
+                            onNavigateSlotB = { navigateSlot(CompareSlot.SLOT_B, it) },
+                            onSwap = {
+                                val tempFile = fileA
+                                fileA = fileB
+                                fileB = tempFile
+                                val tempFolder = folderA
+                                folderA = folderB
+                                folderB = tempFolder
+                            },
+                        )
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
 
                     // 2. Navigation Tabs
                     TabRow(
@@ -711,6 +741,7 @@ fun ImageCompareWindow(
                                 infoA = infoA,
                                 infoB = infoB,
                                 quadInfos = if (listOfNotNull(fileA, fileB, fileC, fileD).size == 4) listOf(infoA, infoB, infoC, infoD) else emptyList(),
+                                metadataRows = metadataRows,
                                 captureMismatches = captureMismatches,
                                 activeSlot = activeSlot,
                                 onSetActiveSlot = { activeSlot = it },

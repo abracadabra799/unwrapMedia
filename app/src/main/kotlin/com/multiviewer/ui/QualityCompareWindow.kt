@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.rememberWindowState
+import com.multiviewer.util.ClipboardUtil
 import java.awt.EventQueue
 import java.awt.FileDialog
 import java.awt.Frame
@@ -370,21 +372,60 @@ fun QualityCompareWindow(appState: AppState? = null, language: AppLanguage = App
             results?.let { currentResults ->
                 Spacer(Modifier.height(16.dp))
                 Row {
+                    Button(
+                        onClick = {
+                            val text = buildString {
+                                appendLine("# Video Quality Comparison Report")
+                                rawFile?.let { appendLine("- Raw: ${it.name}") }
+                                encodedAFile?.let { appendLine("- Encoded A: ${it.name}") }
+                                encodedBFile?.let { appendLine("- Encoded B: ${it.name}") }
+                                appendLine()
+                                appendLine("Pair\tMetric\tMin\tMax\tMean\tMedian\tFrames")
+                                currentResults.forEach { (pairLabel, metricResults) ->
+                                    metricResults.forEach { (name, result) ->
+                                        appendLine(
+                                            String.format(
+                                                Locale.US,
+                                                "%s\t%s\t%.4f\t%.4f\t%.4f\t%.4f\t%d",
+                                                pairLabel,
+                                                name,
+                                                result.statistics.min,
+                                                result.statistics.max,
+                                                result.statistics.mean,
+                                                result.statistics.median,
+                                                result.perFrame.size,
+                                            ),
+                                        )
+                                    }
+                                }
+                            }.trimEnd()
+                            if (ClipboardUtil.copyToClipboard(text)) {
+                                statusMessage = "✓ 클립보드에 비교 결과가 복사되었습니다"
+                            }
+                        },
+                        shape = AppControlShape,
+                        colors = appButtonColors(),
+                        border = appButtonBorder(),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    ) { Text("📋 결과 복사") }
+                    Spacer(Modifier.width(8.dp))
                     Button(onClick = { exportCsv() }, shape = AppControlShape, colors = appButtonColors(), border = appButtonBorder(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) { Text("CSV로 내보내기") }
                     Spacer(Modifier.width(8.dp))
                     Button(onClick = { exportJson() }, shape = AppControlShape, colors = appButtonColors(), border = appButtonBorder(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) { Text("JSON으로 내보내기") }
                 }
                 Spacer(Modifier.height(8.dp))
-                Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                    currentResults.forEach { (pairLabel, metricResults) ->
-                        Text(pairLabel, modifier = Modifier.padding(top = 8.dp))
-                        metricResults.forEach { (name, result) ->
-                            Text("$name — min: ${String.format(Locale.US, "%.3f", result.statistics.min)}, max: ${String.format(Locale.US, "%.3f", result.statistics.max)}, " +
-                                "mean: ${String.format(Locale.US, "%.3f", result.statistics.mean)}, median: ${String.format(Locale.US, "%.3f", result.statistics.median)}")
-                            Box(modifier = Modifier.fillMaxWidth().height(120.dp)) {
-                                MetricGraph(perFrame = result.perFrame, lineColor = AppColors.NeonBlue, modifier = Modifier.fillMaxSize())
+                SelectionContainer(modifier = Modifier.weight(1f)) {
+                    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                        currentResults.forEach { (pairLabel, metricResults) ->
+                            Text(pairLabel, modifier = Modifier.padding(top = 8.dp))
+                            metricResults.forEach { (name, result) ->
+                                Text("$name — min: ${String.format(Locale.US, "%.3f", result.statistics.min)}, max: ${String.format(Locale.US, "%.3f", result.statistics.max)}, " +
+                                    "mean: ${String.format(Locale.US, "%.3f", result.statistics.mean)}, median: ${String.format(Locale.US, "%.3f", result.statistics.median)}")
+                                Box(modifier = Modifier.fillMaxWidth().height(120.dp)) {
+                                    MetricGraph(perFrame = result.perFrame, lineColor = AppColors.NeonBlue, modifier = Modifier.fillMaxSize())
+                                }
+                                Spacer(Modifier.height(8.dp))
                             }
-                            Spacer(Modifier.height(8.dp))
                         }
                     }
                 }

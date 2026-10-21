@@ -215,5 +215,40 @@ class ContentCheckOverviewTableTest {
             groups[2].second.map { it.stage },
         )
     }
+
+    @Test
+    fun completedRowsReflectFailAndWarnVerdictsInStatusAndVerdictTone() {
+        val root = sampleMp4Root()
+        val specs = listOf(
+            CheckStageSpec(CheckStage.CONTAINER_CONFORMANCE, CheckAvailability.AVAILABLE),
+            CheckStageSpec(CheckStage.STRUCTURE, CheckAvailability.AVAILABLE),
+            CheckStageSpec(CheckStage.MOTION_PHOTO, CheckAvailability.AVAILABLE),
+        )
+        val states = mapOf(
+            CheckStage.CONTAINER_CONFORMANCE to CheckStageState(CheckRunStatus.COMPLETED),
+            CheckStage.STRUCTURE to CheckStageState(CheckRunStatus.COMPLETED),
+            CheckStage.MOTION_PHOTO to CheckStageState(CheckRunStatus.COMPLETED),
+        )
+        val rows = buildContentCheckOverviewRows(
+            specs = specs, states = states, type = MediaType.IMAGE, root = root, summary = null,
+            ko = true, running = false, fileChanged = false,
+        ) { stage ->
+            when (stage) {
+                CheckStage.CONTAINER_CONFORMANCE -> "규격 통과"
+                CheckStage.STRUCTURE -> "경고"
+                CheckStage.MOTION_PHOTO -> "실패"
+                else -> null
+            }
+        }
+
+        assertEquals(OverviewRowStatusTone.SUCCESS, rows[0].statusTone)
+        assertEquals(OverviewRowStatusTone.SUCCESS, rows[0].verdictTone)
+
+        assertEquals(OverviewRowStatusTone.WARNING, rows[1].statusTone)
+        assertEquals(OverviewRowStatusTone.WARNING, rows[1].verdictTone)
+
+        assertEquals(OverviewRowStatusTone.ERROR, rows[2].statusTone)
+        assertEquals(OverviewRowStatusTone.ERROR, rows[2].verdictTone)
+    }
 }
 

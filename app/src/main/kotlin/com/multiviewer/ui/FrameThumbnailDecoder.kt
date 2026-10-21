@@ -10,7 +10,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 
-private const val THUMBNAIL_DECODE_MAX_DIMENSION_PX = 200
+private const val THUMBNAIL_DECODE_MAX_DIMENSION_PX = 280
 private const val BATCH_TIMEOUT_MS = 15000L
 private const val THUMB_FILENAME_PREFIX = "thumb_"
 private const val THUMB_FILENAME_SUFFIX = ".jpg"

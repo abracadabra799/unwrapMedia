@@ -33,6 +33,8 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isAltPressed
+import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -65,6 +67,7 @@ internal fun VisualDiffView(
     infoA: CompareMediaInfo?,
     infoB: CompareMediaInfo?,
     quadInfos: List<CompareMediaInfo?> = emptyList(),
+    metadataRows: List<MetadataDiffRow> = emptyList(),
     captureMismatches: List<String>,
     activeSlot: CompareSlot = CompareSlot.SLOT_A,
     onSetActiveSlot: (CompareSlot) -> Unit = {},
@@ -93,8 +96,17 @@ internal fun VisualDiffView(
 
     var mode by remember { mutableStateOf(VisualCompareMode.SPLIT_WIPER) }
     var wiperPos by remember { mutableStateOf(0.5f) }
+    var showHistogram by remember { mutableStateOf(false) }
+    var copiedCompareFeedback by remember { mutableStateOf(false) }
     var currentPts by remember { mutableStateOf(0.0) }
     var isPlaying by remember { mutableStateOf(false) }
+
+    LaunchedEffect(copiedCompareFeedback) {
+        if (copiedCompareFeedback) {
+            delay(2000L)
+            copiedCompareFeedback = false
+        }
+    }
 
     var frameBitmapA by remember(infoA.file) { mutableStateOf(infoA.bitmap) }
     var frameBitmapB by remember(infoB.file) { mutableStateOf(infoB.bitmap) }
@@ -198,6 +210,80 @@ internal fun VisualDiffView(
                 onClick = { mode = VisualCompareMode.BLINK },
                 label = { Text(if (language == AppLanguage.KO) "깜빡임 비교 (Blink)" else "Blink / Flicker") },
             )
+            Spacer(modifier = Modifier.weight(1f))
+            FilterChip(
+                selected = showHistogram,
+                onClick = { showHistogram = !showHistogram },
+                label = { Text(if (language == AppLanguage.KO) "📊 히스토그램" else "📊 Histogram", fontSize = 11.sp) },
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            AssistChip(
+                onClick = {
+                    val bmA = displayBitmapA
+                    val bmB = displayBitmapB
+                    if (bmA != null && bmB != null) {
+                        val diffBm = if (mode == VisualCompareMode.DIFF_HEATMAP) computeDiffBitmap(bmA, bmB) else null
+                        val metricsText = metrics?.let { "PSNR ${"%.2f".format(it.psnrDb)} dB · SSIM ${"%.4f".format(it.ssim)}" }
+                        if (copyComparisonViewToClipboard(
+                                bitmapA = bmA,
+                                bitmapB = bmB,
+                                mode = mode,
+                                wiperPos = wiperPos,
+                                diffBitmap = diffBm,
+                                labelA = infoA.file.name,
+                                labelB = infoB.file.name,
+                                metricsSummary = metricsText,
+                            )
+                        ) {
+                            copiedCompareFeedback = true
+                        }
+                    }
+                },
+                label = {
+                    Text(
+                        if (copiedCompareFeedback) {
+                            if (language == AppLanguage.KO) "✓ 비교 화면 복사됨" else "✓ Copied View"
+                        } else {
+                            if (language == AppLanguage.KO) "📋 비교 화면 복사" else "📋 Copy View"
+                        },
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (copiedCompareFeedback) AppColors.NeonGreen else AppColors.TextPrimary,
+                    )
+                },
+            )
+        }
+
+        // FastStone Benchmark ④: 1-Line Quick Metadata Diff Strip
+        val keyDiffs = remember(metadataRows) { summarizeKeyMetadataDiffs(metadataRows, maxItems = 5) }
+        if (keyDiffs.isNotEmpty()) {
+            Surface(
+                color = AppColors.Surface,
+                shape = RoundedCornerShape(4.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.NeonOrange.copy(alpha = 0.45f)),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = if (language == AppLanguage.KO) "⚡ 핵심 스펙 차이:" else "⚡ Key Diffs:",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AppColors.NeonOrange,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = keyDiffs.joinToString("   ·   ") { "${it.key}: ${it.valueA} vs ${it.valueB}" },
+                        fontSize = 10.5.sp,
+                        color = AppColors.TextPrimary,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
         }
 
         // Synchronized Video Timeline Controller (Displayed when video is present)
@@ -269,6 +355,7 @@ internal fun VisualDiffView(
                             labelB = if (infoB.isVideo) "Video B" else "Image B",
                             activeSlot = activeSlot,
                             onSetActiveSlot = onSetActiveSlot,
+                            showHistogram = showHistogram,
                             language = language,
                         )
                     }
@@ -395,22 +482,56 @@ private fun SideBySideCompareView(
     labelB: String,
     activeSlot: CompareSlot = CompareSlot.SLOT_A,
     onSetActiveSlot: (CompareSlot) -> Unit = {},
+    showHistogram: Boolean = false,
     language: AppLanguage,
 ) {
     var scale by remember(bitmapA, bitmapB) { mutableStateOf(1f) }
     var offset by remember(bitmapA, bitmapB) { mutableStateOf(Offset.Zero) }
+    var slotBDeltaOffset by remember(bitmapA, bitmapB) { mutableStateOf(Offset.Zero) }
+    var unlockSlotBAlign by remember { mutableStateOf(false) }
+    var loupeSavedState by remember { mutableStateOf<Pair<Float, Offset>?>(null) }
     var paneSize by remember { mutableStateOf(Size.Zero) }
     var hoverNativePixel by remember(bitmapA, bitmapB) { mutableStateOf<Pair<Int, Int>?>(null) }
+
+    val histA by produceState<LightweightHistogram?>(null, bitmapA, showHistogram) {
+        value = if (showHistogram) withContext(Dispatchers.Default) { computeLightweightHistogram(bitmapA) } else null
+    }
+    val histB by produceState<LightweightHistogram?>(null, bitmapB, showHistogram) {
+        value = if (showHistogram) withContext(Dispatchers.Default) { computeLightweightHistogram(bitmapB) } else null
+    }
+
     // What ContentScale.Fit actually draws in each pane -- pan is bounded against this rather than
     // the pane-sized layer, so a letterboxed image can't be dragged out of view (see clampPanOffset).
     // The two panes share one scale/offset but can hold differently-shaped images, so each pane
     // clamps against its own fitted size.
     val fittedSizeA = fittedContentSize(paneSize, Size(bitmapA.width.toFloat(), bitmapA.height.toFloat()))
     val fittedSizeB = fittedContentSize(paneSize, Size(bitmapB.width.toFloat(), bitmapB.height.toFloat()))
+    val effectiveOffsetB = offset + slotBDeltaOffset
 
     fun applyZoomPreset(targetScale: Float) {
         scale = targetScale
         offset = clampPanOffset(offset, paneSize, scale, fittedSizeA)
+    }
+
+    fun activateHoldLoupe(cursorPos: Offset, fitted: Size) {
+        if (loupeSavedState == null) {
+            loupeSavedState = scale to offset
+            val targetLoupeScale = maxOf(4f, scale * 2f).coerceAtMost(MAX_ZOOM_SCALE)
+            val reanchored = Offset(
+                cursorPos.x - (cursorPos.x - offset.x) * (targetLoupeScale / scale),
+                cursorPos.y - (cursorPos.y - offset.y) * (targetLoupeScale / scale),
+            )
+            scale = targetLoupeScale
+            offset = clampPanOffset(reanchored, paneSize, targetLoupeScale, fitted)
+        }
+    }
+
+    fun releaseHoldLoupe() {
+        loupeSavedState?.let { (savedScale, savedOffset) ->
+            scale = savedScale
+            offset = savedOffset
+            loupeSavedState = null
+        }
     }
 
     Box(
@@ -433,6 +554,15 @@ private fun SideBySideCompareView(
                         RoundedCornerShape(4.dp),
                     )
                     .onGloballyPositioned { paneSize = it.size.toSize() }
+                    .onPointerEvent(PointerEventType.Press, pass = PointerEventPass.Initial) { event ->
+                        if (event.buttons.isSecondaryPressed) {
+                            val pos = event.changes.firstOrNull()?.position ?: return@onPointerEvent
+                            activateHoldLoupe(pos, fittedSizeA)
+                        }
+                    }
+                    .onPointerEvent(PointerEventType.Release, pass = PointerEventPass.Initial) {
+                        if (loupeSavedState != null) releaseHoldLoupe()
+                    }
                     .onPointerEvent(PointerEventType.Scroll, pass = PointerEventPass.Initial) { event ->
                         val change = event.changes.firstOrNull() ?: return@onPointerEvent
                         val (newScale, rawOffset) = zoomTowardPoint(scale, offset, change.position, change.scrollDelta.y)
@@ -495,12 +625,17 @@ private fun SideBySideCompareView(
                         ),
                     )
                 }
-                MediaOsdBadge(
-                    label = labelA,
-                    info = infoA,
-                    nativeSize = bitmapA.width to bitmapA.height,
-                    modifier = Modifier.align(Alignment.TopStart),
-                )
+                Column(modifier = Modifier.align(Alignment.TopStart)) {
+                    MediaOsdBadge(
+                        label = labelA,
+                        info = infoA,
+                        nativeSize = bitmapA.width to bitmapA.height,
+                    )
+                    histA?.let { h ->
+                        Spacer(Modifier.height(4.dp))
+                        MiniHistogramOverlay(h, modifier = Modifier.padding(start = 6.dp))
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.width(8.dp))
@@ -518,6 +653,15 @@ private fun SideBySideCompareView(
                         RoundedCornerShape(4.dp),
                     )
                     .onGloballyPositioned { paneSize = it.size.toSize() }
+                    .onPointerEvent(PointerEventType.Press, pass = PointerEventPass.Initial) { event ->
+                        if (event.buttons.isSecondaryPressed) {
+                            val pos = event.changes.firstOrNull()?.position ?: return@onPointerEvent
+                            activateHoldLoupe(pos, fittedSizeB)
+                        }
+                    }
+                    .onPointerEvent(PointerEventType.Release, pass = PointerEventPass.Initial) {
+                        if (loupeSavedState != null) releaseHoldLoupe()
+                    }
                     .onPointerEvent(PointerEventType.Scroll, pass = PointerEventPass.Initial) { event ->
                         val change = event.changes.firstOrNull() ?: return@onPointerEvent
                         val (newScale, rawOffset) = zoomTowardPoint(scale, offset, change.position, change.scrollDelta.y)
@@ -528,16 +672,20 @@ private fun SideBySideCompareView(
                     .onPointerEvent(PointerEventType.Move, pass = PointerEventPass.Initial) { event ->
                         val pos = event.changes.firstOrNull()?.position
                         hoverNativePixel = pos?.let {
-                            screenPointToNativePixel(it, paneSize, Size(bitmapB.width.toFloat(), bitmapB.height.toFloat()), scale, offset)
+                            screenPointToNativePixel(it, paneSize, Size(bitmapB.width.toFloat(), bitmapB.height.toFloat()), scale, effectiveOffsetB)
                         }
                     }
                     .onPointerEvent(PointerEventType.Exit, pass = PointerEventPass.Initial) {
                         hoverNativePixel = null
                     }
-                    .pointerInput(bitmapA, bitmapB) {
+                    .pointerInput(bitmapA, bitmapB, unlockSlotBAlign) {
                         detectDragGestures { change, dragAmount ->
                             change.consume()
-                            offset = clampPanOffset(offset + dragAmount, paneSize, scale, fittedSizeB)
+                            if (unlockSlotBAlign) {
+                                slotBDeltaOffset += dragAmount
+                            } else {
+                                offset = clampPanOffset(offset + dragAmount, paneSize, scale, fittedSizeB)
+                            }
                         }
                     }
                     .pointerInput(bitmapA, bitmapB) {
@@ -561,8 +709,8 @@ private fun SideBySideCompareView(
                         .graphicsLayer(
                             scaleX = scale,
                             scaleY = scale,
-                            translationX = offset.x,
-                            translationY = offset.y,
+                            translationX = effectiveOffsetB.x,
+                            translationY = effectiveOffsetB.y,
                             transformOrigin = TransformOrigin(0f, 0f),
                         ),
                     contentScale = ContentScale.Fit,
@@ -574,18 +722,23 @@ private fun SideBySideCompareView(
                         modifier = Modifier.graphicsLayer(
                             scaleX = scale,
                             scaleY = scale,
-                            translationX = offset.x,
-                            translationY = offset.y,
+                            translationX = effectiveOffsetB.x,
+                            translationY = effectiveOffsetB.y,
                             transformOrigin = TransformOrigin(0f, 0f),
                         ),
                     )
                 }
-                MediaOsdBadge(
-                    label = labelB,
-                    info = infoB,
-                    nativeSize = bitmapB.width to bitmapB.height,
-                    modifier = Modifier.align(Alignment.TopStart),
-                )
+                Column(modifier = Modifier.align(Alignment.TopStart)) {
+                    MediaOsdBadge(
+                        label = labelB,
+                        info = infoB,
+                        nativeSize = bitmapB.width to bitmapB.height,
+                    )
+                    histB?.let { h ->
+                        Spacer(Modifier.height(4.dp))
+                        MiniHistogramOverlay(h, modifier = Modifier.padding(start = 6.dp))
+                    }
+                }
             }
         }
 
@@ -614,7 +767,7 @@ private fun SideBySideCompareView(
             }
         }
 
-        // FastStone Style Zoom Control Toolbar (Fit, 100%, 200%, 400%)
+        // FastStone Style Zoom Control Toolbar (Fit, 100%, 200%, 400% + Slot B Alignment Offset)
         Surface(
             color = Color.Black.copy(alpha = 0.80f),
             shape = RoundedCornerShape(4.dp),
@@ -649,6 +802,30 @@ private fun SideBySideCompareView(
                                     applyZoomPreset(s)
                                 }
                             }
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                    )
+                }
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = if (unlockSlotBAlign) {
+                        if (language == AppLanguage.KO) "🔓 B위치 보정중" else "🔓 Align B"
+                    } else {
+                        if (language == AppLanguage.KO) "🔒 동기화 이동" else "🔒 Sync Pan"
+                    },
+                    fontSize = 10.sp,
+                    fontWeight = if (unlockSlotBAlign) FontWeight.Bold else FontWeight.Medium,
+                    color = if (unlockSlotBAlign) AppColors.NeonOrange else Color(0xFFABB2BF),
+                    modifier = Modifier
+                        .clickable { unlockSlotBAlign = !unlockSlotBAlign }
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                )
+                if (slotBDeltaOffset != Offset.Zero) {
+                    Text(
+                        text = if (language == AppLanguage.KO) "[0,0 초기화]" else "[Reset 0,0]",
+                        fontSize = 9.5.sp,
+                        color = AppColors.NeonBlue,
+                        modifier = Modifier
+                            .clickable { slotBDeltaOffset = Offset.Zero }
                             .padding(horizontal = 4.dp, vertical = 2.dp),
                     )
                 }

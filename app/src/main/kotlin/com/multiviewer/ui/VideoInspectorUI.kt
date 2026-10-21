@@ -114,13 +114,15 @@ fun VideoInspectorUI(
     // column (split via a second, vertical DraggableDivider) moved to DetailedPropertiesPanel's
     // Overview tab, so this row now fills the whole center panel.
     var videoGopSplit by remember { mutableStateOf(0.35f) }
-    // Filmstrip gets a compact share (~0.32) so it does not dominate the center panel,
-    // with the GOP timeline taking 0.68. User-draggable anytime via divider.
-    var gopFilmstripSplit by remember { mutableStateOf(0.68f) }
+    // Filmstrip gets a generous default share (~0.45) so frame thumbnails are large and easy to inspect,
+    // with the GOP timeline taking 0.55. User-draggable anytime via divider.
+    var gopFilmstripSplit by remember { mutableStateOf(0.55f) }
     val supportsAvTimeline = !isAv2VideoTrack(tab.root)
     var avTimelineExpanded by remember(tab) { mutableStateOf(false) }
+    var avTimelineFocusMode by remember(tab) { mutableStateOf(false) }
     var livePlayerPlaying by remember(tab) { mutableStateOf(false) }
     var livePlayerDisplayed by remember(tab) { mutableStateOf<FramePosition?>(null) }
+    var livePlayerPtsSeconds by remember(tab) { mutableStateOf<Double?>(null) }
 
     LaunchedEffect(tab, supportsAvTimeline, avTimelineExpanded, tab.videoReadyForAnalysis) {
         if (supportsAvTimeline && avTimelineExpanded && tab.videoReadyForAnalysis &&
@@ -131,6 +133,8 @@ fun VideoInspectorUI(
 
     DashboardLayout(
         leftPanel = leftPanel,
+        verticalSplitOverride = if (supportsAvTimeline && avTimelineExpanded) 0.25f else null,
+        focusCenterPanel = supportsAvTimeline && avTimelineExpanded && avTimelineFocusMode,
         centerPanel = {
             Column(modifier = Modifier.fillMaxSize()) {
                 tab.largeResolutionWarning?.let { warning ->
@@ -138,7 +142,7 @@ fun VideoInspectorUI(
                 }
                 Row(
                     modifier = Modifier
-                        .weight(if (supportsAvTimeline && avTimelineExpanded) 0.65f else 1f)
+                        .weight(if (supportsAvTimeline && avTimelineExpanded) 0.62f else 1f)
                         .fillMaxWidth()
                         .onGloballyPositioned { topContainerWidthPx = it.size.width }
                 ) {
@@ -183,9 +187,20 @@ fun VideoInspectorUI(
                                 },
                                 onFramePresented = { pos ->
                                     livePlayerDisplayed = pos
+                                    livePlayerPtsSeconds = pos.ptsSeconds
                                     tab.currentVideoPtsSeconds = pos.ptsSeconds
                                     if (!livePlayerPlaying) {
                                         tab.gopFrames?.getOrNull(pos.number - 1)?.let { tab.selectedFrame = it }
+                                    }
+                                },
+                                onElapsedChanged = { elapsedRelSeconds ->
+                                    val basePts = tab.gopFrames?.firstOrNull()?.ptsSeconds?.coerceAtMost(0.0) ?: 0.0
+                                    val elapsedPts = basePts + elapsedRelSeconds
+                                    val lastVideoPts = tab.gopFrames?.lastOrNull()?.ptsSeconds
+                                    if (livePlayerPlaying || (lastVideoPts != null && elapsedPts > lastVideoPts)) {
+                                        val effectivePts = maxOf(elapsedPts, livePlayerDisplayed?.ptsSeconds ?: elapsedPts)
+                                        livePlayerPtsSeconds = effectivePts
+                                        tab.currentVideoPtsSeconds = effectivePts
                                     }
                                 },
                             )
@@ -235,6 +250,7 @@ fun VideoInspectorUI(
                                 FrameThumbnailFilmstrip(
                                     tab, frames,
                                     language = language,
+                                    onRequestSplitRatio = { gopFilmstripSplit = it.coerceIn(0.22f, 0.78f) },
                                     modifier = Modifier.weight(1f - gopFilmstripSplit).fillMaxWidth(),
                                 )
                             }
@@ -245,12 +261,19 @@ fun VideoInspectorUI(
                     VideoAudioTimelineView(
                         tab = tab,
                         frames = tab.gopFrames.orEmpty(),
-                        currentVideoPts = livePlayerDisplayed?.ptsSeconds,
+                        currentVideoPts = livePlayerPtsSeconds ?: livePlayerDisplayed?.ptsSeconds,
                         language = language,
                         expanded = avTimelineExpanded,
-                        onToggleExpanded = { avTimelineExpanded = !avTimelineExpanded },
+                        onToggleExpanded = {
+                            avTimelineExpanded = !avTimelineExpanded
+                            if (!avTimelineExpanded) avTimelineFocusMode = false
+                        },
+                        onTogglePlayback = { tab.videoPlayPauseRequestTick++ },
+                        focusMode = avTimelineFocusMode,
+                        onToggleFocusMode = { avTimelineFocusMode = !avTimelineFocusMode },
                         onOpenPopup = {
                             avTimelineExpanded = false
+                            avTimelineFocusMode = false
                             tab.avTimelinePopupOpen = true
                         },
                         onSelectFrame = { frame ->
@@ -259,7 +282,7 @@ fun VideoInspectorUI(
                             tab.seekTargetSeconds = frame.ptsSeconds
                             tab.seekRequestTick++
                         },
-                        modifier = if (avTimelineExpanded) Modifier.weight(0.35f).fillMaxWidth()
+                        modifier = if (avTimelineExpanded) Modifier.weight(0.38f).fillMaxWidth()
                                    else Modifier.fillMaxWidth(),
                     )
                 }

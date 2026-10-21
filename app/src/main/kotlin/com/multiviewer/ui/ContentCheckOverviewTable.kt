@@ -55,12 +55,36 @@ data class ContentCheckOverviewRow(
     val status: String,
     val statusTone: OverviewRowStatusTone,
     val verdict: String?,
+    val verdictTone: OverviewRowStatusTone = OverviewRowStatusTone.IDLE,
     val progress: CheckProgress?,
     val isRunning: Boolean,
     val isAvailable: Boolean,
     val actionLabel: String,
     val canAction: Boolean,
 )
+
+fun inferVerdictTone(verdict: String?): OverviewRowStatusTone = when {
+    verdict == null -> OverviewRowStatusTone.IDLE
+    verdict.contains("실패") || verdict.contains("오류 발견") ||
+        (verdict.contains("오류") && !verdict.contains("오류 없음") && !verdict.contains("오류 0")) ||
+        verdict.startsWith("Fail", ignoreCase = true) ||
+        verdict.contains("errors found", ignoreCase = true) ||
+        verdict.contains("issues", ignoreCase = true) -> OverviewRowStatusTone.ERROR
+    verdict.contains("경고") || verdict.contains("부분") || verdict.contains("일부 미검증") ||
+        verdict.startsWith("Warn", ignoreCase = true) ||
+        verdict.contains("warnings", ignoreCase = true) ||
+        verdict.contains("Partly unchecked", ignoreCase = true) -> OverviewRowStatusTone.WARNING
+    verdict.contains("검증 불가") || verdict.contains("해당 없음") || verdict.contains("미검증") ||
+        verdict.contains("Not verifiable", ignoreCase = true) ||
+        verdict.contains("Skipped", ignoreCase = true) ||
+        verdict.contains("unverified", ignoreCase = true) ||
+        verdict.contains("conformance unchecked", ignoreCase = true) -> OverviewRowStatusTone.IDLE
+    verdict.contains("정상") || verdict.contains("통과") || verdict.contains("오류 없음") ||
+        verdict.equals("Pass", ignoreCase = true) ||
+        verdict.contains("Conformance pass", ignoreCase = true) ||
+        verdict.contains("no errors", ignoreCase = true) -> OverviewRowStatusTone.SUCCESS
+    else -> OverviewRowStatusTone.IDLE
+}
 
 fun buildContentCheckOverviewRows(
     specs: List<CheckStageSpec>,
@@ -71,6 +95,7 @@ fun buildContentCheckOverviewRows(
     ko: Boolean,
     running: Boolean,
     fileChanged: Boolean,
+    verdictToneResolver: (CheckStage, String?) -> OverviewRowStatusTone = { _, v -> inferVerdictTone(v) },
     verdictResolver: (CheckStage) -> String?,
 ): List<ContentCheckOverviewRow> = specs
     .filterNot { spec ->
@@ -79,6 +104,10 @@ fun buildContentCheckOverviewRows(
     .map { spec ->
     val state = states[spec.stage] ?: CheckStageState(CheckRunStatus.NOT_RUN)
     val isAvailable = spec.availability == CheckAvailability.AVAILABLE
+    val verdict = if (state.status == CheckRunStatus.COMPLETED || state.status == CheckRunStatus.PARTIAL) {
+        verdictResolver(spec.stage)
+    } else null
+    val verdictTone = if (verdict != null) verdictToneResolver(spec.stage, verdict) else OverviewRowStatusTone.IDLE
     val (statusText, statusTone) = when (spec.availability) {
         CheckAvailability.UNSUPPORTED -> (if (ko) "미지원" else "Unsupported") to OverviewRowStatusTone.MUTED
         CheckAvailability.NOT_APPLICABLE -> (if (ko) "해당 없음" else "Not applicable") to OverviewRowStatusTone.MUTED
@@ -87,15 +116,20 @@ fun buildContentCheckOverviewRows(
             CheckRunStatus.NOT_RUN -> (if (ko) "미검사" else "Not run") to OverviewRowStatusTone.IDLE
             CheckRunStatus.QUEUED -> (if (ko) "대기" else "Queued") to OverviewRowStatusTone.IDLE
             CheckRunStatus.RUNNING -> (if (ko) "검사 중" else "Running") to OverviewRowStatusTone.RUNNING
-            CheckRunStatus.COMPLETED -> (if (ko) "완료" else "Completed") to OverviewRowStatusTone.SUCCESS
+            CheckRunStatus.COMPLETED -> {
+                val tone = when (verdictTone) {
+                    OverviewRowStatusTone.ERROR -> OverviewRowStatusTone.ERROR
+                    OverviewRowStatusTone.WARNING -> OverviewRowStatusTone.WARNING
+                    OverviewRowStatusTone.MUTED -> OverviewRowStatusTone.MUTED
+                    else -> OverviewRowStatusTone.SUCCESS
+                }
+                (if (ko) "완료" else "Completed") to tone
+            }
             CheckRunStatus.PARTIAL -> (if (ko) "부분 검사" else "Partial") to OverviewRowStatusTone.WARNING
             CheckRunStatus.FAILED -> (if (ko) "실패" else "Failed") to OverviewRowStatusTone.ERROR
             CheckRunStatus.CANCELLED -> (if (ko) "취소" else "Cancelled") to OverviewRowStatusTone.MUTED
         }
     }
-    val verdict = if (state.status == CheckRunStatus.COMPLETED || state.status == CheckRunStatus.PARTIAL) {
-        verdictResolver(spec.stage)
-    } else null
 
     val isRunning = state.status == CheckRunStatus.RUNNING
     val progress = if (isRunning) state.progress else null
@@ -110,6 +144,7 @@ fun buildContentCheckOverviewRows(
         status = statusText,
         statusTone = statusTone,
         verdict = verdict,
+        verdictTone = verdictTone,
         progress = progress,
         isRunning = isRunning,
         isAvailable = isAvailable,
@@ -390,10 +425,19 @@ fun ContentCheckOverviewTable(
                                         } else {
                                             val verdictText = row.verdict ?: "-"
                                             val verdictFontSize = if (verdictText.length > 30) 10.5.sp else 11.sp
+                                            val verdictColor = when {
+                                                row.verdict == null -> AppColors.TextMuted
+                                                row.verdictTone == OverviewRowStatusTone.ERROR -> AppColors.NeonRed
+                                                row.verdictTone == OverviewRowStatusTone.WARNING -> AppColors.NeonOrange
+                                                row.verdictTone == OverviewRowStatusTone.SUCCESS -> AppColors.NeonGreen
+                                                row.verdictTone == OverviewRowStatusTone.MUTED -> AppColors.TextMuted
+                                                else -> AppColors.TextPrimary
+                                            }
                                             Text(
                                                 verdictText,
-                                                color = if (row.verdict != null) AppColors.TextPrimary else AppColors.TextMuted,
+                                                color = verdictColor,
                                                 fontSize = verdictFontSize,
+                                                fontWeight = if (row.verdictTone == OverviewRowStatusTone.ERROR || row.verdictTone == OverviewRowStatusTone.WARNING) FontWeight.SemiBold else FontWeight.Normal,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
                                             )

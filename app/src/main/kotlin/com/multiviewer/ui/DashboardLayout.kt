@@ -67,12 +67,16 @@ fun DashboardLayout(
     bottomPanel: @Composable ColumnScope.() -> Unit,
     leftPanelDefaultWidthDp: Float = LEFT_PANEL_DEFAULT_WIDTH_DP,
     rightPanelDefaultWidthDp: Float = RIGHT_PANEL_DEFAULT_WIDTH_DP,
+    verticalSplitOverride: Float? = null,
+    focusCenterPanel: Boolean = false,
 ) {
     var containerHeightPx by remember { mutableStateOf(0) }
     // 0.75 -> 0.6: shrinks the top row's (left+center+right) real height allocation so the bottom
     // Hex & Raw Data Viewer panel gets more room by default -- still a user-draggable ratio, not a
     // fixed pixel height.
     var verticalSplit by remember { mutableStateOf(loadVerticalSplit(0.6f)) }
+    var overrideAdjustedSplit by remember(verticalSplitOverride) { mutableStateOf(verticalSplitOverride) }
+    val effectiveVerticalSplit = (overrideAdjustedSplit ?: verticalSplit).coerceIn(0.15f, 0.85f)
     // Left (Structure) and right (Detailed Properties) panels start at their default widths but
     // the user can drag either wider.
     var leftPanelWidthDp by remember { mutableStateOf(loadLeftPanelWidth(leftPanelDefaultWidthDp)) }
@@ -84,73 +88,79 @@ fun DashboardLayout(
             .background(AppColors.Background)
             .onGloballyPositioned { containerHeightPx = it.size.height },
     ) {
-        Row(modifier = Modifier.weight(verticalSplit).fillMaxWidth()) {
-            // Left Panel (Structure)
-            Column(
-                modifier = Modifier
-                    .width(leftPanelWidthDp.dp)
-                    .fillMaxHeight()
-                    .border(1.dp, AppColors.Border)
-                    .background(AppColors.Surface)
-            ) {
-                leftPanel()
+        if (!focusCenterPanel) {
+            Row(modifier = Modifier.weight(effectiveVerticalSplit).fillMaxWidth()) {
+                // Left Panel (Structure)
+                Column(
+                    modifier = Modifier
+                        .width(leftPanelWidthDp.dp)
+                        .fillMaxHeight()
+                        .border(1.dp, AppColors.Border)
+                        .background(AppColors.Surface)
+                ) {
+                    leftPanel()
+                }
+
+                VerticalResizeHandle { deltaDp ->
+                    leftPanelWidthDp = (leftPanelWidthDp + deltaDp).coerceIn(LEFT_PANEL_MIN_WIDTH_DP, LEFT_PANEL_MAX_WIDTH_DP)
+                    saveLeftPanelWidth(leftPanelWidthDp)
+                }
+
+                // Right Panel (Properties) -- rendered immediately beside the structure tree rather
+                // than at the far edge, so Overview/Detailed Properties sits next to the structure
+                // node driving it. Still called "rightPanel" (its logical role, matched by every
+                // DashboardLayout call site) even though it no longer renders on the physical right.
+                Column(
+                    modifier = Modifier
+                        .width(rightPanelWidthDp.dp)
+                        .fillMaxHeight()
+                        .border(1.dp, AppColors.Border)
+                        .background(AppColors.Surface)
+                ) {
+                    rightPanel()
+                }
+
+                VerticalResizeHandle { deltaDp ->
+                    // This panel is now left-of-handle (like leftPanelWidthDp above), so a rightward
+                    // drag grows it too -- sign flipped from the old right-edge position.
+                    rightPanelWidthDp = (rightPanelWidthDp + deltaDp).coerceIn(RIGHT_PANEL_MIN_WIDTH_DP, RIGHT_PANEL_MAX_WIDTH_DP)
+                    saveRightPanelWidth(rightPanelWidthDp)
+                }
+
+                // Bottom Panel (Hex) -- rendered here now, directly beside Properties, so the byte
+                // view sits next to the field that jumps it to an offset. Takes whatever width
+                // remains, same slot the Center Panel used to occupy.
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .border(1.dp, AppColors.Border)
+                        .background(AppColors.Panel)
+                ) {
+                    bottomPanel()
+                }
             }
 
-            VerticalResizeHandle { deltaDp ->
-                leftPanelWidthDp = (leftPanelWidthDp + deltaDp).coerceIn(LEFT_PANEL_MIN_WIDTH_DP, LEFT_PANEL_MAX_WIDTH_DP)
-                saveLeftPanelWidth(leftPanelWidthDp)
-            }
-
-            // Right Panel (Properties) -- rendered immediately beside the structure tree rather
-            // than at the far edge, so Overview/Detailed Properties sits next to the structure
-            // node driving it. Still called "rightPanel" (its logical role, matched by every
-            // DashboardLayout call site) even though it no longer renders on the physical right.
-            Column(
-                modifier = Modifier
-                    .width(rightPanelWidthDp.dp)
-                    .fillMaxHeight()
-                    .border(1.dp, AppColors.Border)
-                    .background(AppColors.Surface)
-            ) {
-                rightPanel()
-            }
-
-            VerticalResizeHandle { deltaDp ->
-                // This panel is now left-of-handle (like leftPanelWidthDp above), so a rightward
-                // drag grows it too -- sign flipped from the old right-edge position.
-                rightPanelWidthDp = (rightPanelWidthDp + deltaDp).coerceIn(RIGHT_PANEL_MIN_WIDTH_DP, RIGHT_PANEL_MAX_WIDTH_DP)
-                saveRightPanelWidth(rightPanelWidthDp)
-            }
-
-            // Bottom Panel (Hex) -- rendered here now, directly beside Properties, so the byte
-            // view sits next to the field that jumps it to an offset. Takes whatever width
-            // remains, same slot the Center Panel used to occupy.
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .border(1.dp, AppColors.Border)
-                    .background(AppColors.Panel)
-            ) {
-                bottomPanel()
-            }
+            DraggableDivider(
+                orientation = Orientation.Horizontal,
+                containerSizePx = containerHeightPx,
+                getSplit = { effectiveVerticalSplit },
+                setSplit = {
+                    if (overrideAdjustedSplit != null) {
+                        overrideAdjustedSplit = it
+                    } else {
+                        verticalSplit = it
+                        saveVerticalSplit(it)
+                    }
+                },
+            )
         }
-
-        DraggableDivider(
-            orientation = Orientation.Horizontal,
-            containerSizePx = containerHeightPx,
-            getSplit = { verticalSplit },
-            setSplit = {
-                verticalSplit = it
-                saveVerticalSplit(it)
-            },
-        )
 
         // Center Panel (Visual Canvas: thumbnail/image/video player/frame analysis/waveform/
         // spectrogram) -- now full-width along the bottom, the old Hex panel's former spot.
         Column(
             modifier = Modifier
-                .weight(1f - verticalSplit)
+                .weight(if (focusCenterPanel) 1f else (1f - effectiveVerticalSplit))
                 .fillMaxWidth()
                 .border(1.dp, AppColors.Border)
         ) {

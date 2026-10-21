@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.LinearProgressIndicator
@@ -40,6 +41,7 @@ import androidx.compose.ui.window.rememberWindowState
 import com.multiviewer.parser.metadata.SensorType
 import com.multiviewer.parser.metadata.TimedMetadataReport
 import com.multiviewer.parser.metadata.readTimedMetadataReport
+import com.multiviewer.util.ClipboardUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -177,8 +179,29 @@ fun TimedMetadataTimelineWindow(
                             )
                         }
 
-                        OutlinedButton(onClick = { saveCsv() }, shape = AppControlShape) {
-                            Text(label("CSV 저장", "Save CSV"), fontSize = 12.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    val text = buildString {
+                                        appendLine("# Timed Metadata Sensor Timeline — ${tab.file.name}")
+                                        appendLine(String.format(Locale.US, "- Track #%d (%s) · %d samples · %.2fs · %.1f Hz", r.trackId, r.trackFormat.uppercase(Locale.US), r.totalSamples, r.durationSeconds, r.sampleRateHz))
+                                        appendLine()
+                                        appendLine("SampleIndex\tTime(s)\tType\tX\tY\tZ\tLabel")
+                                        r.samples.forEach { p ->
+                                            appendLine(String.format(Locale.US, "%d\t%.4f\t%s\t%.4f\t%.4f\t%.4f\t%s", p.sampleIndex, p.timestampSeconds, p.type.name, p.x, p.y, p.z, p.label ?: ""))
+                                        }
+                                    }.trimEnd()
+                                    if (ClipboardUtil.copyToClipboard(text)) {
+                                        saveStatus = label("✓ 클립보드에 리포트 복사됨", "✓ Report copied to clipboard")
+                                    }
+                                },
+                                shape = AppControlShape,
+                            ) {
+                                Text(label("📋 리포트 복사", "📋 Copy Report"), fontSize = 12.sp)
+                            }
+                            OutlinedButton(onClick = { saveCsv() }, shape = AppControlShape) {
+                                Text(label("CSV 저장", "Save CSV"), fontSize = 12.sp)
+                            }
                         }
                     }
 
@@ -245,47 +268,52 @@ fun TimedMetadataTimelineWindow(
                     )
 
                     // Samples Table
-                    Column(
+                    SelectionContainer(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f)
-                            .background(AppColors.Panel, RoundedCornerShape(4.dp))
-                            .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
-                            .padding(8.dp),
+                            .weight(1f),
                     ) {
-                        Text(
-                            String.format(Locale.US, "%-6s %10s  %-12s  %-12s  %-12s  %-8s %s", "sample", "time", "X", "Y", "Z", "type", "description"),
-                            color = AppColors.TextSecondary,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            maxLines = 1,
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
-                        )
-                        LazyColumn(state = tableState, modifier = Modifier.fillMaxWidth().weight(1f)) {
-                            itemsIndexed(filteredPoints) { _, p ->
-                                val isSelected = selectedSampleIndex == p.sampleIndex
-                                val line = String.format(
-                                    Locale.US,
-                                    "%-6d %9.3fs  %12.4f  %12.4f  %12.4f  %-8s %s",
-                                    p.sampleIndex,
-                                    p.timestampSeconds,
-                                    p.x,
-                                    p.y,
-                                    p.z,
-                                    p.type.name,
-                                    p.label ?: "",
-                                )
-                                Text(
-                                    text = line,
-                                    color = if (isSelected) Color.White else AppColors.TextPrimary,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.sp,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(if (isSelected) AppColors.Selection else Color.Transparent)
-                                        .clickable { selectedSampleIndex = p.sampleIndex }
-                                        .padding(vertical = 2.dp),
-                                )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(AppColors.Panel, RoundedCornerShape(4.dp))
+                                .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp))
+                                .padding(8.dp),
+                        ) {
+                            Text(
+                                String.format(Locale.US, "%-6s %10s  %-12s  %-12s  %-12s  %-8s %s", "sample", "time", "X", "Y", "Z", "type", "description"),
+                                color = AppColors.TextSecondary,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                            )
+                            LazyColumn(state = tableState, modifier = Modifier.fillMaxWidth().weight(1f)) {
+                                itemsIndexed(filteredPoints) { _, p ->
+                                    val isSelected = selectedSampleIndex == p.sampleIndex
+                                    val line = String.format(
+                                        Locale.US,
+                                        "%-6d %9.3fs  %12.4f  %12.4f  %12.4f  %-8s %s",
+                                        p.sampleIndex,
+                                        p.timestampSeconds,
+                                        p.x,
+                                        p.y,
+                                        p.z,
+                                        p.type.name,
+                                        p.label ?: "",
+                                    )
+                                    Text(
+                                        text = line,
+                                        color = if (isSelected) Color.White else AppColors.TextPrimary,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 11.sp,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(if (isSelected) AppColors.Selection else Color.Transparent)
+                                            .clickable { selectedSampleIndex = p.sampleIndex }
+                                            .padding(vertical = 2.dp),
+                                    )
+                                }
                             }
                         }
                     }

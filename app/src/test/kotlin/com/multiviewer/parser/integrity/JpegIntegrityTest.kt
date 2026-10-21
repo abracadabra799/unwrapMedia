@@ -105,4 +105,13 @@ class JpegIntegrityTest {
         assertTrue(detail.contains("Samsung SEF trailer"), detail)
         assertFalse(detail.contains(hint), detail)
     }
+
+    @Test
+    fun `corrupted SEF trailer after EOI fails jpeg trailing check`() {
+        val brokenSef = ByteArray(20) + "SEFT".toByteArray(Charsets.US_ASCII)
+        val r = checkBytes(jpegBytes(trailing = brokenSef), "jpg")
+        val item = r.item("jpeg.trailing")
+        assertEquals(CheckStatus.FAIL, item.status, item.detail)
+        assertEquals(CheckStatus.FAIL, r.overall)
+    }
 }

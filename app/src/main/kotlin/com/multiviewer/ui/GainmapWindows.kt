@@ -119,15 +119,65 @@ fun GainmapAnalyzerWindow(
                                     style = AppTypography.bodyMedium.copy(fontSize = 12.sp, color = AppColors.TextSecondary),
                                 )
                             }
-                            if (gainmap.hasGainmapImage) {
+                            var reportCopied by remember { mutableStateOf(false) }
+                            LaunchedEffect(reportCopied) {
+                                if (reportCopied) {
+                                    delay(2000)
+                                    reportCopied = false
+                                }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Button(
-                                    onClick = onSaveImage,
-                                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.NeonGreen),
-                                    modifier = Modifier.border(1.dp, AppColors.NeonGreen.copy(alpha = 0.5f), RoundedCornerShape(4.dp)),
+                                    onClick = {
+                                        val params = gainmap.parameters
+                                        val text = buildString {
+                                            appendLine("# Gain Map Report — ${tab.file.name}")
+                                            appendLine("- Format: ${gainmap.formatType.displayName}")
+                                            appendLine("- Summary: ${gainmap.summaryDescription}")
+                                            appendLine("- Metadata Sources: ${gainmap.metadataSources.joinToString(" · ") { it.displayName }}")
+                                            if (params != null) {
+                                                appendLine()
+                                                appendLine("## Parameters")
+                                                appendLine("- GainMapMin: ${params.gainMapMin ?: "-"}")
+                                                appendLine("- GainMapMax: ${params.gainMapMax ?: "-"}")
+                                                appendLine("- Gamma: ${params.gamma ?: "-"}")
+                                                appendLine("- OffsetSDR: ${params.offsetSdr ?: "-"}")
+                                                appendLine("- OffsetHDR: ${params.offsetHdr ?: "-"}")
+                                                appendLine("- HDRCapacityMin: ${params.hdrCapacityMin ?: "-"}")
+                                                appendLine("- HDRCapacityMax: ${params.hdrCapacityMax ?: "-"}")
+                                                appendLine("- BaseRenditionIsHDR: ${params.baseRenditionIsHdr ?: "-"}")
+                                            }
+                                            appendLine()
+                                            appendLine("## Gain Map Payload")
+                                            appendLine("- Resolution: ${gainmap.imageWidth ?: "?"} x ${gainmap.imageHeight ?: "?"}")
+                                            appendLine("- Format: ${gainmap.imageFormat ?: "JPEG"}")
+                                            appendLine("- Byte Offset: ${gainmap.byteOffset ?: "-"}")
+                                            appendLine("- Byte Length: ${gainmap.byteLength ?: "-"}")
+                                        }.trimEnd()
+                                        if (ClipboardUtil.copyToClipboard(text)) {
+                                            reportCopied = true
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (reportCopied) AppColors.NeonGreen.copy(alpha = 0.8f) else AppColors.Panel,
+                                        contentColor = if (reportCopied) Color.Black else AppColors.NeonBlue,
+                                    ),
+                                    modifier = Modifier.border(1.dp, if (reportCopied) AppColors.NeonGreen else AppColors.NeonBlue.copy(alpha = 0.5f), RoundedCornerShape(4.dp)),
                                     shape = RoundedCornerShape(4.dp),
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                 ) {
-                                    Text(I18n.btnSaveGainmapImage(language), fontSize = 12.sp)
+                                    Text(if (reportCopied) label("✓ 복사됨", "✓ Copied") else label("📋 리포트 복사", "📋 Copy Report"), fontSize = 12.sp)
+                                }
+                                if (gainmap.hasGainmapImage) {
+                                    Button(
+                                        onClick = onSaveImage,
+                                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Panel, contentColor = AppColors.NeonGreen),
+                                        modifier = Modifier.border(1.dp, AppColors.NeonGreen.copy(alpha = 0.5f), RoundedCornerShape(4.dp)),
+                                        shape = RoundedCornerShape(4.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    ) {
+                                        Text(I18n.btnSaveGainmapImage(language), fontSize = 12.sp)
+                                    }
                                 }
                             }
                         }
@@ -166,10 +216,10 @@ fun GainmapAnalyzerWindow(
                                 .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp)),
                         ) {
                             when (page) {
-                                GainmapAnalyzerPage.OVERVIEW -> GainmapParametersCardView(gainmap, language)
+                                GainmapAnalyzerPage.OVERVIEW -> SelectionContainer { GainmapParametersCardView(gainmap, language) }
                                 GainmapAnalyzerPage.IMAGE -> GainmapImagePage(tab, gainmap, language)
                                 GainmapAnalyzerPage.HDR_PREVIEW -> GainmapHdrPreviewPage(tab, gainmap, language)
-                                GainmapAnalyzerPage.CHECK -> GainmapCheckPage(tab, language)
+                                GainmapAnalyzerPage.CHECK -> SelectionContainer { GainmapCheckPage(tab, language) }
                                 GainmapAnalyzerPage.RAW_METADATA -> GainmapRawMetadataPage(gainmap, language)
                             }
                         }

@@ -308,8 +308,6 @@ object MotionPhotoIntegrityAnalyzer {
             val isHeicContainer = root.children.firstOrNull()?.type == "ftyp"
             val hasMotionPhoto = sefSection?.directoryEntries?.any { it.name == "MotionPhoto_Data" } == true || googleChecks.isNotEmpty()
             val appleChecks = analyzeAppleMpvdSection(root, file.length(), requireMpvd = isHeicContainer && hasMotionPhoto)
-            val decodeChecks = analyzeDecodability(file, video)
-
             val detectedFormats = buildList {
                 // MotionPhoto_Data is mandatory for a file to actually BE a SEF motion photo --
                 // MotionPhoto_AutoPlay/MotionPhoto_Version are optional. A bare sefd box (ordinary
@@ -335,6 +333,20 @@ object MotionPhotoIntegrityAnalyzer {
                 }
                 if (googleChecks.isNotEmpty()) add(MotionPhotoFormat.GOOGLE_XMP)
                 if (appleChecks.isNotEmpty()) add(MotionPhotoFormat.APPLE_MPVD)
+            }
+
+            val decodeChecks = if (video != null) {
+                analyzeDecodability(file, video)
+            } else if (detectedFormats.isNotEmpty()) {
+                listOf(
+                    SefCheckResult(
+                        SefIntegritySeverity.CRITICAL,
+                        "임베디드 비디오 디코딩 확인",
+                        "모션포토 메타데이터가 감지되었으나 유효한 임베디드 비디오 스트림을 추출할 수 없어 디코딩할 수 없습니다",
+                    ),
+                )
+            } else {
+                emptyList()
             }
 
             val allSeverities = (sefSection?.let { it.structuralChecks + it.semanticChecks }?.map { it.severity } ?: emptyList()) +

@@ -373,3 +373,377 @@ internal fun AvSyncSegmentBar(
         }
     }
 }
+
+/**
+ * Visual dual-track alignment bar showing exact Video vs Audio start/end boundaries,
+ * head offset, and tail overhang/truncation on a shared time axis.
+ */
+@Composable
+internal fun AvTrackAlignmentDiagram(
+    report: AvSyncReport,
+    modifier: Modifier = Modifier,
+) {
+    val textMeasurer = rememberTextMeasurer()
+    val labelStyle = TextStyle(color = Color(0xFFE8EAED), fontSize = 10.sp)
+    val subStyle = TextStyle(color = Color(0xFF9AA0A6), fontSize = 9.sp)
+
+    val vStart = report.videoStartPtsSec
+    val vEnd = report.videoEndPtsSec.coerceAtLeast(vStart)
+    val aStart = report.audioStartPtsSec
+    val aEnd = report.audioEndPtsSec.coerceAtLeast(aStart)
+
+    val axisMin = minOf(0.0, vStart, aStart, report.rawVideoFirstPtsSec, report.rawAudioFirstPtsSec)
+    val axisMax = maxOf(vEnd, aEnd, axisMin + 0.01)
+    val axisSpan = (axisMax - axisMin).coerceAtLeast(0.01)
+
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val padLeft = 74f
+        val padRight = 18f
+        val trackW = (w - padLeft - padRight).coerceAtLeast(10f)
+
+        fun toX(sec: Double): Float = padLeft + (((sec - axisMin) / axisSpan).toFloat().coerceIn(0f, 1f) * trackW)
+
+        val vRowTop = 10f
+        val barH = 22f
+        val aRowTop = 44f
+
+        // Labels on the left
+        drawText(textMeasurer, "VIDEO (v:0)", topLeft = Offset(4f, vRowTop + 3f), style = labelStyle.copy(color = Color(0xFF64B5F6)))
+        drawText(textMeasurer, "AUDIO (a:0)", topLeft = Offset(4f, aRowTop + 3f), style = labelStyle.copy(color = Color(0xFF81C784)))
+
+        // Track background lanes
+        drawRoundRect(
+            color = Color(0xFF1F242B),
+            topLeft = Offset(padLeft, vRowTop),
+            size = Size(trackW, barH),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 4f),
+        )
+        drawRoundRect(
+            color = Color(0xFF1F242B),
+            topLeft = Offset(padLeft, aRowTop),
+            size = Size(trackW, barH),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 4f),
+        )
+
+        val vx0 = toX(vStart)
+        val vx1 = toX(vEnd).coerceAtLeast(vx0 + 2f)
+        val ax0 = toX(aStart)
+        val ax1 = toX(aEnd).coerceAtLeast(ax0 + 2f)
+
+        // Head offset highlight region if |initialSkewMs| > 10ms
+        if (abs(report.initialSkewMs) > 10.0) {
+            val hx0 = minOf(vx0, ax0)
+            val hx1 = maxOf(vx0, ax0).coerceAtLeast(hx0 + 3f)
+            val headColor = if (abs(report.initialSkewMs) > 100.0) Color(0x55EF5350) else Color(0x55FFB74D)
+            drawRect(color = headColor, topLeft = Offset(hx0, vRowTop), size = Size(hx1 - hx0, aRowTop + barH - vRowTop))
+        }
+
+        // Tail mismatch highlight region if |tailOverhangMs| > 20ms
+        if (abs(report.tailOverhangMs) > 20.0) {
+            val tx0 = minOf(vx1, ax1)
+            val tx1 = maxOf(vx1, ax1).coerceAtLeast(tx0 + 3f)
+            val tailColor = if (abs(report.tailOverhangMs) > 250.0) Color(0x55EF5350) else Color(0x55FFB74D)
+            drawRect(color = tailColor, topLeft = Offset(tx0, vRowTop), size = Size(tx1 - tx0, aRowTop + barH - vRowTop))
+        }
+
+        // Video bar
+        drawRoundRect(
+            color = Color(0xFF1976D2),
+            topLeft = Offset(vx0, vRowTop),
+            size = Size(vx1 - vx0, barH),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 4f),
+        )
+        val vFpsStr = if (report.nominalVideoStepMs > 0) String.format(java.util.Locale.US, "%.1ffps", 1000.0 / report.nominalVideoStepMs) else ""
+        val vText = String.format(
+            java.util.Locale.US,
+            "%.3fs ~ %.3fs  (길이 %.3fs · %df %s)",
+            vStart, vEnd, report.videoDurationSec, report.videoPacketCount, vFpsStr,
+        )
+        drawText(textMeasurer, vText, topLeft = Offset((vx0 + 6f).coerceAtMost(w - 220f), vRowTop + 4f), style = labelStyle)
+
+        // Raw AAC priming marker if before audio start
+        if (report.rawAudioFirstPtsSec < aStart - 0.002) {
+            val rawAx = toX(report.rawAudioFirstPtsSec)
+            drawRect(
+                color = Color(0x88FFB74D),
+                topLeft = Offset(rawAx, aRowTop + 2f),
+                size = Size((ax0 - rawAx).coerceAtLeast(2f), barH - 4f),
+            )
+        }
+
+        // Audio bar
+        drawRoundRect(
+            color = Color(0xFF388E3C),
+            topLeft = Offset(ax0, aRowTop),
+            size = Size(ax1 - ax0, barH),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 4f),
+        )
+        val aPrimingNote = if (abs(report.rawAudioFirstPtsSec - aStart) > 0.002) {
+            String.format(java.util.Locale.US, " [raw첫PTS %+.1fms]", report.rawAudioFirstPtsSec * 1000.0)
+        } else ""
+        val aText = String.format(
+            java.util.Locale.US,
+            "%.3fs ~ %.3fs  (길이 %.3fs · %d pkts)%s",
+            aStart, aEnd, report.audioDurationSec, report.audioPacketCount, aPrimingNote,
+        )
+        drawText(textMeasurer, aText, topLeft = Offset((ax0 + 6f).coerceAtMost(w - 260f), aRowTop + 4f), style = labelStyle)
+
+        // Bottom summary line for Head & Tail delta
+        val footerY = aRowTop + barH + 6f
+        if (footerY + 12f <= h) {
+            val headDesc = String.format(
+                java.util.Locale.US,
+                "◀ 시작 차이(ΔStart): %+.1f ms (%s)",
+                report.initialSkewMs,
+                when {
+                    abs(report.initialSkewMs) <= 5.0 -> "시작점 일치"
+                    report.initialSkewMs > 0 -> "오디오가 먼저 시작"
+                    else -> "비디오가 먼저 시작"
+                },
+            )
+            val tailDesc = String.format(
+                java.util.Locale.US,
+                "종료 차이(ΔEnd): %+.1f ms (%s) ▶",
+                report.tailOverhangMs,
+                when {
+                    abs(report.tailOverhangMs) <= 20.0 -> "종료점 일치"
+                    report.tailOverhangMs > 0 -> "비디오 종료 후 오디오 잔류"
+                    else -> "오디오 조기 종료 / 비디오 잔류"
+                },
+            )
+            drawText(textMeasurer, headDesc, topLeft = Offset(padLeft, footerY), style = subStyle)
+            val tailMeasured = textMeasurer.measure(tailDesc, subStyle)
+            drawText(
+                tailMeasured,
+                topLeft = Offset((w - padRight - tailMeasured.size.width).coerceAtLeast(padLeft + 220f), footerY),
+            )
+        }
+    }
+}
+
+/**
+ * ITU-R BT.1359 Lip-Sync acceptability gauge (-200ms to +200ms).
+ * Asymmetric thresholds: Undetectable [-45ms, +15ms], Acceptable [-125ms, +45ms].
+ */
+@Composable
+internal fun ItuLipSyncGauge(
+    initialSkewMs: Double,
+    minSkewMs: Double,
+    maxSkewMs: Double,
+    modifier: Modifier = Modifier,
+) {
+    val textMeasurer = rememberTextMeasurer()
+    val axisStyle = TextStyle(color = Color(0xFF9AA0A6), fontSize = 9.sp)
+    val badgeStyle = TextStyle(color = Color.White, fontSize = 9.5.sp)
+
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val padX = 24f
+        val barW = (w - padX * 2).coerceAtLeast(10f)
+        val barTop = 18f
+        val barH = 14f
+        val minScale = -200.0
+        val maxScale = 200.0
+
+        fun toX(ms: Double): Float {
+            val clamped = ms.coerceIn(minScale, maxScale)
+            return padX + (((clamped - minScale) / (maxScale - minScale)).toFloat() * barW)
+        }
+
+        // Unacceptable background (-200..+200)
+        drawRoundRect(
+            color = Color(0x44C62828),
+            topLeft = Offset(padX, barTop),
+            size = Size(barW, barH),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(3f, 3f),
+        )
+        // Acceptable zone (-125ms .. +45ms)
+        val xAccLeft = toX(-125.0)
+        val xAccRight = toX(45.0)
+        drawRect(
+            color = Color(0x55F57F17),
+            topLeft = Offset(xAccLeft, barTop),
+            size = Size(xAccRight - xAccLeft, barH),
+        )
+        // Undetectable / ideal comfort zone (-45ms .. +15ms)
+        val xIdealLeft = toX(-45.0)
+        val xIdealRight = toX(15.0)
+        drawRect(
+            color = Color(0x882E7D32),
+            topLeft = Offset(xIdealLeft, barTop),
+            size = Size(xIdealRight - xIdealLeft, barH),
+        )
+
+        // Span bar [minSkewMs .. maxSkewMs]
+        val xMin = toX(minSkewMs)
+        val xMax = toX(maxSkewMs)
+        drawLine(
+            color = Color(0xFF64B5F6),
+            start = Offset(xMin, barTop + barH / 2f),
+            end = Offset(xMax.coerceAtLeast(xMin + 2f), barTop + barH / 2f),
+            strokeWidth = 4f,
+        )
+
+        // 0ms center line
+        val xZero = toX(0.0)
+        drawLine(Color.White.copy(alpha = 0.7f), Offset(xZero, barTop - 3f), Offset(xZero, barTop + barH + 3f), strokeWidth = 1.5f)
+
+        // Initial Skew Marker
+        val xInit = toX(initialSkewMs)
+        drawCircle(color = Color(0xFFFFEB3B), radius = 6f, center = Offset(xInit, barTop + barH / 2f))
+        drawCircle(color = Color(0xFF1E1E1E), radius = 2.5f, center = Offset(xInit, barTop + barH / 2f))
+
+        // Top labels
+        drawText(textMeasurer, "◀ 비디오 선행 (오디오 지연)", topLeft = Offset(padX, 2f), style = axisStyle)
+        val rightLabel = textMeasurer.measure("오디오 선행 (비디오 지연) ▶", axisStyle)
+        drawText(rightLabel, topLeft = Offset((w - padX - rightLabel.size.width).coerceAtLeast(padX + 120f), 2f))
+
+        val initTag = String.format(java.util.Locale.US, "시작 %+.1fms", initialSkewMs)
+        val initLayout = textMeasurer.measure(initTag, badgeStyle)
+        drawText(
+            initLayout,
+            topLeft = Offset((xInit - initLayout.size.width / 2f).coerceIn(padX, (w - padX - initLayout.size.width).coerceAtLeast(padX)), 2f),
+        )
+
+        // Bottom threshold ticks
+        listOf(-200.0 to "-200", -125.0 to "-125(한계)", -45.0 to "-45", 0.0 to "0ms", 45.0 to "+45(한계)", 200.0 to "+200").forEach { (ms, txt) ->
+            val tx = toX(ms)
+            drawLine(Color(0x55FFFFFF), Offset(tx, barTop + barH), Offset(tx, barTop + barH + 3f), strokeWidth = 1f)
+            val m = textMeasurer.measure(txt, axisStyle)
+            drawText(m, topLeft = Offset((tx - m.size.width / 2f).coerceIn(2f, (w - m.size.width - 2f).coerceAtLeast(2f)), barTop + barH + 4f))
+        }
+    }
+}
+
+/**
+ * Plots actual frame-to-frame / packet-to-packet PTS intervals (ΔPTS in ms)
+ * to make frame drops, VFR stalls, and audio packet gaps immediately visible.
+ */
+@Composable
+internal fun AvIntervalJitterGraph(
+    report: AvSyncReport,
+    selectedPoint: SyncPoint?,
+    onSelectPoint: (SyncPoint?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val textMeasurer = rememberTextMeasurer()
+    val axisStyle = TextStyle(color = Color(0xFF9AA0A6), fontSize = 9.sp)
+    val vSamples = report.videoIntervalSamples
+    val aSamples = report.audioIntervalSamples
+    if (vSamples.isEmpty() && aSamples.isEmpty()) return
+
+    val allTimes = (vSamples.map { it.timeSeconds } + aSamples.map { it.timeSeconds })
+    val t0 = allTimes.minOrNull() ?: 0.0
+    val span = ((allTimes.maxOrNull() ?: 1.0) - t0).coerceAtLeast(0.01)
+
+    val maxPlottedMs = maxOf(
+        vSamples.maxOfOrNull { it.deltaPtsMs } ?: 0.0,
+        aSamples.maxOfOrNull { it.deltaPtsMs } ?: 0.0,
+        report.nominalVideoStepMs * 2.5,
+        60.0,
+    ) * 1.15
+
+    Canvas(
+        modifier = modifier.pointerInput(report.syncPoints) {
+            detectTapGestures { offset ->
+                if (report.syncPoints.isEmpty()) return@detectTapGestures
+                val padX = 42f
+                val graphW = (size.width - padX * 2).coerceAtLeast(1f)
+                val frac = ((offset.x - padX) / graphW).coerceIn(0f, 1f)
+                val targetTime = t0 + frac * span
+                onSelectPoint(report.syncPoints.minByOrNull { abs(it.timeSeconds - targetTime) })
+            }
+        }
+    ) {
+        val w = size.width
+        val h = size.height
+        val padX = 42f
+        val padY = 22f
+        val graphW = (w - padX * 2).coerceAtLeast(1f)
+        val graphH = (h - padY * 2).coerceAtLeast(1f)
+
+        fun toX(sec: Double): Float = padX + (((sec - t0) / span).toFloat().coerceIn(0f, 1f) * graphW)
+        fun toY(ms: Double): Float {
+            val clamped = ms.coerceIn(0.0, maxPlottedMs)
+            return padY + graphH - ((clamped / maxPlottedMs).toFloat() * graphH)
+        }
+
+        // Baseline & nominal interval reference lines
+        val yZero = toY(0.0)
+        drawLine(Color(0x55FFFFFF), Offset(padX, yZero), Offset(w - padX, yZero), strokeWidth = 1f)
+
+        val yNomV = toY(report.nominalVideoStepMs)
+        drawLine(Color(0x5564B5F6), Offset(padX, yNomV), Offset(w - padX, yNomV), strokeWidth = 1f)
+        drawText(
+            textMeasurer,
+            String.format(java.util.Locale.US, "V 정상 %.1fms", report.nominalVideoStepMs),
+            topLeft = Offset(2f, (yNomV - 6f).coerceIn(padY, h - padY - 12f)),
+            style = axisStyle.copy(color = Color(0xFF64B5F6)),
+        )
+
+        val yNomA = toY(report.nominalAudioStepMs)
+        drawLine(Color(0x5581C784), Offset(padX, yNomA), Offset(w - padX, yNomA), strokeWidth = 1f)
+
+        // Y-axis top tick
+        drawText(
+            textMeasurer,
+            String.format(java.util.Locale.US, "%.0fms", maxPlottedMs),
+            topLeft = Offset(2f, padY),
+            style = axisStyle,
+        )
+
+        // Plot Audio interval line
+        if (aSamples.isNotEmpty()) {
+            val aPath = Path()
+            aSamples.forEachIndexed { idx, s ->
+                val x = toX(s.timeSeconds)
+                val y = toY(s.deltaPtsMs)
+                if (idx == 0) aPath.moveTo(x, y) else aPath.lineTo(x, y)
+            }
+            drawPath(aPath, color = Color(0xCC66BB6A), style = Stroke(width = 1.8f))
+        }
+
+        // Plot Video interval line
+        if (vSamples.isNotEmpty()) {
+            val vPath = Path()
+            vSamples.forEachIndexed { idx, s ->
+                val x = toX(s.timeSeconds)
+                val y = toY(s.deltaPtsMs)
+                if (idx == 0) vPath.moveTo(x, y) else vPath.lineTo(x, y)
+            }
+            drawPath(vPath, color = Color(0xFF42A5F5), style = Stroke(width = 2.2f))
+        }
+
+        // Highlight detected anomalies (frame drops / audio gaps) with red markers
+        report.anomalies.take(15).forEach { anomaly ->
+            val ax = toX(anomaly.ptsSeconds)
+            val ay = toY(anomaly.gapMs.coerceAtLeast(0.0))
+            drawCircle(
+                color = if (anomaly.severity == SyncSeverity.CRITICAL) Color(0xFFEF5350) else Color(0xFFFFB74D),
+                radius = 5f,
+                center = Offset(ax, ay),
+            )
+        }
+
+        // X-axis time ticks
+        for (i in 0..3) {
+            val frac = i / 3f
+            val tx = padX + frac * graphW
+            drawLine(Color(0x40FFFFFF), Offset(tx, h - padY), Offset(tx, h - padY + 4f), strokeWidth = 1f)
+            drawText(
+                textMeasurer,
+                formatMinSec(frac.toDouble() * span),
+                topLeft = Offset(tx - 12f, h - padY + 5f),
+                style = axisStyle,
+            )
+        }
+
+        // Selected point cursor
+        if (selectedPoint != null) {
+            val sx = toX(selectedPoint.timeSeconds)
+            drawLine(Color(0xFFFFEB3B), Offset(sx, padY), Offset(sx, h - padY), strokeWidth = 1.5f)
+        }
+    }
+}

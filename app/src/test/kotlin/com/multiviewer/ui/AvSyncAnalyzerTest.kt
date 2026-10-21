@@ -257,4 +257,46 @@ class AvSyncAnalyzerTest {
         val t = resolveSkewAndDurations(v, null, 5.0, 0.0, -3.0, 0.0)
         assertEquals(0.0, t.videoDurationSec, 1e-9)
     }
+
+    @Test
+    fun analyzePtsDiscontinuities_detectsVideoFrameDropAndAudioGap() {
+        // 30fps video with a 4-frame drop around frame #10 (jumps by 5 * 33.33ms = 166.7ms)
+        val v = run("video", 0.0, 1.0 / 30.0, 10) +
+            run("video", 14.0 / 30.0, 1.0 / 30.0, 10)
+        // 48kHz AAC audio with a 100ms gap around packet #15
+        val a = run("audio", 0.0, 0.021333, 15) +
+            run("audio", 15 * 0.021333 + 0.100, 0.021333, 15)
+
+        val disc = analyzePtsDiscontinuities(v, a)
+        assertEquals(1, disc.videoDropCount)
+        assertEquals(1, disc.audioGapCount)
+        assertEquals(2, disc.anomalies.size)
+        val videoAnomaly = disc.anomalies.first { it.mediaType == "video" }
+        assertEquals(4, videoAnomaly.estimatedDroppedUnits)
+        assertEquals(SyncSeverity.CRITICAL, videoAnomaly.severity)
+    }
+
+    @Test
+    fun classifyAvSyncPattern_distinguishesTailMismatchFromStartOffsetAndMidJump() {
+        assertEquals(
+            AvSyncPatternType.ALIGNED,
+            classifyAvSyncPattern(initialSkewMs = 5.0, durationDeltaSec = 0.01, driftRateMsPerMin = 1.0, videoDropCount = 0, audioGapCount = 0),
+        )
+        assertEquals(
+            AvSyncPatternType.CONSTANT_START_OFFSET,
+            classifyAvSyncPattern(initialSkewMs = 85.0, durationDeltaSec = 0.01, driftRateMsPerMin = 1.0, videoDropCount = 0, audioGapCount = 0),
+        )
+        assertEquals(
+            AvSyncPatternType.TAIL_MISMATCH_ONLY,
+            classifyAvSyncPattern(initialSkewMs = 5.0, durationDeltaSec = -0.09, driftRateMsPerMin = -18.0, videoDropCount = 0, audioGapCount = 0),
+        )
+        assertEquals(
+            AvSyncPatternType.MID_STREAM_PTS_JUMP,
+            classifyAvSyncPattern(initialSkewMs = 5.0, durationDeltaSec = 0.01, driftRateMsPerMin = 1.0, videoDropCount = 2, audioGapCount = 0),
+        )
+        assertEquals(
+            AvSyncPatternType.PROGRESSIVE_CLOCK_DRIFT,
+            classifyAvSyncPattern(initialSkewMs = 5.0, durationDeltaSec = 0.25, driftRateMsPerMin = 150.0, videoDropCount = 0, audioGapCount = 0),
+        )
+    }
 }

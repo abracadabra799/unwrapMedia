@@ -9,6 +9,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
  * Represents a single timed packet or frame from either audio or video stream.
@@ -38,6 +39,52 @@ enum class SyncSeverity {
     PASS,
     WARNING,
     CRITICAL
+}
+
+/**
+ * Detected timestamp jump / frame drop / audio gap in either stream.
+ */
+data class PtsAnomaly(
+    val mediaType: String, // "video" or "audio"
+    val packetIndex: Int,
+    val prevPtsSeconds: Double,
+    val ptsSeconds: Double,
+    val gapMs: Double,
+    val expectedStepMs: Double,
+    val estimatedDroppedUnits: Int,
+    val severity: SyncSeverity,
+    val description: String,
+)
+
+/**
+ * Sampled packet/frame interval point for plotting actual frame-to-frame ΔPTS.
+ */
+data class IntervalSample(
+    val timeSeconds: Double,
+    val packetIndex: Int,
+    val deltaPtsMs: Double,
+    val expectedStepMs: Double,
+)
+
+internal data class PtsDiscontinuitySummary(
+    val nominalVideoStepMs: Double,
+    val nominalAudioStepMs: Double,
+    val maxVideoGapMs: Double,
+    val maxAudioGapMs: Double,
+    val videoDropCount: Int,
+    val audioGapCount: Int,
+    val anomalies: List<PtsAnomaly>,
+    val videoIntervalSamples: List<IntervalSample>,
+    val audioIntervalSamples: List<IntervalSample>,
+)
+
+enum class AvSyncPatternType(val labelKo: String, val badgeColorHex: Long) {
+    ALIGNED("정상 동기화 (Aligned)", 0xFF2E7D32),
+    CONSTANT_START_OFFSET("고정 시작 오프셋 (Start Offset)", 0xFFF57F17),
+    TAIL_MISMATCH_ONLY("종료 시점 길이 불일치 (Tail Overhang / Cut)", 0xFFF57F17),
+    MID_STREAM_PTS_JUMP("중간 구간 프레임 드랍 / PTS 점프", 0xFFC62828),
+    PROGRESSIVE_CLOCK_DRIFT("점진적 클럭 드리프트 (Clock Drift)", 0xFFC62828),
+    COMBINED("복합 타임스탬프 이상 (Multi-cause)", 0xFFC62828),
 }
 
 /**
@@ -73,6 +120,25 @@ data class AvSyncReport(
     val diagnoses: List<SyncDiagnosis>,
     val overallSeverity: SyncSeverity,
     val editListAdjusted: Boolean = false,
+    val videoStartPtsSec: Double = 0.0,
+    val audioStartPtsSec: Double = 0.0,
+    val rawVideoFirstPtsSec: Double = 0.0,
+    val rawAudioFirstPtsSec: Double = 0.0,
+    val videoEndPtsSec: Double = videoDurationSec,
+    val audioEndPtsSec: Double = audioDurationSec,
+    val tailOverhangMs: Double = -durationDeltaSec * 1000.0,
+    val videoPacketCount: Int = 0,
+    val audioPacketCount: Int = 0,
+    val nominalVideoStepMs: Double = 33.33,
+    val nominalAudioStepMs: Double = 21.33,
+    val videoDropCount: Int = 0,
+    val audioGapCount: Int = 0,
+    val maxVideoGapMs: Double = 0.0,
+    val maxAudioGapMs: Double = 0.0,
+    val anomalies: List<PtsAnomaly> = emptyList(),
+    val videoIntervalSamples: List<IntervalSample> = emptyList(),
+    val audioIntervalSamples: List<IntervalSample> = emptyList(),
+    val patternType: AvSyncPatternType = AvSyncPatternType.ALIGNED,
 )
 
 /**
@@ -251,6 +317,185 @@ internal fun computeSyncPoints(
     return points
 }
 
+private fun medianStepMs(packets: List<StreamPacket>, fallbackMs: Double): Double {
+    if (packets.size < 2) return fallbackMs
+    val steps = ArrayList<Double>(packets.size - 1)
+    for (i in 1 until packets.size) {
+        val dt = (packets[i].ptsSeconds - packets[i - 1].ptsSeconds) * 1000.0
+        if (dt in 0.5..500.0) steps.add(dt)
+    }
+    if (steps.isEmpty()) return fallbackMs
+    steps.sort()
+    val mid = steps.size / 2
+    return if (steps.size % 2 == 1) steps[mid] else (steps[mid - 1] + steps[mid]) / 2.0
+}
+
+private fun sampleIntervalsPreservingPeaks(
+    packets: List<StreamPacket>,
+    nominalStepMs: Double,
+    maxBuckets: Int,
+): List<IntervalSample> {
+    if (packets.size < 2) return emptyList()
+    val totalDeltas = packets.size - 1
+    val bucketSize = (totalDeltas / maxBuckets).coerceAtLeast(1)
+    val result = ArrayList<IntervalSample>(maxBuckets + 2)
+    var i = 1
+    while (i < packets.size) {
+        val end = minOf(packets.size, i + bucketSize)
+        var worstIdx = i
+        var worstDev = -1.0
+        for (j in i until end) {
+            val dtMs = (packets[j].ptsSeconds - packets[j - 1].ptsSeconds) * 1000.0
+            val dev = abs(dtMs - nominalStepMs)
+            if (dev > worstDev) {
+                worstDev = dev
+                worstIdx = j
+            }
+        }
+        val dtMs = (packets[worstIdx].ptsSeconds - packets[worstIdx - 1].ptsSeconds) * 1000.0
+        result.add(
+            IntervalSample(
+                timeSeconds = packets[worstIdx].ptsSeconds,
+                packetIndex = worstIdx,
+                deltaPtsMs = dtMs,
+                expectedStepMs = nominalStepMs,
+            )
+        )
+        i = end
+    }
+    return result
+}
+
+internal fun analyzePtsDiscontinuities(
+    videoPackets: List<StreamPacket>,
+    audioPackets: List<StreamPacket>,
+    maxSampleBuckets: Int = 150,
+): PtsDiscontinuitySummary {
+    val nominalVideoMs = medianStepMs(videoPackets, 33.333)
+    val nominalAudioMs = medianStepMs(audioPackets, 21.333)
+    val videoThresholdMs = maxOf(nominalVideoMs * 1.75, nominalVideoMs + 20.0)
+    val audioThresholdMs = maxOf(nominalAudioMs * 2.0, nominalAudioMs + 20.0)
+
+    val anomalies = ArrayList<PtsAnomaly>()
+    var maxVideoGapMs = nominalVideoMs
+    var maxAudioGapMs = nominalAudioMs
+    var videoDrops = 0
+    var audioGaps = 0
+
+    for (i in 1 until videoPackets.size) {
+        val prev = videoPackets[i - 1].ptsSeconds
+        val curr = videoPackets[i].ptsSeconds
+        val gapMs = (curr - prev) * 1000.0
+        if (gapMs > maxVideoGapMs) maxVideoGapMs = gapMs
+        if (gapMs > videoThresholdMs && nominalVideoMs > 0.0) {
+            val dropped = ((gapMs / nominalVideoMs).roundToInt() - 1).coerceAtLeast(1)
+            videoDrops++
+            val sev = if (gapMs >= 100.0 || dropped >= 3) SyncSeverity.CRITICAL else SyncSeverity.WARNING
+            anomalies.add(
+                PtsAnomaly(
+                    mediaType = "video",
+                    packetIndex = i,
+                    prevPtsSeconds = prev,
+                    ptsSeconds = curr,
+                    gapMs = gapMs,
+                    expectedStepMs = nominalVideoMs,
+                    estimatedDroppedUnits = dropped,
+                    severity = sev,
+                    description = String.format(
+                        Locale.US,
+                        "비디오 프레임 간격 점프 (%.1fms, 정상 %.1fms 대비 약 %d프레임 드랍/지연)",
+                        gapMs, nominalVideoMs, dropped,
+                    ),
+                )
+            )
+        }
+    }
+
+    for (i in 1 until audioPackets.size) {
+        val prev = audioPackets[i - 1].ptsSeconds
+        val curr = audioPackets[i].ptsSeconds
+        val gapMs = (curr - prev) * 1000.0
+        if (gapMs > maxAudioGapMs) maxAudioGapMs = gapMs
+        if (gapMs > audioThresholdMs && nominalAudioMs > 0.0) {
+            val missing = ((gapMs / nominalAudioMs).roundToInt() - 1).coerceAtLeast(1)
+            audioGaps++
+            val sev = if (gapMs >= 80.0 || missing >= 3) SyncSeverity.CRITICAL else SyncSeverity.WARNING
+            anomalies.add(
+                PtsAnomaly(
+                    mediaType = "audio",
+                    packetIndex = i,
+                    prevPtsSeconds = prev,
+                    ptsSeconds = curr,
+                    gapMs = gapMs,
+                    expectedStepMs = nominalAudioMs,
+                    estimatedDroppedUnits = missing,
+                    severity = sev,
+                    description = String.format(
+                        Locale.US,
+                        "오디오 패킷 PTS 공백 (%.1fms, 정상 %.1fms 대비 약 %d패킷 누락)",
+                        gapMs, nominalAudioMs, missing,
+                    ),
+                )
+            )
+        } else if (gapMs < -5.0) {
+            audioGaps++
+            anomalies.add(
+                PtsAnomaly(
+                    mediaType = "audio",
+                    packetIndex = i,
+                    prevPtsSeconds = prev,
+                    ptsSeconds = curr,
+                    gapMs = gapMs,
+                    expectedStepMs = nominalAudioMs,
+                    estimatedDroppedUnits = 1,
+                    severity = SyncSeverity.WARNING,
+                    description = String.format(Locale.US, "오디오 타임스탬프 역전/오버랩 (%.1fms)", gapMs),
+                )
+            )
+        }
+    }
+
+    val sortedAnomalies = anomalies.sortedWith(
+        compareByDescending<PtsAnomaly> { abs(it.gapMs - it.expectedStepMs) }.thenBy { it.ptsSeconds }
+    )
+
+    return PtsDiscontinuitySummary(
+        nominalVideoStepMs = nominalVideoMs,
+        nominalAudioStepMs = nominalAudioMs,
+        maxVideoGapMs = if (videoPackets.size >= 2) maxVideoGapMs else 0.0,
+        maxAudioGapMs = if (audioPackets.size >= 2) maxAudioGapMs else 0.0,
+        videoDropCount = videoDrops,
+        audioGapCount = audioGaps,
+        anomalies = sortedAnomalies,
+        videoIntervalSamples = sampleIntervalsPreservingPeaks(videoPackets, nominalVideoMs, maxSampleBuckets),
+        audioIntervalSamples = sampleIntervalsPreservingPeaks(audioPackets, nominalAudioMs, maxSampleBuckets),
+    )
+}
+
+internal fun classifyAvSyncPattern(
+    initialSkewMs: Double,
+    durationDeltaSec: Double,
+    driftRateMsPerMin: Double,
+    videoDropCount: Int,
+    audioGapCount: Int,
+): AvSyncPatternType {
+    val hasStartOffset = abs(initialSkewMs) > 40.0
+    val hasTailMismatch = abs(durationDeltaSec) * 1000.0 > 60.0
+    val hasProgressiveDrift = avSyncIsProgressiveDrift(driftRateMsPerMin, durationDeltaSec * 1000.0)
+    val hasMidJump = (videoDropCount + audioGapCount) > 0
+
+    val activeFlags = listOf(hasStartOffset, hasTailMismatch || hasProgressiveDrift, hasMidJump).count { it }
+    return when {
+        activeFlags == 0 -> AvSyncPatternType.ALIGNED
+        activeFlags >= 2 -> AvSyncPatternType.COMBINED
+        hasMidJump -> AvSyncPatternType.MID_STREAM_PTS_JUMP
+        hasProgressiveDrift -> AvSyncPatternType.PROGRESSIVE_CLOCK_DRIFT
+        hasTailMismatch -> AvSyncPatternType.TAIL_MISMATCH_ONLY
+        hasStartOffset -> AvSyncPatternType.CONSTANT_START_OFFSET
+        else -> AvSyncPatternType.ALIGNED
+    }
+}
+
 /** [report] is null when no analysis was possible; [timedOut] says it was because the packet scan hit its deadline. */
 data class AvSyncAnalysis(val report: AvSyncReport?, val timedOut: Boolean)
 
@@ -307,6 +552,7 @@ object AvSyncAnalyzer {
 
             // Generate Sync Points by matching closest audio packet for sample video frames
             val syncPoints = computeSyncPoints(videoPackets, audioPackets, initialSkewMs, durationDeltaSec, totalDurationSec)
+            val discontinuities = analyzePtsDiscontinuities(videoPackets, audioPackets)
 
             val maxSkewMs = if (syncPoints.isNotEmpty()) syncPoints.maxOf { it.deltaMs } else initialSkewMs
             val minSkewMs = if (syncPoints.isNotEmpty()) syncPoints.minOf { it.deltaMs } else initialSkewMs
@@ -318,6 +564,13 @@ object AvSyncAnalyzer {
             val lastDelta = syncPoints.lastOrNull()?.deltaMs ?: initialSkewMs
             val driftRateMsPerMin =
                 if (totalDurationSec > 0.0) durationDeltaSec * 1000.0 / (totalDurationSec / 60.0) else 0.0
+            val patternType = classifyAvSyncPattern(
+                initialSkewMs = initialSkewMs,
+                durationDeltaSec = durationDeltaSec,
+                driftRateMsPerMin = driftRateMsPerMin,
+                videoDropCount = discontinuities.videoDropCount,
+                audioGapCount = discontinuities.audioGapCount,
+            )
 
             // Diagnoses
             val diagnoses = mutableListOf<SyncDiagnosis>()
@@ -421,6 +674,43 @@ object AvSyncAnalyzer {
                 )
             }
 
+            // 4. Mid-stream PTS Discontinuity / Frame Drop Check
+            if (discontinuities.anomalies.isNotEmpty()) {
+                val worstAnomaly = discontinuities.anomalies.first()
+                val anomalySev = if (discontinuities.anomalies.any { it.severity == SyncSeverity.CRITICAL }) {
+                    SyncSeverity.CRITICAL
+                } else {
+                    SyncSeverity.WARNING
+                }
+                val topDetails = discontinuities.anomalies.take(4).map { a ->
+                    val streamLabel = if (a.mediaType == "video") "Video #${a.packetIndex}" else "Audio #${a.packetIndex}"
+                    String.format(
+                        Locale.US,
+                        "[%s @ %.3fs] %s",
+                        streamLabel, a.ptsSeconds, a.description,
+                    )
+                }
+                diagnoses.add(
+                    SyncDiagnosis(
+                        category = "중간 구간 타임스탬프 불연속 / 프레임 드랍 (PTS Discontinuity)",
+                        severity = anomalySev,
+                        summary = String.format(
+                            Locale.US,
+                            "비디오 프레임 드랍 %d건, 오디오 PTS 갭 %d건 감지 (최대 간격 %.1f ms @ %.3fs)",
+                            discontinuities.videoDropCount,
+                            discontinuities.audioGapCount,
+                            worstAnomaly.gapMs,
+                            worstAnomaly.ptsSeconds,
+                        ),
+                        technicalDetails = topDetails,
+                        androidImpact = "카메라 HAL/인코더 프레임 드랍(VFR 점프) 또는 오디오 버퍼 언더런 구간에서 MediaCodec/AudioTrack 타임스탬프 재앵커링이 발생하여 순간적인 화면 끊김(Stutter)이나 오디오 팝 노이즈가 나타날 수 있습니다.",
+                        recommendedFix = "카메라/오디오 캡처 파이프라인의 프레임 드랍 원인을 확인하거나, CFR 재인코딩 및 오디오 타임스탬프 보정 필터를 적용하세요.",
+                        suggestedFfmpegCommand = "ffmpeg -i \"${file.name}\" -af aresample=async=1000 -c:v copy \"fixed_${file.name}\"",
+                        commandDescription = "타임스탬프 불연속 구간의 오디오 갭/오버랩을 보정하여 재생기 싱크 이탈을 완화하는 명령어입니다.",
+                    )
+                )
+            }
+
             val overallSeverity = when {
                 diagnoses.any { it.severity == SyncSeverity.CRITICAL } -> SyncSeverity.CRITICAL
                 diagnoses.any { it.severity == SyncSeverity.WARNING } -> SyncSeverity.WARNING
@@ -445,6 +735,9 @@ object AvSyncAnalyzer {
                 )
             }
 
+            val videoEndPtsSec = timing.videoStartSec + videoDurationSec
+            val audioEndPtsSec = timing.audioStartSec + audioDurationSec
+
             AvSyncReport(
                 file = file,
                 hasVideo = hasVideo,
@@ -461,6 +754,25 @@ object AvSyncAnalyzer {
                 diagnoses = diagnoses,
                 overallSeverity = overallSeverity,
                 editListAdjusted = timing.editListAdjusted,
+                videoStartPtsSec = timing.videoStartSec,
+                audioStartPtsSec = timing.audioStartSec,
+                rawVideoFirstPtsSec = vFirst,
+                rawAudioFirstPtsSec = aFirst,
+                videoEndPtsSec = videoEndPtsSec,
+                audioEndPtsSec = audioEndPtsSec,
+                tailOverhangMs = (audioEndPtsSec - videoEndPtsSec) * 1000.0,
+                videoPacketCount = videoPackets.size,
+                audioPacketCount = audioPackets.size,
+                nominalVideoStepMs = discontinuities.nominalVideoStepMs,
+                nominalAudioStepMs = discontinuities.nominalAudioStepMs,
+                videoDropCount = discontinuities.videoDropCount,
+                audioGapCount = discontinuities.audioGapCount,
+                maxVideoGapMs = discontinuities.maxVideoGapMs,
+                maxAudioGapMs = discontinuities.maxAudioGapMs,
+                anomalies = discontinuities.anomalies,
+                videoIntervalSamples = discontinuities.videoIntervalSamples,
+                audioIntervalSamples = discontinuities.audioIntervalSamples,
+                patternType = patternType,
             )
         } catch (e: CancellationException) {
             throw e

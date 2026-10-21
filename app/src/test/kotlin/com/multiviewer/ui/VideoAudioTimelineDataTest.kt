@@ -96,4 +96,46 @@ class VideoAudioTimelineDataTest {
         assertEquals(3.98, timelineTimeAtFraction(0.5f, range, view), 0.000001)
         assertEquals(0.5f, timelineFraction(3.98, range, view), 0.000001f)
     }
+
+    @Test
+    fun `stepTimelineCursor continues through trailing audio packets when audio is longer than video and returns cleanly`() {
+        val frames = listOf(
+            FrameInfo(0, 'I', 100, 0.0),
+            FrameInfo(1, 'P', 100, 0.05),
+            FrameInfo(2, 'P', 100, 0.10),
+        )
+        val packets = listOf(
+            AudioTimelinePacket(0, 0.0, 0.04, 100, 1L),
+            AudioTimelinePacket(1, 0.04, 0.04, 100, 2L),
+            AudioTimelinePacket(2, 0.08, 0.04, 100, 3L),
+            AudioTimelinePacket(3, 0.12, 0.04, 100, 4L),
+            AudioTimelinePacket(4, 0.16, 0.04, 100, 5L),
+        )
+
+        // At last video frame (0.10s), stepping right moves onto trailing audio packet #3 (0.12s)
+        val step1 = stepTimelineCursor(frames, packets, selectedFrame = frames[2], chosenPacket = null, delta = 1)
+        assertNotNull(step1)
+        assertEquals(3, step1.packet?.index)
+        assertEquals(0.12, step1.cursorPtsSeconds, 1e-6)
+        assertEquals(2, step1.frame?.index)
+
+        // Stepping right again reaches the final audio packet #4 (0.16s)
+        val step2 = stepTimelineCursor(frames, packets, selectedFrame = step1.frame, chosenPacket = step1.packet, delta = 1)
+        assertNotNull(step2)
+        assertEquals(4, step2.packet?.index)
+        assertEquals(0.16, step2.cursorPtsSeconds, 1e-6)
+
+        // Stepping left from packet #4 goes back to packet #3 (0.12s)
+        val stepBack1 = stepTimelineCursor(frames, packets, selectedFrame = step2.frame, chosenPacket = step2.packet, delta = -1)
+        assertNotNull(stepBack1)
+        assertEquals(3, stepBack1.packet?.index)
+        assertEquals(0.12, stepBack1.cursorPtsSeconds, 1e-6)
+
+        // Stepping left from packet #3 (first tail packet) transitions back to video frame #2 (0.10s)
+        val stepBackToVideo = stepTimelineCursor(frames, packets, selectedFrame = stepBack1.frame, chosenPacket = stepBack1.packet, delta = -1)
+        assertNotNull(stepBackToVideo)
+        assertNull(stepBackToVideo.packet)
+        assertEquals(2, stepBackToVideo.frame?.index)
+        assertEquals(0.10, stepBackToVideo.cursorPtsSeconds, 1e-6)
+    }
 }

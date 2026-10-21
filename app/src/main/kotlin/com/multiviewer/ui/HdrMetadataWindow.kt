@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -45,6 +46,7 @@ import com.multiviewer.parser.HdrVerdict
 import com.multiviewer.parser.detectHdrAnomalies
 import com.multiviewer.parser.hdrVerdict
 import com.multiviewer.parser.scanHdrMetadata
+import com.multiviewer.util.ClipboardUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -227,36 +229,60 @@ fun HdrMetadataWindow(tab: TabState, language: AppLanguage, onCloseRequest: () -
                         OutlinedButton(onClick = { saveCsv(label("이상 목록 CSV 저장", "Save anomalies CSV"), "${tab.file.nameWithoutExtension}-hdr-anomalies.csv", buildHdrAnomaliesCsv(anomalies)) }, shape = AppControlShape) {
                             Text(label("이상 목록 CSV", "Anomalies CSV"))
                         }
+                        OutlinedButton(
+                            onClick = {
+                                val text = buildString {
+                                    appendLine("# HDR / SEI Metadata Report — ${tab.file.name}")
+                                    appendLine("- Verdict: ${verdict.name}")
+                                    appendLine(String.format(Locale.US, "- Codec: %s · %d frames · HDR10+ %d/%d", current.codec.name, records.size, plusCount, records.size))
+                                    current.warnings.forEach { appendLine("- Warning: $it") }
+                                    appendLine()
+                                    appendLine("## Anomalies (${anomalies.size})")
+                                    appendLine(buildHdrAnomaliesCsv(anomalies).trimEnd())
+                                    appendLine()
+                                    appendLine("## Frame Records (${records.size})")
+                                    appendLine(buildHdrFramesCsv(records).trimEnd())
+                                }.trimEnd()
+                                if (ClipboardUtil.copyToClipboard(text)) {
+                                    saveStatus = label("✓ 클립보드에 리포트 복사됨", "✓ Report copied to clipboard")
+                                }
+                            },
+                            shape = AppControlShape,
+                        ) {
+                            Text(label("📋 리포트 복사", "📋 Copy Report"))
+                        }
                     }
                     saveStatus?.let { Text(it, color = AppColors.TextSecondary, fontSize = 12.sp, maxLines = 1) }
 
-                    Row(modifier = Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        LazyColumn(modifier = Modifier.weight(0.4f).fillMaxSize()) {
-                            item { Text(label("이상 항목 (${anomalies.size})", "Anomalies (${anomalies.size})"), color = AppColors.NeonBlue, fontWeight = FontWeight.Bold) }
-                            itemsIndexed(anomalies) { _, a ->
-                                Text(
-                                    "[${a.severity}] ${a.firstFrame?.let { f -> if (a.lastFrame != null && a.lastFrame != f) "#$f–${a.lastFrame} " else "#$f " } ?: ""}${a.message}",
-                                    color = severityTextColor(a.severity),
-                                    fontSize = 12.sp,
-                                    modifier = Modifier.fillMaxWidth().clickable(enabled = a.firstFrame != null) {
-                                        val f = a.firstFrame ?: return@clickable
-                                        selectedFrame = f
-                                        scope.launch { tableState.animateScrollToItem(f) }
-                                    }.padding(vertical = 3.dp),
-                                )
+                    SelectionContainer(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                        Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            LazyColumn(modifier = Modifier.weight(0.4f).fillMaxSize()) {
+                                item { Text(label("이상 항목 (${anomalies.size})", "Anomalies (${anomalies.size})"), color = AppColors.NeonBlue, fontWeight = FontWeight.Bold) }
+                                itemsIndexed(anomalies) { _, a ->
+                                    Text(
+                                        "[${a.severity}] ${a.firstFrame?.let { f -> if (a.lastFrame != null && a.lastFrame != f) "#$f–${a.lastFrame} " else "#$f " } ?: ""}${a.message}",
+                                        color = severityTextColor(a.severity),
+                                        fontSize = 12.sp,
+                                        modifier = Modifier.fillMaxWidth().clickable(enabled = a.firstFrame != null) {
+                                            val f = a.firstFrame ?: return@clickable
+                                            selectedFrame = f
+                                            scope.launch { tableState.animateScrollToItem(f) }
+                                        }.padding(vertical = 3.dp),
+                                    )
+                                }
                             }
-                        }
-                        Column(modifier = Modifier.weight(0.6f).fillMaxSize()) {
-                            Text(
-                                FRAME_TABLE_HEADER,
-                                color = AppColors.TextSecondary,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 11.sp,
-                                maxLines = 1,
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp, horizontal = 4.dp),
-                            )
-                            LazyColumn(state = tableState, modifier = Modifier.fillMaxWidth().weight(1f)) {
-                                itemsIndexed(records) { index, r -> FrameRow(r, selected = index == selectedFrame) { selectedFrame = index } }
+                            Column(modifier = Modifier.weight(0.6f).fillMaxSize()) {
+                                Text(
+                                    FRAME_TABLE_HEADER,
+                                    color = AppColors.TextSecondary,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp, horizontal = 4.dp),
+                                )
+                                LazyColumn(state = tableState, modifier = Modifier.fillMaxWidth().weight(1f)) {
+                                    itemsIndexed(records) { index, r -> FrameRow(r, selected = index == selectedFrame) { selectedFrame = index } }
+                                }
                             }
                         }
                     }
