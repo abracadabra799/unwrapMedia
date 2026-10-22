@@ -1385,11 +1385,6 @@ class MotionPhotoBuilderTest {
     private val NEW_XMP_PACKET =
         "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:Description rdf:about=\"\">brand new</rdf:Description></x:xmpmeta>"
 
-    /**
-     * Every top-level ISOBMFF box in [bytes] as (fourCC, start, total box size), in file order.
-     * A deliberately independent re-derivation of the box walk, for the same reason readIlocEntries
-     * is: these tests cross-check what the production code wrote.
-     */
     @Test
     fun `mergeMotionPhotoXmp drops MicroVideo fields in Google-spec mode and re-points them in Samsung-compatible mode`() {
         val existing = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">" +
@@ -1450,6 +1445,11 @@ class MotionPhotoBuilderTest {
         assertTrue(indexOfAscii(outBytes, "GCamera:MotionPhoto=") >= 0)
     }
 
+    /**
+     * Every top-level ISOBMFF box in [bytes] as (fourCC, start, total box size), in file order.
+     * A deliberately independent re-derivation of the box walk, for the same reason readIlocEntries
+     * is: these tests cross-check what the production code wrote.
+     */
     private fun topLevelBoxes(bytes: ByteArray): List<Triple<String, Int, Long>> {
         val boxes = mutableListOf<Triple<String, Int, Long>>()
         var pos = 0

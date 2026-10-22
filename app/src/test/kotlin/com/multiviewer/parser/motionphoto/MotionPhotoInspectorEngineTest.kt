@@ -637,4 +637,11 @@ class MotionPhotoInspectorEngineTest {
         left.forEach { File(tempDir, it).delete() }
         assertEquals(emptySet(), left, "the extracted video was left in the temp directory")
     }
+
+    @Test
+    fun `a JPEG motion photo is not labelled HEIC mpvd`() {
+        val file = File(javaClass.getResource("/google-motion-photo/PXL_compliant.MP.jpg")!!.toURI())
+        val label = MotionPhotoInspectorEngine.inspect(file, parseFile(file)).formatLabel
+        assertTrue("HEIC mpvd" !in label, label)
+    }
 }

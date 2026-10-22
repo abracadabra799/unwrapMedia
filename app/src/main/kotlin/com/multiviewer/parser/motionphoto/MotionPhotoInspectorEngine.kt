@@ -133,7 +133,8 @@ object MotionPhotoInspectorEngine {
                 val detectedFormats = mutableListOf<String>()
                 if (sefSection.status != CheckStatus.SKIP) detectedFormats.add("Samsung SEF")
                 if (formatXmpSection.items.any { it.id.startsWith("xmp") && it.status == CheckStatus.PASS }) detectedFormats.add("Google XMP")
-                if (findFirst(root) { it.type == "mpvd" || it.type == "EmbeddedVideoData" } != null) detectedFormats.add("HEIC mpvd")
+                // Only a real top-level mpvd box is HEIC mpvd; a JPEG's trailing video (EmbeddedVideoData) is not.
+                if (root.children.any { it.type == "mpvd" }) detectedFormats.add("HEIC mpvd")
                 val formatLabel = if (detectedFormats.isEmpty()) "Unknown Motion Photo" else detectedFormats.joinToString(" + ")
 
                 val allSections = listOf(stillSection, formatXmpSection, sefSection, videoCodecSection, avSyncSection)
