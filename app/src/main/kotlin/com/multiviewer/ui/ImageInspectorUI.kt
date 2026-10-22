@@ -4,6 +4,11 @@ import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.material3.Checkbox
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.Canvas
@@ -47,6 +52,7 @@ fun ImageInspectorUI(
     language: AppLanguage,
 ) {
     val forensic = tab.imageForensic ?: return
+    fun label(ko: String, en: String) = if (language == AppLanguage.KO) ko else en
 
     LaunchedEffect(tab.file, tab.root) {
         val root = tab.root ?: return@LaunchedEffect
@@ -153,8 +159,28 @@ fun ImageInspectorUI(
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
-                Row(modifier = Modifier.fillMaxSize()) {
-                    // Left Panel: Embedded EXIF Thumbnail
+                Row(
+                    modifier = Modifier.fillMaxWidth().background(AppColors.Panel)
+                        .padding(horizontal = 8.dp).height(30.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(
+                        modifier = Modifier.toggleable(
+                            value = tab.thumbnailPreviewExpanded,
+                            role = Role.Checkbox,
+                            onValueChange = { tab.thumbnailPreviewExpanded = it },
+                        ).padding(horizontal = 4.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(checked = tab.thumbnailPreviewExpanded, onCheckedChange = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(label("썸네일 표시", "Show thumbnail"), color = AppColors.TextSecondary, fontSize = 11.sp)
+                    }
+                }
+                Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    // Keep preview identity stable while the preceding thumbnail is removed.
+                    if (tab.thumbnailPreviewExpanded) {
+                    key("thumbnail") {
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -169,21 +195,35 @@ fun ImageInspectorUI(
                             // The file structurally has a thumbnail (hasThumbnailReference) but
                             // the fast synchronous extraction pass didn't find it -- it's still
                             // being pulled out via the async ffmpeg fallback, not genuinely absent.
-                            DecodingIndicator("썸네일 로딩 중...")
+                            DecodingIndicator(label("썸네일 로딩 중...", "Loading thumbnail..."))
                         } else if (forensic.hasThumbnailReference) {
                             // Decoding finished and the file does reference a thumbnail item, but
                             // it couldn't be extracted (e.g. an HEVC-coded HEIC "thmb" item -- this
                             // parser only decodes JPEG-coded thumbnail items today). Distinguish
                             // this from "genuinely no thumbnail" rather than showing nothing.
-                            Text("Embedded Thumbnail Codec Not Supported", color = Color.Gray, fontSize = 13.sp)
+                            Text(label("내장 썸네일 코덱 미지원", "Embedded thumbnail codec not supported"), color = Color.Gray, fontSize = 13.sp)
                         } else {
-                            Text("No Embedded Thumbnail", color = Color.Gray, fontSize = 13.sp)
+                            Text(label("내장 썸네일 없음", "No embedded thumbnail"), color = Color.Gray, fontSize = 13.sp)
                         }
 
-                        Text("EMBEDDED EXIF THUMBNAIL",
-                            modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
-                            style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = AppColors.NeonBlue)
-                        )
+                        Row(
+                            modifier = Modifier.align(Alignment.TopStart).fillMaxWidth()
+                                .background(AppColors.Background.copy(alpha = 0.85f)).padding(start = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(label("내장 썸네일", "EMBEDDED THUMBNAIL"),
+                                modifier = Modifier.weight(1f),
+                                style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = AppColors.NeonBlue),
+                            )
+                            Box(
+                                modifier = Modifier.size(28.dp)
+                                    .semantics { contentDescription = label("썸네일 접기", "Collapse thumbnail") }
+                                    .clickable(role = Role.Button) { tab.thumbnailPreviewExpanded = false },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text("−", color = AppColors.TextSecondary, fontSize = 18.sp)
+                            }
+                        }
 
                         forensic.embeddedThumbnail?.let {
                             val thumbOrientation = forensic.thumbnailOrientation ?: forensic.orientation
@@ -196,7 +236,10 @@ fun ImageInspectorUI(
                         }
                     }
                     
+                    }
+                    }
                     // Middle Panel: Primary Image View
+                    key("primary-image") {
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -272,9 +315,11 @@ fun ImageInspectorUI(
                         }
                     }
 
+                    }
                     // Right Panel: Motion Photo Video (only when the file has an embedded motion video)
                     val embeddedVideo = tab.embeddedVideo
                     if (embeddedVideo != null) {
+                        key("motion-video") {
                         Box(
                             modifier = Modifier
                                 .weight(1f)
@@ -289,6 +334,7 @@ fun ImageInspectorUI(
                                 modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
                                 style = AppTypography.labelLarge.copy(fontSize = 10.sp, color = AppColors.NeonPurple)
                             )
+                        }
                         }
                     }
                 }

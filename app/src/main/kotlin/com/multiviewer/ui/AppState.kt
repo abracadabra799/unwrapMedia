@@ -143,6 +143,8 @@ class TabState(val file: File) {
     // node isn't a tile item (including "nothing selected").
     var tileHighlightRange: LongRange? by mutableStateOf(null)
     var selectedTileIndex: Int? by mutableStateOf(null)
+    // Per-tab preference: an absent thumbnail pane can also be collapsed and restored.
+    var thumbnailPreviewExpanded: Boolean by mutableStateOf(true)
     var isPrimaryImagePopupOpen: Boolean by mutableStateOf(false)
     var gainmapInfo: com.multiviewer.parser.GainmapInfo? by mutableStateOf(null)
     // 게인맵 분석기 window: the page it shows, null = closed.
