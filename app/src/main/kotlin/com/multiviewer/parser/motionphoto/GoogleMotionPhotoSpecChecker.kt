@@ -73,7 +73,8 @@ object GoogleMotionPhotoSpecChecker {
     }
 
     fun check(input: GmpSpecInput, reader: ByteReader): List<GoogleSpecFinding> = buildList {
-        checkXmp(input, this)
+        val xmp = checkXmp(input, this)
+        checkLayout(input, xmp, reader, this)
         val nameOk = FILENAME_PATTERN.matches(input.fileName)
         add(spec("gmp.filename", "2.1", SpecRequirement.SHOULD, nameOk, "파일명 / Filename",
             if (nameOk) "\"${input.fileName}\"이 권장 패턴(…MP.jpg/heic/avif)과 일치합니다"
