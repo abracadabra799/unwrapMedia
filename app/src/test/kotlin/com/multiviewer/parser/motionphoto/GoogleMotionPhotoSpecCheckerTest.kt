@@ -204,4 +204,20 @@ class GoogleMotionPhotoSpecCheckerTest {
         assertEquals("§2.1 [SHOULD] 파일명 / Filename", finding.toSefCheckResult().label)
         assertEquals("파일명 / Filename", finding.groupLabel())
     }
+
+    @Test
+    fun `Primary Length is compared numerically`() {
+        val items = listOf(
+            mapOf("Semantic" to "Primary", "Mime" to "image/jpeg", "Length" to "00"),
+            mapOf("Semantic" to "MotionPhoto", "Mime" to "video/mp4", "Length" to "100"),
+        )
+        assertEquals(SefIntegritySeverity.PASS, findings(gmpXmp(items = items)).rule("gmp.item.primary_length").severity)
+    }
+
+    @Test
+    fun `group labels are bilingual`() {
+        val all = findings(gmpXmp(), format = ContainerFormat.HEIF, fileName = "a.MP.heic")
+        assertEquals("카메라 XMP / Camera XMP", all.rule("gmp.camera.motionphoto").groupLabel())
+        assertEquals("HEIC·AVIF mpvd 박스 / HEIC·AVIF mpvd box", all.rule("gmp.mpvd.present").groupLabel())
+    }
 }

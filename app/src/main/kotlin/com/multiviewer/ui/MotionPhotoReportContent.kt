@@ -41,8 +41,10 @@ import com.multiviewer.parser.motionphoto.PlatformSupportLevel
 internal fun motionPhotoFormatLabel(format: MotionPhotoFormat): String = when (format) {
     MotionPhotoFormat.SAMSUNG_SEF -> "삼성 SEF"
     MotionPhotoFormat.GOOGLE_XMP -> "구글 모션포토 (XMP)"
-    MotionPhotoFormat.APPLE_MPVD -> "HEIC/AVIF mpvd (구글 모션포토)"
+    MotionPhotoFormat.APPLE_MPVD -> "HEIC/AVIF mpvd (구글 모션포토) / HEIC/AVIF mpvd (Google Motion Photo)"
 }
+
+internal fun googleSpecSectionTitle(group: String) = "구글 모션포토 1.0 / Google Motion Photo 1.0 · $group"
 
 /** Badge row + per-section tables for a detected motion photo; shown in the Content Check window's Motion photo tab. */
 @Composable
@@ -60,7 +62,7 @@ fun MotionPhotoReportContent(report: MotionPhotoIntegrityReport, modifier: Modif
         LazyColumn(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
             // 1. Google Motion Photo 1.0 — first-priority spec for every motion photo, one table per rule group
             report.googleSpec.groupBy { it.groupLabel() }.forEach { (group, findings) ->
-                item { CheckSection("구글 모션포토 1.0 · $group", findings.map { it.toSefCheckResult() }) }
+                item { CheckSection(googleSpecSectionTitle(group), findings.map { it.toSefCheckResult() }) }
             }
 
             report.sefSection?.let { sef ->

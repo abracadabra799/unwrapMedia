@@ -57,9 +57,9 @@ fun GoogleSpecFinding.toSefCheckResult(): SefCheckResult = SefCheckResult(severi
 fun GoogleSpecFinding.groupLabel(): String = when {
     ruleId.startsWith("gmp.dir") || ruleId.startsWith("gmp.item") -> "Container 디렉터리 / Directory"
     ruleId.startsWith("gmp.layout") || ruleId.startsWith("gmp.gainmap") -> "배치 / Layout"
-    ruleId.startsWith("gmp.mpvd") -> "HEIC·AVIF mpvd"
+    ruleId.startsWith("gmp.mpvd") -> "HEIC·AVIF mpvd 박스 / HEIC·AVIF mpvd box"
     ruleId == "gmp.filename" -> "파일명 / Filename"
-    else -> "Camera XMP"
+    else -> "카메라 XMP / Camera XMP"
 }
 
 /**
@@ -208,7 +208,7 @@ object GoogleMotionPhotoSpecChecker {
         out += spec("gmp.item.length_required", "3.3", SpecRequirement.MUST, lengthProblems.isEmpty(),
             "보조 항목 Item:Length / Secondary Item:Length",
             if (lengthProblems.isEmpty()) "모든 보조 항목에 유효한 Item:Length가 있습니다 (0은 앞 항목과 데이터 공유)" else lengthProblems.joinToString("; "))
-        val primaryLengthOk = primary.length == null || primary.length == "0"
+        val primaryLengthOk = primary.length?.let { it.toLongOrNull() == 0L } ?: true
         out += spec("gmp.item.primary_length", "3.3", SpecRequirement.SHOULD, primaryLengthOk, "Primary Item:Length",
             if (primary.length == null) "생략됨 (0으로 간주)"
             else "Primary Item:Length=\"${primary.length}\"" + if (primaryLengthOk) "" else " — 0이어야 합니다")

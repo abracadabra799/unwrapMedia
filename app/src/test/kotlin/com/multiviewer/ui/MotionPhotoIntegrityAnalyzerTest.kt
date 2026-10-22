@@ -197,4 +197,24 @@ class MotionPhotoIntegrityAnalyzerTest {
             children = listOf(BoxNode(type = "sefd", offset = 0, headerSize = 0, size = trailerBytes.size.toLong())))
         assertTrue(MotionPhotoIntegrityAnalyzer.analyze(file, root).googleSpec.isEmpty())
     }
+
+    @Test
+    fun `XMP without motion-photo markers is not a Google motion photo`() {
+        val xmp = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description xmp:CreatorTool=\"camera\"/></rdf:RDF></x:xmpmeta>"
+        val file = File.createTempFile("plain-xmp", ".jpg")
+        file.deleteOnExit()
+        file.writeBytes(ByteArray(64))
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 64, children = listOf(
+            BoxNode(type = "APP1", offset = 2, headerSize = 4, size = 40, fields = listOf(BoxField("xmp", xmp, 2, 40)))))
+        assertTrue(!hasGoogleMotionPhotoXmp(root))
+        val report = MotionPhotoIntegrityAnalyzer.analyze(file, root)
+        assertTrue(MotionPhotoFormat.GOOGLE_XMP !in report.detectedFormats)
+        assertTrue(report.googleSpec.isEmpty())
+    }
+
+    @Test
+    fun `Google spec titles are bilingual`() {
+        assertEquals("HEIC/AVIF mpvd (구글 모션포토) / HEIC/AVIF mpvd (Google Motion Photo)", motionPhotoFormatLabel(MotionPhotoFormat.APPLE_MPVD))
+        assertEquals("구글 모션포토 1.0 / Google Motion Photo 1.0 · 배치 / Layout", googleSpecSectionTitle("배치 / Layout"))
+    }
 }
