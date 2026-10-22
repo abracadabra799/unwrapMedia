@@ -1,6 +1,10 @@
 package com.multiviewer.ui
 
 import com.multiviewer.parser.BoxNode
+import com.multiviewer.parser.MediaCategory
+import com.multiviewer.parser.MediaSummary
+import com.multiviewer.parser.SummaryField
+import com.multiviewer.parser.SummarySection
 import com.multiviewer.parser.conformance.ConformanceStatus
 import com.multiviewer.parser.integrity.CheckStatus
 import com.multiviewer.parser.integrity.ImageIntegrityChecker
@@ -42,6 +46,37 @@ class ContentCheckPlanTest {
         assertEquals(CheckAvailability.UNSUPPORTED, rows[2].availability)
         assertEquals(CheckAvailability.AVAILABLE, rows[4].availability)
         assertTrue(rows[2].reasonKo?.isNotBlank() == true)
+    }
+
+    @Test
+    fun audioOnlyMp4DoesNotOfferVisualDecode() {
+        // An audio-only .mp4 opens as VIDEO by extension; decoding a video stream it lacks must not FAIL.
+        val root = BoxNode("root", 0, 0, 100)
+        val rows = contentCheckStages(MediaType.VIDEO, root, false, false, true, false, hasVideoTrack = false)
+        assertEquals(CheckAvailability.NOT_APPLICABLE, rows.single { it.stage == CheckStage.VISUAL_DECODE }.availability)
+        assertEquals(CheckAvailability.AVAILABLE, rows.single { it.stage == CheckStage.AUDIO_DECODE }.availability)
+    }
+
+    @Test
+    fun videoTrackPresenceIsOnlyRuledOutByAKnownAudioOnlySummary() {
+        val audioOnly = MediaSummary(MediaCategory.VIDEO, listOf(SummarySection("Audio", listOf(SummaryField("Codec", "aac")))))
+        val withVideo = MediaSummary(MediaCategory.VIDEO, listOf(SummarySection("Video", listOf(SummaryField("Codec", "h264"))),
+            SummarySection("Audio", listOf(SummaryField("Codec", "aac")))))
+        assertFalse(summaryMayHaveVideoTrack(audioOnly))
+        assertTrue(summaryMayHaveVideoTrack(withVideo))
+        // Unknown (not loaded / failed) must keep the decode stage rather than hide it.
+        assertTrue(summaryMayHaveVideoTrack(null))
+        assertTrue(summaryMayHaveVideoTrack(MediaSummary(MediaCategory.VIDEO, emptyList())))
+    }
+
+    @Test
+    fun realAudioOnlyMp4SummaryRulesOutVideoButAvMp4DoesNot() {
+        fun summary(name: String): MediaSummary {
+            val file = File(javaClass.getResource("/content-check-false-positives/$name")!!.toURI())
+            return com.multiviewer.parser.buildMediaSummary(parseFile(file), file)
+        }
+        assertFalse(summaryMayHaveVideoTrack(summary("aac-only.mp4")))
+        assertTrue(summaryMayHaveVideoTrack(summary("avc-aac.mp4")))
     }
 
     @Test

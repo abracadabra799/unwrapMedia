@@ -126,9 +126,10 @@ fun ContentCheckWindow(
     var gainmapChecks by remember(tab) { mutableStateOf<List<IntegrityCheckItem>?>(null) }
     var stageStates by remember(tab) { mutableStateOf<Map<CheckStage, CheckStageState>>(emptyMap()) }
     val hasAudio = type == MediaType.AUDIO || tab.mediaSummary?.sections?.any { it.title == "Audio" } == true
+    val hasVideo = summaryMayHaveVideoTrack(tab.mediaSummary)
     // The codec-availability checks walk the box tree; they are pure functions of (type, root), so they
     // run once per tree instead of on every recomposition (progress ticks recompose this window).
-    val stageSpecs = remember(type, tab.root, motionDetected, gainmapDetected, hasAudio) {
+    val stageSpecs = remember(type, tab.root, motionDetected, gainmapDetected, hasAudio, hasVideo) {
         val root = tab.root
         val aacAvail = aacCodecAvailability(type, root)
         val opusAvail = opusCodecAvailability(type, root)
@@ -138,7 +139,8 @@ fun ContentCheckWindow(
             codecRunnerAvailable = (videoCodecAvail == CheckAvailability.AVAILABLE || aacAvail == CheckAvailability.AVAILABLE || opusAvail == CheckAvailability.AVAILABLE || flacAvail == CheckAvailability.AVAILABLE),
             aacCodecAvailable = (aacAvail == CheckAvailability.AVAILABLE),
             opusCodecAvailable = (opusAvail == CheckAvailability.AVAILABLE),
-            flacCodecAvailable = (flacAvail == CheckAvailability.AVAILABLE))
+            flacCodecAvailable = (flacAvail == CheckAvailability.AVAILABLE),
+            hasVideoTrack = hasVideo)
     }
     // What the codec run did not cover; drives the overview verdict, the codec tab notice and the AI snapshot.
     val codecGaps = remember(type, tab.root, codecPlan, codecBitstreams) {

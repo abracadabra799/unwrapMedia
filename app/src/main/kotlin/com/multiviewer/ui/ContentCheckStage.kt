@@ -1,6 +1,7 @@
 package com.multiviewer.ui
 
 import com.multiviewer.parser.BoxNode
+import com.multiviewer.parser.MediaSummary
 import com.multiviewer.parser.conformance.BitstreamCodec
 import com.multiviewer.parser.conformance.CodecBitstreamReport
 import com.multiviewer.parser.firstVideoSampleEntry
@@ -240,6 +241,7 @@ fun contentCheckStages(
     aacCodecAvailable: Boolean = false,
     opusCodecAvailable: Boolean = false,
     flacCodecAvailable: Boolean = false,
+    hasVideoTrack: Boolean = true,
 ): List<CheckStageSpec> {
     val loading = root == null
     fun available(stage: CheckStage) = CheckStageSpec(
@@ -263,11 +265,21 @@ fun contentCheckStages(
             "지원되는 H.264 avc1, HEVC hvc1/hev1, AV1 av01, VP9 vp09, APV apv1 또는 VVC vvc1/vvi1 구성 없음", "No supported H.264 avc1, HEVC hvc1/hev1, AV1 av01, VP9 vp09, APV apv1, or VVC vvc1/vvi1 configuration")
         else -> available(CheckStage.CODEC)
     }
-    result += if (type == MediaType.IMAGE || type == MediaType.VIDEO) available(CheckStage.VISUAL_DECODE)
+    // An audio-only .mp4 opens as VIDEO by extension: there is no video stream to decode.
+    result += if (type == MediaType.IMAGE || (type == MediaType.VIDEO && hasVideoTrack)) available(CheckStage.VISUAL_DECODE)
         else notApplicable(CheckStage.VISUAL_DECODE)
     result += if (type == MediaType.AUDIO || hasAudioTrack) available(CheckStage.AUDIO_DECODE)
         else notApplicable(CheckStage.AUDIO_DECODE)
     if (type == MediaType.IMAGE && motionDetected) result += available(CheckStage.MOTION_PHOTO)
     if (type == MediaType.IMAGE && gainmapDetected) result += available(CheckStage.GAINMAP)
     return result
+}
+
+/**
+ * False only when the summary is known and lists audio but no video (an audio-only MP4/MOV): an unknown
+ * or empty summary keeps the video decode stage rather than hiding it.
+ */
+fun summaryMayHaveVideoTrack(summary: MediaSummary?): Boolean {
+    val sections = summary?.sections ?: return true
+    return sections.any { it.title == "Video" } || sections.none { it.title == "Audio" }
 }

@@ -15,6 +15,7 @@ import com.multiviewer.ui.VideoIntegrityReport
 import com.multiviewer.ui.hasMotionPhotoData
 import com.multiviewer.ui.inspectImageDecode
 import com.multiviewer.ui.inspectVideoIntegrity
+import com.multiviewer.ui.summaryMayHaveVideoTrack
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.security.MessageDigest
@@ -39,7 +40,11 @@ fun checkFile(file: File, includeCase: Boolean = false, decode: Boolean = false,
         val isImage = mediaType == MediaType.IMAGE
         val isAudio = mediaType == MediaType.AUDIO
         require(!decode || isVideo || isImage || isAudio) { "--decode requires a video, image or audio file" }
-        val integrity = integrityReport ?: if (decode && isVideo) runBlocking { inspectVideoIntegrity(result.file) } else null
+        val summary by lazy { buildMediaSummary(result.root, result.file) }
+        // An audio-only .mp4 is VIDEO by extension; there is no video stream to decode.
+        val integrity = integrityReport ?: if (decode && isVideo && summaryMayHaveVideoTrack(summary)) {
+            runBlocking { inspectVideoIntegrity(result.file) }
+        } else null
         val audio = if (decode && (isAudio || isVideo)) runBlocking { inspectAudioIntegrity(result.file) } else null
         val warnings = collectWarnings(result.root)
         val imageIntegrity = if (isImage) {
@@ -63,7 +68,7 @@ fun checkFile(file: File, includeCase: Boolean = false, decode: Boolean = false,
         val prompt = AiDiagnosticPromptBuilder.buildPrompt(result.file, result.root, warnings)
         val caseJson = if (includeCase) {
             buildAnalysisCaseJson(
-                result.file, warnings, buildMediaSummary(result.root, result.file),
+                result.file, warnings, summary,
                 integrityReport = integrity, imageIntegrity = imageIntegrity, audioIntegrity = audio,
             )
         } else {
