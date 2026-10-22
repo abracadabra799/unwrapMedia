@@ -1348,6 +1348,7 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                                         currentTab.root?.let { rootNode ->
                                             BoxTreeView(
                                                 root = rootNode,
+                                                language = language,
                                                 selected = currentTab.selected,
                                                 onSelect = {
                                                     currentTab.selected = it

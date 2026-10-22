@@ -2,12 +2,10 @@ package com.multiviewer.ui
 
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -28,8 +26,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -39,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import com.multiviewer.parser.BoxNode
 import com.multiviewer.util.ClipboardUtil
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import java.util.Locale
 
 private data class FlatRow(
@@ -48,8 +52,8 @@ private data class FlatRow(
     val ancestorContinuations: List<Boolean>,
 )
 
-private const val DEPTH_INDENT_DP = 14
-private const val ARROW_WIDTH_DP = 14
+private const val DEPTH_INDENT_DP = 16
+private const val ARROW_WIDTH_DP = 20
 
 enum class BoxNodeCategory(
     val labelKo: String,
@@ -215,7 +219,8 @@ private fun collectAllExpandableNodes(node: BoxNode, out: MutableSet<BoxNode> = 
 }
 
 @Composable
-fun BoxTreeView(root: BoxNode, selected: BoxNode?, onSelect: (BoxNode) -> Unit) {
+fun BoxTreeView(root: BoxNode, selected: BoxNode?, onSelect: (BoxNode) -> Unit, language: AppLanguage = AppLanguage.KO) {
+    fun label(ko: String, en: String) = if (language == AppLanguage.KO) ko else en
     val expanded = remember(root) { mutableStateOf(setOf(root)) }
     var copied by remember { mutableStateOf(false) }
 
@@ -240,17 +245,15 @@ fun BoxTreeView(root: BoxNode, selected: BoxNode?, onSelect: (BoxNode) -> Unit) 
 
     val rows = remember(root, expanded.value) { flatten(root, 0, expanded.value, isLastSibling = true, ancestorContinuations = emptyList()) }
     val listState = rememberLazyListState()
-    val rootTotalSize = root.size.coerceAtLeast(1L)
 
-    // Bring the selection into view. Keyed on `rows` as well as `selected` because the expansion
-    // above only takes effect on the next composition -- on the first pass after a deep selection
-    // the target still has no row, and scrolling has to wait until it does.
-    LaunchedEffect(selected, rows) {
+    // Reveal once per selection change. Expanding another branch must not jump back
+    // to the previous selection. Wait for its ancestors to become visible first.
+    LaunchedEffect(root, selected) {
         val target = selected ?: return@LaunchedEffect
-        val index = rows.indexOfFirst { it.node === target }
-        if (index >= 0) {
-            listState.animateScrollToItem(index)
-        }
+        if (findAncestors(root, target, emptyList()) == null) return@LaunchedEffect
+        val index = snapshotFlow { visibleRowIndexOf(root, expanded.value, target) }
+            .first { it >= 0 }
+        listState.animateScrollToItem(index)
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -268,15 +271,15 @@ fun BoxTreeView(root: BoxNode, selected: BoxNode?, onSelect: (BoxNode) -> Unit) 
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TreeActionChip(
-                    text = "⊞ 펼치기",
+                    text = label("모두 펼치기", "Expand all"),
                     onClick = { expanded.value = collectAllExpandableNodes(root) },
                 )
                 TreeActionChip(
-                    text = "⊟ 접기",
+                    text = label("모두 접기", "Collapse all"),
                     onClick = { expanded.value = setOf(root) },
                 )
                 TreeActionChip(
-                    text = if (copied) "✓ 복사됨" else "📋 트리 복사",
+                    text = if (copied) label("복사됨", "Copied") else label("트리 복사", "Copy tree"),
                     highlight = copied,
                     onClick = {
                         if (ClipboardUtil.copyToClipboard(formatBoxTreeAsText(root))) {
@@ -285,13 +288,15 @@ fun BoxTreeView(root: BoxNode, selected: BoxNode?, onSelect: (BoxNode) -> Unit) 
                     },
                 )
             }
-            Text(
-                text = "${rows.size} rows · ${formatBoxByteSize(root.size)}",
-                color = AppColors.TextMuted,
-                fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace,
-                maxLines = 1,
-            )
+        }
+
+        Row(
+            Modifier.fillMaxWidth().padding(start = 10.dp, end = 14.dp).height(24.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label("구조", "Structure"), color = AppColors.TextMuted, fontSize = 10.sp, modifier = Modifier.weight(1f))
+            Text(label("크기", "Size"), color = AppColors.TextMuted, fontSize = 10.sp,
+                textAlign = TextAlign.End, modifier = Modifier.width(76.dp))
         }
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -304,201 +309,100 @@ fun BoxTreeView(root: BoxNode, selected: BoxNode?, onSelect: (BoxNode) -> Unit) 
                     val category = classifyBoxNode(node, isRoot)
                     val categoryColor = Color(category.badgeColorHex)
                     val hasWarnings = node.warnings.isNotEmpty()
-                    val shareFraction = if (!isRoot && node.size > 0L) {
-                        (node.size.toFloat() / rootTotalSize.toFloat()).coerceIn(0f, 1f)
-                    } else 0f
-
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(IntrinsicSize.Min)
-                            .background(
-                                when {
-                                    isSelected -> AppColors.Selection
-                                    hasWarnings -> AppColors.NeonRed.copy(alpha = 0.08f)
-                                    else -> Color.Transparent
-                                },
-                            )
-                            .clickable {
-                                onSelect(node)
-                                if (node.children.isNotEmpty()) {
-                                    expanded.value = if (node in expanded.value) {
-                                        expanded.value - node
-                                    } else {
-                                        expanded.value + node
+                            .height(24.dp)
+                            .background(if (isSelected) AppColors.Selection else Color.Transparent)
+                            .semantics { this.selected = isSelected }
+                            .clickable { onSelect(node) }
+                            .padding(start = 6.dp, end = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f).fillMaxHeight().clipToBounds(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            // Tree hierarchy indent guides
+                            for (d in 0 until row.depth) {
+                                val isConnectorColumn = d == row.depth - 1
+                                val drawVerticalLine = if (isConnectorColumn) true else row.ancestorContinuations.getOrElse(d) { false }
+                                Box(modifier = Modifier.width(DEPTH_INDENT_DP.dp).fillMaxHeight()) {
+                                    if (drawVerticalLine) {
+                                        Box(
+                                            modifier = Modifier
+                                                .align(if (isConnectorColumn && row.isLastSibling) Alignment.TopCenter else Alignment.Center)
+                                                .width(1.dp)
+                                                .fillMaxHeight(if (isConnectorColumn && row.isLastSibling) 0.55f else 1f)
+                                                .background(AppColors.Border.copy(alpha = 0.75f)),
+                                        )
+                                    }
+                                    if (isConnectorColumn) {
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.CenterEnd)
+                                                .width((DEPTH_INDENT_DP / 2).dp)
+                                                .height(1.dp)
+                                                .background(AppColors.Border.copy(alpha = 0.75f)),
+                                        )
                                     }
                                 }
                             }
-                            .padding(end = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        // Left category indicator bar
-                        Box(
-                            modifier = Modifier
-                                .width(3.dp)
-                                .fillMaxHeight()
-                                .background(
-                                    when {
-                                        isSelected -> AppColors.NeonBlue
-                                        hasWarnings -> AppColors.NeonRed
-                                        else -> categoryColor.copy(alpha = 0.75f)
-                                    },
-                                ),
-                        )
 
-                        // Tree hierarchy indent guides
-                        for (d in 0 until row.depth) {
-                            val isConnectorColumn = d == row.depth - 1
-                            val drawVerticalLine = if (isConnectorColumn) true else row.ancestorContinuations.getOrElse(d) { false }
-                            Box(modifier = Modifier.width(DEPTH_INDENT_DP.dp).fillMaxHeight()) {
-                                if (drawVerticalLine) {
-                                    Box(
-                                        modifier = Modifier
-                                            .align(if (isConnectorColumn && row.isLastSibling) Alignment.TopCenter else Alignment.Center)
-                                            .width(1.dp)
-                                            .fillMaxHeight(if (isConnectorColumn && row.isLastSibling) 0.55f else 1f)
-                                            .background(AppColors.Border.copy(alpha = 0.75f)),
-                                    )
-                                }
-                                if (isConnectorColumn) {
-                                    Box(
-                                        modifier = Modifier
-                                            .align(Alignment.CenterEnd)
-                                            .width((DEPTH_INDENT_DP / 2).dp)
-                                            .height(1.dp)
-                                            .background(AppColors.Border.copy(alpha = 0.75f)),
-                                    )
-                                }
-                            }
-                        }
-
-                        // Expand/collapse chevron
-                        Box(
-                            modifier = Modifier.width(ARROW_WIDTH_DP.dp).fillMaxHeight().padding(vertical = 3.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            if (node.children.isNotEmpty()) {
-                                Text(
-                                    if (isExpanded) "▾" else "▸",
-                                    color = categoryColor,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            } else {
-                                Text(
-                                    "·",
-                                    color = AppColors.TextMuted,
-                                    fontSize = 11.sp,
-                                )
-                            }
-                        }
-
-                        Spacer(Modifier.width(2.dp))
-
-                        // Warning badge if present
-                        if (hasWarnings) {
+                            // Disclosure owns expansion; selecting a row never folds its children.
                             Box(
-                                modifier = Modifier
-                                    .padding(end = 4.dp)
-                                    .background(AppColors.NeonRed.copy(alpha = 0.2f), RoundedCornerShape(3.dp))
-                                    .border(0.8.dp, AppColors.NeonRed, RoundedCornerShape(3.dp))
-                                    .padding(horizontal = 4.dp, vertical = 1.dp),
+                                modifier = Modifier.width(ARROW_WIDTH_DP.dp).fillMaxHeight()
+                                    .then(if (node.children.isNotEmpty()) Modifier.clickable(
+                                        onClickLabel = if (isExpanded) label("접기", "Collapse") else label("펼치기", "Expand"),
+                                    ) {
+                                        expanded.value = if (isExpanded) expanded.value - node else expanded.value + node
+                                    } else Modifier),
+                                contentAlignment = Alignment.Center,
                             ) {
-                                Text(
-                                    "⚠ ${node.warnings.size}",
-                                    color = AppColors.NeonRed,
-                                    fontSize = 9.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                )
+                                if (node.children.isNotEmpty()) {
+                                    Text(if (isExpanded) "▾" else "▸", color = AppColors.TextSecondary, fontSize = 12.sp)
+                                }
                             }
-                        }
-
-                        // Box / Marker Type Pill Badge
-                        Box(
-                            modifier = Modifier
-                                .padding(vertical = 2.5.dp)
-                                .background(categoryColor.copy(alpha = if (isSelected) 0.28f else 0.14f), RoundedCornerShape(3.dp))
-                                .border(
-                                    width = 0.8.dp,
-                                    color = categoryColor.copy(alpha = if (isSelected) 0.9f else 0.55f),
-                                    shape = RoundedCornerShape(3.dp),
+                            Box(Modifier.width(5.dp).height(5.dp)
+                                .background(categoryColor.copy(alpha = 0.7f), RoundedCornerShape(1.dp)))
+                            Spacer(Modifier.width(6.dp))
+                            Row(Modifier.weight(1f).clipToBounds(), verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = node.type,
+                                    color = AppColors.TextPrimary,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
-                                .padding(horizontal = 5.dp, vertical = 1.dp),
-                        ) {
-                            Text(
-                                text = node.type,
-                                color = if (isSelected) Color.White else categoryColor,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp,
-                                maxLines = 1,
-                            )
-                        }
-
-                        // Child count indicator when collapsed container
-                        if (node.children.isNotEmpty() && !isExpanded) {
-                            Text(
-                                text = " (${node.children.size})",
-                                color = AppColors.TextMuted,
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace,
-                            )
-                        }
-
-                        // Summary text
-                        val summary = node.summary
-                        if (!summary.isNullOrBlank()) {
-                            Text(
-                                text = " $summary",
-                                color = if (isSelected) Color.White else AppColors.TextPrimary,
-                                fontSize = 11.5.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f).padding(start = 4.dp, end = 6.dp),
-                            )
-                        } else {
-                            Spacer(Modifier.weight(1f))
-                        }
-
-                        // Right-aligned Byte Size + Proportional Bar + Offset
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            if (!isRoot && shareFraction >= 0.03f) {
-                                Box(
-                                    modifier = Modifier
-                                        .width(26.dp)
-                                        .height(5.dp)
-                                        .background(AppColors.Panel, RoundedCornerShape(2.dp)),
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth(shareFraction)
-                                            .fillMaxHeight()
-                                            .background(categoryColor.copy(alpha = 0.75f), RoundedCornerShape(2.dp)),
+                                if (node.children.isNotEmpty() && !isExpanded) {
+                                    Text("  ${node.children.size}", color = AppColors.TextMuted, fontSize = 10.sp, maxLines = 1)
+                                }
+                                node.summary?.takeIf { it.isNotBlank() }?.let { summary ->
+                                    Text(
+                                        text = summary,
+                                        color = AppColors.TextMuted,
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f).padding(start = 8.dp),
                                     )
                                 }
                             }
-                            if (node.size > 0L) {
-                                Text(
-                                    text = formatBoxByteSize(node.size),
-                                    color = if (isSelected) Color.White else AppColors.TextSecondary,
-                                    fontSize = 10.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    maxLines = 1,
-                                )
-                            }
-                            if (!isRoot) {
-                                Text(
-                                    text = "@0x${node.offset.toString(16).uppercase(Locale.US)}",
-                                    color = AppColors.TextMuted,
-                                    fontSize = 9.5.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    maxLines = 1,
-                                )
-                            }
                         }
+                        if (hasWarnings) {
+                            Text("⚠ ${node.warnings.size}", color = AppColors.NeonRed, fontSize = 10.sp,
+                                maxLines = 1, modifier = Modifier.padding(start = 4.dp))
+                        }
+                        Text(
+                            text = formatBoxByteSize(node.size),
+                            color = AppColors.TextSecondary,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            textAlign = TextAlign.End,
+                            modifier = Modifier.width(76.dp),
+                        )
                     }
                 }
             }
@@ -516,14 +420,11 @@ private fun TreeActionChip(
     highlight: Boolean = false,
     onClick: () -> Unit,
 ) {
-    val borderColor = if (highlight) AppColors.NeonGreen else AppColors.Border
     val textColor = if (highlight) AppColors.NeonGreen else AppColors.TextSecondary
     Box(
         modifier = Modifier
-            .background(AppColors.Surface, RoundedCornerShape(3.dp))
-            .border(0.8.dp, borderColor, RoundedCornerShape(3.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 2.dp),
+            .padding(horizontal = 6.dp, vertical = 5.dp),
     ) {
         Text(
             text = text,
