@@ -53,10 +53,10 @@ which is valid).
 | `gmp.item.padding_jpeg` | 3.3 | JPEG primary: Padding, if present, is a positive integer (`0` is not positive). | type → WARN |
 | `gmp.item.padding_isobmff` | 3.3/4 | HEIC/AVIF primary: Padding present and equal to `8` (the `mpvd` header). | Required/MUST → FAIL |
 | `gmp.item.video_mime` | 3.4 | The MotionPhoto item's Mime matches the real video container at the resolved start (`qt  ` major brand → `video/quicktime`, otherwise `video/mp4`). | FAIL |
-| `gmp.layout.video_start` | 3.3 | `fileLength − Length(MotionPhoto item)` (the item is last, §3.4) lands exactly on the video's `ftyp` box (items are stored "in original form"). If the real `ftyp` is found nearby, the detail names the byte difference. | MUST → FAIL |
+| `gmp.layout.video_start` | 3.3 | `fileLength − Length(MotionPhoto item)` (the item is last, §3.4) lands exactly on the video (items are stored "in original form"). JPEG: the declared start is an `ftyp` box; if the real `ftyp` is found within ±1024 B, the detail names the signed difference. HEIC/AVIF: the video is located structurally — the declared start must equal the top-level `mpvd` payload start (`mpvd.offset + header`) and that payload must start with `ftyp`; the image's own `ftyp` at offset 0 is never a candidate. No/truncated `mpvd` → SKIP (`mpvd.present`/`mpvd.size` already FAIL). `video_mime`/`video_last` use the `mpvd` payload start; when the declared start differs from it, a would-be PASS of those two is reported as SKIP (the declared item is not that video), a FAIL stays FAIL. | MUST → FAIL |
 | `gmp.layout.packed` | 3.2/3.3 | Tightly packed: primary image length + Padding + Σ(Length of the secondary items before MotionPhoto) = the video item's location from the end. Primary length: JPEG = through the primary image's EOI; HEIC/AVIF = offset of the `mpvd` box. | MUST → FAIL |
 | `gmp.layout.video_last` | 3.4 | The MotionPhoto item is the last thing in the file: no bytes after the video container's last top-level box. The detail reports the trailing byte count (and names a Samsung SEF trailer when recognized). | MUST NOT → FAIL |
-| `gmp.gainmap.item` | 3.4 | If the primary image is Ultra HDR (gain map detected by `GainmapParser`), the directory has a `GainMap` item placed before the MotionPhoto item. | MUST → FAIL |
+| `gmp.gainmap.item` | 3.4 | If the image is Ultra HDR — the primary XMP declares `http://ns.adobe.com/hdr-gain-map/1.0/`, or (JPEG) the bytes right after the primary EOI are a JPEG whose APP1 XMP (segments before SOS) declares it — the directory has a `GainMap` item after Primary and before the MotionPhoto item. No MotionPhoto item → SKIP. | MUST → FAIL |
 | `gmp.mpvd.present` | 4 | HEIC/AVIF: a top-level `mpvd` box exists. | MUST → FAIL |
 | `gmp.mpvd.size` | 4 | `mpvd` size field is not `0` and the box lies within the file. | MUST → FAIL |
 | `gmp.mpvd.last` | 4 | `mpvd` comes after all other top-level boxes (it is the last box). | MUST → FAIL |
@@ -65,18 +65,32 @@ which is valid).
 
 When the XMP cannot be parsed, a single FAIL (`gmp.xmp.parse`) is reported and the remaining XMP rules are reported as
 not checked (SKIP), never PASS. A rule that cannot be evaluated because an earlier rule failed (e.g. no MotionPhoto item
-→ no layout) is SKIP with the reason, never PASS.
+→ no layout) is SKIP with the reason, never PASS. With no usable MotionPhoto item (missing, Length not a positive
+integer, or Length > file size) every layout rule (`video_start` — FAIL when Length > file size —, `item.video_mime`,
+`layout.packed`, `layout.video_last`, `mpvd.length` when an `mpvd` exists, `gainmap.item` when a gain map is detected)
+is emitted as its own SKIP row. When `layout.packed` fails on a JPEG whose gap starts with an undeclared JPEG, the
+detail names it and its length ("디렉터리에 없는 JPEG(게인맵) N바이트").
 
 ### Observed Samsung files (real devices, kept out of the repo)
 
-- **JPEG** (`…_motion.jpg`, 5,777,014 B): EOI ends at 1,815,857; `Item:Length`=3,961,157 → declared start 1,815,857
-  (packed rule passes), but the bytes there are SEF entries; `ftyp` is at 1,816,018 (+161) → `video_start` FAIL. A SEF
-  trailer follows the MP4 → `video_last` FAIL. The MotionPhoto item carries `Item:Padding="0"` →
-  `padding_first_only` FAIL. Primary `Padding="0"` → `padding_jpeg` WARN. Filename → WARN.
-- **HEIC** (`…_motion.heic`): Primary `Padding="0"` → `padding_isobmff` FAIL; `sefd` box after `mpvd` →
-  `mpvd.last` and `video_last` FAIL; Length 3,961,781 ≠ `mpvd` payload 3,960,904 → `mpvd.length` FAIL.
-- **HEIC with gain map** (`20260715_223828.heic`): Primary `Padding="8"` passes; `GainMap` item with `Length="0"`
-  passes (shared resource); `sefd` after `mpvd` and Length ≠ `mpvd` payload → FAIL.
+Re-run on 2026-10-22 after the final-review fixes (`check <file> --decode`, non-PASS/INFO rows):
+
+- **JPEG** (`20260718_200439_motion.jpg`, 5,777,014 B): the primary EOI ends at 1,786,678; a 29,179-byte Ultra HDR
+  gain-map JPEG (`FF D8 FF E1`, APP1 XMP declares `hdrgm`) follows and ends at 1,815,857. The primary XMP has no
+  `hdrgm` and the directory is Primary + MotionPhoto only. `Item:Length`=3,961,157 → declared start 1,815,857, but
+  the bytes there are SEF entries; `ftyp` is at 1,816,018 (+161) → `video_start` FAIL. `layout.packed` FAIL
+  (1,786,678 + Padding 0 ≠ 1,815,857: undeclared 29,179-byte gain-map JPEG). `gainmap.item` FAIL (gain map present,
+  no GainMap item). A 92-byte SEF trailer follows the MP4 → `video_last` FAIL. The MotionPhoto item carries
+  `Item:Padding="0"` → `padding_first_only` FAIL. Primary `Padding="0"` → `padding_jpeg` WARN. Filename → WARN.
+- **HEIC** (`20260715_223835_motion.heic`, 5,204,478 B): Primary `Padding="0"` → `padding_isobmff` FAIL; declared
+  start 1,242,697 = the `mpvd` box offset, payload starts at 1,242,705 → `video_start` FAIL ("8바이트 차이");
+  `video_mime` SKIP (declared start ≠ video); `sefd`(869) after `mpvd` → `mpvd.last` and `video_last` FAIL; Length
+  3,961,781 ≠ `mpvd` payload 3,960,904 → `mpvd.length` FAIL; `padding_first_only` FAIL; filename WARN.
+- **HEIC with gain map** (`20260715_223828.heic`, 5,620,637 B): Primary `Padding="8"` and the declared start
+  742,190 equals the `mpvd` payload start → `video_start` PASS, `packed` PASS; `GainMap` item with `Length="0"`
+  before MotionPhoto passes (shared resource). FAILs: `padding_first_only`, `mpvd.last` (`sefd`(835,334) after
+  `mpvd`), `mpvd.length` (payload 4,043,113 ≠ Length 4,878,447, the Length runs to EOF past `mpvd`), `video_last`
+  (835,334 SEF bytes after the video); filename WARN.
 
 ## Architecture
 
