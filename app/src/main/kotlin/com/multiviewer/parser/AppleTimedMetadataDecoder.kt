@@ -200,10 +200,12 @@ fun decodeTimedMetadataTrack(
     }
 
     val totalSamples = sampleSizes.size
-    val warnings = mutableListOf<String>()
+    // Our own decoding caps, not file defects: reported as a field so they never become parser warnings
+    // (Content Check turns parser warnings into a Structure WARN on a valid file).
+    val decodingLimits = mutableListOf<String>()
     val sampleLimit = minOf(totalSamples, limits.maxSamples)
     if (totalSamples > limits.maxSamples) {
-        warnings.add("Track contains $totalSamples samples, decoding capped at maxSamples (${limits.maxSamples})")
+        decodingLimits.add("Track contains $totalSamples samples, decoding capped at maxSamples (${limits.maxSamples})")
     }
 
     val sampleNodes = mutableListOf<BoxNode>()
@@ -211,7 +213,7 @@ fun decodeTimedMetadataTrack(
 
     for (i in 0 until sampleLimit) {
         if (totalBytesDecoded >= limits.maxTotalBytes) {
-            warnings.add("Reached total byte limit (${limits.maxTotalBytes} bytes) at sample $i")
+            decodingLimits.add("Reached total byte limit (${limits.maxTotalBytes} bytes) at sample $i")
             break
         }
 
@@ -237,7 +239,7 @@ fun decodeTimedMetadataTrack(
 
         val readSize = minOf(sSize.toInt(), limits.maxSampleBytes)
         if (sSize > limits.maxSampleBytes) {
-            warnings.add("Sample $i size ($sSize) exceeds maxSampleBytes (${limits.maxSampleBytes})")
+            decodingLimits.add("Sample $i size ($sSize) exceeds maxSampleBytes (${limits.maxSampleBytes}); only the first ${limits.maxSampleBytes} bytes were decoded")
         }
         totalBytesDecoded += readSize
 
@@ -295,8 +297,8 @@ fun decodeTimedMetadataTrack(
             BoxField("Total Samples", totalSamples.toString(), trak.offset, 0),
             BoxField("Decoded Samples", sampleNodes.size.toString(), trak.offset, 0),
             BoxField("Timescale", timescale.toString(), trak.offset, 0),
-        ) + keysMap.map { (idx, key) -> BoxField("Key[$idx]", key, trak.offset, 0) },
-        warnings = warnings,
+        ) + decodingLimits.map { BoxField("Decoding Limit", it, trak.offset, 0) } +
+            keysMap.map { (idx, key) -> BoxField("Key[$idx]", key, trak.offset, 0) },
         summary = "$totalSamples samples ($handlerType)",
     )
 }

@@ -46,7 +46,25 @@ class AppleTimedMetadataDecoderTest {
         val timedMetaNode = decodeTimedMetadataTrack(reader, trak, TimedMetadataLimits(maxSamples = 1))
         assertNotNull(timedMetaNode)
         assertEquals(1, timedMetaNode.children.size)
-        assertTrue(timedMetaNode.warnings.any { it.contains("limit") || it.contains("exceeded") || it.contains("maxSamples") })
+        // Our own decoding caps are not file defects: shown as a field, never as a parser warning
+        // (Content Check turns parser warnings into Structure WARN).
+        assertTrue(timedMetaNode.warnings.isEmpty(), timedMetaNode.warnings.toString())
+        assertTrue(timedMetaNode.fields.any { it.name == "Decoding Limit" && it.value.contains("maxSamples") })
+
+        reader.close()
+    }
+
+    @Test
+    fun `oversized timed metadata sample is a decoding limit not a warning`() {
+        val trakBytes = buildMebxTrack()
+        val reader = byteReaderOf(trakBytes)
+        registerAllDecoders()
+        val trak = parseBoxes(reader, 0, trakBytes.size.toLong()).first { it.type == "trak" }
+
+        val timedMetaNode = decodeTimedMetadataTrack(reader, trak, TimedMetadataLimits(maxSampleBytes = 1))
+        assertNotNull(timedMetaNode)
+        assertTrue(timedMetaNode.warnings.isEmpty(), timedMetaNode.warnings.toString())
+        assertTrue(timedMetaNode.fields.any { it.name == "Decoding Limit" && it.value.contains("maxSampleBytes") })
 
         reader.close()
     }
