@@ -69,6 +69,27 @@ class Mp3StructureTest {
     }
 
     @Test
+    fun xingFrameCountExcludesTheTagFrameItself() {
+        // LAME/Xing count the audio frames after the tag frame; the byte count covers the tag frame too.
+        val audio = frame() + frame()
+        val xing = frame().also { bytes ->
+            "Info".toByteArray(Charsets.US_ASCII).copyInto(bytes, 36)
+            be32(3).copyInto(bytes, 40)
+            be32(2).copyInto(bytes, 44)
+            be32(bytes.size + audio.size).copyInto(bytes, 48)
+        }
+        val items = check(xing + audio)
+        assertTrue(items.any { it.id == "mp3.xing.count" && it.status == CheckStatus.PASS }, items.toString())
+    }
+
+    @Test
+    fun defaultLameMp3HasNoXingCountWarning() {
+        val file = File(javaClass.getResource("/content-check-false-positives/lame-info.mp3")!!.toURI())
+        val items = ByteReader.open(file).use(::checkMp3Structure)
+        assertTrue(items.none { it.status == CheckStatus.WARN || it.status == CheckStatus.FAIL }, items.toString())
+    }
+
+    @Test
     fun freeFormatIsReportedAsUnverified() {
         assertTrue(check(frame(bitrateIndex = 0)).any { it.status == CheckStatus.SKIP || it.status == CheckStatus.WARN })
     }

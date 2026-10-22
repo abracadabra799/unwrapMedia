@@ -118,7 +118,8 @@ internal fun checkMp3Structure(reader: ByteReader): List<IntegrityCheckItem> {
         position += current.length
     }
     if (frameCount > 0) add("frames", "MPEG frames", CheckStatus.PASS, "$frameCount complete MPEG frame(s), $frameBytes bytes", firstFrame, frameBytes)
-    xing?.let { info -> compareVbr("xing", "Xing/Info", info, frameCount, frameBytes, ::add) }
+    // LAME/Xing count the audio frames after the tag frame (ffprobe agrees); some older encoders included it.
+    xing?.let { info -> compareVbr("xing", "Xing/Info", info, frameCount, frameBytes, ::add, setOf(frameCount - 1, frameCount)) }
     vbri?.let { info -> compareVbr("vbri", "VBRI", info, frameCount, frameBytes, ::add) }
     return items
 }
@@ -191,8 +192,9 @@ private fun compareVbr(
     observedFrames: Long,
     observedBytes: Long,
     add: (String, String, CheckStatus, String, Long?, Long?) -> Unit,
+    acceptedFrames: Set<Long> = setOf(observedFrames),
 ) {
-    val mismatch = info.frames?.let { it != observedFrames } == true || info.bytes?.let { it != observedBytes } == true
+    val mismatch = info.frames?.let { it !in acceptedFrames } == true || info.bytes?.let { it != observedBytes } == true
     add("$id.count", "$label counts", if (mismatch) CheckStatus.WARN else CheckStatus.PASS,
         "$label declares ${info.frames ?: "unknown"} frame(s) and ${info.bytes ?: "unknown"} byte(s); observed $observedFrames frame(s), $observedBytes bytes",
         info.offset, 4)
