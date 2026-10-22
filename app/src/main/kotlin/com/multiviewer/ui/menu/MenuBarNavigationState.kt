@@ -45,7 +45,9 @@ data class MenuBarNavigationState(
     fun hoverItem(item: Int, menus: List<AppMenu>): MenuBarNavigationState {
         val menu = openMenuIndex?.let(menus::getOrNull) ?: return this
         val entry = menu.entries.getOrNull(item) ?: return this
-        if (item == openSubmenuItem) return copy(highlightedItem = item)
+        // Back on the open submenu's own row: keep it open but drop the child highlight, so a click on
+        // the row cannot run the child that was highlighted a moment ago.
+        if (item == openSubmenuItem) return copy(highlightedItem = item, highlightedSubItem = null)
         val base = closeSubmenu()
         if (!entry.isSelectable()) return base
         return if (entry is MenuEntry.Submenu) {

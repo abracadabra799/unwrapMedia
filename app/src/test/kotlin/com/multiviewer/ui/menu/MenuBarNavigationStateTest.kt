@@ -275,6 +275,15 @@ class MenuBarNavigationStateTest {
     }
 
     @Test
+    fun `returning to the submenu row clears the child highlight so a click there runs nothing`() {
+        val child = MenuBarNavigationState().activate(0, 2).hoverItem(1, subMenus).hoverSubItem(3, subMenus)
+        val back = child.hoverItem(1, subMenus)
+        assertEquals(1, back.openSubmenuItem, "the submenu stays open")
+        assertNull(back.highlightedSubItem)
+        assertNull(back.highlightedAction(subMenus))
+    }
+
+    @Test
     fun `disabled submenu never opens`() {
         val open = MenuBarNavigationState().activate(0, 2)
         val hovered = open.hoverItem(2, subMenus)
