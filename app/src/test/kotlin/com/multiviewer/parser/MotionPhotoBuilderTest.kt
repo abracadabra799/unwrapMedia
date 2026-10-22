@@ -146,7 +146,7 @@ class MotionPhotoBuilderTest {
         val outputFile = File.createTempFile("motion-build-out-", ".jpg")
         outputFile.deleteOnExit()
 
-        MotionPhotoBuilder.createGoogleMotionPhoto(imageFile, videoFile, outputFile)
+        MotionPhotoBuilder.createGoogleMotionPhoto(imageFile, videoFile, outputFile, layout = MotionPhotoLayout.SAMSUNG_COMPATIBLE)
 
         assertTrue(outputFile.exists())
 
@@ -195,7 +195,7 @@ class MotionPhotoBuilderTest {
         // 1. Create initial motion photo
         val intermediateFile = File.createTempFile("motion-interm-", ".jpg")
         intermediateFile.deleteOnExit()
-        MotionPhotoBuilder.createGoogleMotionPhoto(imageFile, videoFile1, intermediateFile)
+        MotionPhotoBuilder.createGoogleMotionPhoto(imageFile, videoFile1, intermediateFile, layout = MotionPhotoLayout.SAMSUNG_COMPATIBLE)
 
         // 2. Now synthesize a second motion photo using the first one as source, with a new video!
         val videoFile2 = File.createTempFile("motion-video-2-", ".mp4")
@@ -208,7 +208,7 @@ class MotionPhotoBuilderTest {
         val finalOutputFile = File.createTempFile("motion-final-", ".jpg")
         finalOutputFile.deleteOnExit()
 
-        MotionPhotoBuilder.createGoogleMotionPhoto(intermediateFile, videoFile2, finalOutputFile)
+        MotionPhotoBuilder.createGoogleMotionPhoto(intermediateFile, videoFile2, finalOutputFile, layout = MotionPhotoLayout.SAMSUNG_COMPATIBLE)
 
         val root = parseFile(finalOutputFile)
         val sefdNode = findFirst(root) { it.type == "sefd" }
@@ -259,7 +259,7 @@ class MotionPhotoBuilderTest {
         val outputFile = File.createTempFile("motion-heic-out-", ".heic")
         outputFile.deleteOnExit()
 
-        MotionPhotoBuilder.createMotionPhoto(imageFile, videoFile, outputFile)
+        MotionPhotoBuilder.createMotionPhoto(imageFile, videoFile, outputFile, layout = MotionPhotoLayout.SAMSUNG_COMPATIBLE)
 
         assertTrue(outputFile.exists())
 
@@ -371,7 +371,7 @@ class MotionPhotoBuilderTest {
     }
 
     @Test
-    fun `mergeMotionPhotoXmp appends MotionPhoto to an existing Container Directory and recomputes the preceding item's Padding`() {
+    fun `mergeMotionPhotoXmp appends MotionPhoto to an existing Container Directory and puts the Padding on the first item only`() {
         val existing = """
             <x:xmpmeta xmlns:x="adobe:ns:meta/">
               <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
@@ -403,25 +403,26 @@ class MotionPhotoBuilderTest {
         assertTrue(merged.contains("hdrgm:GainMapMin=\"0.0\""))
         assertTrue(merged.contains("hdrgm:GainMapMax=\"3.5\""))
         assertTrue(merged.contains("Item:Length=\"9876\""), "GainMap's own Length must not change")
-        // GainMap's Padding recomputed to the new gap (was 0, now 42 -- the bytes before the appended video).
+        // Google Motion Photo 1.0 §3.3: only the FIRST item may carry Item:Padding, so the gap before the video
+        // (42) goes on Primary and the GainMap's old Padding="0" is removed; the packing sum is unchanged.
         // DOM serialization doesn't guarantee attribute order, so locate the whole <Container:Item .../>
         // element by its Semantic value first, then check the Padding value within that element's text,
         // rather than assuming Semantic precedes Padding.
         val containerItemTags = Regex("""<Container:Item\b[^>]*/>""").findAll(merged).map { it.value }.toList()
         val gainMapItemTag = containerItemTags.find { it.contains("Item:Semantic=\"GainMap\"") }
         assertNotNull(gainMapItemTag, "Expected to find the GainMap Container:Item element")
-        assertTrue(
-            gainMapItemTag!!.contains("Item:Padding=\"42\""),
-            "Expected GainMap's Padding to be recomputed to the new preceding-item gap, got: $gainMapItemTag",
-        )
-        // Primary item untouched
+        assertFalse(gainMapItemTag!!.contains("Item:Padding"), "Only the first item may carry Item:Padding, got: $gainMapItemTag")
         val primaryItemTag = containerItemTags.find { it.contains("Item:Semantic=\"Primary\"") }
         assertNotNull(primaryItemTag, "Expected to find the Primary Container:Item element")
         assertTrue(primaryItemTag!!.contains("Item:Mime=\"image/jpeg\""))
-        assertTrue(primaryItemTag.contains("Item:Padding=\"0\""))
-        // MotionPhoto item appended
-        assertTrue(merged.contains("Item:Semantic=\"MotionPhoto\""))
-        assertTrue(merged.contains("Item:Length=\"5000\""))
+        assertTrue(primaryItemTag.contains("Item:Padding=\"42\""), "Expected the gap on the first item, got: $primaryItemTag")
+        // MotionPhoto item appended after the GainMap, without Padding
+        val motionItemTag = containerItemTags.find { it.contains("Item:Semantic=\"MotionPhoto\"") }
+        assertNotNull(motionItemTag)
+        assertTrue(motionItemTag!!.contains("Item:Length=\"5000\""))
+        assertFalse(motionItemTag.contains("Item:Padding"), "Only the first item may carry Item:Padding, got: $motionItemTag")
+        assertEquals(listOf("Primary", "GainMap", "MotionPhoto"),
+            containerItemTags.map { Regex("""Item:Semantic="(\w+)"""").find(it)!!.groupValues[1] })
     }
 
     @Test
@@ -1006,7 +1007,7 @@ class MotionPhotoBuilderTest {
 
         val outputFile = File.createTempFile("heic-mdat-first-out-", ".heic")
         outputFile.deleteOnExit()
-        MotionPhotoBuilder.createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile)
+        MotionPhotoBuilder.createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile, layout = MotionPhotoLayout.SAMSUNG_COMPATIBLE)
 
         val outBytes = outputFile.readBytes()
         val entriesOut = readIlocEntries(outBytes)
@@ -1058,7 +1059,7 @@ class MotionPhotoBuilderTest {
 
         val outputFile = File.createTempFile("heic-mdat-first-xmp-out-", ".heic")
         outputFile.deleteOnExit()
-        MotionPhotoBuilder.createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile)
+        MotionPhotoBuilder.createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile, layout = MotionPhotoLayout.SAMSUNG_COMPATIBLE)
 
         val outBytes = outputFile.readBytes()
         val entries = readIlocEntries(outBytes)
@@ -1126,7 +1127,7 @@ class MotionPhotoBuilderTest {
 
         val outputFile = File.createTempFile("heic-xpacket-out-", ".heic")
         outputFile.deleteOnExit()
-        MotionPhotoBuilder.createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile)
+        MotionPhotoBuilder.createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile, layout = MotionPhotoLayout.SAMSUNG_COMPATIBLE)
 
         val outBytes = outputFile.readBytes()
         val entries = readIlocEntries(outBytes)
@@ -1186,7 +1187,7 @@ class MotionPhotoBuilderTest {
 
         val outputFile = File.createTempFile("heic-multiextent-out-", ".heic")
         outputFile.deleteOnExit()
-        MotionPhotoBuilder.createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile)
+        MotionPhotoBuilder.createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile, layout = MotionPhotoLayout.SAMSUNG_COMPATIBLE)
 
         val outBytes = outputFile.readBytes()
         val entries = readIlocEntries(outBytes)
@@ -1241,7 +1242,7 @@ class MotionPhotoBuilderTest {
 
         val outputFile = File.createTempFile("heic-bail-out-", ".heic")
         outputFile.deleteOnExit()
-        MotionPhotoBuilder.createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile)
+        MotionPhotoBuilder.createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile, layout = MotionPhotoLayout.SAMSUNG_COMPATIBLE)
 
         assertTrue(outputFile.length() > 0, "Motion-photo creation must not be aborted by an XMP-subsystem bail-out")
         val root = parseFile(outputFile)
@@ -1280,7 +1281,7 @@ class MotionPhotoBuilderTest {
 
         val outputFile = File.createTempFile("heic-create-out-", ".heic")
         outputFile.deleteOnExit()
-        MotionPhotoBuilder.createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile)
+        MotionPhotoBuilder.createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile, layout = MotionPhotoLayout.SAMSUNG_COMPATIBLE)
 
         // (a) The motion-photo container itself is still correct and fully locatable.
         val fileBytes = outputFile.readBytes()
@@ -1347,7 +1348,7 @@ class MotionPhotoBuilderTest {
 
         val outputFile = File.createTempFile("heic-merge-out-", ".heic")
         outputFile.deleteOnExit()
-        MotionPhotoBuilder.createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile)
+        MotionPhotoBuilder.createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile, layout = MotionPhotoLayout.SAMSUNG_COMPATIBLE)
 
         val root = parseFile(outputFile)
         ByteReader.open(outputFile).use { reader ->

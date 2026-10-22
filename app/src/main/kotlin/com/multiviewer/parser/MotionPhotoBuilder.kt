@@ -1,5 +1,6 @@
 package com.multiviewer.parser
 
+import com.multiviewer.parser.motionphoto.HDR_GAINMAP_NS
 import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -17,6 +18,14 @@ enum class MotionPhotoFormatVersion {
     V1_MICRO_VIDEO,
     V2_MOTION_PHOTO,
 }
+
+/**
+ * Byte layout of a created motion photo. Google Motion Photo 1.0 forbids any byte after the video, while Samsung
+ * Gallery finds its SEF data through the `SEFT` tail at the very end of the file -- one file cannot satisfy both.
+ * - [GOOGLE_SPEC]: JPEG `[primary (+ Ultra HDR gain-map JPEG)][MP4]`, HEIC/AVIF `[base boxes][mpvd(MP4)]`; no SEF.
+ * - [SAMSUNG_COMPATIBLE]: the Samsung layout (SEF trailer / `sefd` box after the video).
+ */
+enum class MotionPhotoLayout { GOOGLE_SPEC, SAMSUNG_COMPATIBLE }
 
 object MotionPhotoBuilder {
 
@@ -129,14 +138,18 @@ object MotionPhotoBuilder {
      * Builds Motion Photo XMP metadata XML string for JPEG.
      * @param version Format version: v2.0 MotionPhoto (default) or v1.0 MicroVideo.
      * @param videoOffsetFromEof Distance in bytes from the end of the file to the first byte (ftyp) of the video.
-     * @param primaryPadding Padding in bytes between the end of primary JPEG image and the first byte of video.
+     * @param primaryPadding Padding in bytes after the primary JPEG image (Google spec: only the first Directory item
+     *   may carry Item:Padding, and a JPEG Padding must be positive -- so it is omitted when 0).
      * @param presentationTimestampUs Shutter sync timestamp in microseconds (defaults to video track duration).
+     * @param gainMapLength Size of an Ultra HDR gain-map JPEG stored right after the primary image; > 0 adds a
+     *   GainMap Directory item (between Primary and MotionPhoto) with that Length.
      */
     fun buildGoogleMotionPhotoXmp(
         videoOffsetFromEof: Long,
         primaryPadding: Long = 0L,
         presentationTimestampUs: Long = 1500000L,
         version: MotionPhotoFormatVersion = MotionPhotoFormatVersion.V2_MOTION_PHOTO,
+        gainMapLength: Long = 0L,
     ): String {
         return if (version == MotionPhotoFormatVersion.V1_MICRO_VIDEO) {
             """
@@ -152,6 +165,17 @@ object MotionPhotoBuilder {
                 </x:xmpmeta>
             """.trimIndent()
         } else {
+            val primaryPaddingAttr = if (primaryPadding > 0L) "\n                              Item:Padding=\"$primaryPadding\"" else ""
+            val gainMapItem = if (gainMapLength > 0L) {
+                "\n                          <rdf:li rdf:parseType=\"Resource\">" +
+                    "\n                            <Container:Item" +
+                    "\n                              Item:Semantic=\"GainMap\"" +
+                    "\n                              Item:Mime=\"image/jpeg\"" +
+                    "\n                              Item:Length=\"$gainMapLength\"/>" +
+                    "\n                          </rdf:li>"
+            } else {
+                ""
+            }
             """
                 <x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 5.1.0-jc003">
                   <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
@@ -167,15 +191,13 @@ object MotionPhotoBuilder {
                           <rdf:li rdf:parseType="Resource">
                             <Container:Item
                               Item:Semantic="Primary"
-                              Item:Mime="image/jpeg"
-                              Item:Padding="$primaryPadding"/>
-                          </rdf:li>
+                              Item:Mime="image/jpeg"$primaryPaddingAttr/>
+                          </rdf:li>$gainMapItem
                           <rdf:li rdf:parseType="Resource">
                             <Container:Item
                               Item:Mime="video/mp4"
                               Item:Semantic="MotionPhoto"
-                              Item:Length="$videoOffsetFromEof"
-                              Item:Padding="0"/>
+                              Item:Length="$videoOffsetFromEof"/>
                           </rdf:li>
                         </rdf:Seq>
                       </Container:Directory>
@@ -230,11 +252,13 @@ object MotionPhotoBuilder {
         sb.append("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Adobe XMP Core Test.SNAPSHOT\">\n")
         sb.append("  <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n")
         sb.append("    <rdf:Description rdf:about=\"\"\n")
-        sb.append("        xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\"\n")
+        // hdrgm is declared only for a gain-map image: on a plain HEIC it would claim Ultra HDR (and make a Google
+        // Motion Photo reader require a GainMap Directory item that does not exist).
+        if (hasGainMap) sb.append("        xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\"\n")
         sb.append("        xmlns:Container=\"http://ns.google.com/photos/1.0/container/\"\n")
         sb.append("        xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\"\n")
         sb.append("        xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\"\n")
-        sb.append("      hdrgm:Version=\"1.0\"\n")
+        if (hasGainMap) sb.append("      hdrgm:Version=\"1.0\"\n")
         sb.append("      GCamera:MotionPhoto=\"1\"\n")
         sb.append("      GCamera:MotionPhotoVersion=\"1\"\n")
         sb.append("      GCamera:MotionPhotoPresentationTimestampUs=\"$presentationTimestampUs\">\n")
@@ -253,8 +277,7 @@ object MotionPhotoBuilder {
         sb.append("            <Container:Item\n")
         sb.append("              Item:Mime=\"video/mp4\"\n")
         sb.append("              Item:Semantic=\"MotionPhoto\"\n")
-        sb.append("              Item:Length=\"$videoOffsetFromEof\"\n")
-        sb.append("              Item:Padding=\"0\"/>\n")
+        sb.append("              Item:Length=\"$videoOffsetFromEof\"/>\n")
         sb.append("          </rdf:li>\n")
         sb.append("        </rdf:Seq>\n")
         sb.append("      </Container:Directory>\n")
@@ -273,13 +296,19 @@ object MotionPhotoBuilder {
      * @param existingXmpText The image's existing XMP text, or null if it has none.
      * @param videoOffsetOrLength JPEG: distance in bytes from EOF to the video's first byte.
      *   HEIC: same distance-from-EOF convention as buildGoogleMotionPhotoHeicXmp.
-     * @param precedingItemPaddingBytes The byte gap between the end of whichever Directory item
-     *   ends up immediately before the new MotionPhoto item, and the start of the video bytes --
-     *   same role as buildGoogleMotionPhotoXmp's `primaryPadding`, generalized: when an existing
-     *   Directory already has other items (e.g. GainMap), this padding is applied to the item that
-     *   was previously last, not necessarily to Primary.
+     * @param precedingItemPaddingBytes The first (Primary) Directory item's Item:Padding -- the bytes
+     *   the Directory items do not describe (JPEG: e.g. the Samsung SEF blocks before the video; HEIC:
+     *   the 8-byte mpvd header). Google Motion Photo 1.0 §3.3: only the FIRST item may carry
+     *   Item:Padding, so every other item's Padding is removed, and the first item's is omitted when
+     *   0 (a JPEG Padding must be a positive integer). The spec's packing rule is a sum (primary end
+     *   + Padding + secondary Lengths = video start), so the gap is accounted for wherever it sits.
      * @param primaryMimeType Only used when synthesizing a fresh Container:Directory (no existing
      *   one to append to) -- "image/jpeg" or "image/heic".
+     * @param gainMapLength JPEG: size of an Ultra HDR gain-map JPEG kept right after the primary
+     *   image. > 0 ensures a GainMap item sits before the MotionPhoto item -- an existing GainMap item
+     *   is kept as is (its Length too); otherwise one is inserted with this Length.
+     * @param layout GOOGLE_SPEC removes the legacy GCamera:MicroVideo* fields (deleted in 1.0);
+     *   SAMSUNG_COMPATIBLE keeps them, re-pointing an existing MicroVideoOffset at the new video.
      */
     internal fun mergeMotionPhotoXmp(
         existingXmpText: String?,
@@ -288,12 +317,14 @@ object MotionPhotoBuilder {
         presentationTimestampUs: Long,
         version: MotionPhotoFormatVersion,
         primaryMimeType: String,
+        gainMapLength: Long = 0L,
+        layout: MotionPhotoLayout = MotionPhotoLayout.GOOGLE_SPEC,
     ): String {
         val freshBuild = if (primaryMimeType == "image/heic") {
             val hasGainMap = existingXmpText?.contains("GainMap") == true
             buildGoogleMotionPhotoHeicXmp(videoOffsetOrLength, hasGainMap, presentationTimestampUs, version)
         } else {
-            buildGoogleMotionPhotoXmp(videoOffsetOrLength, precedingItemPaddingBytes, presentationTimestampUs, version)
+            buildGoogleMotionPhotoXmp(videoOffsetOrLength, precedingItemPaddingBytes, presentationTimestampUs, version, gainMapLength)
         }
         if (existingXmpText == null) return freshBuild
 
@@ -326,6 +357,22 @@ object MotionPhotoBuilder {
             description.setAttributeNS(gCameraNs, "GCamera:MotionPhoto", "1")
             description.setAttributeNS(gCameraNs, "GCamera:MotionPhotoVersion", "1")
             description.setAttributeNS(gCameraNs, "GCamera:MotionPhotoPresentationTimestampUs", presentationTimestampUs.toString())
+            val microVideoAttributes = run {
+                val attributes = description.attributes
+                (0 until attributes.length).mapNotNull { attributes.item(it) as? org.w3c.dom.Attr }
+                    .filter { it.namespaceURI == gCameraNs && it.localName?.startsWith("MicroVideo") == true }
+            }
+            if (layout == MotionPhotoLayout.GOOGLE_SPEC) {
+                // Deleted in Motion Photo 1.0 -- a Google-spec file carries only the MotionPhoto fields.
+                microVideoAttributes.forEach { description.removeAttributeNode(it) }
+                val children = description.childNodes
+                (0 until children.length).mapNotNull { children.item(it) as? org.w3c.dom.Element }
+                    .filter { it.namespaceURI == gCameraNs && it.localName?.startsWith("MicroVideo") == true }
+                    .forEach { description.removeChild(it) }
+            } else if (microVideoAttributes.any { it.localName == "MicroVideoOffset" }) {
+                // Kept for older readers: the offset (distance from EOF to the video) must point at THIS video.
+                description.setAttributeNS(gCameraNs, "GCamera:MicroVideoOffset", videoOffsetOrLength.toString())
+            }
             ensureNamespace("Container", containerNs)
             ensureNamespace("Item", itemNs)
 
@@ -343,9 +390,30 @@ object MotionPhotoBuilder {
                 item.setAttributeNS(itemNs, "Item:Mime", "video/mp4")
                 item.setAttributeNS(itemNs, "Item:Semantic", "MotionPhoto")
                 item.setAttributeNS(itemNs, "Item:Length", videoOffsetOrLength.toString())
-                item.setAttributeNS(itemNs, "Item:Padding", "0")
                 li.appendChild(item)
                 return li
+            }
+
+            fun newGainMapLi(): org.w3c.dom.Element {
+                val li = document.createElementNS(rdfNs, "rdf:li")
+                li.setAttributeNS(rdfNs, "rdf:parseType", "Resource")
+                val item = document.createElementNS(containerNs, "Container:Item")
+                item.setAttributeNS(itemNs, "Item:Semantic", "GainMap")
+                item.setAttributeNS(itemNs, "Item:Mime", "image/jpeg")
+                item.setAttributeNS(itemNs, "Item:Length", gainMapLength.toString())
+                li.appendChild(item)
+                return li
+            }
+
+            // §3.3: Item:Padding only on the first item; a zero Padding is omitted (JPEG requires a positive one).
+            fun applyPaddingRule(items: List<org.w3c.dom.Element>) {
+                items.drop(1).forEach { it.removeAttributeNS(itemNs, "Padding") }
+                val first = items.firstOrNull() ?: return
+                if (precedingItemPaddingBytes > 0L) {
+                    first.setAttributeNS(itemNs, "Item:Padding", precedingItemPaddingBytes.toString())
+                } else {
+                    first.removeAttributeNS(itemNs, "Padding")
+                }
             }
 
             fun itemChildOf(li: org.w3c.dom.Element): org.w3c.dom.Element? {
@@ -381,24 +449,26 @@ object MotionPhotoBuilder {
                     itemChildOf(li)?.getAttributeNS(itemNs, "Semantic") == "MotionPhoto"
                 }
 
-                if (existingMotionPhotoIndex >= 0) {
+                val motionPhotoLi = if (existingMotionPhotoIndex >= 0) {
                     val motionPhotoItem = itemChildOf(liElements[existingMotionPhotoIndex])
                     motionPhotoItem?.setAttributeNS(itemNs, "Item:Mime", "video/mp4")
                     motionPhotoItem?.setAttributeNS(itemNs, "Item:Length", videoOffsetOrLength.toString())
-                    motionPhotoItem?.setAttributeNS(itemNs, "Item:Padding", "0")
-                    // The item immediately preceding the (replaced) MotionPhoto item is still the
-                    // one whose Padding describes the gap to the video -- recompute it the same way
-                    // as the append branch below, just relative to where MotionPhoto already sits
-                    // rather than relative to the list's end.
-                    if (existingMotionPhotoIndex > 0) {
-                        itemChildOf(liElements[existingMotionPhotoIndex - 1])
-                            ?.setAttributeNS(itemNs, "Item:Padding", precedingItemPaddingBytes.toString())
-                    }
+                    liElements[existingMotionPhotoIndex]
                 } else {
-                    val lastItem = liElements.lastOrNull()?.let { itemChildOf(it) }
-                    lastItem?.setAttributeNS(itemNs, "Item:Padding", precedingItemPaddingBytes.toString())
-                    seq.appendChild(newMotionPhotoLi())
+                    newMotionPhotoLi().also { seq.appendChild(it) }
                 }
+                // §3.4: a GainMap item sits after Primary and before MotionPhoto. An existing one is kept with its own
+                // Length; a gain map found in the bytes but missing from the Directory is added just before MotionPhoto.
+                val hasGainMapItem = liElements.any { itemChildOf(it)?.getAttributeNS(itemNs, "Semantic") == "GainMap" }
+                if (gainMapLength > 0L && !hasGainMapItem) seq.insertBefore(newGainMapLi(), motionPhotoLi)
+                val items = run {
+                    val children = seq.childNodes
+                    (0 until children.length)
+                        .mapNotNull { children.item(it) as? org.w3c.dom.Element }
+                        .filter { it.namespaceURI == rdfNs && it.localName == "li" }
+                        .mapNotNull { itemChildOf(it) }
+                }
+                applyPaddingRule(items)
             } else {
                 val directory = document.createElementNS(containerNs, "Container:Directory")
                 val seq = document.createElementNS(rdfNs, "rdf:Seq")
@@ -408,10 +478,13 @@ object MotionPhotoBuilder {
                 val primaryItem = document.createElementNS(containerNs, "Container:Item")
                 primaryItem.setAttributeNS(itemNs, "Item:Semantic", "Primary")
                 primaryItem.setAttributeNS(itemNs, "Item:Mime", primaryMimeType)
-                primaryItem.setAttributeNS(itemNs, "Item:Padding", precedingItemPaddingBytes.toString())
+                if (precedingItemPaddingBytes > 0L) {
+                    primaryItem.setAttributeNS(itemNs, "Item:Padding", precedingItemPaddingBytes.toString())
+                }
                 primaryLi.appendChild(primaryItem)
 
                 seq.appendChild(primaryLi)
+                if (gainMapLength > 0L) seq.appendChild(newGainMapLi())
                 seq.appendChild(newMotionPhotoLi())
                 directory.appendChild(seq)
                 description.appendChild(directory)
@@ -589,7 +662,23 @@ object MotionPhotoBuilder {
                 val sefPayload = heicBytes.copyOfRange(pos + 8, boxEnd)
                 preservedSef.addAll(extractSefBlocksFromPayload(sefPayload))
             } else if (fourCC != "mpvd") {
-                baseOut.write(heicBytes, pos, boxLen.toInt())
+                if (size == 0L && boxLen <= 0xFFFFFFFFL) {
+                    // size 0 = "extends to end of file". Once a box is appended after it (mpvd) that is no
+                    // longer true, and the XMP item code refuses to grow a size-0 box -- so write the real
+                    // size; the 8-byte header is unchanged, so every iloc offset stays valid.
+                    baseOut.write(ByteBuffer.allocate(4).putInt(boxLen.toInt()).array())
+                    baseOut.write(heicBytes, pos + 4, boxLen.toInt() - 4)
+                } else if (size == 1L && fourCC == "mdat" && boxLen >= 16 && boxLen - 8 <= 0xFFFFFFFFL) {
+                    // 64-bit largesize mdat (macOS sips/ImageIO write one even for tiny files). The XMP item
+                    // code only grows a 32-bit-size mdat, so re-express the 16-byte header as an 8-byte `free`
+                    // box + an 8-byte mdat header: same total size, so the payload and every iloc offset
+                    // into it stay exactly where they were.
+                    baseOut.write(ByteBuffer.allocate(8).putInt(8).put("free".toByteArray(Charsets.US_ASCII)).array())
+                    baseOut.write(ByteBuffer.allocate(8).putInt((boxLen - 8).toInt()).put("mdat".toByteArray(Charsets.US_ASCII)).array())
+                    baseOut.write(heicBytes, pos + 16, boxLen.toInt() - 16)
+                } else {
+                    baseOut.write(heicBytes, pos, boxLen.toInt())
+                }
             }
 
             pos = boxEnd
@@ -1752,6 +1841,8 @@ object MotionPhotoBuilder {
         primaryPadding: Long = 0L,
         presentationTimestampUs: Long = 1500000L,
         version: MotionPhotoFormatVersion = MotionPhotoFormatVersion.V2_MOTION_PHOTO,
+        gainMapLength: Long = 0L,
+        layout: MotionPhotoLayout = MotionPhotoLayout.GOOGLE_SPEC,
     ): ByteArray {
         require(jpegBytes.size >= 4 && (jpegBytes[0].toInt() and 0xFF) == 0xFF && (jpegBytes[1].toInt() and 0xFF) == 0xD8) {
             "Invalid JPEG bytes: missing SOI marker (0xFFD8)"
@@ -1815,7 +1906,9 @@ object MotionPhotoBuilder {
             }
         }
 
-        val mergedXmpText = mergeMotionPhotoXmp(existingXmpText, videoOffsetFromEof, primaryPadding, presentationTimestampUs, version, "image/jpeg")
+        val mergedXmpText = mergeMotionPhotoXmp(
+            existingXmpText, videoOffsetFromEof, primaryPadding, presentationTimestampUs, version, "image/jpeg", gainMapLength, layout,
+        )
         // A merge is additive (existing content plus this tool's own attributes/Directory entry), so
         // unlike the ~900-byte fresh build, the merged text can approach or exceed a JPEG APP1
         // segment's 65535-byte limit for a source JPEG whose own XMP was already close to it (e.g. an
@@ -1827,7 +1920,7 @@ object MotionPhotoBuilder {
         val xmpText = if (fitsInApp1Segment(mergedXmpText)) {
             mergedXmpText
         } else {
-            mergeMotionPhotoXmp(null, videoOffsetFromEof, primaryPadding, presentationTimestampUs, version, "image/jpeg")
+            mergeMotionPhotoXmp(null, videoOffsetFromEof, primaryPadding, presentationTimestampUs, version, "image/jpeg", gainMapLength, layout)
         }
         val app1Segment = buildApp1XmpSegment(xmpText)
 
@@ -1909,10 +2002,13 @@ object MotionPhotoBuilder {
         videoOffsetFromEof: Long,
         syncTimestampUs: Long,
         version: MotionPhotoFormatVersion,
+        layout: MotionPhotoLayout,
     ): ByteArray {
         fun mergedBytes(existingXmpText: String?): ByteArray =
-            mergeMotionPhotoXmp(existingXmpText, videoOffsetFromEof, HEIC_PRIMARY_ITEM_PADDING_BYTES, syncTimestampUs, version, "image/heic")
-                .toByteArray(Charsets.UTF_8)
+            mergeMotionPhotoXmp(
+                existingXmpText, videoOffsetFromEof, HEIC_PRIMARY_ITEM_PADDING_BYTES, syncTimestampUs, version, "image/heic",
+                layout = layout,
+            ).toByteArray(Charsets.UTF_8)
 
         val structuralItem = findHeicXmpItemLocation(baseHeicBytes)
         if (structuralItem != null) {
@@ -1941,7 +2037,9 @@ object MotionPhotoBuilder {
     }
 
     /**
-     * Synthesizes a Samsung Galaxy HEIC Motion Photo file (.heic).
+     * Synthesizes a HEIC Motion Photo file (.heic) in the given [layout]:
+     * GOOGLE_SPEC `[base boxes + XMP][mpvd(MP4)]` (no sefd), SAMSUNG_COMPATIBLE `[...][mpvd][sefd]`.
+     * @return true when the source's Samsung SEF data was dropped (GOOGLE_SPEC with a source sefd box).
      */
     fun createSamsungHeicMotionPhoto(
         imageFile: File,
@@ -1949,7 +2047,8 @@ object MotionPhotoBuilder {
         outputFile: File,
         version: MotionPhotoFormatVersion = MotionPhotoFormatVersion.V2_MOTION_PHOTO,
         presentationTimestampUs: Long? = null,
-    ) {
+        layout: MotionPhotoLayout = MotionPhotoLayout.GOOGLE_SPEC,
+    ): Boolean {
         require(imageFile.exists() && imageFile.length() > 0) { "Image file not found or is empty: ${imageFile.absolutePath}" }
         require(videoFile.exists() && videoFile.length() > 0) { "Video file not found or is empty: ${videoFile.absolutePath}" }
         require(version != MotionPhotoFormatVersion.V1_MICRO_VIDEO) {
@@ -1960,6 +2059,19 @@ object MotionPhotoBuilder {
         val (baseHeicBytes, preservedSefBlocks) = extractExistingHeicBoxesAndSef(rawHeicBytes)
 
         val videoLength = videoFile.length()
+
+        if (layout == MotionPhotoLayout.GOOGLE_SPEC) {
+            // Google Motion Photo 1.0 §4: mpvd is the last box and holds exactly the video, so
+            // Item:Length = video size = file length - mpvd payload start. No sefd may follow it.
+            val syncTimestampUs = resolvePresentationTimestampUs(presentationTimestampUs, extractVideoDurationUs(videoFile))
+            val updatedBase = try {
+                buildHeicBaseWithMotionPhotoXmp(baseHeicBytes, videoLength, syncTimestampUs, version, layout)
+            } catch (e: Exception) {
+                baseHeicBytes // an XMP failure must never abort creation (same rule as the Samsung path below)
+            }
+            writeWithTrailingVideo(outputFile, updatedBase + mpvdHeader(videoLength), videoFile)
+            return preservedSefBlocks.isNotEmpty() || hasTopLevelBox(rawHeicBytes, "sefd")
+        }
 
         // --- Ordering note (load-bearing) -------------------------------------------------------
         // The base HEIC GROWS in step 3 below, when the XMP item is repointed/created (both paths
@@ -2028,7 +2140,7 @@ object MotionPhotoBuilder {
         val videoDurationUs = extractVideoDurationUs(videoFile)
         val syncTimestampUs = resolvePresentationTimestampUs(presentationTimestampUs, videoDurationUs)
         val updatedBaseHeicBytes = try {
-            buildHeicBaseWithMotionPhotoXmp(baseHeicBytes, videoOffsetFromEof, syncTimestampUs, version)
+            buildHeicBaseWithMotionPhotoXmp(baseHeicBytes, videoOffsetFromEof, syncTimestampUs, version, layout)
         } catch (e: Exception) {
             // Hard global constraint: an XMP merge failure must NEVER abort motion-photo creation.
             // Any unexpected exception out of the whole iinf/iloc box-surgery subsystem falls back to
@@ -2095,10 +2207,111 @@ object MotionPhotoBuilder {
             out.write(sefDirBuf.array())
             out.write(seftBuf.array())
         }
+        return false
+    }
+
+    private fun mpvdHeader(videoLength: Long): ByteArray {
+        require(videoLength + 8L <= 0xFFFFFFFFL) { "Video is too large for a 32-bit mpvd box: $videoLength bytes" }
+        return ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN).putInt((videoLength + 8L).toInt())
+            .put("mpvd".toByteArray(Charsets.US_ASCII)).array()
+    }
+
+    /** Writes [head] followed by the whole video, which is therefore the last thing in the file. */
+    private fun writeWithTrailingVideo(outputFile: File, head: ByteArray, videoFile: File) {
+        FileOutputStream(outputFile).use { out ->
+            out.write(head)
+            FileInputStream(videoFile).use { it.copyTo(out, 64 * 1024) }
+        }
+    }
+
+    private fun hasTopLevelBox(bytes: ByteArray, fourCC: String): Boolean {
+        var pos = 0L
+        while (pos + 8 <= bytes.size) {
+            val p = pos.toInt()
+            val size = readUIntOfWidth(bytes, pos, 4)
+            if (String(bytes, p + 4, 4, Charsets.US_ASCII) == fourCC) return true
+            val boxLen = when (size) {
+                0L -> return false
+                1L -> if (p + 16 <= bytes.size) ByteBuffer.wrap(bytes, p + 8, 8).long else return false
+                else -> size
+            }
+            if (boxLen < 8) return false
+            pos += boxLen
+        }
+        return false
+    }
+
+    /** End (exclusive) of the JPEG whose SOI is at [start], walking its markers to the EOI -- same walk as the spec checker's. */
+    private fun jpegEndInBytes(bytes: ByteArray, start: Int): Int? {
+        fun u8(i: Int) = bytes[i].toInt() and 0xFF
+        if (start < 0 || start + 4 > bytes.size || u8(start) != 0xFF || u8(start + 1) != 0xD8) return null
+        var pos = start + 2
+        while (pos + 2 <= bytes.size) {
+            if (u8(pos) != 0xFF) return null
+            val marker = u8(pos + 1)
+            if (marker == 0xFF) { pos++; continue }
+            if (marker == 0xD9) return pos + 2
+            if (marker == 0x01 || marker in 0xD0..0xD7) { pos += 2; continue }
+            if (pos + 4 > bytes.size) return null
+            val segmentLength = (u8(pos + 2) shl 8) or u8(pos + 3)
+            if (segmentLength < 2) return null
+            pos += 2 + segmentLength
+            if (marker == 0xDA) {
+                // Entropy-coded data runs until a marker other than FF00 stuffing, RSTn or FF fill.
+                var i = pos
+                while (i < bytes.size - 1 && !(u8(i) == 0xFF && u8(i + 1) != 0x00 && u8(i + 1) !in 0xD0..0xD7 && u8(i + 1) != 0xFF)) i++
+                if (i >= bytes.size - 1) return null
+                pos = i
+            }
+        }
+        return null
     }
 
     /**
-     * Synthesizes a Samsung/Google Motion Photo JPEG file (.jpg).
+     * Size of the Ultra HDR gain-map JPEG stored right after the primary image's EOI (Samsung writes it there without
+     * a GainMap Directory item), or 0 when there is none. Both layouts declare it as a GainMap item.
+     */
+    private fun trailingGainMapLength(jpegBytes: ByteArray): Long {
+        val primaryEnd = jpegEndInBytes(jpegBytes, 0) ?: return 0L
+        if (!jpegDeclaresGainMap(jpegBytes, primaryEnd)) return 0L
+        val gainMapEnd = jpegEndInBytes(jpegBytes, primaryEnd) ?: return 0L
+        return (gainMapEnd - primaryEnd).toLong()
+    }
+
+    /** True when the JPEG at [start] declares the Ultra HDR gain-map namespace in an APP1 before its scan data. */
+    private fun jpegDeclaresGainMap(bytes: ByteArray, start: Int): Boolean {
+        fun u8(i: Int) = bytes[i].toInt() and 0xFF
+        if (start < 0 || start + 4 > bytes.size || u8(start) != 0xFF || u8(start + 1) != 0xD8) return false
+        val ns = HDR_GAINMAP_NS.toByteArray(Charsets.US_ASCII)
+        var pos = start + 2
+        var segments = 0
+        while (pos + 4 <= bytes.size && segments++ < 64) {
+            if (u8(pos) != 0xFF) return false
+            val marker = u8(pos + 1)
+            if (marker == 0xFF) { pos++; continue }
+            if (marker == 0xDA || marker == 0xD9) return false
+            if (marker == 0x01 || marker in 0xD0..0xD7) { pos += 2; continue }
+            val segmentLength = (u8(pos + 2) shl 8) or u8(pos + 3)
+            if (segmentLength < 2 || pos + 2 + segmentLength > bytes.size) return false
+            if (marker == 0xE1 && indexOf(bytes, ns, pos + 4, pos + 2 + segmentLength) >= 0) return true
+            pos += 2 + segmentLength
+        }
+        return false
+    }
+
+    private fun indexOf(haystack: ByteArray, needle: ByteArray, from: Int, to: Int): Int {
+        outer@ for (i in from..to - needle.size) {
+            for (j in needle.indices) if (haystack[i + j] != needle[j]) continue@outer
+            return i
+        }
+        return -1
+    }
+
+    /**
+     * Synthesizes a Motion Photo JPEG file (.jpg) in the given [layout]:
+     * GOOGLE_SPEC `[primary JPEG (+ Ultra HDR gain-map JPEG)][MP4]`, SAMSUNG_COMPATIBLE
+     * `[JPEG][SEF blocks][MotionPhoto_Data header][MP4][SEFH][SEFT]`. MicroVideo (v1) always uses the latter, unchanged.
+     * @return true when the source's Samsung SEF data was dropped (GOOGLE_SPEC with a SEF source).
      */
     fun createGoogleMotionPhoto(
         imageFile: File,
@@ -2106,7 +2319,8 @@ object MotionPhotoBuilder {
         outputFile: File,
         version: MotionPhotoFormatVersion = MotionPhotoFormatVersion.V2_MOTION_PHOTO,
         presentationTimestampUs: Long? = null,
-    ) {
+        layout: MotionPhotoLayout = MotionPhotoLayout.GOOGLE_SPEC,
+    ): Boolean {
         require(imageFile.exists()) { "Image file not found: ${imageFile.absolutePath}" }
         require(videoFile.exists()) { "Video file not found: ${videoFile.absolutePath}" }
         require(videoFile.length() > 0) { "Video file is empty: ${videoFile.absolutePath}" }
@@ -2120,6 +2334,13 @@ object MotionPhotoBuilder {
 
         // 1. Extract all existing SEF data blocks from the original photo
         val (baseJpegBytes, preservedSefBlocks) = extractExistingSefBlocks(rawImageBytes)
+
+        if (layout == MotionPhotoLayout.GOOGLE_SPEC && version == MotionPhotoFormatVersion.V2_MOTION_PHOTO) {
+            createGoogleSpecJpeg(baseJpegBytes, videoFile, outputFile, presentationTimestampUs)
+            val sefTail = rawImageBytes.size >= 4 &&
+                String(rawImageBytes, rawImageBytes.size - 4, 4, Charsets.US_ASCII) == "SEFT"
+            return preservedSefBlocks.isNotEmpty() || sefTail
+        }
 
         // 2. Prepare new MotionPhoto_Data block header (24 bytes)
         val nameBytes = "MotionPhoto_Data".toByteArray(Charsets.UTF_8)
@@ -2160,6 +2381,10 @@ object MotionPhotoBuilder {
             primaryPadding,
             syncTimestampUs,
             version,
+            // The packing rule is a sum (primary end + Padding + secondary Lengths), so the SEF bytes stay in the
+            // primary Padding while a gain-map JPEG after the primary EOI is declared by its own GainMap item.
+            gainMapLength = if (version == MotionPhotoFormatVersion.V2_MOTION_PHOTO) trailingGainMapLength(baseJpegBytes) else 0L,
+            layout = MotionPhotoLayout.SAMSUNG_COMPATIBLE,
         )
 
         // 5. Build SEFH Directory Table
@@ -2208,23 +2433,50 @@ object MotionPhotoBuilder {
             out.write(sefDirBytes)
             out.write(seftBytes)
         }
+        return false
     }
 
     /**
-     * Automatically synthesizes Motion Photo according to image format (HEIC or JPEG) and version.
+     * Google Motion Photo 1.0 JPEG: `[primary JPEG (+ gain map)][MP4]`, MotionPhoto Item:Length = MP4 size.
+     * Every byte between the primary EOI and the video must be described by a Directory item (§3.2 packing): an
+     * Ultra HDR gain-map JPEG right after the primary image is kept and declared as a GainMap item; anything else
+     * there (a Samsung SEF remnant, an earlier motion photo's video, unknown trailing data) is removed.
+     */
+    private fun createGoogleSpecJpeg(baseJpegBytes: ByteArray, videoFile: File, outputFile: File, presentationTimestampUs: Long?) {
+        val primaryEnd = jpegEndInBytes(baseJpegBytes, 0)
+        val gainMapLength = trailingGainMapLength(baseJpegBytes)
+        val keptEnd = primaryEnd?.let { it + gainMapLength.toInt() } ?: baseJpegBytes.size
+        val syncTimestampUs = resolvePresentationTimestampUs(presentationTimestampUs, extractVideoDurationUs(videoFile))
+        val jpeg = injectMotionPhotoXmpIntoJpeg(
+            baseJpegBytes.copyOfRange(0, keptEnd),
+            videoFile.length(),
+            0L,
+            syncTimestampUs,
+            MotionPhotoFormatVersion.V2_MOTION_PHOTO,
+            gainMapLength,
+            MotionPhotoLayout.GOOGLE_SPEC,
+        )
+        writeWithTrailingVideo(outputFile, jpeg, videoFile)
+    }
+
+    /**
+     * Automatically synthesizes Motion Photo according to image format (HEIC or JPEG), version and [layout].
+     * @return true when the source's Samsung SEF data was dropped (GOOGLE_SPEC mode cannot keep it: it would
+     *   have to follow the video, which Google Motion Photo 1.0 forbids).
      */
     fun createMotionPhoto(
         imageFile: File,
         videoFile: File,
         outputFile: File,
         version: MotionPhotoFormatVersion = MotionPhotoFormatVersion.V2_MOTION_PHOTO,
-    ) {
+        layout: MotionPhotoLayout = MotionPhotoLayout.GOOGLE_SPEC,
+    ): Boolean {
         val ext = contentExtension(imageFile)
         val outExt = outputFile.extension.lowercase(Locale.US)
-        if (ext in setOf("heic", "heif") || outExt in setOf("heic", "heif")) {
-            createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile, version)
+        return if (ext in setOf("heic", "heif") || outExt in setOf("heic", "heif")) {
+            createSamsungHeicMotionPhoto(imageFile, videoFile, outputFile, version, layout = layout)
         } else {
-            createGoogleMotionPhoto(imageFile, videoFile, outputFile, version)
+            createGoogleMotionPhoto(imageFile, videoFile, outputFile, version, layout = layout)
         }
     }
 }

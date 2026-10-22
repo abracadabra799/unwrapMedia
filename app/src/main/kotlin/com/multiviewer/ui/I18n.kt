@@ -43,7 +43,8 @@ object I18n {
 
     // Menu: Motion Photo
     fun menuMotionPhoto(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토" else "Motion Photo"
-    fun menuCreateMotionPhotoV2(lang: AppLanguage) = if (lang == AppLanguage.KO) "v2.0 만들기 — 사진 + 동영상 (권장)" else "Create v2.0 — Photo + Video (Recommended)"
+    fun menuCreateMotionPhotoGoogle(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 생성 (구글 스펙)" else "Create Motion Photo (Google spec)"
+    fun menuCreateMotionPhotoSamsung(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 생성 (삼성 호환)" else "Create Motion Photo (Samsung compatible)"
     fun menuCreateMotionPhotoV1(lang: AppLanguage) = if (lang == AppLanguage.KO) "v1.0 만들기 — MicroVideo" else "Create v1.0 — MicroVideo"
     fun menuExtractMotionVideo(lang: AppLanguage) = if (lang == AppLanguage.KO) "동영상 추출 (.mp4/.mov)" else "Extract Video (.mp4/.mov)"
     fun menuExtractPreviewVideo(lang: AppLanguage) = if (lang == AppLanguage.KO) "자동재생 클립 추출 (SEF AutoPlay)" else "Extract Auto-play Clip (SEF AutoPlay)"
@@ -107,6 +108,7 @@ object I18n {
     // Feedback & Toast messages
     fun toastCreatingMotionPhoto(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 생성 중..." else "Creating Motion Photo..."
     fun toastMotionPhotoCreated(lang: AppLanguage, filename: String) = if (lang == AppLanguage.KO) "모션포토 생성 완료: $filename" else "Motion Photo created: $filename"
+    fun toastMotionPhotoSefNotKept(lang: AppLanguage) = if (lang == AppLanguage.KO) "원본의 삼성 SEF 데이터는 구글 스펙상 보존되지 않았습니다" else "The source's Samsung SEF data was not kept (not allowed by the Google spec)"
     fun toastMotionPhotoFailed(lang: AppLanguage, msg: String) = if (lang == AppLanguage.KO) "모션포토 생성 실패: $msg" else "Failed to create Motion Photo: $msg"
     fun toastGainmapExtracted(lang: AppLanguage, filename: String) = if (lang == AppLanguage.KO) "게인맵 이미지가 저장되었습니다: $filename" else "Gain map image saved: $filename"
     fun toastGainmapExtractFailed(lang: AppLanguage, msg: String) = if (lang == AppLanguage.KO) "게인맵 이미지 저장 실패: $msg" else "Failed to save gain map image: $msg"

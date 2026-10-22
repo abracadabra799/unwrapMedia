@@ -182,6 +182,7 @@ private fun createMotionPhotoFromCurrentTab(
     tab: TabState,
     language: AppLanguage,
     version: com.multiviewer.parser.MotionPhotoFormatVersion = com.multiviewer.parser.MotionPhotoFormatVersion.V2_MOTION_PHOTO,
+    layout: com.multiviewer.parser.MotionPhotoLayout = com.multiviewer.parser.MotionPhotoLayout.GOOGLE_SPEC,
 ) {
     val validationError = validateTabForMotionPhoto(tab, language, version)
     if (validationError != null) {
@@ -223,7 +224,12 @@ private fun createMotionPhotoFromCurrentTab(
 
     val isHeic = com.multiviewer.parser.contentExtension(tab.file, tab.detectedFormat) in setOf("heic", "heif")
     val defaultExt = if (isHeic) "heic" else "jpg"
-    val suffix = if (version == com.multiviewer.parser.MotionPhotoFormatVersion.V1_MICRO_VIDEO) "_microvideo" else "_motion"
+    // "_MP" matches the Google Motion Photo 1.0 filename pattern (§2.1: readers may ignore files that don't).
+    val suffix = when {
+        version == com.multiviewer.parser.MotionPhotoFormatVersion.V1_MICRO_VIDEO -> "_microvideo"
+        layout == com.multiviewer.parser.MotionPhotoLayout.GOOGLE_SPEC -> "_MP"
+        else -> "_motion"
+    }
     val saveTitle = if (language == AppLanguage.KO) "모션포토 저장" else "Save Motion Photo"
     val saveDialog = FileDialog(null as Frame?, saveTitle, FileDialog.SAVE)
     appState.lastOpenedDirectory?.let { dir ->
@@ -242,9 +248,10 @@ private fun createMotionPhotoFromCurrentTab(
     appState.statusMessage = I18n.toastCreatingMotionPhoto(language)
     runInBackground {
         try {
-            com.multiviewer.parser.MotionPhotoBuilder.createMotionPhoto(tab.file, videoFile, outputFile, version)
+            val sefDropped = com.multiviewer.parser.MotionPhotoBuilder.createMotionPhoto(tab.file, videoFile, outputFile, version, layout)
             EventQueue.invokeLater {
-                appState.statusMessage = I18n.toastMotionPhotoCreated(language, outputFile.name)
+                appState.statusMessage = I18n.toastMotionPhotoCreated(language, outputFile.name) +
+                    if (sefDropped) " — " + I18n.toastMotionPhotoSefNotKept(language) else ""
                 appState.openFile(outputFile)
             }
         } catch (e: Exception) {
@@ -619,9 +626,24 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                 )
                 separator()
                 item(
-                    I18n.menuCreateMotionPhotoV2(language),
+                    I18n.menuCreateMotionPhotoGoogle(language),
                     enabled = isImage,
-                    onClick = { currentTab?.let { createMotionPhotoFromCurrentTab(appState, it, language, com.multiviewer.parser.MotionPhotoFormatVersion.V2_MOTION_PHOTO) } },
+                    onClick = {
+                        currentTab?.let {
+                            createMotionPhotoFromCurrentTab(appState, it, language, com.multiviewer.parser.MotionPhotoFormatVersion.V2_MOTION_PHOTO,
+                                com.multiviewer.parser.MotionPhotoLayout.GOOGLE_SPEC)
+                        }
+                    },
+                )
+                item(
+                    I18n.menuCreateMotionPhotoSamsung(language),
+                    enabled = isImage,
+                    onClick = {
+                        currentTab?.let {
+                            createMotionPhotoFromCurrentTab(appState, it, language, com.multiviewer.parser.MotionPhotoFormatVersion.V2_MOTION_PHOTO,
+                                com.multiviewer.parser.MotionPhotoLayout.SAMSUNG_COMPATIBLE)
+                        }
+                    },
                 )
                 item(
                     I18n.menuCreateMotionPhotoV1(language),
