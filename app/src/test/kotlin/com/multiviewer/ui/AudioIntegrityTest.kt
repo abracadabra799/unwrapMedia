@@ -34,6 +34,38 @@ class AudioIntegrityTest {
     }
 
     @Test
+    fun `only other streams' decoder lines are dropped`() {
+        val lines = listOf(
+            "[h264 @ 0x151f049c0] [warning] Failed to parse header of NALU (type 0): \"Invalid data found when processing input\". Skipping NALU.",
+            "[libdav1d @ 0x130f04c60] obu_forbidden_bit out of range: 1, but must be in [0,0].",
+            "[mov,mp4,m4a,3gp,3g2,mj2 @ 0x14e606210] Detected moov in a free or hoov atom.",
+            "[aac @ 0x132f04ce0] [error] Number of bands (12) exceeds limit (11).",
+            "[aist#0:1/aac @ 0x132f04e60] [dec:aac @ 0x134005960] [error] Error submitting packet to decoder",
+            "Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options",
+        )
+        val other = (nonAudioDecoderContexts("stream|index=0|codec_type=video|codec_name=h264") +
+            nonAudioDecoderContexts("stream|index=2|codec_type=video|codec_name=av1") +
+            nonAudioDecoderContexts("stream|index=1|codec_type=audio|codec_name=aac")).toSet()
+        assertEquals(setOf("h264", "av1", "libdav1d", "libaom-av1"), other)
+        assertEquals(lines.drop(2), withoutOtherStreamLogs(lines, other))
+        assertNull(parseAudioStream("stream|index=0|codec_type=video|codec_name=h264"))
+    }
+
+    @Test
+    fun `corrupted video alone does not mark the audio bad`() = runBlocking {
+        val file = File(javaClass.getResource("/content-check-false-positives/avc-aac-bad-video.mp4")!!.toURI())
+        val report = inspectAudioIntegrity(file)
+        assertEquals(IntegrityStatus.CLEAN, report.status, report.logs.toString())
+        assertEquals(1, report.streams.size)
+    }
+
+    @Test
+    fun `uncorrupted control stays clean`() = runBlocking {
+        val file = File(javaClass.getResource("/content-check-false-positives/avc-aac.mp4")!!.toURI())
+        assertEquals(IntegrityStatus.CLEAN, inspectAudioIntegrity(file).status)
+    }
+
+    @Test
     fun `decoded observations distinguish metadata mismatch from unknown values`() {
         val frame = parseAudioFrame("[Parsed_ashowinfo_0 @ 0x123] [info] n:0 pts:0 pts_time:0 fmt:s16 channels:2 chlayout:stereo rate:48000 nb_samples:4800 checksum:FFFF")!!
         val measurements = AudioMeasurements()

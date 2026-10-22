@@ -78,17 +78,46 @@ data class AudioIntegrityReport(
 }
 
 internal fun parseAudioStream(line: String): AudioStreamMetadata? {
-    if (!line.startsWith("stream|")) return null
-    val fields = line.split('|').drop(1).mapNotNull {
-        val parts = it.split('=', limit = 2)
-        if (parts.size == 2) parts[0] to parts[1] else null
-    }.toMap()
+    val fields = probeStreamFields(line) ?: return null
+    if (fields["codec_type"]?.let { it != "audio" } == true) return null
     val index = fields["index"]?.toIntOrNull()?.takeIf { it >= 0 } ?: return null
     return AudioStreamMetadata(index, fields["codec_name"] ?: "unknown",
         fields["sample_rate"]?.toIntOrNull()?.takeIf { it > 0 },
         fields["channels"]?.toIntOrNull()?.takeIf { it > 0 },
         fields["duration"]?.toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0 })
 }
+
+private fun probeStreamFields(line: String): Map<String, String>? {
+    if (!line.startsWith("stream|")) return null
+    return line.split('|').drop(1).mapNotNull {
+        val parts = it.split('=', limit = 2)
+        if (parts.size == 2) parts[0] to parts[1] else null
+    }.toMap()
+}
+
+// ffmpeg decoder names that differ from the codec_name ffprobe reports.
+private val DECODER_ALIASES = mapOf(
+    "av1" to listOf("libdav1d", "libaom-av1"),
+    "vp9" to listOf("libvpx-vp9"),
+    "vp8" to listOf("libvpx"),
+)
+
+/** Log contexts of the file's non-audio decoders, from an ffprobe `stream|codec_type=...|codec_name=...` line. */
+internal fun nonAudioDecoderContexts(line: String): List<String> {
+    val fields = probeStreamFields(line) ?: return emptyList()
+    val type = fields["codec_type"] ?: return emptyList()
+    val name = fields["codec_name"]?.takeIf { type != "audio" && it.isNotBlank() && it != "unknown" } ?: return emptyList()
+    return listOf(name) + DECODER_ALIASES[name].orEmpty()
+}
+
+private val logContext = Regex("""^\[([^\]@]+?) @ 0x[0-9a-fA-F]+]""")
+
+/**
+ * Drops lines logged by another stream's decoder: opening the input (ffprobe and ffmpeg alike) decodes the
+ * video too, and its errors belong to the video check. Every other line, context-free or not, is kept.
+ */
+internal fun withoutOtherStreamLogs(lines: List<String>, otherDecoders: Set<String>): List<String> =
+    lines.filter { line -> logContext.find(line)?.groupValues?.get(1) !in otherDecoders }
 
 internal data class AudioFrame(val rate: Int, val channels: Int, val samples: Int)
 
@@ -163,12 +192,18 @@ suspend fun inspectAudioIntegrity(
 ): AudioIntegrityReport = withContext(Dispatchers.IO) {
     val streams = mutableListOf<AudioStreamMetadata>()
     val probeLogs = AudioLogs(file)
+    val probeLines = mutableListOf<String>()
+    val otherDecoders = mutableSetOf<String>()
     val probeExit = try {
-        integrityProcess(listOf(ffprobe, "-v", "warning", "-select_streams", "a", "-show_entries",
-            "stream=index,codec_name,sample_rate,channels,duration", "-of", "compact", file.absolutePath)) { line ->
+        integrityProcess(listOf(ffprobe, "-v", "warning", "-show_entries",
+            "stream=index,codec_type,codec_name,sample_rate,channels,duration", "-of", "compact", file.absolutePath)) { line ->
             if (line.isNotBlank()) {
                 val stream = parseAudioStream(line)
-                if (stream != null) streams.add(stream) else probeLogs.add(line)
+                when {
+                    stream != null -> streams.add(stream)
+                    line.startsWith("stream|") -> otherDecoders += nonAudioDecoderContexts(line)
+                    else -> probeLines.add(line)
+                }
             }
         }
     } catch (e: TimeoutCancellationException) {
@@ -180,6 +215,7 @@ suspend fun inspectAudioIntegrity(
         probeLogs.add(e.message ?: e.toString())
         -1
     }
+    withoutOtherStreamLogs(probeLines, otherDecoders).forEach(probeLogs::add)
     if (probeExit != 0) {
         probeLogs.add("Audio probing failed (exit $probeExit)")
         return@withContext AudioIntegrityReport(IntegrityStatus.FAILED, emptyList(), probeLogs.lines, probeLogs.truncated)
@@ -199,6 +235,8 @@ suspend fun inspectAudioIntegrity(
                 val frame = parseAudioFrame(line)
                 when {
                     frame != null -> measurements.add(frame)
+                    // Opening the input decodes the video too; only this audio stream's problems count.
+                    withoutOtherStreamLogs(listOf(line), otherDecoders).isEmpty() -> Unit
                     line.contains("[warning]") || line.contains("[error]") || line.contains("[fatal]") ||
                         line.contains("[panic]") -> logs.add(line)
                     line.contains("Parsed_ashowinfo_") && line.contains("nb_samples:") ->
