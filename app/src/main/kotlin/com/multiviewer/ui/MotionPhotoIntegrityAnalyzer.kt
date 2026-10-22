@@ -12,6 +12,8 @@ import com.multiviewer.parser.findMicroVideoOffset
 import com.multiviewer.parser.findMotionPhotoInDirectory
 import com.multiviewer.parser.findPresentationTimestampUs
 import com.multiviewer.parser.parseXmpDocument
+import com.multiviewer.parser.motionphoto.GoogleMotionPhotoSpecChecker
+import com.multiviewer.parser.motionphoto.GoogleSpecFinding
 import java.io.File
 
 fun SefIntegritySeverity.toCheckStatus(): CheckStatus = when (this) {
@@ -40,6 +42,11 @@ fun hasMotionPhotoData(root: BoxNode): Boolean {
         } != null
 }
 
+/** The primary XMP declares a Google motion photo (1.0 Camera/Container fields or the legacy MicroVideo ones). */
+internal fun hasGoogleMotionPhotoXmp(root: BoxNode): Boolean =
+    findFirst(root) { node -> node.fields.any { it.name == "xmp" } }?.fields?.find { it.name == "xmp" }?.value
+        ?.let { it.contains("MotionPhoto", ignoreCase = true) || it.contains("MicroVideo", ignoreCase = true) } == true
+
 enum class MotionPhotoFormat { SAMSUNG_SEF, GOOGLE_XMP, APPLE_MPVD }
 
 data class MotionPhotoDeepAnalysis(
@@ -51,125 +58,12 @@ data class MotionPhotoDeepAnalysis(
 data class MotionPhotoIntegrityReport(
     val detectedFormats: List<MotionPhotoFormat>,
     val sefSection: SefIntegrityReport?,
-    val googleXmpChecks: List<SefCheckResult>,
-    val appleMpvdChecks: List<SefCheckResult>,
+    /** Google Motion Photo 1.0 compliance: the first-priority standard, checked for every detected motion photo. */
+    val googleSpec: List<GoogleSpecFinding>,
     val decodeChecks: List<SefCheckResult>,
     val overallSeverity: SefIntegritySeverity,
     val deepAnalysis: MotionPhotoDeepAnalysis? = null,
 )
-
-// Verifies a Google-format (Container:Directory "MotionPhoto" semantic, current schema, or the
-// legacy GCamera:MicroVideoOffset attribute) motion photo's declared video length/offset against
-// the file's real bytes. Unlike MotionPhotoExtractor.kt's findGoogleMotionPhotoVideo (which
-// silently self-heals a wrong offset via correctMp4StartOffset so extraction still works), this
-// reports the correction as a finding instead of hiding it -- the whole point of an integrity
-// check is surfacing exactly this kind of silently-tolerated inaccuracy.
-internal fun analyzeGoogleXmpSection(root: BoxNode, reader: ByteReader, videoDurationUs: Long?): List<SefCheckResult> {
-    val xmpText = findFirst(root) { it.fields.any { field -> field.name == "xmp" } }
-        ?.fields?.find { it.name == "xmp" }?.value
-        ?: return emptyList()
-    if (!xmpText.contains("MotionPhoto", ignoreCase = true) && !xmpText.contains("MicroVideo", ignoreCase = true)) {
-        return emptyList()
-    }
-
-    val checks = mutableListOf<SefCheckResult>()
-    val document = try {
-        parseXmpDocument(xmpText)
-    } catch (e: Throwable) {
-        // Untrusted input: a crafted/deeply-nested XMP document can throw StackOverflowError or
-        // OutOfMemoryError (both Error, not Exception) -- matches findGoogleMotionPhotoVideo's own
-        // Throwable catch for this exact risk.
-        return listOf(SefCheckResult(SefIntegritySeverity.WARNING, "구글 모션포토 XMP 파싱", "XMP를 파싱할 수 없습니다: ${e.message ?: e.toString()}"))
-    }
-
-    val fromDirectory = findMotionPhotoInDirectory(document)
-    val microVideoOffset = findMicroVideoOffset(document)
-    if (fromDirectory == null && microVideoOffset == null) {
-        checks.add(SefCheckResult(SefIntegritySeverity.WARNING, "구글 모션포토 스키마 감지", "MotionPhoto/MicroVideo 마커는 있지만 Length/Offset 값을 찾을 수 없습니다"))
-        return checks
-    }
-
-    val declaredLength = fromDirectory?.length ?: microVideoOffset!!
-    val schemaLabel = if (fromDirectory != null) {
-        "Container:Directory (현재 스키마, Item:Semantic=\"MotionPhoto\")"
-    } else {
-        "GCamera:MicroVideoOffset (레거시 스키마)"
-    }
-    checks.add(SefCheckResult(SefIntegritySeverity.INFO, "구글 모션포토 스키마", "감지된 스키마: $schemaLabel, 선언된 길이=$declaredLength"))
-
-    if (declaredLength <= 0 || declaredLength > root.size) {
-        checks.add(SefCheckResult(SefIntegritySeverity.CRITICAL, "구글 모션포토 길이 값", "선언된 길이($declaredLength)가 파일 크기(${root.size})를 벗어납니다"))
-        return checks
-    }
-
-    val approxStart = root.size - declaredLength
-    val declaredHasFtyp = try {
-        reader.readFourCC(approxStart + 4) == "ftyp"
-    } catch (e: Exception) {
-        false
-    }
-    var resolvedOffset: Long? = null
-    if (declaredHasFtyp) {
-        checks.add(SefCheckResult(SefIntegritySeverity.PASS, "구글 모션포토 오프셋 일치", "선언된 오프셋($approxStart)에서 실제 ftyp를 확인했습니다"))
-        resolvedOffset = approxStart
-    } else {
-        val corrected = correctMp4StartOffset(reader, approxStart)
-        if (corrected != approxStart) {
-            checks.add(SefCheckResult(SefIntegritySeverity.WARNING, "구글 모션포토 오프셋 불일치", "선언된 오프셋($approxStart)이 아니라 ${corrected - approxStart}바이트 떨어진 위치($corrected)에서 실제 ftyp를 찾았습니다 -- XMP 선언값이 정확하지 않습니다"))
-            resolvedOffset = corrected
-        } else {
-            checks.add(SefCheckResult(SefIntegritySeverity.CRITICAL, "구글 모션포토 비디오 위치", "선언된 오프셋 근방에서 ftyp를 찾지 못했습니다 -- 비디오 데이터가 없거나 심각하게 손상되었습니다"))
-        }
-    }
-
-    // Item:Padding -- structural validity only (a non-negative integer); this codebase's own
-    // extraction logic doesn't use Padding for any byte-offset computation, so there's no
-    // independent cross-check to validate its exact value against.
-    fromDirectory?.padding?.let { padding ->
-        val paddingValue = padding.toLongOrNull()
-        checks.add(
-            if (paddingValue != null && paddingValue >= 0)
-                SefCheckResult(SefIntegritySeverity.PASS, "구글 모션포토 Padding", "Item:Padding=$padding")
-            else
-                SefCheckResult(SefIntegritySeverity.WARNING, "구글 모션포토 Padding", "Item:Padding=\"$padding\"은 0 이상의 정수가 아닙니다"),
-        )
-    }
-
-    // Item:Mime -- compare the declared MIME against the real resolved video's own ftyp major_brand
-    // (ftyp layout: 4-byte size, 4-byte "ftyp" tag, then major_brand -- resolvedOffset+8).
-    if (resolvedOffset != null) {
-        fromDirectory?.mimeType?.let { declaredMime ->
-            val majorBrand = try {
-                reader.readFourCC(resolvedOffset + 8)
-            } catch (e: Exception) {
-                null
-            }
-            if (majorBrand != null) {
-                val expectedMime = if (majorBrand.trim() == "qt") "video/quicktime" else "video/mp4"
-                checks.add(
-                    if (declaredMime == expectedMime)
-                        SefCheckResult(SefIntegritySeverity.PASS, "구글 모션포토 Mime", "Item:Mime=\"$declaredMime\"이 실제 컨테이너(major_brand=\"${majorBrand.trim()}\")와 일치합니다")
-                    else
-                        SefCheckResult(SefIntegritySeverity.WARNING, "구글 모션포토 Mime", "Item:Mime=\"$declaredMime\"이 실제 컨테이너(major_brand=\"${majorBrand.trim()}\", 예상 \"$expectedMime\")와 다릅니다"),
-                )
-            }
-        }
-    }
-
-    // PresentationTimestampUs -- the shutter-click moment should fall within the video's real duration.
-    val presentationTimestampUs = findPresentationTimestampUs(document)
-    if (presentationTimestampUs != null) {
-        checks.add(
-            when {
-                videoDurationUs == null -> SefCheckResult(SefIntegritySeverity.SKIPPED, "구글 모션포토 셔터 타임스탬프", "비디오 길이를 확인할 수 없어 검증을 건너뜁니다")
-                presentationTimestampUs in 0..videoDurationUs -> SefCheckResult(SefIntegritySeverity.PASS, "구글 모션포토 셔터 타임스탬프", "PresentationTimestampUs=${presentationTimestampUs}us (비디오 길이 ${videoDurationUs}us 이내)")
-                else -> SefCheckResult(SefIntegritySeverity.WARNING, "구글 모션포토 셔터 타임스탬프", "PresentationTimestampUs=${presentationTimestampUs}us 가 비디오 길이(${videoDurationUs}us) 범위를 벗어납니다")
-            },
-        )
-    }
-
-    return checks
-}
 
 // Probes the resolved video's real duration (needed to validate PresentationTimestampUs falls
 // within it). Extracts to a temp file the same way analyzeDecodability does -- a second
@@ -197,46 +91,6 @@ internal fun probeVideoDurationUs(file: File, video: com.multiviewer.parser.Embe
     } finally {
         temp.delete()
     }
-}
-
-// Verifies a HEIC-style embedded video (an "mpvd" or "EmbeddedVideoData" box, used by
-// this app's HEIC motion-photo path) is positioned within the file and has a real ftyp child --
-// the same box shape findEmbeddedVideo already reads to extract the video, but this reports on
-// its structural validity instead of just extracting it.
-internal fun analyzeAppleMpvdSection(root: BoxNode, fileLength: Long, requireMpvd: Boolean = false): List<SefCheckResult> {
-    val mpvdNode = com.multiviewer.parser.findFirst(root) { it.type == "mpvd" || it.type == "EmbeddedVideoData" }
-    if (mpvdNode == null) {
-        if (!requireMpvd) return emptyList()
-        val exposedMoov = root.children.any { it.type == "moov" }
-        val detail = if (exposedMoov) {
-            "HEIC 모션포토 컨테이너에 필수인 최상위 mpvd 박스가 누락되었습니다 (8바이트 mpvd 박스 헤더 없이 MP4 ftyp/mdat/moov 박스가 최상위에 그대로 노출됨)"
-        } else {
-            "HEIC 모션포토 컨테이너에 필수인 최상위 mpvd 박스가 누락되었습니다"
-        }
-        return listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "mpvd 박스 존재 여부", detail))
-    }
-
-    if (mpvdNode.offset < 0 || mpvdNode.offset + mpvdNode.size > fileLength) {
-        return listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "mpvd 박스 범위", "mpvd 박스가 파일 범위를 벗어납니다 (offset=${mpvdNode.offset}, size=${mpvdNode.size}, file=$fileLength)"))
-    }
-
-    val checks = mutableListOf<SefCheckResult>()
-    checks.add(
-        SefCheckResult(
-            SefIntegritySeverity.PASS,
-            "mpvd 박스 존재 및 범위",
-            "offset=${mpvdNode.offset} (0x${mpvdNode.offset.toString(16)}), size=${mpvdNode.size} bytes (end=${mpvdNode.offset + mpvdNode.size})",
-        )
-    )
-
-    val ftypChild = mpvdNode.children.find { it.type == "ftyp" }
-    if (ftypChild == null) {
-        checks.add(SefCheckResult(SefIntegritySeverity.WARNING, "mpvd 내부 ftyp", "mpvd 박스 내부에서 ftyp 자식 박스를 찾지 못했습니다"))
-    } else {
-        val majorBrand = ftypChild.fields.find { it.name == "major_brand" }?.value?.trim() ?: "알 수 없음"
-        checks.add(SefCheckResult(SefIntegritySeverity.PASS, "mpvd 내부 ftyp", "major_brand=\"$majorBrand\""))
-    }
-    return checks
 }
 
 // Format-independent: extracts whichever video findEmbeddedVideo resolved (any of the 3 formats)
@@ -304,10 +158,8 @@ object MotionPhotoIntegrityAnalyzer {
                 null
             }
             val videoDurationUs = video?.let { probeVideoDurationUs(file, it) }
-            val googleChecks = analyzeGoogleXmpSection(root, reader, videoDurationUs)
-            val isHeicContainer = root.children.firstOrNull()?.type == "ftyp"
-            val hasMotionPhoto = sefSection?.directoryEntries?.any { it.name == "MotionPhoto_Data" } == true || googleChecks.isNotEmpty()
-            val appleChecks = analyzeAppleMpvdSection(root, file.length(), requireMpvd = isHeicContainer && hasMotionPhoto)
+            val hasGoogleXmp = hasGoogleMotionPhotoXmp(root)
+            val hasMpvd = com.multiviewer.parser.findFirst(root) { it.type == "mpvd" || it.type == "EmbeddedVideoData" } != null
             val detectedFormats = buildList {
                 // MotionPhoto_Data is mandatory for a file to actually BE a SEF motion photo --
                 // MotionPhoto_AutoPlay/MotionPhoto_Version are optional. A bare sefd box (ordinary
@@ -331,8 +183,15 @@ object MotionPhotoIntegrityAnalyzer {
                 if (sefSection?.directoryEntries?.any { it.name == "MotionPhoto_Data" } == true || sefEntriesUntrustworthy) {
                     add(MotionPhotoFormat.SAMSUNG_SEF)
                 }
-                if (googleChecks.isNotEmpty()) add(MotionPhotoFormat.GOOGLE_XMP)
-                if (appleChecks.isNotEmpty()) add(MotionPhotoFormat.APPLE_MPVD)
+                if (hasGoogleXmp) add(MotionPhotoFormat.GOOGLE_XMP)
+                if (hasMpvd) add(MotionPhotoFormat.APPLE_MPVD)
+            }
+            // Google Motion Photo 1.0 is the first-priority standard: every detected motion photo is held to it,
+            // Samsung SEF-only files included (they fail §3.1 Camera:MotionPhoto).
+            val googleSpec = if (detectedFormats.isNotEmpty()) {
+                GoogleMotionPhotoSpecChecker.check(file, root, reader, videoDurationUs)
+            } else {
+                emptyList()
             }
 
             val decodeChecks = if (video != null) {
@@ -352,7 +211,7 @@ object MotionPhotoIntegrityAnalyzer {
             val allSeverities = (sefSection?.let { it.structuralChecks + it.semanticChecks }?.map { it.severity } ?: emptyList()) +
                 (sefSection?.directoryEntries?.map { it.status } ?: emptyList()) +
                 (sefSection?.let { listOf(it.declaredEntryCountSeverity) } ?: emptyList()) +
-                (googleChecks + appleChecks + decodeChecks).map { it.severity }
+                googleSpec.map { it.severity } + decodeChecks.map { it.severity }
             val overall = when {
                 allSeverities.any { it == SefIntegritySeverity.CRITICAL } -> SefIntegritySeverity.CRITICAL
                 allSeverities.any { it == SefIntegritySeverity.WARNING } -> SefIntegritySeverity.WARNING
@@ -365,7 +224,7 @@ object MotionPhotoIntegrityAnalyzer {
                 null
             }
 
-            MotionPhotoIntegrityReport(detectedFormats, sefSection, googleChecks, appleChecks, decodeChecks, overall, deepAnalysis)
+            MotionPhotoIntegrityReport(detectedFormats, sefSection, googleSpec, decodeChecks, overall, deepAnalysis)
         }
     }
 

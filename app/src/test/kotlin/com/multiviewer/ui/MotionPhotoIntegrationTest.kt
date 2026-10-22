@@ -1,5 +1,7 @@
 package com.multiviewer.ui
 
+import com.multiviewer.parser.motionphoto.SpecRequirement
+import com.multiviewer.parser.motionphoto.GoogleSpecFinding
 import com.multiviewer.parser.BoxNode
 import com.multiviewer.parser.SefIntegritySeverity
 import com.multiviewer.parser.integrity.CheckStatus
@@ -54,8 +56,8 @@ class MotionPhotoIntegrationTest {
     }
 
     private fun report(formats: List<MotionPhotoFormat>, severity: SefIntegritySeverity) = MotionPhotoIntegrityReport(
-        detectedFormats = formats, sefSection = null, googleXmpChecks = emptyList(),
-        appleMpvdChecks = emptyList(), decodeChecks = emptyList(), overallSeverity = severity,
+        detectedFormats = formats, sefSection = null, googleSpec = emptyList(),
+        decodeChecks = emptyList(), overallSeverity = severity,
     )
 
     @Test

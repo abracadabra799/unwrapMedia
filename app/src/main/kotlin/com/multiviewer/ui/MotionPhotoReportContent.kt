@@ -1,5 +1,7 @@
 package com.multiviewer.ui
 
+import com.multiviewer.parser.motionphoto.toSefCheckResult
+import com.multiviewer.parser.motionphoto.groupLabel
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -39,7 +41,7 @@ import com.multiviewer.parser.motionphoto.PlatformSupportLevel
 internal fun motionPhotoFormatLabel(format: MotionPhotoFormat): String = when (format) {
     MotionPhotoFormat.SAMSUNG_SEF -> "삼성 SEF"
     MotionPhotoFormat.GOOGLE_XMP -> "구글 모션포토 (XMP)"
-    MotionPhotoFormat.APPLE_MPVD -> "HEIC 임베디드 비디오 (mpvd)"
+    MotionPhotoFormat.APPLE_MPVD -> "HEIC/AVIF mpvd (구글 모션포토)"
 }
 
 /** Badge row + per-section tables for a detected motion photo; shown in the Content Check window's Motion photo tab. */
@@ -56,8 +58,10 @@ fun MotionPhotoReportContent(report: MotionPhotoIntegrityReport, modifier: Modif
             Text("감지된 형식: ${report.detectedFormats.joinToString(", ") { motionPhotoFormatLabel(it) }}", fontSize = 13.sp)
         }
         LazyColumn(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-            // 1. 구글 XMP 모션포토 구성
-            item { CheckSection("구글 XMP 모션포토 구성", report.googleXmpChecks) }
+            // 1. Google Motion Photo 1.0 — first-priority spec for every motion photo, one table per rule group
+            report.googleSpec.groupBy { it.groupLabel() }.forEach { (group, findings) ->
+                item { CheckSection("구글 모션포토 1.0 · $group", findings.map { it.toSefCheckResult() }) }
+            }
 
             report.sefSection?.let { sef ->
                 // 2. SEF 모션포토 관련 필드 (MotionPhoto_Data/AutoPlay/Version only)
@@ -75,9 +79,6 @@ fun MotionPhotoReportContent(report: MotionPhotoIntegrityReport, modifier: Modif
                 item { DirectoryEntryTable(sef.declaredEntryCount, sef.directoryEntries, sef.declaredEntryCountSeverity, title = "SEF 전체 구조 무결성") }
                 item { CheckSection("SEF 필드별 의미론 검사", sef.semanticChecks) }
             }
-
-            // 4. HEIC mpvd 박스 (HEIC only -- simply absent from report.appleMpvdChecks for JPEG)
-            item { CheckSection(motionPhotoFormatLabel(MotionPhotoFormat.APPLE_MPVD), report.appleMpvdChecks) }
 
             item { CheckSection("임베디드 비디오 디코딩 확인", report.decodeChecks) }
 

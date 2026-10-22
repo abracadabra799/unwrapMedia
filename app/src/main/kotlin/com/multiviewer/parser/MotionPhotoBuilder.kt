@@ -422,7 +422,7 @@ object MotionPhotoBuilder {
             // Throwable, not Exception: parseXmpDocument can throw StackOverflowError/OutOfMemoryError
             // on a crafted/deeply-nested existing XMP document (both Error, not Exception) -- matches
             // the Throwable catch MotionPhotoExtractor.kt's findGoogleMotionPhotoVideo and
-            // MotionPhotoIntegrityAnalyzer.kt's analyzeGoogleXmpSection already use for this exact risk
+            // the motion-photo spec checker's XMP parse already use for this exact risk
             // on the same untrusted input. A merge failure must never abort motion-photo creation.
             freshBuild
         }

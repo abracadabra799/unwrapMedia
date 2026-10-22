@@ -1,5 +1,7 @@
 package com.multiviewer.ui
 
+import com.multiviewer.parser.motionphoto.SpecRequirement
+import com.multiviewer.parser.motionphoto.GoogleSpecFinding
 import com.multiviewer.cli.AiDiagnosticPromptBuilder
 import com.multiviewer.parser.SefCheckResult
 import com.multiviewer.parser.SefIntegritySeverity
@@ -218,11 +220,10 @@ class ContentCheckSnapshotTest {
         val report = MotionPhotoIntegrityReport(
             detectedFormats = listOf(MotionPhotoFormat.GOOGLE_XMP),
             sefSection = null,
-            googleXmpChecks = listOf(
-                SefCheckResult(SefIntegritySeverity.PASS, "XMP present", "ok"),
-                SefCheckResult(SefIntegritySeverity.CRITICAL, "Video offset", "declared offset beyond EOF"),
+            googleSpec = listOf(
+                GoogleSpecFinding("gmp.camera.motionphoto", "3.1", SpecRequirement.MUST, SefIntegritySeverity.PASS, "XMP present", "ok"),
+                GoogleSpecFinding("gmp.layout.video_start", "3.3", SpecRequirement.MUST, SefIntegritySeverity.CRITICAL, "Video offset", "declared offset beyond EOF"),
             ),
-            appleMpvdChecks = emptyList(),
             decodeChecks = emptyList(),
             overallSeverity = SefIntegritySeverity.CRITICAL,
         )
@@ -304,8 +305,8 @@ class ContentCheckSnapshotTest {
         )))
         val motion = MotionPhotoIntegrityReport(
             listOf(MotionPhotoFormat.GOOGLE_XMP), null,
-            listOf(SefCheckResult(SefIntegritySeverity.WARNING, "Motion offset", "Offset is 12 bytes late")),
-            emptyList(), emptyList(), SefIntegritySeverity.WARNING,
+            listOf(GoogleSpecFinding("gmp.layout.video_start", "3.3", SpecRequirement.MUST, SefIntegritySeverity.WARNING, "Motion offset", "Offset is 12 bytes late")),
+            emptyList(), SefIntegritySeverity.WARNING,
         )
         val snapshot = ContentCheckSnapshot(
             corruptStructure(), corruptDecode(), true, motion, null, video, MediaType.IMAGE,

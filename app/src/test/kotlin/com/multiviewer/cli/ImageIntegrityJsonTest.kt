@@ -1,5 +1,7 @@
 package com.multiviewer.cli
 
+import com.multiviewer.parser.motionphoto.SpecRequirement
+import com.multiviewer.parser.motionphoto.GoogleSpecFinding
 import com.multiviewer.parser.integrity.jpegBytes
 import java.io.File
 import com.multiviewer.parser.SefCheckResult
@@ -35,15 +37,16 @@ class ImageIntegrityJsonTest {
         val report = MotionPhotoIntegrityReport(
             detectedFormats = listOf(MotionPhotoFormat.GOOGLE_XMP),
             sefSection = null,
-            googleXmpChecks = listOf(SefCheckResult(SefIntegritySeverity.WARNING, "xmp", "odd")),
-            appleMpvdChecks = emptyList(),
+            googleSpec = listOf(GoogleSpecFinding("gmp.camera.version", "3.1", SpecRequirement.SHOULD, SefIntegritySeverity.WARNING, "xmp", "odd")),
             decodeChecks = listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "decode", "broken")),
             overallSeverity = SefIntegritySeverity.CRITICAL,
         )
         val out = motionPhotoJson(true, report)!!.render()
         assertTrue(out.contains("\"status\": \"FAIL\""), out)
         assertTrue(out.contains("GOOGLE_XMP"), out)
-        assertTrue(Regex("\"section\": \"google_xmp\",\\s*\"status\": \"WARN\"").containsMatchIn(out), out)
+        assertTrue(Regex("\"section\": \"google_motion_photo\",\\s*\"status\": \"WARN\"").containsMatchIn(out), out)
+        assertTrue(out.contains("\"ruleId\": \"gmp.camera.version\""), out)
+        assertTrue(out.contains("\"requirement\": \"SHOULD\""), out)
         assertTrue(Regex("\"section\": \"video_decode\",\\s*\"status\": \"FAIL\"").containsMatchIn(out), out)
     }
 
@@ -55,8 +58,7 @@ class ImageIntegrityJsonTest {
         val report = MotionPhotoIntegrityReport(
             detectedFormats = listOf(MotionPhotoFormat.GOOGLE_XMP),
             sefSection = null,
-            googleXmpChecks = emptyList(),
-            appleMpvdChecks = emptyList(),
+            googleSpec = emptyList(),
             decodeChecks = listOf(SefCheckResult(SefIntegritySeverity.CRITICAL, "decode", detail)),
             overallSeverity = SefIntegritySeverity.CRITICAL,
         )
@@ -101,8 +103,7 @@ class ImageIntegrityJsonTest {
         val report = MotionPhotoIntegrityReport(
             detectedFormats = emptyList(),
             sefSection = null,
-            googleXmpChecks = emptyList(),
-            appleMpvdChecks = emptyList(),
+            googleSpec = emptyList(),
             decodeChecks = emptyList(),
             overallSeverity = SefIntegritySeverity.PASS,
         )

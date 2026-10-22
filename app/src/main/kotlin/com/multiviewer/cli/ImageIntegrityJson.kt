@@ -1,5 +1,6 @@
 package com.multiviewer.cli
 
+import com.multiviewer.parser.motionphoto.GoogleSpecFinding
 import com.multiviewer.parser.integrity.ImageStructureReport
 import com.multiviewer.parser.SefCheckResult
 import com.multiviewer.ui.ImageDecodeReport
@@ -63,8 +64,19 @@ fun motionPhotoJson(detected: Boolean, report: MotionPhotoIntegrityReport?, file
             "detail" to JsonValue.JString(scrubPaths(c.detail, file)),
         ),
     )
+    fun specCheck(f: GoogleSpecFinding) = JsonValue.JObject(
+        listOf(
+            "section" to JsonValue.JString("google_motion_photo"),
+            "status" to JsonValue.JString(f.severity.toCheckStatus().name),
+            "label" to JsonValue.JString(f.title),
+            "detail" to JsonValue.JString(scrubPaths(f.detail, file)),
+            "ruleId" to JsonValue.JString(f.ruleId),
+            "specSection" to JsonValue.JString(f.section),
+            "requirement" to JsonValue.JString(f.requirement.name),
+        ),
+    )
     val checks = buildList {
-        report.googleXmpChecks.forEach { add(check("google_xmp", it)) }
+        report.googleSpec.forEach { add(specCheck(it)) }
         report.sefSection?.let { sef ->
             sef.structuralChecks.forEach { add(check("sef_structure", it)) }
             sef.semanticChecks.forEach { add(check("sef_semantic", it)) }
@@ -81,7 +93,6 @@ fun motionPhotoJson(detected: Boolean, report: MotionPhotoIntegrityReport?, file
                 )
             }
         }
-        report.appleMpvdChecks.forEach { add(check("heic_mpvd", it)) }
         report.decodeChecks.forEach { add(check("video_decode", it)) }
     }
     return JsonValue.JObject(

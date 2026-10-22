@@ -1,5 +1,6 @@
 package com.multiviewer.ui
 
+import com.multiviewer.parser.motionphoto.toSefCheckResult
 import com.multiviewer.cli.scrubPaths
 import com.multiviewer.cli.JsonValue
 import com.multiviewer.parser.SefCheckResult
@@ -339,7 +340,7 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
             val formats = m.detectedFormats.joinToString(", ") { it.name }.ifEmpty { "없음" }
             sb.appendLine("- 모션포토: ${m.verdictStatus().name} (감지 형식: $formats)")
             val checks = buildList<Pair<String, SefCheckResult>> {
-                m.googleXmpChecks.forEach { add("Google XMP" to it) }
+                m.googleSpec.forEach { add("Google Motion Photo 1.0" to it.toSefCheckResult()) }
                 m.sefSection?.let { sef ->
                     sef.structuralChecks.forEach { add("SEF 구조" to it) }
                     sef.semanticChecks.forEach { add("SEF 의미" to it) }
@@ -353,7 +354,6 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
                         )
                     }
                 }
-                m.appleMpvdChecks.forEach { add("HEIC mpvd" to it) }
                 m.decodeChecks.forEach { add("영상 디코딩" to it) }
             }.filter { (_, c) -> c.severity.toCheckStatus().let { it != CheckStatus.PASS && it != CheckStatus.INFO } }
             sb.appendCapped(checks, MAX_ITEMS, "  • ") { (section, c) ->

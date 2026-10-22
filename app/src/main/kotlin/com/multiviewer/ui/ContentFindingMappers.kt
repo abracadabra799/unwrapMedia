@@ -1,5 +1,6 @@
 package com.multiviewer.ui
 
+import com.multiviewer.parser.motionphoto.toSefCheckResult
 import com.multiviewer.parser.SefCheckResult
 import com.multiviewer.parser.conformance.ConformanceReport
 import com.multiviewer.parser.conformance.ConformanceStatus
@@ -157,8 +158,7 @@ fun motionPhotoFindings(report: MotionPhotoIntegrityReport): List<ContentFinding
             ),
         ) })
     }
-    addAll(report.googleXmpChecks.mapIndexed { i, check -> check.toFinding("motion.google.$i", FindingStage.MOTION_PHOTO) })
-    addAll(report.appleMpvdChecks.mapIndexed { i, check -> check.toFinding("motion.apple.$i", FindingStage.MOTION_PHOTO) })
+    addAll(report.googleSpec.map { it.toSefCheckResult().toFinding("motion.${it.ruleId}", FindingStage.MOTION_PHOTO) })
     addAll(report.decodeChecks.mapIndexed { i, check -> check.toFinding("motion.decode.$i", FindingStage.MOTION_PHOTO) })
 }.map(ContentFinding::sanitizeFindingPaths)
 

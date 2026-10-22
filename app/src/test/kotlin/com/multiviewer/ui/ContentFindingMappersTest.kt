@@ -1,5 +1,7 @@
 package com.multiviewer.ui
 
+import com.multiviewer.parser.motionphoto.SpecRequirement
+import com.multiviewer.parser.motionphoto.GoogleSpecFinding
 import com.multiviewer.parser.SefCheckResult
 import com.multiviewer.parser.SefIntegritySeverity
 import com.multiviewer.parser.integrity.AudioStructureReport
@@ -51,14 +53,16 @@ class ContentFindingMappersTest {
     @Test fun labelsMotionPhotoSeverityAndEvidence() {
         val report = MotionPhotoIntegrityReport(
             detectedFormats = listOf(MotionPhotoFormat.GOOGLE_XMP), sefSection = null,
-            googleXmpChecks = listOf(SefCheckResult(SefIntegritySeverity.WARNING, "Offset mismatch", "Declared offset differs by 12 bytes")),
-            appleMpvdChecks = emptyList(), decodeChecks = emptyList(), overallSeverity = SefIntegritySeverity.WARNING,
+            googleSpec = listOf(GoogleSpecFinding("gmp.layout.video_start", "3.3", SpecRequirement.MUST,
+                SefIntegritySeverity.WARNING, "Offset mismatch", "Declared offset differs by 12 bytes")),
+            decodeChecks = emptyList(), overallSeverity = SefIntegritySeverity.WARNING,
         )
 
         val finding = motionPhotoFindings(report).single()
 
         assertEquals(CheckStatus.WARN, finding.status)
-        assertEquals("Offset mismatch", finding.title)
+        assertEquals("§3.3 [MUST] Offset mismatch", finding.title)
+        assertEquals("motion.gmp.layout.video_start", finding.id)
         assertEquals("Declared offset differs by 12 bytes", finding.verifiedFacts.single())
         assertNull(finding.hypothesis)
     }
