@@ -309,6 +309,8 @@ object MotionPhotoBuilder {
      *   is kept as is (its Length too); otherwise one is inserted with this Length.
      * @param layout GOOGLE_SPEC removes the legacy GCamera:MicroVideo* fields (deleted in 1.0);
      *   SAMSUNG_COMPATIBLE keeps them, re-pointing an existing MicroVideoOffset at the new video.
+     * @param removeGainMapItems Drops every existing GainMap Directory item -- for an output that keeps no gain-map
+     *   bytes (a GainMap item would then declare a Length for bytes that are not there and break §3.2 packing).
      */
     internal fun mergeMotionPhotoXmp(
         existingXmpText: String?,
@@ -319,6 +321,7 @@ object MotionPhotoBuilder {
         primaryMimeType: String,
         gainMapLength: Long = 0L,
         layout: MotionPhotoLayout = MotionPhotoLayout.GOOGLE_SPEC,
+        removeGainMapItems: Boolean = false,
     ): String {
         val freshBuild = if (primaryMimeType == "image/heic") {
             val hasGainMap = existingXmpText?.contains("GainMap") == true
@@ -436,6 +439,10 @@ object MotionPhotoBuilder {
                     (0 until children.length)
                         .mapNotNull { children.item(it) as? org.w3c.dom.Element }
                         .filter { it.namespaceURI == rdfNs && it.localName == "li" }
+                }.filterNot { li ->
+                    val drop = removeGainMapItems && itemChildOf(li)?.getAttributeNS(itemNs, "Semantic") == "GainMap"
+                    if (drop) seq.removeChild(li)
+                    drop
                 }
 
                 // Re-running motion-photo creation on a file that is ALREADY a motion photo (or
@@ -1843,6 +1850,7 @@ object MotionPhotoBuilder {
         version: MotionPhotoFormatVersion = MotionPhotoFormatVersion.V2_MOTION_PHOTO,
         gainMapLength: Long = 0L,
         layout: MotionPhotoLayout = MotionPhotoLayout.GOOGLE_SPEC,
+        removeGainMapItems: Boolean = false,
     ): ByteArray {
         require(jpegBytes.size >= 4 && (jpegBytes[0].toInt() and 0xFF) == 0xFF && (jpegBytes[1].toInt() and 0xFF) == 0xD8) {
             "Invalid JPEG bytes: missing SOI marker (0xFFD8)"
@@ -1908,6 +1916,7 @@ object MotionPhotoBuilder {
 
         val mergedXmpText = mergeMotionPhotoXmp(
             existingXmpText, videoOffsetFromEof, primaryPadding, presentationTimestampUs, version, "image/jpeg", gainMapLength, layout,
+            removeGainMapItems,
         )
         // A merge is additive (existing content plus this tool's own attributes/Directory entry), so
         // unlike the ~900-byte fresh build, the merged text can approach or exceed a JPEG APP1
@@ -1920,7 +1929,7 @@ object MotionPhotoBuilder {
         val xmpText = if (fitsInApp1Segment(mergedXmpText)) {
             mergedXmpText
         } else {
-            mergeMotionPhotoXmp(null, videoOffsetFromEof, primaryPadding, presentationTimestampUs, version, "image/jpeg", gainMapLength, layout)
+            mergeMotionPhotoXmp(null, videoOffsetFromEof, primaryPadding, presentationTimestampUs, version, "image/jpeg", gainMapLength, layout, removeGainMapItems)
         }
         val app1Segment = buildApp1XmpSegment(xmpText)
 
@@ -1977,7 +1986,102 @@ object MotionPhotoBuilder {
             pos++
         }
 
-        return out.toByteArray()
+        return out.toByteArray().also { realignMpfAfterRewrite(jpegBytes, it) }
+    }
+
+    /**
+     * An MPF APP2 segment (CIPA DC-007) of the JPEG at offset 0. [tiffStart] is the MP header every MP entry offset is
+     * relative to; [entryPositions] are the absolute positions of the 16-byte MP entries (attr, size, offset, deps).
+     */
+    private class MpfSegment(val segmentStart: Int, val segmentEnd: Int, val tiffStart: Int, val littleEndian: Boolean, val entryPositions: List<Int>)
+
+    private fun readMpfU32(bytes: ByteArray, pos: Int, littleEndian: Boolean): Long {
+        var value = 0L
+        for (i in 0 until 4) value = value or ((bytes[pos + i].toLong() and 0xFF) shl (if (littleEndian) 8 * i else 8 * (3 - i)))
+        return value
+    }
+
+    private fun writeMpfU32(bytes: ByteArray, pos: Int, littleEndian: Boolean, value: Long) {
+        for (i in 0 until 4) bytes[pos + i] = (value shr (if (littleEndian) 8 * i else 8 * (3 - i))).toByte()
+    }
+
+    /** The first MPF APP2 segment before the primary image's scan data, or null when there is none or it is malformed. */
+    private fun findMpfSegment(bytes: ByteArray): MpfSegment? {
+        fun u8(i: Int) = bytes[i].toInt() and 0xFF
+        val mpfId = byteArrayOf('M'.code.toByte(), 'P'.code.toByte(), 'F'.code.toByte(), 0)
+        var pos = 2
+        while (pos + 4 <= bytes.size && u8(pos) == 0xFF) {
+            val marker = u8(pos + 1)
+            if (marker == 0xFF) { pos++; continue }
+            if (marker == 0xDA || marker == 0xD9) return null
+            if (marker == 0x01 || marker in 0xD0..0xD7) { pos += 2; continue }
+            val segmentLength = (u8(pos + 2) shl 8) or u8(pos + 3)
+            val segmentEnd = pos + 2 + segmentLength
+            if (segmentLength < 2 || segmentEnd > bytes.size) return null
+            if (marker == 0xE2 && segmentLength >= 2 + 4 + 8 && bytes.copyOfRange(pos + 4, pos + 8).contentEquals(mpfId)) {
+                val tiff = pos + 8
+                val littleEndian = when {
+                    u8(tiff) == 0x49 && u8(tiff + 1) == 0x49 -> true
+                    u8(tiff) == 0x4D && u8(tiff + 1) == 0x4D -> false
+                    else -> return null
+                }
+                fun u16(i: Int) = if (littleEndian) u8(i) or (u8(i + 1) shl 8) else (u8(i) shl 8) or u8(i + 1)
+                val ifd = tiff + readMpfU32(bytes, tiff + 4, littleEndian)
+                if (ifd + 2 > segmentEnd) return null
+                val count = u16(ifd.toInt())
+                for (i in 0 until count) {
+                    val entry = ifd.toInt() + 2 + 12 * i
+                    if (entry + 12 > segmentEnd) return null
+                    if (u16(entry) != 0xB002) continue
+                    val byteCount = readMpfU32(bytes, entry + 4, littleEndian)
+                    val valueStart = tiff + readMpfU32(bytes, entry + 8, littleEndian)
+                    if (byteCount % 16 != 0L || valueStart + byteCount > segmentEnd) return null
+                    return MpfSegment(pos, segmentEnd, tiff, littleEndian, (0 until (byteCount / 16).toInt()).map { valueStart.toInt() + 16 * it })
+                }
+                return null
+            }
+            pos = segmentEnd
+        }
+        return null
+    }
+
+    /**
+     * Removes the primary image's MPF APP2 segment when any MP entry describes bytes at or past [keptEnd] -- images that
+     * are about to be dropped. Only an APPn segment before the scan data is removed, so the image data itself is untouched.
+     */
+    private fun removeMpfPointingPast(bytes: ByteArray, keptEnd: Int): ByteArray {
+        val mpf = findMpfSegment(bytes) ?: return bytes
+        val pointsPast = mpf.entryPositions.any { entry ->
+            val size = readMpfU32(bytes, entry + 4, mpf.littleEndian)
+            val offset = readMpfU32(bytes, entry + 8, mpf.littleEndian)
+            offset != 0L && mpf.tiffStart + offset + size > keptEnd
+        }
+        if (!pointsPast) return bytes
+        return bytes.copyOfRange(0, mpf.segmentStart) + bytes.copyOfRange(mpf.segmentEnd, bytes.size)
+    }
+
+    /**
+     * MP entry offsets are relative to the MPF header, so they stay valid only while the header and the images after
+     * the primary move together. Rewriting the XMP can break that: the new XMP goes right after SOI/Exif (before an
+     * MPF segment) while the old one may sit after the MPF, so the header and the trailing images shift by different
+     * amounts. Re-applies the difference to every MP entry offset in [rewritten] (and updates the first entry's size
+     * -- the primary image size -- when it matched the original primary), in place.
+     */
+    private fun realignMpfAfterRewrite(original: ByteArray, rewritten: ByteArray) {
+        val before = findMpfSegment(original) ?: return
+        val after = findMpfSegment(rewritten) ?: return
+        val originalPrimaryEnd = jpegEndInBytes(original, 0) ?: return
+        val rewrittenPrimaryEnd = jpegEndInBytes(rewritten, 0) ?: return
+        val delta = (rewrittenPrimaryEnd - after.tiffStart).toLong() - (originalPrimaryEnd - before.tiffStart).toLong()
+        for (entry in after.entryPositions) {
+            val size = readMpfU32(rewritten, entry + 4, after.littleEndian)
+            val offset = readMpfU32(rewritten, entry + 8, after.littleEndian)
+            if (offset == 0L) {
+                if (size == originalPrimaryEnd.toLong()) writeMpfU32(rewritten, entry + 4, after.littleEndian, rewrittenPrimaryEnd.toLong())
+            } else if (offset + delta in 1L..0xFFFFFFFFL) {
+                writeMpfU32(rewritten, entry + 8, after.littleEndian, offset + delta)
+            }
+        }
     }
 
     /**
@@ -2447,14 +2551,17 @@ object MotionPhotoBuilder {
         val gainMapLength = trailingGainMapLength(baseJpegBytes)
         val keptEnd = primaryEnd?.let { it + gainMapLength.toInt() } ?: baseJpegBytes.size
         val syncTimestampUs = resolvePresentationTimestampUs(presentationTimestampUs, extractVideoDurationUs(videoFile))
+        // Nothing may declare or point at the dropped bytes: an MPF entry describing them goes with its segment, and
+        // without a kept gain map every GainMap Directory item is stale.
         val jpeg = injectMotionPhotoXmpIntoJpeg(
-            baseJpegBytes.copyOfRange(0, keptEnd),
+            removeMpfPointingPast(baseJpegBytes.copyOfRange(0, keptEnd), keptEnd),
             videoFile.length(),
             0L,
             syncTimestampUs,
             MotionPhotoFormatVersion.V2_MOTION_PHOTO,
             gainMapLength,
             MotionPhotoLayout.GOOGLE_SPEC,
+            removeGainMapItems = gainMapLength == 0L,
         )
         writeWithTrailingVideo(outputFile, jpeg, videoFile)
     }
