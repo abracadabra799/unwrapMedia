@@ -291,6 +291,12 @@ fun DraggableDivider(
     getSplit: () -> Float,
     setSplit: (Float) -> Unit,
 ) {
+    // pointerInput below only restarts on its keys, so read the callbacks through
+    // rememberUpdatedState -- otherwise a caller passing a lambda that closes over a plain value
+    // (DashboardLayout's split) keeps the first composition's value and every drag event snaps back
+    // to start + one-event delta, i.e. the divider never moves.
+    val currentGetSplit by rememberUpdatedState(getSplit)
+    val currentSetSplit by rememberUpdatedState(setSplit)
     val handleModifier = if (orientation == Orientation.Vertical) {
         Modifier.width(8.dp).fillMaxHeight()
     } else {
@@ -322,7 +328,7 @@ fun DraggableDivider(
                     if (containerSizePx > 0) {
                         val deltaPx = if (orientation == Orientation.Vertical) dragAmount.x else dragAmount.y
                         val delta = deltaPx / containerSizePx
-                        setSplit((getSplit() + delta).coerceIn(0.1f, 0.9f))
+                        currentSetSplit((currentGetSplit() + delta).coerceIn(0.1f, 0.9f))
                     }
                 }
             },

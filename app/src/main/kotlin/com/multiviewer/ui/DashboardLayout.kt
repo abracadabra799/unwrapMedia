@@ -144,7 +144,9 @@ fun DashboardLayout(
             DraggableDivider(
                 orientation = Orientation.Horizontal,
                 containerSizePx = containerHeightPx,
-                getSplit = { effectiveVerticalSplit },
+                // Read the state directly (not the effectiveVerticalSplit snapshot) so several drag
+                // events within one frame accumulate instead of each starting from the same value.
+                getSplit = { (overrideAdjustedSplit ?: verticalSplit).coerceIn(0.15f, 0.85f) },
                 setSplit = {
                     if (overrideAdjustedSplit != null) {
                         overrideAdjustedSplit = it
