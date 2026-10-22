@@ -1390,6 +1390,66 @@ class MotionPhotoBuilderTest {
      * A deliberately independent re-derivation of the box walk, for the same reason readIlocEntries
      * is: these tests cross-check what the production code wrote.
      */
+    @Test
+    fun `mergeMotionPhotoXmp drops MicroVideo fields in Google-spec mode and re-points them in Samsung-compatible mode`() {
+        val existing = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">" +
+            "<rdf:Description xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" GCamera:MicroVideo=\"1\" " +
+            "GCamera:MicroVideoVersion=\"1\" GCamera:MicroVideoOffset=\"999\" GCamera:MicroVideoPresentationTimestampUs=\"5\"/>" +
+            "</rdf:RDF></x:xmpmeta>"
+        val google = MotionPhotoBuilder.mergeMotionPhotoXmp(
+            existing, 4321L, 0L, 1000L, MotionPhotoFormatVersion.V2_MOTION_PHOTO, "image/jpeg", layout = MotionPhotoLayout.GOOGLE_SPEC,
+        )
+        assertFalse(google.contains("MicroVideo"), google)
+        assertTrue(google.contains("GCamera:MotionPhoto=\"1\""), google)
+
+        val samsung = MotionPhotoBuilder.mergeMotionPhotoXmp(
+            existing, 4321L, 0L, 1000L, MotionPhotoFormatVersion.V2_MOTION_PHOTO, "image/jpeg", layout = MotionPhotoLayout.SAMSUNG_COMPATIBLE,
+        )
+        assertTrue(samsung.contains("GCamera:MicroVideoOffset=\"4321\""), samsung)
+        assertTrue(samsung.contains("GCamera:MicroVideo=\"1\""), samsung)
+        assertFalse(samsung.contains("\"999\""), samsung)
+    }
+
+    @Test
+    fun `a sips-made HEIC's largesize mdat is normalized without moving any item bytes and gets an XMP item`() {
+        val dir = java.nio.file.Files.createTempDirectory("largesize-mdat").toFile().apply { deleteOnExit() }
+        fun run(vararg cmd: String) {
+            val p = ProcessBuilder(*cmd).redirectErrorStream(true).start()
+            val out = p.inputStream.bufferedReader().readText()
+            check(p.waitFor() == 0) { "${cmd.joinToString(" ")} failed: $out" }
+        }
+        val jpeg = File(dir, "still.jpg")
+        run("ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=64x48", "-frames:v", "1", jpeg.absolutePath)
+        val heic = File(dir, "still.heic")
+        run("sips", "-s", "format", "heic", jpeg.absolutePath, "--out", heic.absolutePath)
+        val video = File(dir, "clip.mp4")
+        run("ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=64x48:rate=8:duration=1",
+            "-pix_fmt", "yuv420p", "-c:v", "libx264", video.absolutePath)
+
+        val raw = heic.readBytes()
+        val mdatPos = indexOfAscii(raw, "mdat") - 4
+        assertEquals(1L, ((raw[mdatPos].toLong() and 0xFF) shl 24) or ((raw[mdatPos + 1].toLong() and 0xFF) shl 16) or
+            ((raw[mdatPos + 2].toLong() and 0xFF) shl 8) or (raw[mdatPos + 3].toLong() and 0xFF), "precondition: sips writes a largesize mdat")
+
+        val (normalized, _) = MotionPhotoBuilder.extractExistingHeicBoxesAndSef(raw)
+        assertEquals(raw.size, normalized.size, "the normalization must not change the file length")
+        val before = readIlocEntries(raw)
+        val after = readIlocEntries(normalized)
+        assertEquals(before.keys, after.keys)
+        val fileBased = before.values.filter { it.constructionMethod == 0 }
+        assertTrue(fileBased.isNotEmpty())
+        for (entry in fileBased) {
+            assertTrue(entry.resolveBytes(raw).contentEquals(after.getValue(entry.itemId).resolveBytes(normalized)), "item ${entry.itemId} bytes moved")
+        }
+
+        val output = File(dir, "still_MP.heic")
+        MotionPhotoBuilder.createMotionPhoto(heic, video, output, layout = MotionPhotoLayout.GOOGLE_SPEC)
+        val outBytes = output.readBytes()
+        val xmpItem = MotionPhotoBuilder.findHeicXmpItemLocation(outBytes)
+        assertNotNull(xmpItem, "the output must carry an XMP item")
+        assertTrue(indexOfAscii(outBytes, "GCamera:MotionPhoto=") >= 0)
+    }
+
     private fun topLevelBoxes(bytes: ByteArray): List<Triple<String, Int, Long>> {
         val boxes = mutableListOf<Triple<String, Int, Long>>()
         var pos = 0
