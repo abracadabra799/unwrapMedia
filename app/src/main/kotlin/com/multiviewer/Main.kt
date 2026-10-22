@@ -625,31 +625,33 @@ private fun runGuiApplication(args: Array<String> = emptyArray()) = application 
                     onClick = { currentTab?.let { extractMotionPhotoPreviewVideo(appState, it) } },
                 )
                 separator()
-                item(
-                    I18n.menuCreateMotionPhotoGoogle(language),
-                    enabled = isImage,
-                    onClick = {
-                        currentTab?.let {
-                            createMotionPhotoFromCurrentTab(appState, it, language, com.multiviewer.parser.MotionPhotoFormatVersion.V2_MOTION_PHOTO,
-                                com.multiviewer.parser.MotionPhotoLayout.GOOGLE_SPEC)
-                        }
-                    },
-                )
-                item(
-                    I18n.menuCreateMotionPhotoSamsung(language),
-                    enabled = isImage,
-                    onClick = {
-                        currentTab?.let {
-                            createMotionPhotoFromCurrentTab(appState, it, language, com.multiviewer.parser.MotionPhotoFormatVersion.V2_MOTION_PHOTO,
-                                com.multiviewer.parser.MotionPhotoLayout.SAMSUNG_COMPATIBLE)
-                        }
-                    },
-                )
-                item(
-                    I18n.menuCreateMotionPhotoV1(language),
-                    enabled = isImage && !isHeic,
-                    onClick = { currentTab?.let { createMotionPhotoFromCurrentTab(appState, it, language, com.multiviewer.parser.MotionPhotoFormatVersion.V1_MICRO_VIDEO) } },
-                )
+                submenu(I18n.menuCreateMotionPhoto(language), enabled = isImage) {
+                    item(
+                        I18n.menuCreateMotionPhotoGoogle(language),
+                        enabled = isImage,
+                        onClick = {
+                            currentTab?.let {
+                                createMotionPhotoFromCurrentTab(appState, it, language, com.multiviewer.parser.MotionPhotoFormatVersion.V2_MOTION_PHOTO,
+                                    com.multiviewer.parser.MotionPhotoLayout.GOOGLE_SPEC)
+                            }
+                        },
+                    )
+                    item(
+                        I18n.menuCreateMotionPhotoSamsung(language),
+                        enabled = isImage,
+                        onClick = {
+                            currentTab?.let {
+                                createMotionPhotoFromCurrentTab(appState, it, language, com.multiviewer.parser.MotionPhotoFormatVersion.V2_MOTION_PHOTO,
+                                    com.multiviewer.parser.MotionPhotoLayout.SAMSUNG_COMPATIBLE)
+                            }
+                        },
+                    )
+                    item(
+                        I18n.menuCreateMotionPhotoV1(language),
+                        enabled = isImage && !isHeic,
+                        onClick = { currentTab?.let { createMotionPhotoFromCurrentTab(appState, it, language, com.multiviewer.parser.MotionPhotoFormatVersion.V1_MICRO_VIDEO) } },
+                    )
+                }
             }
             // Comparison tools on top, then track extraction (its own 추출 menu held only these two
             // items). Motion photo extractions stay in 모션포토, gain map saving in 게인맵: they belong

@@ -12,7 +12,7 @@ import androidx.compose.ui.input.key.Key
  */
 data class AppKeyShortcut(val key: Key, val meta: Boolean = false, val shift: Boolean = false)
 
-/** One entry in a menu: a clickable item, a checkbox item, or a visual separator. */
+/** One entry in a menu: a clickable item, a checkbox item, a visual separator, or a one-level submenu. */
 sealed class MenuEntry {
     data class Item(
         val label: String,
@@ -28,6 +28,17 @@ sealed class MenuEntry {
     ) : MenuEntry()
 
     object Separator : MenuEntry()
+
+    /**
+     * A nested menu ("Create Motion Photo ▸"). One level only: [entries] never contain another
+     * [Submenu] (the [AppSubmenuBuilder] offers no `submenu`). A disabled submenu never opens and its
+     * items' shortcuts don't fire.
+     */
+    data class Submenu(
+        val label: String,
+        val enabled: Boolean,
+        val entries: List<MenuEntry>,
+    ) : MenuEntry()
 }
 
 /**
@@ -36,9 +47,9 @@ sealed class MenuEntry {
  */
 data class AppMenu(val label: String, val entries: List<MenuEntry>, val mnemonic: Char? = null)
 
-/** Builder scope for one menu's entries -- see [AppMenuBarBuilder.appMenu]. */
-class AppMenuBuilder internal constructor(private val label: String, private val mnemonic: Char?) {
-    private val entries = mutableListOf<MenuEntry>()
+/** Entries shared by a top-level menu and a submenu: items, checkboxes and separators. */
+abstract class MenuEntriesBuilder internal constructor() {
+    protected val entries = mutableListOf<MenuEntry>()
 
     fun item(label: String, enabled: Boolean = true, shortcut: AppKeyShortcut? = null, onClick: () -> Unit) {
         entries.add(MenuEntry.Item(label, enabled, shortcut, onClick))
@@ -50,6 +61,19 @@ class AppMenuBuilder internal constructor(private val label: String, private val
 
     fun separator() {
         entries.add(MenuEntry.Separator)
+    }
+
+}
+
+/** Builder scope for one submenu's entries -- see [AppMenuBuilder.submenu]. No nested submenus. */
+class AppSubmenuBuilder internal constructor() : MenuEntriesBuilder() {
+    internal fun build(): List<MenuEntry> = entries.toList()
+}
+
+/** Builder scope for one menu's entries -- see [AppMenuBarBuilder.appMenu]. */
+class AppMenuBuilder internal constructor(private val label: String, private val mnemonic: Char?) : MenuEntriesBuilder() {
+    fun submenu(label: String, enabled: Boolean = true, block: AppSubmenuBuilder.() -> Unit) {
+        entries.add(MenuEntry.Submenu(label, enabled, AppSubmenuBuilder().apply(block).build()))
     }
 
     internal fun build(): AppMenu = AppMenu(label, entries.toList(), mnemonic)

@@ -166,6 +166,9 @@ fun CustomMenuOverlay(
     val onChange by rememberUpdatedState(onNavigationStateChange)
     val density = LocalDensity.current
     val barBottomDp = with(density) { layout.barBottom.toDp() }
+    // Where the dropdown and its rows sit, for placing an open submenu's child popup beside its row.
+    val rowBounds = remember(openIndex) { mutableStateMapOf<Int, Rect>() }
+    var dropdownBounds by remember(openIndex) { mutableStateOf<Rect?>(null) }
 
     Box(Modifier.fillMaxSize()) {
         Box(
@@ -196,39 +199,113 @@ fun CustomMenuOverlay(
                     layout(constraints.maxWidth, constraints.maxHeight) { placeable.place(x, layout.barBottom.toInt()) }
                 },
         ) {
-            Column(
-                Modifier
-                    .shadow(10.dp, MenuShape)
-                    .background(AppColors.Surface, MenuShape)
-                    .border(1.dp, AppColors.Border, MenuShape)
-                    .width(IntrinsicSize.Max)
-                    .widthIn(min = 220.dp, max = 520.dp)
-                    .verticalScroll(rememberScrollState())
-                    .padding(vertical = 6.dp),
-            ) {
-                menu.entries.forEachIndexed { i, entry ->
-                    when (entry) {
-                        MenuEntry.Separator -> Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 0.dp, vertical = 6.dp)
-                                .height(1.dp)
-                                .background(AppColors.Border),
-                        )
-                        else -> MenuRow(
-                            entry = entry,
-                            highlighted = navigationState.highlightedItem == i,
-                            onHover = { onChange(state.hoverItem(i, menus)) },
-                            onClick = {
-                                val action = state.hoverItem(i, menus).highlightedAction(menus)
-                                if (action != null) {
-                                    onChange(state.close())
-                                    action()
-                                }
-                            },
-                        )
+            MenuPopupColumn(
+                entries = menu.entries,
+                highlighted = navigationState.highlightedItem,
+                onHover = { i -> onChange(state.hoverItem(i, menus)) },
+                onClick = { i ->
+                    val hovered = state.hoverItem(i, menus)
+                    val action = hovered.highlightedAction(menus)
+                    when {
+                        action != null -> {
+                            onChange(state.close())
+                            action()
+                        }
+                        // A submenu row: a click opens it (hover normally already has).
+                        menu.entries.getOrNull(i) is MenuEntry.Submenu -> onChange(hovered)
                     }
-                }
+                },
+                modifier = Modifier.onGloballyPositioned { dropdownBounds = it.boundsInRoot() },
+                onRowPositioned = { i, bounds -> rowBounds[i] = bounds },
+            )
+        }
+
+        // The open submenu's child popup: to the right of its row, top-aligned with it (the popup's
+        // own top padding lines its first row up with the parent row); flipped to the dropdown's left
+        // if it would run off the window's right edge.
+        val subIndex = navigationState.openSubmenuItem
+        val subEntries = navigationState.openSubmenuEntries(menus)
+        val subRow = subIndex?.let { rowBounds[it] }
+        val parentBounds = dropdownBounds
+        if (subIndex != null && subEntries != null && subRow != null && parentBounds != null) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .layout { measurable, constraints ->
+                        val margin = 8.dp.roundToPx()
+                        val placeable = measurable.measure(
+                            constraints.copy(minWidth = 0, minHeight = 0, maxHeight = (constraints.maxHeight - margin).coerceAtLeast(0)),
+                        )
+                        val overlap = 2.dp.roundToPx()
+                        val right = parentBounds.right.toInt() - overlap
+                        val x = if (right + placeable.width <= constraints.maxWidth) {
+                            right
+                        } else {
+                            (parentBounds.left.toInt() + overlap - placeable.width).coerceAtLeast(0)
+                        }
+                        val y = (subRow.top.toInt() - 7.dp.roundToPx()) // 6dp column padding + 1dp border
+                            .coerceAtMost(constraints.maxHeight - placeable.height - margin)
+                            .coerceAtLeast(0)
+                        layout(constraints.maxWidth, constraints.maxHeight) { placeable.place(x, y) }
+                    },
+            ) {
+                MenuPopupColumn(
+                    entries = subEntries,
+                    highlighted = navigationState.highlightedSubItem,
+                    onHover = { j -> onChange(state.hoverSubItem(j, menus)) },
+                    onClick = { j ->
+                        val action = state.hoverSubItem(j, menus).highlightedAction(menus)
+                        if (action != null) {
+                            onChange(state.close())
+                            action()
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** One popup (the dropdown or a submenu's child): squared, bordered, shadowed column of rows. */
+@Composable
+private fun MenuPopupColumn(
+    entries: List<MenuEntry>,
+    highlighted: Int?,
+    onHover: (Int) -> Unit,
+    onClick: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    onRowPositioned: ((Int, Rect) -> Unit)? = null,
+) {
+    Column(
+        modifier
+            .shadow(10.dp, MenuShape)
+            .background(AppColors.Surface, MenuShape)
+            .border(1.dp, AppColors.Border, MenuShape)
+            .width(IntrinsicSize.Max)
+            .widthIn(min = 220.dp, max = 520.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(vertical = 6.dp),
+    ) {
+        entries.forEachIndexed { i, entry ->
+            when (entry) {
+                MenuEntry.Separator -> Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 0.dp, vertical = 6.dp)
+                        .height(1.dp)
+                        .background(AppColors.Border),
+                )
+                else -> MenuRow(
+                    entry = entry,
+                    highlighted = highlighted == i,
+                    onHover = { onHover(i) },
+                    onClick = { onClick(i) },
+                    modifier = if (onRowPositioned != null) {
+                        Modifier.onGloballyPositioned { onRowPositioned(i, it.boundsInRoot()) }
+                    } else {
+                        Modifier
+                    },
+                )
             }
         }
     }
@@ -236,11 +313,18 @@ fun CustomMenuOverlay(
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-private fun MenuRow(entry: MenuEntry, highlighted: Boolean, onHover: () -> Unit, onClick: () -> Unit) {
+private fun MenuRow(
+    entry: MenuEntry,
+    highlighted: Boolean,
+    onHover: () -> Unit,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val enabled = entry.isSelectable()
     val label = when (entry) {
         is MenuEntry.Item -> entry.label
         is MenuEntry.Checkbox -> entry.label
+        is MenuEntry.Submenu -> entry.label
         MenuEntry.Separator -> ""
     }
     val checked = entry is MenuEntry.Checkbox && entry.checked
@@ -251,7 +335,7 @@ private fun MenuRow(entry: MenuEntry, highlighted: Boolean, onHover: () -> Unit,
         else -> AppColors.TextMuted
     }
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
             .height(30.dp) // VS Code-like breathing room between items
             .padding(horizontal = 4.dp)
@@ -281,6 +365,10 @@ private fun MenuRow(entry: MenuEntry, highlighted: Boolean, onHover: () -> Unit,
                 shortcut, fontSize = 12.sp, letterSpacing = 0.sp, fontFamily = MenuFont,
                 color = if (highlighted) SelectionForeground else AppColors.TextSecondary, maxLines = 1,
             )
+        }
+        if (entry is MenuEntry.Submenu) {
+            Spacer(Modifier.width(32.dp))
+            Text("▸", fontSize = 12.sp, letterSpacing = 0.sp, fontFamily = MenuFont, color = foreground, maxLines = 1)
         }
         Spacer(Modifier.width(16.dp))
     }

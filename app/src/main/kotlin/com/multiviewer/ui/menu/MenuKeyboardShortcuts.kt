@@ -8,12 +8,14 @@ import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 
 /**
- * Flattens every [MenuEntry.Item] with a non-null shortcut into a lookup Main.kt's custom
+ * Flattens every [MenuEntry.Item] (including those in enabled submenus) with a non-null shortcut into a lookup Main.kt's custom
  * (Windows/Linux) key handler can consult directly -- the native renderer doesn't need this, the
  * OS's own accelerator table handles shortcuts for it.
  */
 fun List<AppMenu>.collectShortcuts(): List<Pair<AppKeyShortcut, () -> Unit>> =
     flatMap { it.entries }
+        // Items inside an enabled submenu count too; a disabled submenu's items never fire.
+        .flatMap { entry -> if (entry is MenuEntry.Submenu) (if (entry.enabled) entry.entries else emptyList()) else listOf(entry) }
         .filterIsInstance<MenuEntry.Item>()
         .mapNotNull { entry -> entry.shortcut?.let { it to entry.onClick } }
 

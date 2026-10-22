@@ -168,4 +168,124 @@ class MenuBarNavigationStateTest {
         assertFalse(r.consumed)
         assertFalse(r.state.isActive)
     }
+
+    // ---- submenus ----
+
+    // 0 Tools: [Before, Create ▸ [---, (disabled) X, Google, Samsung], (disabled) Off ▸ [Y], After]   1 Help: [About]
+    private val subMenus = listOf(
+        AppMenu("Tools", listOf(
+            MenuEntry.Item("Before", true, null) { log += "before" },
+            MenuEntry.Submenu("Create", true, listOf(
+                MenuEntry.Separator,
+                MenuEntry.Item("X", false, null) { log += "x" },
+                MenuEntry.Item("Google", true, null) { log += "google" },
+                MenuEntry.Item("Samsung", true, null) { log += "samsung" },
+            )),
+            MenuEntry.Submenu("Off", false, listOf(MenuEntry.Item("Y", true, null) { log += "y" })),
+            MenuEntry.Item("After", true, null) { log += "after" },
+        )),
+        AppMenu("Help", listOf(MenuEntry.Item("About", true, null) { log += "about" })),
+    )
+
+    private fun subKey(state: MenuBarNavigationState, k: Key) =
+        handleMenuKey(state, k, keyDown = true, alt = false, ctrl = false, shift = false, menus = subMenus)
+
+    /** Tools open, keyboard highlight on the "Create ▸" row, submenu not yet open. */
+    private fun atCreate() = MenuBarNavigationState(openMenuIndex = 0, focusedIndex = 0, highlightedItem = 1)
+
+    @Test
+    fun `right and enter open a highlighted submenu with its first selectable child`() {
+        val start = atCreate()
+        assertEquals(1, start.highlightedItem)
+        assertNull(start.openSubmenuItem)
+        for (k in listOf(Key.DirectionRight, Key.Enter)) {
+            val r = subKey(start, k)
+            assertTrue(r.consumed)
+            assertNull(r.action)
+            assertEquals(0, r.state.openMenuIndex)
+            assertEquals(1, r.state.highlightedItem)
+            assertEquals(1, r.state.openSubmenuItem)
+            assertEquals(2, r.state.highlightedSubItem, "skips the separator and disabled X")
+        }
+    }
+
+    @Test
+    fun `up and down wrap inside an open submenu`() {
+        val open = subKey(atCreate(), Key.DirectionRight).state
+        val down = subKey(open, Key.DirectionDown).state
+        assertEquals(3, down.highlightedSubItem)
+        assertEquals(1, down.highlightedItem, "parent highlight stays on the submenu row")
+        assertEquals(2, subKey(down, Key.DirectionDown).state.highlightedSubItem)
+        assertEquals(3, subKey(open, Key.DirectionUp).state.highlightedSubItem)
+    }
+
+    @Test
+    fun `left and escape close only the submenu`() {
+        val open = subKey(subKey(atCreate(), Key.DirectionRight).state, Key.DirectionDown).state
+        for (k in listOf(Key.DirectionLeft, Key.Escape)) {
+            val r = subKey(open, k)
+            assertTrue(r.consumed)
+            assertEquals(0, r.state.openMenuIndex)
+            assertEquals(1, r.state.highlightedItem)
+            assertNull(r.state.openSubmenuItem)
+            assertNull(r.state.highlightedSubItem)
+        }
+    }
+
+    @Test
+    fun `enter on a submenu child returns its action and closes the bar`() {
+        val atSamsung = subKey(subKey(atCreate(), Key.DirectionRight).state, Key.DirectionDown).state
+        val r = subKey(atSamsung, Key.Enter)
+        assertFalse(r.state.isActive)
+        assertNull(r.state.openSubmenuItem)
+        assertNotNull(r.action).invoke()
+        assertEquals(listOf("samsung"), log)
+    }
+
+    @Test
+    fun `right on a plain item still moves to the next top-level menu`() {
+        val atBefore = MenuBarNavigationState().activate(0, 2).hoverItem(0, subMenus)
+        val r = subKey(atBefore, Key.DirectionRight).state
+        assertEquals(1, r.openMenuIndex)
+        assertEquals(0, r.highlightedItem)
+        assertNull(r.openSubmenuItem)
+        // and from inside an open submenu with a child highlighted, → also moves on
+        val inSub = subKey(atCreate(), Key.DirectionRight).state
+        val moved = subKey(inSub, Key.DirectionRight).state
+        assertEquals(1, moved.openMenuIndex)
+        assertNull(moved.openSubmenuItem)
+        assertNull(moved.highlightedSubItem)
+    }
+
+    @Test
+    fun `hovering a submenu row opens it, hovering another parent row closes it`() {
+        val open = MenuBarNavigationState().activate(0, 2)
+        val hovered = open.hoverItem(1, subMenus)
+        assertEquals(1, hovered.openSubmenuItem)
+        assertNull(hovered.highlightedSubItem, "a mouse-opened submenu has no highlighted child yet")
+        val child = hovered.hoverSubItem(3, subMenus)
+        assertEquals(3, child.highlightedSubItem)
+        assertEquals(3, child.hoverSubItem(1, subMenus).highlightedSubItem, "a disabled child is not highlighted")
+        assertNotNull(child.highlightedAction(subMenus)).invoke()
+        assertEquals(listOf("samsung"), log)
+        val other = child.hoverItem(3, subMenus)
+        assertEquals(3, other.highlightedItem)
+        assertNull(other.openSubmenuItem)
+        assertNull(other.highlightedSubItem)
+    }
+
+    @Test
+    fun `disabled submenu never opens`() {
+        val open = MenuBarNavigationState().activate(0, 2)
+        val hovered = open.hoverItem(2, subMenus)
+        assertNull(hovered.openSubmenuItem)
+        assertFalse(hovered.highlightedItem == 2, "a disabled submenu row is not selectable")
+        // keyboard skips it: After(3) follows Create(1)
+        val atCreate = atCreate()
+        assertEquals(3, subKey(atCreate, Key.DirectionDown).state.highlightedItem)
+        // forcing the highlight onto it still does not open it
+        val forced = MenuBarNavigationState(openMenuIndex = 0, focusedIndex = 0, highlightedItem = 2)
+        assertNull(subKey(forced, Key.Enter).state.openSubmenuItem)
+        assertNull(forced.openSubmenu(subMenus).openSubmenuItem)
+    }
 }

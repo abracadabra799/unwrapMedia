@@ -74,4 +74,38 @@ class AppMenuDslTest {
         assertEquals(AppKeyShortcut(Key.O, meta = true), AppKeyShortcut(Key.O, meta = true))
         assertFalse(AppKeyShortcut(Key.O, meta = true) == AppKeyShortcut(Key.O, meta = true, shift = true))
     }
+
+    @Test
+    fun `submenu builds into MenuEntry Submenu with its entries in order`() {
+        var clicked = false
+        val menus = buildAppMenuBar {
+            appMenu("Motion") {
+                item("Before") {}
+                submenu("Create", enabled = false) {
+                    item("Google", onClick = { clicked = true })
+                    separator()
+                    checkbox("Flag", checked = true, onCheckedChange = {})
+                    item("Legacy", enabled = false) {}
+                }
+            }
+        }
+        val entries = menus.single().entries
+        assertEquals(2, entries.size)
+        val submenu = entries[1] as MenuEntry.Submenu
+        assertEquals("Create", submenu.label)
+        assertFalse(submenu.enabled)
+        assertEquals(4, submenu.entries.size)
+        assertEquals("Google", (submenu.entries[0] as MenuEntry.Item).label)
+        assertEquals(MenuEntry.Separator, submenu.entries[1])
+        assertEquals("Flag", (submenu.entries[2] as MenuEntry.Checkbox).label)
+        assertFalse((submenu.entries[3] as MenuEntry.Item).enabled)
+        (submenu.entries[0] as MenuEntry.Item).onClick()
+        assertTrue(clicked)
+    }
+
+    @Test
+    fun `submenu defaults to enabled`() {
+        val menus = buildAppMenuBar { appMenu("M") { submenu("S") { item("A") {} } } }
+        assertTrue((menus.single().entries.single() as MenuEntry.Submenu).enabled)
+    }
 }

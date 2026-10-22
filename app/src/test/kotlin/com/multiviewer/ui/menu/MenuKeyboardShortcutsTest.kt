@@ -68,4 +68,19 @@ class MenuKeyboardShortcutsTest {
         val label = AppKeyShortcut(Key.Z, meta = true).displayString()
         assertTrue(label.startsWith("Ctrl+"), "expected a Ctrl+ prefix, got: $label")
     }
+
+    @Test
+    fun `collectShortcuts finds a shortcut inside an enabled submenu but not a disabled one`() {
+        var enabledClicked = false
+        val menus = buildAppMenuBar {
+            appMenu("Tools") {
+                submenu("On") { item("A", shortcut = AppKeyShortcut(Key.P, meta = true), onClick = { enabledClicked = true }) }
+                submenu("Off", enabled = false) { item("B", shortcut = AppKeyShortcut(Key.B, meta = true)) {} }
+            }
+        }
+        val shortcuts = menus.collectShortcuts()
+        assertEquals(listOf(AppKeyShortcut(Key.P, meta = true)), shortcuts.map { it.first })
+        shortcuts.single().second()
+        assertTrue(enabledClicked)
+    }
 }

@@ -43,9 +43,10 @@ object I18n {
 
     // Menu: Motion Photo
     fun menuMotionPhoto(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토" else "Motion Photo"
-    fun menuCreateMotionPhotoGoogle(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 생성 (구글 스펙)" else "Create Motion Photo (Google spec)"
-    fun menuCreateMotionPhotoSamsung(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 생성 (삼성 호환)" else "Create Motion Photo (Samsung compatible)"
-    fun menuCreateMotionPhotoV1(lang: AppLanguage) = if (lang == AppLanguage.KO) "v1.0 만들기 — MicroVideo" else "Create v1.0 — MicroVideo"
+    fun menuCreateMotionPhoto(lang: AppLanguage) = if (lang == AppLanguage.KO) "모션포토 생성" else "Create Motion Photo"
+    fun menuCreateMotionPhotoGoogle(lang: AppLanguage) = if (lang == AppLanguage.KO) "구글 스펙 준수 (권장)" else "Google spec (recommended)"
+    fun menuCreateMotionPhotoSamsung(lang: AppLanguage) = if (lang == AppLanguage.KO) "삼성 모션포토 (SEF 포함)" else "Samsung motion photo (with SEF)"
+    fun menuCreateMotionPhotoV1(lang: AppLanguage) = if (lang == AppLanguage.KO) "MicroVideo v1 (레거시)" else "MicroVideo v1 (legacy)"
     fun menuExtractMotionVideo(lang: AppLanguage) = if (lang == AppLanguage.KO) "동영상 추출 (.mp4/.mov)" else "Extract Video (.mp4/.mov)"
     fun menuExtractPreviewVideo(lang: AppLanguage) = if (lang == AppLanguage.KO) "자동재생 클립 추출 (SEF AutoPlay)" else "Extract Auto-play Clip (SEF AutoPlay)"
     fun menuMotionFrameDropAnalysis(lang: AppLanguage) = if (lang == AppLanguage.KO) "동영상 프레임 간격 분석" else "Video Frame Interval Analysis"

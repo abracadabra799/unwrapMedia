@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.input.key.KeyShortcut
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.MenuBar
+import androidx.compose.ui.window.MenuScope
 
 private fun AppKeyShortcut.toNativeKeyShortcut(): KeyShortcut = KeyShortcut(key, meta = meta, shift = shift)
 
@@ -16,24 +17,29 @@ private fun AppKeyShortcut.toNativeKeyShortcut(): KeyShortcut = KeyShortcut(key,
 fun FrameWindowScope.NativeAppMenuBar(menus: List<AppMenu>) {
     MenuBar {
         menus.forEach { menu ->
-            Menu(menu.label) {
-                menu.entries.forEach { entry ->
-                    when (entry) {
-                        is MenuEntry.Item -> Item(
-                            entry.label,
-                            enabled = entry.enabled,
-                            shortcut = entry.shortcut?.toNativeKeyShortcut(),
-                            onClick = entry.onClick,
-                        )
-                        is MenuEntry.Checkbox -> CheckboxItem(
-                            entry.label,
-                            checked = entry.checked,
-                            onCheckedChange = entry.onCheckedChange,
-                        )
-                        MenuEntry.Separator -> Separator()
-                    }
-                }
-            }
+            Menu(menu.label) { NativeEntries(menu.entries) }
+        }
+    }
+}
+
+@Composable
+private fun MenuScope.NativeEntries(entries: List<MenuEntry>) {
+    entries.forEach { entry ->
+        when (entry) {
+            is MenuEntry.Item -> Item(
+                entry.label,
+                enabled = entry.enabled,
+                shortcut = entry.shortcut?.toNativeKeyShortcut(),
+                onClick = entry.onClick,
+            )
+            is MenuEntry.Checkbox -> CheckboxItem(
+                entry.label,
+                checked = entry.checked,
+                onCheckedChange = entry.onCheckedChange,
+            )
+            MenuEntry.Separator -> Separator()
+            // A native NSMenu submenu; the DSL guarantees its entries hold no further Submenu.
+            is MenuEntry.Submenu -> Menu(entry.label, enabled = entry.enabled) { NativeEntries(entry.entries) }
         }
     }
 }

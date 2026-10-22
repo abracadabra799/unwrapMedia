@@ -6,12 +6,17 @@ import androidx.compose.ui.input.key.Key
  * Whole interaction model of the custom (Windows/Linux) menu bar, modelled on VS Code's custom title
  * bar menus: which menu is open, which header has keyboard focus (Alt), which item is highlighted, and
  * whether mnemonics are underlined. Every transition is pure; [handleMenuKey] maps keys onto them.
+ *
+ * [openSubmenuItem] is the index (in the open menu) of the [MenuEntry.Submenu] row whose child popup
+ * is showing, and [highlightedSubItem] the highlighted entry inside that submenu. One level only.
  */
 data class MenuBarNavigationState(
     val openMenuIndex: Int? = null,
     val focusedIndex: Int? = null,
     val highlightedItem: Int? = null,
     val mnemonicsVisible: Boolean = false,
+    val openSubmenuItem: Int? = null,
+    val highlightedSubItem: Int? = null,
     private val switchedByHover: Boolean = false,
     private val altArmed: Boolean = false,
 ) {
@@ -33,10 +38,46 @@ data class MenuBarNavigationState(
             this
         }
 
+    /**
+     * Pointer over a row of the open menu: highlights it if selectable. Hovering an enabled submenu row
+     * opens its child (nothing highlighted inside yet); hovering any other row closes an open child.
+     */
     fun hoverItem(item: Int, menus: List<AppMenu>): MenuBarNavigationState {
         val menu = openMenuIndex?.let(menus::getOrNull) ?: return this
-        return if (menu.entries.getOrNull(item)?.isSelectable() == true) copy(highlightedItem = item) else this
+        val entry = menu.entries.getOrNull(item) ?: return this
+        if (item == openSubmenuItem) return copy(highlightedItem = item)
+        val base = closeSubmenu()
+        if (!entry.isSelectable()) return base
+        return if (entry is MenuEntry.Submenu) {
+            base.copy(highlightedItem = item, openSubmenuItem = item, highlightedSubItem = null)
+        } else {
+            base.copy(highlightedItem = item)
+        }
     }
+
+    /** Pointer over a row of the open submenu: highlights it if selectable. */
+    fun hoverSubItem(subItem: Int, menus: List<AppMenu>): MenuBarNavigationState {
+        val entries = openSubmenuEntries(menus) ?: return this
+        return if (entries.getOrNull(subItem)?.isSelectable() == true) copy(highlightedSubItem = subItem) else this
+    }
+
+    /** The open submenu's entries, or null when no submenu is open. */
+    fun openSubmenuEntries(menus: List<AppMenu>): List<MenuEntry>? {
+        val sub = openSubmenuItem ?: return null
+        val entry = openMenuIndex?.let(menus::getOrNull)?.entries?.getOrNull(sub) as? MenuEntry.Submenu ?: return null
+        return entry.entries
+    }
+
+    /** →/Enter on a highlighted, enabled submenu row: open it with its first selectable child highlighted. */
+    fun openSubmenu(menus: List<AppMenu>): MenuBarNavigationState {
+        val item = highlightedItem ?: return this
+        val entry = openMenuIndex?.let(menus::getOrNull)?.entries?.getOrNull(item) as? MenuEntry.Submenu ?: return this
+        if (!entry.enabled) return this
+        return copy(openSubmenuItem = item, highlightedSubItem = entry.entries.firstSelectableIndex())
+    }
+
+    /** ←/Esc inside a submenu: close only it; the highlight stays on its row. */
+    fun closeSubmenu(): MenuBarNavigationState = copy(openSubmenuItem = null, highlightedSubItem = null)
 
     /** ←/→: with a menu open, open the neighbour (first item highlighted); with bar focus, move it. */
     fun moveHeader(delta: Int, menus: List<AppMenu>): MenuBarNavigationState {
@@ -46,23 +87,22 @@ data class MenuBarNavigationState(
         return this
     }
 
-    /** ↑/↓ over selectable items (wrapping); ↓ on a focused header opens it. */
+    /** ↑/↓ over selectable items (wrapping) -- inside the open submenu if there is one; ↓ on a focused header opens it. */
     fun moveItem(delta: Int, menus: List<AppMenu>): MenuBarNavigationState {
         val index = openMenuIndex
         if (index == null) return if (delta > 0) openFocused(menus) else this
-        val entries = menus.getOrNull(index)?.entries ?: return this
-        val selectable = entries.indices.filter { entries[it].isSelectable() }
-        if (selectable.isEmpty()) return this
-        val current = highlightedItem?.let(selectable::indexOf)?.takeIf { it >= 0 }
-        val next = when {
-            current != null -> selectable[(current + delta).mod(selectable.size)]
-            delta > 0 -> selectable.first()
-            else -> selectable.last()
+        openSubmenuEntries(menus)?.let { sub ->
+            return sub.stepSelectable(highlightedSubItem, delta)?.let { copy(highlightedSubItem = it) } ?: this
         }
-        return copy(highlightedItem = next)
+        val entries = menus.getOrNull(index)?.entries ?: return this
+        return entries.stepSelectable(highlightedItem, delta)?.let { copy(highlightedItem = it) } ?: this
     }
 
     fun highlightEdge(first: Boolean, menus: List<AppMenu>): MenuBarNavigationState {
+        openSubmenuEntries(menus)?.let { sub ->
+            val selectable = sub.indices.filter { sub[it].isSelectable() }
+            return if (selectable.isEmpty()) this else copy(highlightedSubItem = if (first) selectable.first() else selectable.last())
+        }
         val entries = openMenuIndex?.let(menus::getOrNull)?.entries ?: return this
         val selectable = entries.indices.filter { entries[it].isSelectable() }
         return if (selectable.isEmpty()) this else copy(highlightedItem = if (first) selectable.first() else selectable.last())
@@ -79,13 +119,18 @@ data class MenuBarNavigationState(
         return open(index, menus.firstSelectable(index)).copy(mnemonicsVisible = true)
     }
 
-    /** The highlighted entry's action (checkbox: toggle), or null. */
+    /**
+     * The highlighted entry's action (checkbox: toggle), or null. With a submenu open this is the
+     * highlighted child's action; a submenu row itself has no action (it opens instead).
+     */
     fun highlightedAction(menus: List<AppMenu>): (() -> Unit)? {
-        val entry = openMenuIndex?.let(menus::getOrNull)?.entries?.getOrNull(highlightedItem ?: return null) ?: return null
+        val entry = openSubmenuEntries(menus)?.let { sub -> sub.getOrNull(highlightedSubItem ?: return null) }
+            ?: openMenuIndex?.let(menus::getOrNull)?.entries?.getOrNull(highlightedItem ?: return null)
+            ?: return null
         return when (entry) {
             is MenuEntry.Item -> entry.onClick.takeIf { entry.enabled }
             is MenuEntry.Checkbox -> ({ entry.onCheckedChange(!entry.checked) })
-            MenuEntry.Separator -> null
+            MenuEntry.Separator, is MenuEntry.Submenu -> null
         }
     }
 
@@ -106,6 +151,8 @@ data class MenuBarNavigationState(
         openMenuIndex = index,
         focusedIndex = index,
         highlightedItem = highlight,
+        openSubmenuItem = null,
+        highlightedSubItem = null,
         switchedByHover = false,
         altArmed = false,
     )
@@ -115,6 +162,21 @@ fun MenuEntry.isSelectable(): Boolean = when (this) {
     is MenuEntry.Item -> enabled
     is MenuEntry.Checkbox -> true
     MenuEntry.Separator -> false
+    is MenuEntry.Submenu -> enabled
+}
+
+private fun List<MenuEntry>.firstSelectableIndex(): Int? = indexOfFirst { it.isSelectable() }.takeIf { it >= 0 }
+
+/** The selectable index [delta] steps from [current] (wrapping), or the first/last one when nothing is highlighted. */
+private fun List<MenuEntry>.stepSelectable(current: Int?, delta: Int): Int? {
+    val selectable = indices.filter { this[it].isSelectable() }
+    if (selectable.isEmpty()) return null
+    val position = current?.let(selectable::indexOf)?.takeIf { it >= 0 }
+    return when {
+        position != null -> selectable[(position + delta).mod(selectable.size)]
+        delta > 0 -> selectable.first()
+        else -> selectable.last()
+    }
 }
 
 private fun List<AppMenu>.firstSelectable(menuIndex: Int): Int? =
@@ -164,16 +226,19 @@ fun handleMenuKey(
     if (ctrl) return MenuKeyResult(s.close(), consumed = false)
 
     return when (key) {
-        Key.DirectionLeft -> MenuKeyResult(s.moveHeader(-1, menus), true)
-        Key.DirectionRight -> MenuKeyResult(s.moveHeader(1, menus), true)
+        Key.DirectionLeft ->
+            MenuKeyResult(if (s.openSubmenuItem != null) s.closeSubmenu() else s.moveHeader(-1, menus), true)
+        Key.DirectionRight -> MenuKeyResult(s.rightKey(menus), true)
         Key.DirectionUp -> MenuKeyResult(s.moveItem(-1, menus), true)
         Key.DirectionDown -> MenuKeyResult(s.moveItem(1, menus), true)
         Key.MoveHome -> MenuKeyResult(s.highlightEdge(first = true, menus), true)
         Key.MoveEnd -> MenuKeyResult(s.highlightEdge(first = false, menus), true)
-        Key.Escape -> MenuKeyResult(s.close(), true)
+        Key.Escape -> MenuKeyResult(if (s.openSubmenuItem != null) s.closeSubmenu() else s.close(), true)
         Key.Enter, Key.NumPadEnter, Key.Spacebar -> {
             if (s.openMenuIndex == null) {
                 MenuKeyResult(s.openFocused(menus), true)
+            } else if (s.openSubmenuItem == null && s.highlightedEntry(menus) is MenuEntry.Submenu) {
+                MenuKeyResult(s.openSubmenu(menus), true)
             } else {
                 val action = s.highlightedAction(menus)
                 MenuKeyResult(if (action != null) s.close() else s, true, action)
@@ -185,6 +250,29 @@ fun handleMenuKey(
             MenuKeyResult(byMnemonic ?: s, consumed = true) // a menu swallows typing, like VS Code
         }
     }
+}
+
+private fun MenuBarNavigationState.highlightedEntry(menus: List<AppMenu>): MenuEntry? {
+    val item = highlightedItem ?: return null
+    return openMenuIndex?.let(menus::getOrNull)?.entries?.getOrNull(item)
+}
+
+/**
+ * →: on a highlighted submenu row, open it; in a mouse-opened submenu with nothing highlighted yet,
+ * highlight its first child; otherwise (plain row, or a child already highlighted) next top-level menu.
+ */
+private fun MenuBarNavigationState.rightKey(menus: List<AppMenu>): MenuBarNavigationState {
+    if (openMenuIndex != null) {
+        val sub = openSubmenuEntries(menus)
+        if (sub == null && highlightedEntry(menus) is MenuEntry.Submenu) {
+            val opened = openSubmenu(menus)
+            if (opened != this) return opened
+        }
+        if (sub != null && highlightedSubItem == null) {
+            highlightEdge(first = true, menus).takeIf { it != this }?.let { return it }
+        }
+    }
+    return moveHeader(1, menus)
 }
 
 /** A header label with the index of the character to underline when mnemonics are visible. */
