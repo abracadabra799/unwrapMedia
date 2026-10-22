@@ -42,6 +42,7 @@ internal fun motionPhotoFormatLabel(format: MotionPhotoFormat): String = when (f
     MotionPhotoFormat.SAMSUNG_SEF -> "삼성 SEF"
     MotionPhotoFormat.GOOGLE_XMP -> "구글 모션포토 (XMP)"
     MotionPhotoFormat.APPLE_MPVD -> "HEIC/AVIF mpvd (구글 모션포토) / HEIC/AVIF mpvd (Google Motion Photo)"
+    MotionPhotoFormat.TRAILING_VIDEO -> "이미지 뒤 임베디드 비디오 (메타데이터 없음) / Embedded video after the image (no metadata)"
 }
 
 internal fun googleSpecSectionTitle(group: String) = "구글 모션포토 1.0 / Google Motion Photo 1.0 · $group"

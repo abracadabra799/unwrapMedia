@@ -213,6 +213,32 @@ class MotionPhotoIntegrityAnalyzerTest {
     }
 
     @Test
+    fun `a JPEG motion photo is not labelled HEIC mpvd`() {
+        val file = File(javaClass.getResource("/google-motion-photo/PXL_compliant.MP.jpg")!!.toURI())
+        val report = MotionPhotoIntegrityAnalyzer.analyze(file, com.multiviewer.parser.parseFile(file))
+        assertTrue(MotionPhotoFormat.APPLE_MPVD !in report.detectedFormats, report.detectedFormats.toString())
+        assertTrue(MotionPhotoFormat.GOOGLE_XMP in report.detectedFormats, report.detectedFormats.toString())
+    }
+
+    @Test
+    fun `a top-level mpvd box is labelled HEIC mpvd`() {
+        val file = File.createTempFile("mpvd", ".heic").apply { deleteOnExit(); writeBytes(ByteArray(64)) }
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 64, children = listOf(
+            BoxNode(type = "mpvd", offset = 32, headerSize = 8, size = 32)))
+        assertTrue(MotionPhotoFormat.APPLE_MPVD in MotionPhotoIntegrityAnalyzer.analyze(file, root).detectedFormats)
+    }
+
+    @Test
+    fun `a trailing video with no XMP or SEF is still detected, under its own label`() {
+        val file = File.createTempFile("trailing", ".jpg").apply { deleteOnExit(); writeBytes(ByteArray(64)) }
+        val root = BoxNode(type = "root", offset = 0, headerSize = 0, size = 64, children = listOf(
+            BoxNode(type = "EmbeddedVideoData", offset = 32, headerSize = 0, size = 32)))
+        assertEquals(listOf(MotionPhotoFormat.TRAILING_VIDEO), MotionPhotoIntegrityAnalyzer.analyze(file, root).detectedFormats)
+        assertEquals("이미지 뒤 임베디드 비디오 (메타데이터 없음) / Embedded video after the image (no metadata)",
+            motionPhotoFormatLabel(MotionPhotoFormat.TRAILING_VIDEO))
+    }
+
+    @Test
     fun `Google spec titles are bilingual`() {
         assertEquals("HEIC/AVIF mpvd (구글 모션포토) / HEIC/AVIF mpvd (Google Motion Photo)", motionPhotoFormatLabel(MotionPhotoFormat.APPLE_MPVD))
         assertEquals("구글 모션포토 1.0 / Google Motion Photo 1.0 · 배치 / Layout", googleSpecSectionTitle("배치 / Layout"))

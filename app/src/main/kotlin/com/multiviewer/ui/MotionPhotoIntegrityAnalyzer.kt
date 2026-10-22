@@ -47,7 +47,7 @@ internal fun hasGoogleMotionPhotoXmp(root: BoxNode): Boolean =
     findFirst(root) { node -> node.fields.any { it.name == "xmp" } }?.fields?.find { it.name == "xmp" }?.value
         ?.let { it.contains("MotionPhoto", ignoreCase = true) || it.contains("MicroVideo", ignoreCase = true) } == true
 
-enum class MotionPhotoFormat { SAMSUNG_SEF, GOOGLE_XMP, APPLE_MPVD }
+enum class MotionPhotoFormat { SAMSUNG_SEF, GOOGLE_XMP, APPLE_MPVD, TRAILING_VIDEO }
 
 data class MotionPhotoDeepAnalysis(
     val frameMatch: com.multiviewer.parser.motionphoto.FrameMatchResult?,
@@ -159,7 +159,10 @@ object MotionPhotoIntegrityAnalyzer {
             }
             val videoDurationUs = video?.let { probeVideoDurationUs(file, it) }
             val hasGoogleXmp = hasGoogleMotionPhotoXmp(root)
-            val hasMpvd = com.multiviewer.parser.findFirst(root) { it.type == "mpvd" || it.type == "EmbeddedVideoData" } != null
+            // APPLE_MPVD is a real top-level `mpvd` box (HEIC/AVIF) only. A JPEG's trailing video is an
+            // `EmbeddedVideoData` node -- labelling it "HEIC/AVIF mpvd" was wrong.
+            val hasMpvd = root.children.any { it.type == "mpvd" }
+            val hasTrailingVideo = com.multiviewer.parser.findFirst(root) { it.type == "EmbeddedVideoData" } != null
             val detectedFormats = buildList {
                 // MotionPhoto_Data is mandatory for a file to actually BE a SEF motion photo --
                 // MotionPhoto_AutoPlay/MotionPhoto_Version are optional. A bare sefd box (ordinary
@@ -185,6 +188,9 @@ object MotionPhotoIntegrityAnalyzer {
                 }
                 if (hasGoogleXmp) add(MotionPhotoFormat.GOOGLE_XMP)
                 if (hasMpvd) add(MotionPhotoFormat.APPLE_MPVD)
+                // A video after the JPEG with neither XMP nor SEF describing it is still a motion photo to grade
+                // (it used to be detected through the old APPLE_MPVD meaning); it gets its own label.
+                if (isEmpty() && hasTrailingVideo) add(MotionPhotoFormat.TRAILING_VIDEO)
             }
             // Google Motion Photo 1.0 is the first-priority standard: every detected motion photo is held to it,
             // Samsung SEF-only files included (they fail §3.1 Camera:MotionPhoto).
