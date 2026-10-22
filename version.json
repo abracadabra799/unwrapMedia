@@ -1,7 +1,7 @@
 {
-  "version": "2.0.0",
+  "version": "2.0.1",
   "releaseDate": "2026-10-22",
-  "releaseNotes": "• 동영상 프레임 검사: A/V 타임라인 레이아웃과 상태 표시 개선\n• 프레임 비교: 비교 창 크기와 컨트롤 표시 개선",
+  "releaseNotes": "• 구조 트리: 계층 표시와 크기 정렬 개선, 항목 선택과 펼침 동작 분리\n• 이미지 미리보기: 탭별 썸네일 접기·복원 추가, 썸네일 없음 안내 유지",
   "windowsUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest",
   "macUrl": "https://github.sec.samsung.net/jieun81-kim/unwrapMedia/releases/latest"
 }
