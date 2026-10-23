@@ -94,7 +94,9 @@ internal object IsoBmffStructureRules {
     private const val MAX_UNKNOWN_LISTED = 50
 
     private val PREFTYP_ALLOWED = setOf("free", "skip", "wide", "uuid")
-    private val MEDIA_HEADERS_ISO = setOf("vmhd", "smhd", "hmhd", "nmhd", "sthd")
+    private const val MAX_BRANDS_SHOWN = 16
+    /** gmhd (QuickTime base media header) counts in both profiles: ffmpeg's default MP4 chapter track uses it. */
+    private val MEDIA_HEADERS = setOf("vmhd", "smhd", "hmhd", "nmhd", "sthd", "gmhd")
     private val ISO_BRANDS = setOf(
         "isom", "avc1", "avc2", "avc3", "avc4", "mp41", "mp42", "mp71", "M4A ", "M4V ", "M4P ", "M4B ", "M4VH", "M4VP",
         "f4v ", "f4a ", "f4p ", "f4b ", "dash", "msdh", "msix", "cmfc", "cmf2", "mmp4", "MSNV", "XAVC", "iso2", "iso3",
@@ -103,8 +105,9 @@ internal object IsoBmffStructureRules {
 
     private const val TOP = ""
     private val ANYWHERE = setOf("free", "skip", "uuid")
+    private val QT_ANYWHERE = ANYWHERE + "wide"
 
-    /** type → allowed parent types ("" = top level). QuickTime additions are merged in [allowedParents]. */
+    /** type → allowed parent types ("" = top level). QuickTime additions are merged in [QT_PARENTS]. */
     private val ISO_PARENTS: Map<String, Set<String>> = buildMap {
         fun put(parent: String, vararg types: String) = types.forEach { t -> put(t, (get(t) ?: emptySet()) + parent) }
         put(TOP, "ftyp", "moov", "mdat", "meta", "moof", "mfra", "sidx", "styp", "pdin")
@@ -112,20 +115,19 @@ internal object IsoBmffStructureRules {
         put("trak", "tkhd", "mdia", "edts", "tref", "udta", "meta")
         put("edts", "elst")
         put("mdia", "mdhd", "hdlr", "minf")
-        put("minf", "vmhd", "smhd", "hmhd", "nmhd", "sthd", "dinf", "stbl")
+        put("minf", "vmhd", "smhd", "hmhd", "nmhd", "sthd", "gmhd", "dinf", "stbl")
         put("dinf", "dref")
         put("stbl", "stsd", "stts", "ctts", "stss", "stsc", "stsz", "stz2", "stco", "co64", "sdtp", "sbgp", "sgpd",
             "subs", "saiz", "saio", "cslg", "stsh")
-        // 14496-12 also allows these (needed so ffmpeg udta>meta>hdlr, Samsung moov>meta and fragments pass).
+        // udta>meta is ffmpeg/iTunes practice (not in 14496-12's meta container list); accepted so real files pass.
         put("udta", "meta")
+        // 14496-12 meta's own handler/data information, and meta/udta/sample-group boxes inside fragments.
         put("meta", "hdlr", "dinf")
         put("moof", "udta", "meta")
         put("traf", "udta", "meta", "sdtp", "sbgp", "sgpd", "subs", "saiz", "saio")
     }
     private val QT_PARENTS: Map<String, Set<String>> = ISO_PARENTS.toMutableMap().apply {
-        put("wide", setOf(TOP))
         put("hdlr", getValue("hdlr") + "minf")
-        put("gmhd", setOf("minf"))
         put("stps", setOf("stbl"))
     }
 
@@ -207,11 +209,16 @@ internal object IsoBmffStructureRules {
         val compat = (0 until compatCount).map { i -> String(ctx.reader.readBytes(f.payload + 8 + 4L * i, 4), Charsets.ISO_8859_1) }
         if (!printable(major)) fails += "major_brand ${show(major)}: 인쇄 가능한 4문자가 아님"
         compat.forEachIndexed { i, b -> if (!printable(b)) fails += "compatible_brands[$i] ${show(b)}: 인쇄 가능한 4문자가 아님" }
-        val summary = "major '$major', compatible [${compat.joinToString(", ") { "'$it'" }}]"
-        if (fails.isNotEmpty()) return ctx.finding("bmff.ftyp.brands", FAIL, fails + summary, listOf(ctx.range(f)))
+        val shown = compat.take(MAX_BRANDS_SHOWN).joinToString(", ") { "'$it'" } +
+            if (compat.size > MAX_BRANDS_SHOWN) ", … 외 ${compat.size - MAX_BRANDS_SHOWN}개" else ""
+        val summary = "major '$major', compatible [$shown]"
+        val totalCompat = if (payload >= 8) (payload - 8) / 4 else 0L
+        val capLine = if (totalCompat > MAX_BRANDS) "compatible_brands ${totalCompat}개 중 처음 ${MAX_BRANDS}개만 검사함 (상한)" else null
+        val notes = listOfNotNull(capLine)
+        if (fails.isNotEmpty()) return ctx.finding("bmff.ftyp.brands", FAIL, fails + summary + notes, listOf(ctx.range(f)))
         if (!ctx.isQt && (listOf(major) + compat).none(::isIsoBrand))
-            return ctx.finding("bmff.ftyp.brands", WARN, listOf("$summary: 알려진 ISO 계열 브랜드 없음"), listOf(ctx.range(f)))
-        return ctx.finding("bmff.ftyp.brands", PASS, listOf(summary))
+            return ctx.finding("bmff.ftyp.brands", WARN, listOf("$summary: 알려진 ISO 계열 브랜드 없음") + notes, listOf(ctx.range(f)))
+        return ctx.finding("bmff.ftyp.brands", PASS, listOf(summary) + notes)
     }
 
     private fun moovCount(ctx: BmffContext): ConformanceFinding {
@@ -235,18 +242,24 @@ internal object IsoBmffStructureRules {
     private fun trakCount(ctx: BmffContext): ConformanceFinding {
         if (ctx.moovs.isEmpty()) return ctx.finding("bmff.trak.count", NOT_CHECKED, listOf("moov 없음"))
         val n = ctx.traks.size
-        return if (n >= 1) ctx.finding("bmff.trak.count", PASS, listOf("trak ${n}개"))
-        else ctx.finding("bmff.trak.count", FAIL, listOf("moov 안에 trak 없음"), ctx.moovs.map(ctx::range))
+        return when {
+            n >= 1 -> ctx.finding("bmff.trak.count", PASS, listOf("trak ${n}개"))
+            isReferenceMovie(ctx) -> ctx.finding("bmff.trak.count", NOT_APPLICABLE,
+                listOf("QuickTime 참조 무비(rmra): trak 없이 다른 무비를 참조함"))
+            else -> ctx.finding("bmff.trak.count", FAIL, listOf("moov 안에 trak 없음"), ctx.moovs.map(ctx::range))
+        }
     }
 
-    private fun mediaHeaders(ctx: BmffContext) = if (ctx.isQt) MEDIA_HEADERS_ISO + "gmhd" else MEDIA_HEADERS_ISO
+    /** QuickTime reference movie: moov holds `rmra` (reference movie atom) instead of tracks. */
+    private fun isReferenceMovie(ctx: BmffContext) = ctx.traks.isEmpty() && ctx.moovs.any { m -> m.children.any { it.type == "rmra" } }
 
     private fun trakRequired(ctx: BmffContext): ConformanceFinding {
         val traks = ctx.traks
+        if (isReferenceMovie(ctx)) return ctx.finding("bmff.trak.required", NOT_APPLICABLE, listOf("QuickTime 참조 무비(rmra): trak 없음"))
         if (traks.isEmpty()) return ctx.finding("bmff.trak.required", NOT_CHECKED, listOf("trak 없음"))
         val details = ArrayList<String>()
         val ranges = ArrayList<LongRange>()
-        val headers = mediaHeaders(ctx)
+        val headers = MEDIA_HEADERS
         traks.forEachIndexed { i, trak ->
             val label = "trak #${i + 1} @0x%X".format(trak.offset)
             fun need(parent: BmffBox, types: Set<String>, name: String, min: Int, max: Int): BmffBox? {
@@ -284,45 +297,71 @@ internal object IsoBmffStructureRules {
         return ctx.finding("bmff.trak.required", PASS, listOf("trak ${traks.size}개 모두 필수 박스를 갖춤"))
     }
 
-    private fun expectedHeaders(handler: String, qt: Boolean): Set<String> = when (handler) {
-        "vide", "auxv", "pict" -> setOf("vmhd")
-        "soun" -> setOf("smhd")
-        "hint" -> setOf("hmhd")
-        "subt" -> setOf("sthd")
-        else -> if (qt) setOf("nmhd", "gmhd") else setOf("nmhd")
+    /** Media header required for [handler]; null = any handler not listed (nmhd, or gmhd). */
+    private fun expectedHeader(handler: String): String? = when (handler) {
+        "vide", "auxv", "pict" -> "vmhd"
+        "soun" -> "smhd"
+        "hint" -> "hmhd"
+        "subt" -> "sthd"
+        else -> null
     }
 
     private fun mediaHeaderMatch(ctx: BmffContext): ConformanceFinding {
-        val headers = mediaHeaders(ctx)
-        val details = ArrayList<String>()
-        val ranges = ArrayList<LongRange>()
-        var checked = 0
+        if (isReferenceMovie(ctx)) return ctx.finding("bmff.mediaheader.match", NOT_APPLICABLE, listOf("QuickTime 참조 무비(rmra): trak 없음"))
+        val fails = ArrayList<String>()
+        val warns = ArrayList<String>()
+        val passes = ArrayList<String>()
+        val failRanges = ArrayList<LongRange>()
+        val warnRanges = ArrayList<LongRange>()
         ctx.traks.forEachIndexed { i, trak ->
             val mdia = trak.children.singleOrNull { it.type == "mdia" } ?: return@forEachIndexed
             val hdlr = mdia.children.singleOrNull { it.type == "hdlr" } ?: return@forEachIndexed
             val handler = ctx.hdlrHandler(hdlr) ?: return@forEachIndexed
             val minf = mdia.children.singleOrNull { it.type == "minf" } ?: return@forEachIndexed
-            val mh = minf.children.filter { it.type in headers }.singleOrNull() ?: return@forEachIndexed
-            checked++
-            val expected = expectedHeaders(handler, ctx.isQt)
-            if (mh.type !in expected) {
-                details += "trak #${i + 1} @0x%X: 핸들러 '%s'에는 %s가 필요하지만 %s".format(trak.offset, handler, expected.joinToString("/"), at(mh))
-                ranges += ctx.range(mh)
-            } else details += "trak #${i + 1}: '$handler' → ${mh.type}"
+            val mh = minf.children.filter { it.type in MEDIA_HEADERS }.singleOrNull() ?: return@forEachIndexed
+            val label = "trak #${i + 1} @0x%X".format(trak.offset)
+            val expected = expectedHeader(handler)
+            when {
+                expected != null && mh.type != expected -> {
+                    fails += "$label: 핸들러 '$handler'에는 ${expected}가 필요하지만 ${at(mh)}"; failRanges += ctx.range(mh)
+                }
+                expected == null && mh.type !in setOf("nmhd", "gmhd") -> {
+                    fails += "$label: 핸들러 '$handler'에는 nmhd${if (ctx.isQt) "/gmhd" else ""}가 필요하지만 ${at(mh)}"; failRanges += ctx.range(mh)
+                }
+                expected == null && mh.type == "gmhd" && !ctx.isQt -> {
+                    warns += "$label: 핸들러 '$handler' → ${at(mh)}: QuickTime 계열 gmhd (ISO/IEC 14496-12는 nmhd)"; warnRanges += ctx.range(mh)
+                }
+                else -> passes += "$label: '$handler' → ${mh.type}"
+            }
         }
-        if (checked == 0) return ctx.finding("bmff.mediaheader.match", NOT_CHECKED, listOf("핸들러와 미디어 헤더를 모두 갖춘 trak 없음"))
-        if (ranges.isNotEmpty()) return ctx.finding("bmff.mediaheader.match", FAIL, details.filter { it.contains("필요") }, ranges)
-        return ctx.finding("bmff.mediaheader.match", PASS, details)
+        return when {
+            fails.isNotEmpty() -> ctx.finding("bmff.mediaheader.match", FAIL, fails + warns, failRanges + warnRanges)
+            warns.isNotEmpty() -> ctx.finding("bmff.mediaheader.match", WARN, warns + passes, warnRanges)
+            passes.isNotEmpty() -> ctx.finding("bmff.mediaheader.match", PASS, passes)
+            else -> ctx.finding("bmff.mediaheader.match", NOT_CHECKED, listOf("핸들러와 미디어 헤더를 모두 갖춘 trak 없음"))
+        }
     }
 
     private fun boxParent(ctx: BmffContext): ConformanceFinding {
         if (ctx.allBoxes.isEmpty()) return noBoxes(ctx, "bmff.box.parent")
         val table = if (ctx.isQt) QT_PARENTS else ISO_PARENTS
+        val anywhere = if (ctx.isQt) QT_ANYWHERE else ANYWHERE
         val details = ArrayList<String>()
         val ranges = ArrayList<LongRange>()
+        val warns = ArrayList<String>()
+        val warnRanges = ArrayList<LongRange>()
         val unknown = LinkedHashSet<String>()
+        // ISO profile: one QuickTime-style data handler hdlr per minf is a tolerated deviation (WARN); more FAIL.
+        val qtDataHandlers = HashSet<Long>()
+        if (!ctx.isQt) for (minf in ctx.allBoxes.filter { it.type == "minf" }) {
+            minf.children.filter { it.type == "hdlr" && it.problem == null }.forEachIndexed { i, h ->
+                qtDataHandlers += h.offset
+                if (i == 0) { warns += "${at(h)}: minf 안의 QuickTime 계열 data handler hdlr (ISO/IEC 14496-12에는 없음)"; warnRanges += ctx.range(h) }
+                else { details += "${at(h)}: minf 안의 hdlr ${i + 1}번째 (data handler는 최대 1개)"; ranges += ctx.range(h) }
+            }
+        }
         for (b in ctx.allBoxes) {
-            if (b.problem != null || b.type in ANYWHERE) continue
+            if (b.problem != null || b.type in anywhere || b.offset in qtDataHandlers && b.type == "hdlr") continue
             val allowed = table[b.type]
             if (allowed == null) { unknown += b.type; continue }
             val parent = b.parent ?: TOP
@@ -335,7 +374,8 @@ internal object IsoBmffStructureRules {
         }
         val unknownLine = if (unknown.isEmpty()) null else "알 수 없는 박스(무시 허용): " +
             unknown.take(MAX_UNKNOWN_LISTED).joinToString(", ") + if (unknown.size > MAX_UNKNOWN_LISTED) " 외 ${unknown.size - MAX_UNKNOWN_LISTED}종" else ""
-        if (details.isNotEmpty()) return ctx.finding("bmff.box.parent", FAIL, details + listOfNotNull(unknownLine), ranges)
+        if (details.isNotEmpty()) return ctx.finding("bmff.box.parent", FAIL, details + warns + listOfNotNull(unknownLine), ranges + warnRanges)
+        if (warns.isNotEmpty()) return ctx.finding("bmff.box.parent", WARN, warns + listOfNotNull(unknownLine), warnRanges)
         return ctx.finding("bmff.box.parent", PASS, listOf("알려진 박스가 모두 허용된 상위 박스 안에 있음") + listOfNotNull(unknownLine))
     }
 }
