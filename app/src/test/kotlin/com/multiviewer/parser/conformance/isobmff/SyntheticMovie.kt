@@ -34,6 +34,7 @@ internal data class MovieSpec(
     val extraMoov: List<ByteArray> = emptyList(),
     val trailing: ByteArray = ByteArray(0),
     val dropBox: String? = null,                   // remove the first box of this type
+    val qtDataHandler: Boolean = false,            // QuickTime: extra data-handler hdlr (dhlr/url ) inside minf
 )
 
 internal fun buildMovie(s: MovieSpec = MovieSpec()): ByteArray {
@@ -66,7 +67,8 @@ internal fun buildMovie(s: MovieSpec = MovieSpec()): ByteArray {
     val stbl = box("stbl", drop("stsd", stsd), drop("stts", stts), ctts, drop("stss", stss), drop("stsc", stsc), drop("stsz", stsz),
         drop("stco", stco), if (s.vmhdInStbl) mediaHeader else ByteArray(0))
     val dinf = box("dinf", fullBox("dref", 0, 0, be32(1), s.drefEntry))
-    val minf = box("minf", if (s.vmhdInStbl) ByteArray(0) else mediaHeader, drop("dinf", dinf), drop("stbl", stbl))
+    val dataHandler = if (s.qtDataHandler) fullBox("hdlr", 0, 0, "dhlr".toByteArray(), "url ".toByteArray(), ByteArray(12), byteArrayOf(0)) else ByteArray(0)
+    val minf = box("minf", if (s.vmhdInStbl) ByteArray(0) else mediaHeader, dataHandler, drop("dinf", dinf), drop("stbl", stbl))
     val mdia = box("mdia", drop("mdhd", mdhd), drop("hdlr", hdlr), drop("minf", minf))
     val edts = s.elst?.let { list ->
         box("edts", fullBox("elst", 0, 0, be32(list.size.toLong()),
