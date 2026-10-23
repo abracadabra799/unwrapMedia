@@ -310,4 +310,24 @@ class ContentCheckPlanTest {
         assertTrue(audio.limitations.any { it.startsWith("파서 근거 / Parser evidence [WARN]: stsz truncated") }, audio.limitations.toString())
         assertEquals(1, audio.limitations.count { it.startsWith("파서 근거") })
     }
+
+    private fun bmffFixture(name: String, asName: String): File {
+        val src = File(javaClass.getResource("/isobmff-conformance/$name")!!.toURI())
+        val dir = kotlin.io.path.createTempDirectory("isobmff-gate-").toFile().also { it.deleteOnExit() }
+        return src.copyTo(File(dir, asName)).also { it.deleteOnExit() }
+    }
+
+    @Test
+    fun isoBmffGateAdmitsQuickTimeMovAndM4a() {
+        listOf("v.mov", "clip.bin").forEach { asName ->
+            val mov = isoBmffConformanceFor(bmffFixture("v.mov", asName))
+            assertEquals("QuickTime", mov?.format, asName)
+            assertEquals(emptyList(), mov!!.findings.filter { it.status == ConformanceStatus.FAIL }, asName)
+        }
+        listOf("a.m4a", "song.bin").forEach { asName ->
+            val m4a = isoBmffConformanceFor(bmffFixture("a.m4a", asName))
+            assertEquals("ISO-BMFF", m4a?.format, asName)
+            assertEquals(emptyList(), m4a!!.findings.filter { it.status == ConformanceStatus.FAIL }, asName)
+        }
+    }
 }
