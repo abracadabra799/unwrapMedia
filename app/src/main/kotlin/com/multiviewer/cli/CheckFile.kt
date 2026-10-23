@@ -1,6 +1,8 @@
 package com.multiviewer.cli
 
 import com.multiviewer.ui.MediaType
+import com.multiviewer.ui.isoBmffConformanceFor
+import com.multiviewer.parser.conformance.ConformanceReport
 import com.multiviewer.parser.contentMediaType
 import com.multiviewer.parser.WarningEntry
 import com.multiviewer.parser.collectWarnings
@@ -64,7 +66,9 @@ fun checkFile(file: File, includeCase: Boolean = false, decode: Boolean = false,
         } else {
             null
         }
-        val json = buildCheckJson(result.file, warnings, integrity, imageIntegrity, audio)
+        val containerConformance = isoBmffConformanceFor(result.file)
+        val json = buildCheckJson(result.file, warnings, integrity, imageIntegrity, audio,
+            containerConformance = containerConformance)
         val prompt = AiDiagnosticPromptBuilder.buildPrompt(result.file, result.root, warnings)
         val caseJson = if (includeCase) {
             buildAnalysisCaseJson(
@@ -173,6 +177,7 @@ fun buildCheckJson(
     imageIntegrity: JsonValue? = null,
     audioIntegrity: AudioIntegrityReport? = null,
     workflow: JsonValue? = null,
+    containerConformance: ConformanceReport? = null,
 ): String {
     val wrapper = JsonValue.JObject(
         listOf(
@@ -182,10 +187,43 @@ fun buildCheckJson(
         ) + (if (integrityReport != null) listOf("videoIntegrity" to integrityReport.toJsonValue()) else emptyList()) +
             (if (imageIntegrity != null) listOf("imageIntegrity" to imageIntegrity) else emptyList()) +
             (if (audioIntegrity != null) listOf("audioIntegrity" to audioIntegrity.toJsonValue()) else emptyList()) +
+            (if (containerConformance != null) listOf("containerConformance" to containerConformanceJson(containerConformance, file))
+            else emptyList()) +
             (if (workflow != null) listOf("workflow" to workflow) else emptyList()),
     )
     return wrapper.render()
 }
+
+/** ISO-BMFF / QuickTime container conformance (MP4/MOV/M4A only); status never reads PASS on an inspection error. */
+fun containerConformanceJson(report: ConformanceReport, file: File): JsonValue = JsonValue.JObject(
+    listOf(
+        "status" to JsonValue.JString(report.overall.name),
+        "format" to JsonValue.JString(report.format),
+        "profile" to JsonValue.JString(report.profile),
+    ) + (report.inspectionError?.let { listOf("inspectionError" to JsonValue.JString(scrubPaths(it, file).take(1_000))) }
+        ?: emptyList()) + listOf(
+        "limitations" to JsonValue.JArray(report.limitations.map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
+        "findings" to JsonValue.JArray(report.findings.map { finding ->
+            JsonValue.JObject(
+                listOf(
+                    "ruleId" to JsonValue.JString(finding.rule.id),
+                    "status" to JsonValue.JString(finding.status.name),
+                    "title" to JsonValue.JString(finding.rule.title),
+                    "scope" to JsonValue.JString(finding.rule.scope),
+                    "source" to JsonValue.JString(finding.rule.source),
+                    "reference" to (finding.rule.reference?.let { JsonValue.JString(it) } ?: JsonValue.JNull),
+                    "details" to JsonValue.JArray(finding.details.take(30).map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
+                    "ranges" to JsonValue.JArray(finding.ranges.take(30).map { range ->
+                        JsonValue.JObject(listOf(
+                            "start" to JsonValue.JNumber(range.first),
+                            "endInclusive" to JsonValue.JNumber(range.last),
+                        ))
+                    }),
+                ),
+            )
+        }),
+    ),
+)
 
 private fun WarningEntry.toJsonValue(): JsonValue = JsonValue.JObject(
     listOf(

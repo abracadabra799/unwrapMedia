@@ -1,6 +1,10 @@
 package com.multiviewer.ui
 
 import com.multiviewer.parser.BoxNode
+import com.multiviewer.parser.ByteReader
+import com.multiviewer.parser.ContainerFormat
+import com.multiviewer.parser.conformance.isobmff.IsoBmffConformanceChecker
+import java.util.concurrent.CancellationException
 import com.multiviewer.parser.conformance.ConformanceReport
 import com.multiviewer.parser.conformance.analyzeConformance
 import com.multiviewer.parser.integrity.AudioStructureChecker
@@ -65,14 +69,18 @@ fun extensionMismatchItem(file: File): IntegrityCheckItem? {
     )
 }
 
-/** Uses existing observations only; no file reads and no normative video profile is inferred. */
+/**
+ * Uses existing observations only; no file reads. [isoBmff] (computed off the UI thread by [isoBmffConformanceFor])
+ * replaces the parser-warning-only report for MP4/MOV/M4A containers.
+ */
 fun contentConformanceReport(
     type: MediaType,
     structure: ImageStructureReport? = null,
     audioStructure: AudioStructureReport? = null,
     inspectionError: String? = null,
+    isoBmff: ConformanceReport? = null,
 ): ConformanceReport {
-    val report = when (type) {
+    val report = if (isoBmff != null) isoBmff else when (type) {
         MediaType.IMAGE -> analyzeConformance(structure?.format ?: type.name, structure?.items.orEmpty(), inspectionError)
         MediaType.AUDIO -> analyzeConformance(
             audioStructure?.format ?: type.name,
@@ -83,4 +91,26 @@ fun contentConformanceReport(
     }
     return report.copy(limitations = report.limitations +
         "Samsung 내부 Motion Photo·SEF·Gallery 규칙은 미검증입니다 / Samsung internal Motion Photo, SEF and Gallery rules are not checked")
+}
+
+private val ISO_BMFF_CONTAINERS = setOf(ContainerFormat.MP4, ContainerFormat.MOV, ContainerFormat.M4A)
+
+/**
+ * ISO-BMFF / QuickTime container conformance for files whose content is MP4, MOV or M4A; null otherwise.
+ * Blocking file I/O: never call on the UI thread.
+ */
+fun isoBmffConformanceFor(file: File): ConformanceReport? {
+    if (confidentFormat(file) !in ISO_BMFF_CONTAINERS) return null
+    return try {
+        ByteReader.open(file).use { IsoBmffConformanceChecker.check(it) }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        val message = "검사 중 오류: ${e.javaClass.simpleName}: ${e.message ?: ""}".trim()
+        ConformanceReport("ISO-BMFF", "ISO/IEC 14496-12 phase 1", emptyList(), inspectionError = message,
+            limitations = listOf(
+                "코덱 비트스트림 구문 전체는 검사하지 않습니다 / Codec bitstream syntax is not fully checked",
+                "검사 오류 / Inspection error: $message",
+            ))
+    }
 }

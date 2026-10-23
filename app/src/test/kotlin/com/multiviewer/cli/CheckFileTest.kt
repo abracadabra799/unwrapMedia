@@ -163,4 +163,39 @@ class CheckFileTest {
         val success = com.multiviewer.util.ClipboardUtil.copyToClipboard("unwrapMedia test clipboard string")
         assertTrue(success)
     }
+
+    private fun movie(name: String, spec: com.multiviewer.parser.conformance.isobmff.MovieSpec =
+        com.multiviewer.parser.conformance.isobmff.MovieSpec()): File {
+        val dir = kotlin.io.path.createTempDirectory("check-iso-").toFile().also { it.deleteOnExit() }
+        return File(dir, name).also { it.deleteOnExit(); it.writeBytes(com.multiviewer.parser.conformance.isobmff.buildMovie(spec)) }
+    }
+
+    private fun checkJson(file: File): String =
+        (checkFile(file) as? CheckResult.Success ?: error("check failed: ${checkFile(file)}")).json
+
+    @Test
+    fun `checkFile adds containerConformance for an MP4`() {
+        val json = checkJson(movie("x.mp4"))
+        assertTrue(json.contains("\"containerConformance\": {"), json)
+        assertTrue(Regex("\"ruleId\": \"bmff.moov.count\",\\s*\"status\": \"PASS\"").containsMatchIn(json), json)
+        assertTrue(json.contains("\"format\": \"ISO-BMFF\""), json)
+        assertTrue(json.contains("\"scope\": \"필수 박스 / Required boxes\""), json)
+    }
+
+    @Test
+    fun `checkFile reports a moov-less MP4 as FAIL`() {
+        val json = checkJson(movie("nomoov.mp4", com.multiviewer.parser.conformance.isobmff.MovieSpec(dropBox = "moov")))
+        val section = json.substringAfter("\"containerConformance\": {")
+        assertTrue(section.trimStart().startsWith("\"status\": \"FAIL\""), section)
+        assertTrue(Regex("\"ruleId\": \"bmff.moov.count\",\\s*\"status\": \"FAIL\"").containsMatchIn(json), json)
+    }
+
+    @Test
+    fun `checkFile omits containerConformance for non-ISO-BMFF files`() {
+        val file = File.createTempFile("check-iso-", ".jpg").also {
+            it.deleteOnExit(); it.writeBytes(com.multiviewer.parser.integrity.jpegBytes())
+        }
+        val json = checkJson(file)
+        assertTrue(!json.contains("containerConformance"), json)
+    }
 }

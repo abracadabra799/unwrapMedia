@@ -70,7 +70,10 @@ fun contentFindingLocationLabel(finding: ContentFinding, ko: Boolean): String {
     val offset = finding.offset
     if (offset != null) {
         val range = finding.length?.takeIf { it > 0 }?.let { " (+$it B)" }.orEmpty()
-        return "0x${offset.toString(16).uppercase()}$range"
+        val bytes = "0x${offset.toString(16).uppercase()}$range"
+        // Conformance rows are status-sorted, so keep their rule group (e.g. "Sample tables") visible next to the bytes.
+        val group = if (finding.stage == FindingStage.CONFORMANCE) finding.location?.trim()?.let { cleanLocationLabel(it, ko) } else null
+        return if (group.isNullOrEmpty()) bytes else "$group · $bytes"
     }
     val loc = finding.location?.trim()
     if (!loc.isNullOrEmpty()) {

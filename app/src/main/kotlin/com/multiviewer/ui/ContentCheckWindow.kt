@@ -90,6 +90,8 @@ fun ContentCheckWindow(
     var structure by remember(tab) { mutableStateOf<ImageStructureReport?>(null) }
     var audioStructure by remember(tab) { mutableStateOf<AudioStructureReport?>(null) }
     var conformance by remember(tab) { mutableStateOf<ConformanceReport?>(null) }
+    // ISO-BMFF container report, computed with [structure] off the UI thread and reused by later stages.
+    var isoBmffReport by remember(tab) { mutableStateOf<ConformanceReport?>(null) }
     var codecBitstreams by remember(tab) { mutableStateOf<List<CodecBitstreamReport>>(emptyList()) }
     var codecPlan by remember(tab) { mutableStateOf<List<BitstreamCodec>>(emptyList()) }
     var fileLength by remember(tab) { mutableStateOf(0L) }
@@ -180,6 +182,7 @@ fun ContentCheckWindow(
         checkedIdentity = null
         structure = null
         audioStructure = null
+        isoBmffReport = null
         imageDecode = null
         imageDecodeError = null
         motion = null
@@ -214,19 +217,21 @@ fun ContentCheckWindow(
     // The tree is ordinary viewer state; Content Check does not inspect it until Run is pressed.
     suspend fun runStructure(root: com.multiviewer.parser.BoxNode, captured: ContentFileIdentity) {
         if (tab.parsedIdentity != null && tab.parsedIdentity != captured) throw ContentFileChangedException()
-        val result = runInterruptible(Dispatchers.IO) {
-            if (type == MediaType.AUDIO) {
-                val checked = contentAudioStructureReport(tab.file, root)
-                null to checked
+        val (result, iso) = runInterruptible(Dispatchers.IO) {
+            val checked = if (type == MediaType.AUDIO) {
+                null to contentAudioStructureReport(tab.file, root)
             } else {
-                val checked = contentStructureReport(tab.file, root, type)
-                checked to null
+                contentStructureReport(tab.file, root, type) to null
             }
+            // Blocking file I/O stays here: never on the UI thread (Windows file locks).
+            val iso = if (type == MediaType.VIDEO || type == MediaType.AUDIO) isoBmffConformanceFor(tab.file) else null
+            checked to iso
         }
         if (!withContext(Dispatchers.IO) { captured.matches(tab.file) }) throw ContentFileChangedException()
         structure = result.first
         audioStructure = result.second
-        conformance = contentConformanceReport(type, structure = result.first, audioStructure = result.second)
+        isoBmffReport = iso
+        conformance = contentConformanceReport(type, structure = result.first, audioStructure = result.second, isoBmff = iso)
         checkedIdentity = captured
         fileLength = captured.length
     }
@@ -254,7 +259,8 @@ fun ContentCheckWindow(
                             if (structure == null && audioStructure == null) {
                                 runStructure(root, identity)
                             } else {
-                                conformance = contentConformanceReport(type, structure = structure, audioStructure = audioStructure)
+                                conformance = contentConformanceReport(type, structure = structure, audioStructure = audioStructure,
+                                    isoBmff = isoBmffReport)
                             }
                         }
                         CheckStage.STRUCTURE -> runStructure(root, identity)
@@ -539,6 +545,7 @@ fun ContentCheckWindow(
                                 val videoSnapshot = video
                                 val audioSnapshot = audio
                                 val workflowSnapshot = exportSnapshot()
+                                val isoSnapshot = isoBmffReport
                                 scope.launch {
                                     val copiedText = label("복사됨", "Copied")
                                     message = try {
@@ -549,6 +556,7 @@ fun ContentCheckWindow(
                                                 imageJson(structureSnapshot, decodeSnapshot, motionSnapshot, motionErrorSnapshot),
                                                 audioSnapshot,
                                                 workflow = contentCheckWorkflowJson(workflowSnapshot, tab.file),
+                                                containerConformance = isoSnapshot,
                                             )
                                         }
                                         if (ClipboardUtil.copyToClipboard(json)) copiedText else label("복사 실패", "Copy failed")

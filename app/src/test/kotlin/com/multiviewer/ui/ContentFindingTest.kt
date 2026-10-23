@@ -100,6 +100,16 @@ class ContentFindingTest {
         assertEquals("-", contentFindingLocationLabel(boilerplate, ko = true))
     }
 
+    @Test
+    fun conformanceRowsWithOffsetsKeepTheirRuleGroup() {
+        val grouped = finding("bmff.stsz.count", CheckStatus.FAIL, offset = 0x20L).copy(
+            length = 16L, stage = FindingStage.CONFORMANCE,
+            location = cleanConformanceLocation("샘플 테이블 / Sample tables", "stsz / stsz"),
+        )
+        assertEquals("샘플 테이블 · 0x20 (+16 B)", contentFindingLocationLabel(grouped, ko = true))
+        assertEquals("Sample tables · 0x20 (+16 B)", contentFindingLocationLabel(grouped, ko = false))
+    }
+
 
     private fun finding(id: String, status: CheckStatus, offset: Long? = null) = ContentFinding(
         id = id,

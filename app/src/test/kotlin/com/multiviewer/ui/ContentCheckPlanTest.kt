@@ -256,4 +256,45 @@ class ContentCheckPlanTest {
         assertNull(extensionMismatchItem(file))
         assertNull(extensionMismatchItem(File.createTempFile("ccp-unrecognized", ".mp4").apply { deleteOnExit(); writeBytes(ByteArray(4)) }))
     }
+
+    private fun movieFile(name: String, spec: com.multiviewer.parser.conformance.isobmff.MovieSpec =
+        com.multiviewer.parser.conformance.isobmff.MovieSpec()): File {
+        val dir = kotlin.io.path.createTempDirectory("isobmff-ccp-").toFile().also { it.deleteOnExit() }
+        return File(dir, name).also { it.deleteOnExit(); it.writeBytes(com.multiviewer.parser.conformance.isobmff.buildMovie(spec)) }
+    }
+
+    @Test
+    fun isoBmffReportReplacesTheParserOnlyVideoReport() {
+        val report = isoBmffConformanceFor(movieFile("x.mp4"))!!
+        val conformance = contentConformanceReport(MediaType.VIDEO, isoBmff = report)
+        assertEquals("ISO-BMFF", conformance.format)
+        assertEquals(report.findings, conformance.findings)
+        assertTrue(conformance.findings.any { it.rule.id == "bmff.moov.count" && it.status == ConformanceStatus.PASS })
+        assertTrue(conformance.limitations.any { it.contains("Samsung") })
+        assertTrue(conformance.limitations.containsAll(report.limitations))
+    }
+
+    @Test
+    fun isoBmffConformanceIsOnlyComputedForMp4MovAndM4a() {
+        val jpeg = File.createTempFile("ccp-iso-", ".jpg").also { it.deleteOnExit(); it.writeBytes(jpegBytes()) }
+        assertNull(isoBmffConformanceFor(jpeg))
+        val mp4 = isoBmffConformanceFor(movieFile("x.mp4"))
+        assertEquals("ISO-BMFF", mp4?.format)
+        // Content decides, not the extension.
+        assertEquals("ISO-BMFF", isoBmffConformanceFor(movieFile("x.bin"))?.format)
+        assertNull(isoBmffConformanceFor(File("/definitely/missing/file.mp4")))
+    }
+
+    @Test
+    fun isoBmffFailFindingIsNormativeAndListedInThePrompt() {
+        val file = movieFile("nomoov.mp4", com.multiviewer.parser.conformance.isobmff.MovieSpec(dropBox = "moov"))
+        val report = contentConformanceReport(MediaType.VIDEO, isoBmff = isoBmffConformanceFor(file))
+        val fail = report.findings.first { it.rule.id == "bmff.moov.count" }
+        assertEquals(ConformanceStatus.FAIL, fail.status)
+        val snapshot = ContentCheckSnapshot(null, null, false, null, null, null, MediaType.VIDEO, conformance = report)
+        assertEquals(ConformanceStatus.FAIL, effectiveConformanceStatus(snapshot))
+        val prompt = contentCheckPromptSection(snapshot, file)
+        assertTrue(prompt.contains("[FAIL] bmff.moov.count — ${fail.rule.title}"), prompt)
+        assertTrue(prompt.contains("공개 자료 기반, 원문 미대조"), prompt)
+    }
 }
