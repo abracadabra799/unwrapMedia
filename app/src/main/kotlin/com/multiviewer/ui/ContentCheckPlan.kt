@@ -80,7 +80,7 @@ fun contentConformanceReport(
     inspectionError: String? = null,
     isoBmff: ConformanceReport? = null,
 ): ConformanceReport {
-    val report = if (isoBmff != null) isoBmff else when (type) {
+    val legacy = when (type) {
         MediaType.IMAGE -> analyzeConformance(structure?.format ?: type.name, structure?.items.orEmpty(), inspectionError)
         MediaType.AUDIO -> analyzeConformance(
             audioStructure?.format ?: type.name,
@@ -89,9 +89,15 @@ fun contentConformanceReport(
         )
         else -> analyzeConformance(type.name, structure?.items.orEmpty().filter { it.id.startsWith("parser.") }, inspectionError)
     }
+    // The ISO-BMFF report replaces the findings but keeps the parser-warning evidence lines of the old report.
+    val report = if (isoBmff != null) {
+        isoBmff.copy(limitations = isoBmff.limitations + legacy.limitations.filter { it.startsWith(PARSER_EVIDENCE_PREFIX) })
+    } else legacy
     return report.copy(limitations = report.limitations +
         "Samsung 내부 Motion Photo·SEF·Gallery 규칙은 미검증입니다 / Samsung internal Motion Photo, SEF and Gallery rules are not checked")
 }
+
+private const val PARSER_EVIDENCE_PREFIX = "파서 근거 / Parser evidence"
 
 private val ISO_BMFF_CONTAINERS = setOf(ContainerFormat.MP4, ContainerFormat.MOV, ContainerFormat.M4A)
 

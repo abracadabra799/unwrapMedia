@@ -297,4 +297,17 @@ class ContentCheckPlanTest {
         assertTrue(prompt.contains("[FAIL] bmff.moov.count — ${fail.rule.title}"), prompt)
         assertTrue(prompt.contains("공개 자료 기반, 원문 미대조"), prompt)
     }
+    @Test
+    fun isoBmffReportKeepsParserEvidenceLinesFromTheOldReport() {
+        val iso = isoBmffConformanceFor(movieFile("x.mp4"))!!
+        val parserItem = IntegrityCheckItem("parser.warning", "Parser warning", CheckStatus.WARN, "stsz truncated", offset = 16, length = 4)
+        val video = contentConformanceReport(MediaType.VIDEO,
+            structure = ImageStructureReport("MP4", listOf(parserItem)), isoBmff = iso)
+        assertEquals(iso.findings, video.findings)
+        assertTrue(video.limitations.contains("파서 근거 / Parser evidence [WARN]: stsz truncated (바이트 / bytes 16–19)"), video.limitations.toString())
+        val audio = contentConformanceReport(MediaType.AUDIO,
+            audioStructure = com.multiviewer.parser.integrity.AudioStructureReport("M4A", emptyList(), listOf(parserItem)), isoBmff = iso)
+        assertTrue(audio.limitations.any { it.startsWith("파서 근거 / Parser evidence [WARN]: stsz truncated") }, audio.limitations.toString())
+        assertEquals(1, audio.limitations.count { it.startsWith("파서 근거") })
+    }
 }
