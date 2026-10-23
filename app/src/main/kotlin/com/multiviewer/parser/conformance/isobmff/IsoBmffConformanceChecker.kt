@@ -46,6 +46,7 @@ internal typealias BmffRuleGroup = (BmffContext) -> List<ConformanceFinding>
 object IsoBmffConformanceChecker {
     private val ruleGroups: List<BmffRuleGroup> = listOf(
         IsoBmffStructureRules::evaluate,
+        IsoBmffFieldRules::evaluate,
     )
 
     fun check(reader: ByteReader): ConformanceReport {

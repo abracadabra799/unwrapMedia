@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Regenerates ffmpeg-default isom MP4 / M4A files with a chapter track (minf holds gmhd, not nmhd).
-# Used by IsoBmffStructureRulesTest: expected no FAIL, bmff.mediaheader.match WARN only (ISO profile + gmhd).
+# Used by IsoBmffStructureRulesTest: expected no FAIL; WARN only for bmff.mediaheader.match (ISO profile + gmhd) and
+# bmff.mdhd.language (ffmpeg writes language 0 on the text chapter track).
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 out="$here/../../../app/src/test/resources/isobmff-conformance"

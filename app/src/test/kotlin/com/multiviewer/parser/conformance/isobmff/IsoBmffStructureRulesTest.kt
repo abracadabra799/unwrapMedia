@@ -306,13 +306,14 @@ class IsoBmffStructureRulesTest {
     private fun fixture(name: String) = File(javaClass.getResource("/isobmff-conformance/$name")!!.toURI())
 
     @Test
-    fun `ffmpeg default MP4 and M4A with a chapter track only warn on gmhd`() {
+    fun `ffmpeg default MP4 and M4A with a chapter track only warn on gmhd and chapter language`() {
         listOf("chapters.mp4", "chapters.m4a").forEach { name ->
             val r = ByteReader.open(fixture(name)).use { IsoBmffConformanceChecker.check(it) }
             assertEquals("ISO-BMFF", r.format, name)
             assertNull(r.inspectionError, name)
             assertTrue(r.findings.none { it.status == FAIL }, "$name: ${r.findings.filter { it.status == FAIL }.map { it.rule.id to it.details }}")
-            assertEquals(listOf("bmff.mediaheader.match"), r.findings.filter { it.status == WARN }.map { it.rule.id }, name)
+            // gmhd chapter track (structure) + ffmpeg's language 0 on that text track (header fields).
+            assertEquals(listOf("bmff.mediaheader.match", "bmff.mdhd.language"), r.findings.filter { it.status == WARN }.map { it.rule.id }, name)
             structureIds.filter { it != "bmff.mediaheader.match" }.forEach { id -> assertEquals(PASS, r.status(id), "$name $id") }
         }
     }
