@@ -47,6 +47,7 @@ object IsoBmffConformanceChecker {
     private val ruleGroups: List<BmffRuleGroup> = listOf(
         IsoBmffStructureRules::evaluate,
         IsoBmffFieldRules::evaluate,
+        IsoBmffSampleRules::evaluate,
     )
 
     fun check(reader: ByteReader): ConformanceReport {

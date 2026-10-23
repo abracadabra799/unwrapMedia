@@ -44,6 +44,7 @@ internal data class MovieSpec(
     val drefEntries: List<ByteArray>? = null,      // overrides the single [drefEntry]
     val qtDataHandlerType: String = "dhlr",        // component type of the QuickTime minf data-handler hdlr
     val replaceBox: Map<String, ByteArray> = emptyMap(), // replace the first box of this type with these bytes
+    val tkhdDurationDelta: Long = 0,               // added to the tkhd duration (movie timescale ticks)
 )
 
 internal fun buildMovie(s: MovieSpec = MovieSpec()): ByteArray {
@@ -60,9 +61,10 @@ internal fun buildMovie(s: MovieSpec = MovieSpec()): ByteArray {
         be32(0x00010000), be16(0x0100), ByteArray(10), ByteArray(36), ByteArray(24), be32(s.nextTrackId))
     else fullBox("mvhd", s.mvhdVersion, 0, ByteArray(16), be32(s.movieTimescale), be32(0) + be32(movieDuration),
         be32(0x00010000), be16(0x0100), ByteArray(10), ByteArray(36), ByteArray(24), be32(s.nextTrackId))
-    fun tkhd(trackId: Long) = if (s.tkhdVersion == 0) fullBox("tkhd", 0, 3, be32(0), be32(0), be32(trackId), be32(0), be32(movieDuration), ByteArray(8),
+    val tkhdDuration = movieDuration + s.tkhdDurationDelta
+    fun tkhd(trackId: Long) = if (s.tkhdVersion == 0) fullBox("tkhd", 0, 3, be32(0), be32(0), be32(trackId), be32(0), be32(tkhdDuration), ByteArray(8),
         be16(0), be16(0), be16(0), be16(0), ByteArray(36), be32(64L shl 16), be32(48L shl 16))
-    else fullBox("tkhd", s.tkhdVersion, 3, ByteArray(16), be32(trackId), be32(0), be32(0) + be32(movieDuration), ByteArray(8),
+    else fullBox("tkhd", s.tkhdVersion, 3, ByteArray(16), be32(trackId), be32(0), be32(0) + be32(tkhdDuration), ByteArray(8),
         be16(0), be16(0), be16(0), be16(0), ByteArray(36), be32(64L shl 16), be32(48L shl 16))
     val mdhd = if (s.mdhdVersion == 0) fullBox("mdhd", 0, 0, be32(0), be32(0), be32(s.mediaTimescale), be32(mediaDuration), be16(s.language), be16(0))
     else fullBox("mdhd", s.mdhdVersion, 0, ByteArray(16), be32(s.mediaTimescale), be32(0) + be32(mediaDuration), be16(s.language), be16(0))
