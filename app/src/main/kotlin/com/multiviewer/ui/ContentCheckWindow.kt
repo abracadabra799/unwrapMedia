@@ -587,6 +587,7 @@ fun ContentCheckWindow(
                                 val videoSnapshot = video
                                 val audioSnapshot = audio
                                 val workflowSnapshot = exportSnapshot()
+                                val isoSnapshot = isoBmffReport
                                 saving = true
                                 scope.launch {
                                     try {
@@ -598,6 +599,7 @@ fun ContentCheckWindow(
                                                 imageIntegrity = imageJson(structureSnapshot, decodeSnapshot, motionSnapshot, motionErrorSnapshot),
                                                 audioIntegrity = audioSnapshot,
                                                 workflow = contentCheckWorkflowJson(workflowSnapshot, tab.file),
+                                                containerConformance = isoSnapshot,
                                             )
                                             // CREATE_NEW: never overwrite an existing file.
                                             Files.writeString(output.toPath(), caseJson, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)

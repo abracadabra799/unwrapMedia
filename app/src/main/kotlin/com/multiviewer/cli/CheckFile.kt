@@ -74,6 +74,7 @@ fun checkFile(file: File, includeCase: Boolean = false, decode: Boolean = false,
             buildAnalysisCaseJson(
                 result.file, warnings, summary,
                 integrityReport = integrity, imageIntegrity = imageIntegrity, audioIntegrity = audio,
+                containerConformance = containerConformance,
             )
         } else {
             null
@@ -94,6 +95,7 @@ fun buildAnalysisCaseJson(
     imageIntegrity: JsonValue? = null,
     audioIntegrity: AudioIntegrityReport? = null,
     workflow: JsonValue? = null,
+    containerConformance: ConformanceReport? = null,
 ): String {
     val digest = MessageDigest.getInstance("SHA-256")
     file.inputStream().buffered().use { input ->
@@ -133,6 +135,8 @@ fun buildAnalysisCaseJson(
                         "packetStatus" to JsonValue.JString("NOT_RUN"),
                     ))),
                 ) + (if (imageIntegrity != null) listOf("imageIntegrity" to imageIntegrity) else emptyList()) +
+                    (if (containerConformance != null) listOf("containerConformance" to containerConformanceJson(containerConformance, file))
+                    else emptyList()) +
                     (if (workflow != null) listOf("workflow" to workflow) else emptyList()) + listOf(
                     "summary" to JsonValue.JArray(summary.sections.filterNot { section ->
                         section.title.equals("GPS Location", ignoreCase = true)

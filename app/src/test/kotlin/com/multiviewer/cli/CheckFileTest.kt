@@ -198,4 +198,29 @@ class CheckFileTest {
         val json = checkJson(file)
         assertTrue(!json.contains("containerConformance"), json)
     }
+    @Test
+    fun `analysis case includes containerConformance with the check JSON shape`() {
+        val file = movie("nomoov.mp4", com.multiviewer.parser.conformance.isobmff.MovieSpec(dropBox = "moov"))
+        val result = checkFile(file, includeCase = true) as CheckResult.Success
+        val case = result.analysisCaseJson!!
+        val caseSection = case.substringAfter("\"containerConformance\": {")
+        assertTrue(case.contains("\"containerConformance\": {"), case)
+        assertTrue(caseSection.trimStart().startsWith("\"status\": \"FAIL\""), caseSection)
+        assertTrue(Regex("\"ruleId\": \"bmff.moov.count\",\\s*\"status\": \"FAIL\"").containsMatchIn(case), case)
+        // Same shape as `check`: identical key sequence inside the section.
+        val keys = Regex("\"([A-Za-z]+)\":")
+        fun keySeq(s: String) = keys.findAll(s.substringAfter("\"containerConformance\": {").substringBefore("\"ruleId\": \"bmff.fragmented\"")).map { it.groupValues[1] }.toList()
+        assertEquals(keySeq(result.json), keySeq(case))
+        assertTrue(keySeq(case).size > 100)
+        assertTrue(!case.contains(file.parentFile.absolutePath), case)
+    }
+
+    @Test
+    fun `analysis case omits containerConformance for non-ISO-BMFF files`() {
+        val file = File.createTempFile("check-iso-", ".jpg").also {
+            it.deleteOnExit(); it.writeBytes(com.multiviewer.parser.integrity.jpegBytes())
+        }
+        val result = checkFile(file, includeCase = true) as CheckResult.Success
+        assertTrue(!result.analysisCaseJson!!.contains("containerConformance"))
+    }
 }
