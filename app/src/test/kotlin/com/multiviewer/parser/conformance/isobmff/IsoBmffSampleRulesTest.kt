@@ -72,8 +72,74 @@ class IsoBmffSampleRulesTest {
     }
 
     @Test
-    fun `ctts version 0 negative offset fails in ISO only`() {
-        assertEquals(FAIL, check(MovieSpec(ctts = listOf(3L to 0xFFFFFF9CL))).status("bmff.ctts.count"))
+    fun `ctts version 0 offset with bit 31 set warns in ISO only`() {
+        val f = check(MovieSpec(ctts = listOf(3L to 0xFFFFFF9CL))).finding("bmff.ctts.count")
+        assertEquals(WARN, f.status, f.details.toString())
+        assertTrue(f.details.any { it.contains("v0 offset ≥ 2^31: 부호 있는 값을 version 0에 기록한 것으로 보임 (version 1 사용 필요)") })
+        assertEquals(FAIL, check(MovieSpec(ctts = listOf(2L to 0xFFFFFF9CL))).status("bmff.ctts.count"))
+        val qt = check(qtSpec.copy(ctts = listOf(3L to 0xFFFFFF9CL))).finding("bmff.ctts.count")
+        assertEquals("QuickTime", check(qtSpec).format)
+        assertEquals(PASS, qt.status, qt.details.toString())
+    }
+
+    private val qtSpec = MovieSpec(ftyp = box("ftyp", "qt  ".toByteArray(), be32(0x200), "qt  ".toByteArray()),
+        handlerPreDefined = "mhlr", qtDataHandler = true, extraTopLevelBefore = listOf(box("wide")), language = 0x7FFF)
+
+    @Test
+    fun `QuickTime elst accepts any non negative 16_16 media rate, ISO keeps integer 0 or 1`() {
+        val two = check(qtSpec.copy(elst = listOf(Triple(300L, 0L, 2)))).finding("bmff.elst.entries")
+        assertEquals(PASS, two.status, two.details.toString())
+        assertTrue(two.details.any { it.contains("media_rate 2") }, two.details.toString())
+        assertEquals(FAIL, check(qtSpec.copy(elst = listOf(Triple(300L, 0L, -1)))).status("bmff.elst.entries"))
+        val bytes = buildMovie(qtSpec.copy(elst = listOf(Triple(300L, 0L, 1))))
+        val good = fullBox("elst", 0, 0, be32(1), be32(300), be32(0), be16(1), be16(0))
+        val half = fullBox("elst", 0, 0, be32(1), be32(300), be32(0), be16(0), be16(0x8000))
+        val patched = bytes.copyOf().also { half.copyInto(it, indexOf(bytes, good)) }
+        val h = check(patched).finding("bmff.elst.entries")
+        assertEquals(PASS, h.status, h.details.toString())
+        assertTrue(h.details.any { it.contains("media_rate 0.5") }, h.details.toString())
+        val iso = buildMovie(MovieSpec(elst = listOf(Triple(300L, 0L, 1))))
+        val isoHalf = iso.copyOf().also { half.copyInto(it, indexOf(iso, good)) }
+        assertEquals(FAIL, check(isoHalf).status("bmff.elst.entries"))
+    }
+
+    @Test
+    fun `co64 offsets at or above 2^63 or overflowing are outside the file`() {
+        listOf(be32(0x80000000L) + be32(0), be32(0xFFFFFFFFL) + be32(0xFFFFFFF0L), be32(0x7FFFFFFFL) + be32(0xFFFFFFF0L)).forEach { off ->
+            val co64 = fullBox("co64", 0, 0, be32(1), off)
+            val f = check(MovieSpec(replaceBox = mapOf("stco" to co64))).finding("bmff.sample.location")
+            assertEquals(FAIL, f.status, f.details.toString())
+        }
+    }
+
+    @Test
+    fun `more than one moov makes duration consistency not checked`() {
+        val bytes = buildMovie(MovieSpec())
+        val tree = ByteReader.open(fileOf(bytes)).use { IsoBmffBoxTree.walk(it) }
+        val moov = tree.top.single { it.type == "moov" }
+        val f = check(bytes + bytes.copyOfRange(moov.offset.toInt(), moov.end.toInt())).finding("bmff.duration.consistency")
+        assertEquals(NOT_CHECKED, f.status)
+        assertTrue(f.details.any { it.contains("moov가 여러 개") }, f.details.toString())
+    }
+
+    @Test
+    fun `stz2 4-bit sizes are read high nibble first`() {
+        // mdat payload is 30 bytes. High-nibble-first sizes 10,15,5 fill it exactly; low-first would be 15,10,15.
+        val exact = box("stz2", ByteArray(4), byteArrayOf(0, 0, 0, 4), be32(3), byteArrayOf(0xAF.toByte(), 0x5F))
+        val e = check(MovieSpec(replaceBox = mapOf("stsz" to exact))).finding("bmff.sample.location")
+        assertEquals(PASS, e.status, e.details.toString())
+        // 10,15,6 → the third sample crosses the mdat end by one byte (into moov): WARN, not FAIL.
+        val over = box("stz2", ByteArray(4), byteArrayOf(0, 0, 0, 4), be32(3), byteArrayOf(0xAF.toByte(), 0x60))
+        val o = check(MovieSpec(replaceBox = mapOf("stsz" to over))).finding("bmff.sample.location")
+        assertEquals(WARN, o.status, o.details.toString())
+        assertTrue(o.details.any { it.contains("샘플 1개") }, o.details.toString())
+    }
+
+    @Test
+    fun `mixed self-contained and external data references leave sample location not checked`() {
+        val r = check(MovieSpec(drefEntries = listOf(fullBox("url ", 0, 1), fullBox("url ", 0, 0, "http://x/a.mp4\u0000".toByteArray())),
+            sampleEntryRefs = listOf(1, 2)))
+        assertEquals(NOT_CHECKED, r.status("bmff.sample.location"), r.finding("bmff.sample.location").details.toString())
     }
 
     @Test

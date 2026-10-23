@@ -298,8 +298,9 @@ internal object IsoBmffSampleRules {
             if (total != sizes.count) { ok = false; a.fail(t, "ctts sample_count 합계 $total ≠ 샘플 수 ${sizes.count}", ctts.box) }
             if (negatives > 0) {
                 ok = false
-                val v = ctts.u32(ctx, firstNeg, 1).toInt()
-                a.fail(t, "ctts version 0에 음수 sample_offset ${negatives}개 (항목 #${firstNeg + 1}: $v) — 음수는 version 1에서만 허용", ctts.box)
+                val raw = ctts.u32(ctx, firstNeg, 1)
+                a.warn(t, "v0 offset ≥ 2^31: 부호 있는 값을 version 0에 기록한 것으로 보임 (version 1 사용 필요) — " +
+                    "${negatives}개, 항목 #${firstNeg + 1}: $raw (부호 있는 값 ${raw.toInt()})", ctts.box)
             }
             if (ok) a.pass(t, "ctts 합계 $total = 샘플 수")
         }
@@ -379,16 +380,18 @@ internal object IsoBmffSampleRules {
                 var extent = 0L
                 if (sizes.table == null) extent = satMul(spc, sizes.fixed)
                 else for (k in 0 until spc) extent = satAdd(extent, sizes.size(ctx, sample + k))
-                val end = satAdd(off, extent)
-                val label = "청크 #${c + 1} @0x%X (샘플 #${sample + 1}–#${sample + spc})".format(off)
+                // co64 offsets ≥ 2^63 read as negative Longs; they and saturated ends lie outside the file.
+                val end = if (off < 0) Long.MAX_VALUE else satAdd(off, extent)
+                fun label() = "청크 #${c + 1} @0x%s (샘플 #${sample + 1}–#${sample + spc})".format(java.lang.Long.toHexString(off).uppercase())
                 if (extent > 0 && (end > ctx.length || !inMdat(off, end))) {
+                    val label = label()
                     if (budget >= spc) {
                         budget -= spc
                         var pos = off
                         var nFile = 0L; var nMdat = 0L
                         for (k in 0 until spc) {
                             val sz = if (sizes.table == null) sizes.fixed else sizes.size(ctx, sample + k)
-                            val se = satAdd(pos, sz)
+                            val se = if (pos < 0) Long.MAX_VALUE else satAdd(pos, sz)
                             if (sz > 0) { if (se > ctx.length) nFile++ else if (!inMdat(pos, se)) nMdat++ }
                             pos = se
                         }
@@ -460,6 +463,7 @@ internal object IsoBmffSampleRules {
         val mvhd = ctx.moovs.singleOrNull()?.children?.singleOrNull { it.type == "mvhd" }
         for (t in tracks) {
             if (t.trak.children.any { it.type == "edts" }) { a.na(t, "edts 있음 — tkhd 길이는 편집 목록 기준이라 비교하지 않음"); continue }
+            if (ctx.moovs.size > 1) { a.skip(t, "moov가 여러 개 — 어느 mvhd timescale을 쓸지 알 수 없어 비교하지 않음 (bmff.moov.count 참고)"); continue }
             var reason: String? = null
             val why: (String) -> Unit = { reason = it }
             val mv = header(ctx, mvhd, why)
@@ -482,6 +486,10 @@ internal object IsoBmffSampleRules {
         }
         return a.result()
     }
+
+    /** 16.16 fixed media rate as a plain decimal, e.g. 1, 2, 0.5. */
+    private fun rate(int: Int, frac: Int): String =
+        java.math.BigDecimal(int.toLong() * 65536 + frac).divide(java.math.BigDecimal(65536)).stripTrailingZeros().toPlainString()
 
     private fun elstRule(ctx: BmffContext, tracks: List<Tr>, fragmented: Boolean): ConformanceFinding {
         val a = Acc(ctx, "bmff.elst.entries")
@@ -507,6 +515,7 @@ internal object IsoBmffSampleRules {
                 }
                 val bad = ArrayList<String>()
                 var total = 0
+                val rates = LinkedHashSet<String>()
                 val step = if (v == 0) 12L else 20L
                 for (i in 0 until tbl.count) {
                     val p = tbl.start + i * step
@@ -518,16 +527,20 @@ internal object IsoBmffSampleRules {
                     val msgs = listOfNotNull(
                         if (mediaTime < -1) "$n: media_time $mediaTime (−1 또는 0 이상이어야 함)" else null,
                         if (bound != null && mediaTime >= 0 && mediaTime >= bound) "$n: media_time $mediaTime ≥ 미디어 길이 $bound (mdhd)" else null,
-                        if (rateInt !in 0..1) "$n: media_rate_integer $rateInt (0 또는 1이어야 함)" else null,
-                        if (rateFrac != 0) "$n: media_rate_fraction $rateFrac (0이어야 함)" else null,
+                        // QuickTime: media_rate is one signed 16.16 fixed value; any non-negative rate is allowed.
+                        if (ctx.isQt && rateInt < 0) "$n: media_rate ${rate(rateInt, rateFrac)} (음수 불가)" else null,
+                        if (!ctx.isQt && rateInt !in 0..1) "$n: media_rate_integer $rateInt (0 또는 1이어야 함)" else null,
+                        if (!ctx.isQt && rateFrac != 0) "$n: media_rate_fraction $rateFrac (0이어야 함)" else null,
                     )
+                    if (ctx.isQt && rates.size < MAX_LISTED) rates += rate(rateInt, rateFrac)
                     msgs.forEach { total++; if (bad.size < MAX_LISTED) bad += it }
                 }
                 if (total > bad.size) bad += "… 외 ${total - bad.size}건"
                 bad.forEach { a.fail(t, "${at(b)} $it", b) }
                 if (bad.isEmpty()) {
                     if (boundNote != null && !fragmented) a.skip(t, "${at(b)} 항목 ${tbl.count}개: $boundNote")
-                    else a.pass(t, "${at(b)} 항목 ${tbl.count}개 정상" + (boundNote?.let { " ($it)" } ?: ""))
+                    else a.pass(t, "${at(b)} 항목 ${tbl.count}개 정상" +
+                        (if (rates.isNotEmpty()) " (media_rate ${rates.joinToString(", ")})" else "") + (boundNote?.let { " ($it)" } ?: ""))
                 }
             }
         }
