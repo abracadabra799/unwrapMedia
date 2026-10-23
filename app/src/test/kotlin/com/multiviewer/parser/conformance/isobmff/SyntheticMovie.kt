@@ -37,7 +37,13 @@ internal data class MovieSpec(
     val qtDataHandler: Boolean = false,            // QuickTime: extra data-handler hdlr (dhlr/url ) inside minf
     val secondTrackId: Long? = null,               // adds a second, otherwise identical trak with this track_ID
     val drefEntryCount: Long? = null,              // null: 1 entry ([drefEntry]); 0: empty dref
-    val stsdEntryCount: Long? = null,              // null: 1 avc1 entry; 0: empty stsd
+    val stsdEntryCount: Long? = null,              // null: one avc1 entry per [sampleEntryRefs]; 0: empty stsd
+    val tkhdVersion: Int = 0,
+    val mdhdVersion: Int = 0,
+    val sampleEntryRefs: List<Int> = listOf(1),    // data_reference_index of each avc1 sample entry
+    val drefEntries: List<ByteArray>? = null,      // overrides the single [drefEntry]
+    val qtDataHandlerType: String = "dhlr",        // component type of the QuickTime minf data-handler hdlr
+    val replaceBox: Map<String, ByteArray> = emptyMap(), // replace the first box of this type with these bytes
 )
 
 internal fun buildMovie(s: MovieSpec = MovieSpec()): ByteArray {
@@ -48,16 +54,22 @@ internal fun buildMovie(s: MovieSpec = MovieSpec()): ByteArray {
     val firstSampleOffset = head.size + 8L + s.chunkOffsetDelta
     val mediaDuration = 100L * n
     val movieDuration = if (s.mediaTimescale == 0L) mediaDuration else mediaDuration * s.movieTimescale / s.mediaTimescale
-    fun drop(type: String, bytes: ByteArray) = if (s.dropBox == type) ByteArray(0) else bytes
+    fun drop(type: String, bytes: ByteArray) = if (s.dropBox == type) ByteArray(0) else s.replaceBox[type] ?: bytes
 
     val mvhd = if (s.mvhdVersion == 0) fullBox("mvhd", 0, 0, be32(0), be32(0), be32(s.movieTimescale), be32(movieDuration),
         be32(0x00010000), be16(0x0100), ByteArray(10), ByteArray(36), ByteArray(24), be32(s.nextTrackId))
-    else fullBox("mvhd", s.mvhdVersion, 0, ByteArray(16), be32(s.movieTimescale), ByteArray(8), ByteArray(80), be32(s.nextTrackId))
-    fun tkhd(trackId: Long) = fullBox("tkhd", 0, 3, be32(0), be32(0), be32(trackId), be32(0), be32(movieDuration), ByteArray(8),
+    else fullBox("mvhd", s.mvhdVersion, 0, ByteArray(16), be32(s.movieTimescale), be32(0) + be32(movieDuration),
+        be32(0x00010000), be16(0x0100), ByteArray(10), ByteArray(36), ByteArray(24), be32(s.nextTrackId))
+    fun tkhd(trackId: Long) = if (s.tkhdVersion == 0) fullBox("tkhd", 0, 3, be32(0), be32(0), be32(trackId), be32(0), be32(movieDuration), ByteArray(8),
         be16(0), be16(0), be16(0), be16(0), ByteArray(36), be32(64L shl 16), be32(48L shl 16))
-    val mdhd = fullBox("mdhd", 0, 0, be32(0), be32(0), be32(s.mediaTimescale), be32(mediaDuration), be16(s.language), be16(0))
+    else fullBox("tkhd", s.tkhdVersion, 3, ByteArray(16), be32(trackId), be32(0), be32(0) + be32(movieDuration), ByteArray(8),
+        be16(0), be16(0), be16(0), be16(0), ByteArray(36), be32(64L shl 16), be32(48L shl 16))
+    val mdhd = if (s.mdhdVersion == 0) fullBox("mdhd", 0, 0, be32(0), be32(0), be32(s.mediaTimescale), be32(mediaDuration), be16(s.language), be16(0))
+    else fullBox("mdhd", s.mdhdVersion, 0, ByteArray(16), be32(s.mediaTimescale), be32(0) + be32(mediaDuration), be16(s.language), be16(0))
     val hdlr = fullBox("hdlr", 0, 0, s.handlerPreDefined.toByteArray(Charsets.ISO_8859_1), s.handler.toByteArray(), ByteArray(12), byteArrayOf(0))
-    val stsd = if (s.stsdEntryCount == 0L) fullBox("stsd", 0, 0, be32(0)) else fullBox("stsd", 0, 0, be32(1), box("avc1", ByteArray(78)))
+    val sampleEntries = s.sampleEntryRefs.map { box("avc1", ByteArray(6), be16(it), ByteArray(70)) }
+    val stsd = if (s.stsdEntryCount == 0L) fullBox("stsd", 0, 0, be32(0))
+    else fullBox("stsd", 0, 0, be32(sampleEntries.size.toLong()), *sampleEntries.toTypedArray())
     val sttsCounts = s.sttsCounts ?: listOf(n.toLong())
     val stts = fullBox("stts", 0, 0, be32(sttsCounts.size.toLong()), *sttsCounts.map { be32(it) + be32(100) }.toTypedArray())
     val stscEntries = s.stsc ?: listOf(Triple(1L, n.toLong(), 1L))
@@ -69,8 +81,10 @@ internal fun buildMovie(s: MovieSpec = MovieSpec()): ByteArray {
     val mediaHeader = s.mediaHeader ?: ByteArray(0)
     val stbl = box("stbl", drop("stsd", stsd), drop("stts", stts), ctts, drop("stss", stss), drop("stsc", stsc), drop("stsz", stsz),
         drop("stco", stco), if (s.vmhdInStbl) mediaHeader else ByteArray(0))
-    val dinf = box("dinf", if (s.drefEntryCount == 0L) fullBox("dref", 0, 0, be32(0)) else fullBox("dref", 0, 0, be32(1), s.drefEntry))
-    val dataHandler = if (s.qtDataHandler) fullBox("hdlr", 0, 0, "dhlr".toByteArray(), "url ".toByteArray(), ByteArray(12), byteArrayOf(0)) else ByteArray(0)
+    val drefList = s.drefEntries ?: listOf(s.drefEntry)
+    val dinf = box("dinf", if (s.drefEntryCount == 0L) fullBox("dref", 0, 0, be32(0))
+        else fullBox("dref", 0, 0, be32(drefList.size.toLong()), *drefList.toTypedArray()))
+    val dataHandler = if (s.qtDataHandler) fullBox("hdlr", 0, 0, s.qtDataHandlerType.toByteArray(Charsets.ISO_8859_1), "url ".toByteArray(), ByteArray(12), byteArrayOf(0)) else ByteArray(0)
     val minf = box("minf", if (s.vmhdInStbl) ByteArray(0) else mediaHeader, dataHandler, drop("dinf", dinf), drop("stbl", stbl))
     val mdia = box("mdia", drop("mdhd", mdhd), drop("hdlr", hdlr), drop("minf", minf))
     val edts = s.elst?.let { list ->

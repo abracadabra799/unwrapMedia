@@ -22,15 +22,23 @@ internal fun BmffContext.fullBoxFlags(b: BmffBox): Int? =
     if (b.problem == null && b.payload + 4 <= b.end) (reader.readUInt32(b.payload) and 0xFFFFFF).toInt() else null
 
 /**
- * Whether [trak]'s sample data lives in this file: true when its `dref` has at least one self-contained entry
- * (flags & 1), false when every entry is an external reference, null when the `dref` cannot be read.
- * Sample-location rules treat false as NOT_APPLICABLE.
+ * Whether [trak]'s sample data lives in this file, following each `stsd` sample entry's data_reference_index:
+ * true when every index points at a self-contained `dref` entry (flags & 1), false when every index points at an
+ * external entry, null when mixed or unreadable (invalid index, unreadable dref/stsd). Sample-location rules
+ * treat false as NOT_APPLICABLE and null as NOT_CHECKED.
  */
 internal fun BmffContext.trackDataSelfContained(trak: BmffBox): Boolean? {
     val dref = trak.child("mdia", "minf", "dinf", "dref") ?: return null
+    val stsd = trak.child("mdia", "minf", "stbl", "stsd") ?: return null
     val entries = IsoBmffFieldRules.drefEntries(this, dref).entries ?: return null
-    if (entries.isEmpty()) return null
-    return entries.any { it.selfContained }
+    val samples = IsoBmffFieldRules.stsdEntries(this, stsd).entries ?: return null
+    if (entries.isEmpty() || samples.isEmpty()) return null
+    val refs = samples.map { s -> entries.getOrNull(s.dataReferenceIndex - 1) ?: return null }
+    return when {
+        refs.all { it.selfContained } -> true
+        refs.none { it.selfContained } -> false
+        else -> null
+    }
 }
 
 /** Header-field rules: FullBox versions, timescales, track IDs, vmhd flags, hdlr, language, dref, stsd. */
@@ -142,9 +150,9 @@ internal object IsoBmffFieldRules {
         for (mvhd in mvhds(ctx)) {
             if (mvhd.problem != null) { a.skip(mvhd, "박스 헤더 오류"); continue }
             val v = ctx.fullBoxVersion(mvhd) ?: run { a.fail(mvhd, "FullBox 헤더 없음"); null } ?: continue
-            val min = when (v) { 0 -> 100L; 1 -> 112L; else -> { a.skip(mvhd, "알 수 없는 version $v — 필드 위치를 알 수 없음"); continue } }
-            if (mvhd.end - mvhd.payload < min) { a.fail(mvhd, "박스가 next_track_ID 필드를 담기에 짧음"); continue }
-            val next = u32(ctx, mvhd.end - 4)
+            val off = when (v) { 0 -> 96L; 1 -> 108L; else -> { a.skip(mvhd, "알 수 없는 version $v — 필드 위치를 알 수 없음"); continue } }
+            if (mvhd.payload + off + 4 > mvhd.end) { a.fail(mvhd, "박스가 next_track_ID 필드를 담기에 짧음"); continue }
+            val next = u32(ctx, mvhd.payload + off)
             val max = ids.maxOrNull()
             when {
                 next == NEXT_TRACK_NONE -> a.pass(mvhd, "next_track_ID 0xFFFFFFFF (다음 ID 없음 — 허용)")
@@ -182,6 +190,8 @@ internal object IsoBmffFieldRules {
                 expectedQt != null && comp == expectedQt -> a.pass(b, "구성요소 유형 '$comp' (핸들러 $handler)")
                 expectedQt != null -> a.fail(b, "구성요소 유형 ${show4(comp)} (${b.parent} 안에서는 '$expectedQt'이어야 함)")
                 raw == 0L -> a.pass(b, "pre_defined 0 (핸들러 $handler)")
+                !ctx.isQt && (b.parent == "mdia" && comp == "mhlr" || b.parent == "minf" && comp == "dhlr") ->
+                    a.warn(b, "pre_defined '$comp': QuickTime 계열 component type (ISO/IEC 14496-12는 0)")
                 else -> a.fail(b, "pre_defined ${show4(comp)} (0이어야 함)")
             }
         }
@@ -245,42 +255,77 @@ internal object IsoBmffFieldRules {
 
     private fun drefRule(ctx: BmffContext): ConformanceFinding {
         val a = Acc(ctx, "bmff.dref.entries")
-        for (dref in trackBoxes(ctx, "mdia", "minf", "dinf", "dref")) {
+        ctx.traks.forEachIndexed { ti, trak ->
+            val dref = trak.child("mdia", "minf", "dinf", "dref") ?: return@forEachIndexed
+            val label = "trak #${ti + 1}"
             val r = drefEntries(ctx, dref)
             r.unchecked?.let { a.skip(dref, it) }
             r.problems.forEach { a.fail(dref, it) }
-            val e = r.entries ?: continue
-            if (e.isEmpty()) continue
+            val e = r.entries ?: return@forEachIndexed
+            if (e.isEmpty()) return@forEachIndexed
+            val samples = trak.child("mdia", "minf", "stbl", "stsd")?.let { stsdEntries(ctx, it).entries }
+            if (samples == null) { a.skip(dref, "$label: stsd를 읽을 수 없어 data_reference_index를 검사하지 않음"); return@forEachIndexed }
+            val used = ArrayList<DrefEntry>()
+            var badIndex = false
+            samples.forEachIndexed { si, se ->
+                val ref = e.getOrNull(se.dataReferenceIndex - 1)
+                if (ref == null) {
+                    badIndex = true
+                    a.fail(dref, "$label 샘플 엔트리 #${si + 1} ${show4(se.type)}: data_reference_index ${se.dataReferenceIndex} " +
+                        "(1..${e.size} 이어야 함)")
+                } else used += ref
+            }
+            if (badIndex) return@forEachIndexed
             val list = e.joinToString(", ") { "${show4(it.type)}${if (it.selfContained) "(자체 포함)" else "(외부)"}" }
-            if (e.any { it.selfContained }) a.pass(dref, "항목 ${e.size}개: $list")
-            else a.pass(dref, "외부 데이터 참조 — 샘플 데이터가 이 파일 밖에 있음 (샘플 위치 규칙 제외): $list")
+            when {
+                used.isEmpty() -> a.pass(dref, "$label 항목 ${e.size}개: $list (샘플 엔트리 없음)")
+                used.all { it.selfContained } -> a.pass(dref, "$label 항목 ${e.size}개: $list")
+                used.none { it.selfContained } ->
+                    a.pass(dref, "$label 외부 데이터 참조 — 샘플 데이터가 이 파일 밖에 있음 (샘플 위치 규칙 제외): $list")
+                else -> a.pass(dref, "$label 자체 포함/외부 데이터 참조 혼합: $list")
+            }
         }
         return a.result("dref 없음")
+    }
+
+    class SampleEntry(val offset: Long, val type: String, val dataReferenceIndex: Int)
+    /** [entries] null when the stsd could not be read; [problems] are FAIL-level layout violations. */
+    class StsdRead(val entries: List<SampleEntry>?, val problems: List<String>, val unchecked: String? = null)
+
+    private const val MIN_SAMPLE_ENTRY = 16L
+
+    fun stsdEntries(ctx: BmffContext, stsd: BmffBox): StsdRead {
+        if (stsd.problem != null) return StsdRead(null, emptyList(), "박스 헤더 오류")
+        if (stsd.payload + 8 > stsd.end) return StsdRead(null, listOf("박스가 entry_count 필드를 담기에 짧음"))
+        val count = u32(ctx, stsd.payload + 4)
+        if (count == 0L) return StsdRead(emptyList(), listOf("entry_count 0 (1 이상이어야 함)"))
+        val room = (stsd.end - stsd.payload - 8) / MIN_SAMPLE_ENTRY
+        if (count > room) return StsdRead(null,
+            listOf("entry_count $count 샘플 엔트리(각 ${MIN_SAMPLE_ENTRY}바이트 이상)가 stsd 안에 들어가지 않음 (최대 ${room}개)"))
+        if (count > MAX_TABLE_ENTRIES) return StsdRead(null, emptyList(), "entry_count $count: 상한 ${MAX_TABLE_ENTRIES}개 초과로 펼치지 않음")
+        val out = ArrayList<SampleEntry>()
+        var pos = stsd.payload + 8
+        for (i in 0 until count) {
+            if (pos + MIN_SAMPLE_ENTRY > stsd.end) return StsdRead(null, listOf("샘플 엔트리 #${i + 1} @0x%X: stsd 끝을 넘음".format(pos)))
+            val size = u32(ctx, pos)
+            if (size < MIN_SAMPLE_ENTRY || size > stsd.end - pos) return StsdRead(null,
+                listOf("샘플 엔트리 #${i + 1} @0x%X: 크기 $size 가 ${MIN_SAMPLE_ENTRY} 미만이거나 stsd 끝을 넘음".format(pos)))
+            out += SampleEntry(pos, ctx.reader.readFourCC(pos + 4), ctx.reader.readUInt16(pos + 14))
+            pos += size
+        }
+        return StsdRead(out, emptyList())
     }
 
     private fun stsdRule(ctx: BmffContext): ConformanceFinding {
         val a = Acc(ctx, "bmff.stsd.entries")
         for (stsd in trackBoxes(ctx, "mdia", "minf", "stbl", "stsd")) {
-            if (stsd.problem != null) { a.skip(stsd, "박스 헤더 오류"); continue }
-            if (stsd.payload + 8 > stsd.end) { a.fail(stsd, "박스가 entry_count 필드를 담기에 짧음"); continue }
-            val count = u32(ctx, stsd.payload + 4)
-            if (count == 0L) { a.fail(stsd, "entry_count 0 (1 이상이어야 함)"); continue }
-            if (count > MAX_TABLE_ENTRIES) { a.skip(stsd, "entry_count $count: 상한 ${MAX_TABLE_ENTRIES}개 초과로 펼치지 않음"); continue }
-            val room = (stsd.end - stsd.payload - 8) / 8
-            if (count > room) { a.fail(stsd, "entry_count $count 샘플 엔트리가 stsd 안에 들어가지 않음 (최대 ${room}개)"); continue }
-            var pos = stsd.payload + 8
-            val types = ArrayList<String>()
-            var bad: String? = null
-            for (i in 0 until count) {
-                if (pos + 8 > stsd.end) { bad = "샘플 엔트리 #${i + 1} @0x%X: stsd 끝을 넘음".format(pos); break }
-                val size = u32(ctx, pos)
-                if (size < 8 || size > stsd.end - pos) { bad = "샘플 엔트리 #${i + 1} @0x%X: 크기 $size 가 8 미만이거나 stsd 끝을 넘음".format(pos); break }
-                types += ctx.reader.readFourCC(pos + 4)
-                pos += size
-            }
-            if (bad != null) a.fail(stsd, bad)
-            else a.pass(stsd, "샘플 엔트리 ${count}개: " + types.take(8).joinToString(", ") { show4(it) } +
-                if (types.size > 8) " … 외 ${types.size - 8}개" else "")
+            val r = stsdEntries(ctx, stsd)
+            r.unchecked?.let { a.skip(stsd, it) }
+            r.problems.forEach { a.fail(stsd, it) }
+            val e = r.entries ?: continue
+            if (e.isEmpty()) continue
+            a.pass(stsd, "샘플 엔트리 ${e.size}개: " + e.take(8).joinToString(", ") { show4(it.type) } +
+                if (e.size > 8) " … 외 ${e.size - 8}개" else "")
         }
         return a.result("stsd 없음")
     }

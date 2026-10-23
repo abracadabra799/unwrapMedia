@@ -98,8 +98,16 @@ class IsoBmffFieldRulesTest {
     }
 
     @Test
-    fun `hdlr pre_defined mhlr fails in ISO, passes in QuickTime`() {
-        assertEquals(FAIL, check(MovieSpec(handlerPreDefined = "mhlr")).status("bmff.hdlr.predefined"))
+    fun `hdlr pre_defined mhlr warns in ISO, other non-zero fails, mhlr passes in QuickTime`() {
+        val iso = check(MovieSpec(handlerPreDefined = "mhlr")).finding("bmff.hdlr.predefined")
+        assertEquals(WARN, iso.status)
+        assertTrue(iso.details.any { it.contains("QuickTime 계열 component type") }, iso.details.toString())
+        assertEquals(FAIL, check(MovieSpec(handlerPreDefined = "abcd")).status("bmff.hdlr.predefined"))
+        assertEquals(FAIL, check(MovieSpec(handlerPreDefined = "dhlr")).status("bmff.hdlr.predefined"))
+        assertEquals(WARN, check(MovieSpec(qtDataHandler = true)).status("bmff.hdlr.predefined"))
+        assertEquals(FAIL, check(MovieSpec(qtDataHandler = true, qtDataHandlerType = "mhlr")).status("bmff.hdlr.predefined"))
+        assertEquals(FAIL, check(qtSpec.copy(qtDataHandlerType = "mhlr")).status("bmff.hdlr.predefined"))
+        assertEquals(FAIL, check(qtSpec.copy(qtDataHandlerType = "\u0000\u0000\u0000\u0000")).status("bmff.hdlr.predefined"))
         assertEquals(PASS, check(qtSpec).status("bmff.hdlr.predefined"))
         // QuickTime: mdia hdlr must say mhlr
         assertEquals(FAIL, check(qtSpec.copy(handlerPreDefined = "\u0000\u0000\u0000\u0000")).status("bmff.hdlr.predefined"))
@@ -114,6 +122,7 @@ class IsoBmffFieldRulesTest {
         assertEquals(PASS, check(qtSpec.copy(language = 0)).status("bmff.mdhd.language"))
         assertEquals(PASS, check(qtSpec.copy(language = 0x7FFF)).status("bmff.mdhd.language"))
         assertEquals(PASS, check(qtSpec.copy(language = 0x55C4)).status("bmff.mdhd.language"))
+        assertEquals(PASS, check(qtSpec.copy(language = 0x0003)).status("bmff.mdhd.language"))
         listOf(0xD5C4, 0x8000).forEach { v ->
             assertEquals(WARN, check(MovieSpec(language = v)).status("bmff.mdhd.language"), "ISO $v")
             assertEquals(WARN, check(qtSpec.copy(language = v)).status("bmff.mdhd.language"), "QT $v")
@@ -142,6 +151,86 @@ class IsoBmffFieldRulesTest {
     fun `dref and stsd entries must fit`() {
         val badDref = MovieSpec(drefEntry = be32(40) + "url ".toByteArray() + be32(1))
         assertEquals(FAIL, check(badDref).status("bmff.dref.entries"))
+    }
+
+    private fun ctxOf(bytes: ByteArray, block: (BmffContext) -> Unit) = ByteReader.open(fileOf(bytes)).use { reader ->
+        block(BmffContext(IsoBmffBoxTree.walk(reader), reader, BmffProfile.ISO))
+    }
+    private val selfUrl = fullBox("url ", 0, 1)
+    private val extUrl = fullBox("url ", 0, 0) + "http://x/\u0000".toByteArray()
+
+    @Test
+    fun `self-containment follows each sample entry's data_reference_index`() {
+        val two = listOf(selfUrl, extUrl)
+        ctxOf(buildMovie(MovieSpec(drefEntries = two, sampleEntryRefs = listOf(1)))) { assertEquals(true, it.trackDataSelfContained(it.traks.single())) }
+        ctxOf(buildMovie(MovieSpec(drefEntries = two, sampleEntryRefs = listOf(2)))) { assertEquals(false, it.trackDataSelfContained(it.traks.single())) }
+        ctxOf(buildMovie(MovieSpec(drefEntries = two, sampleEntryRefs = listOf(1, 2)))) { assertNull(it.trackDataSelfContained(it.traks.single())) }
+        ctxOf(buildMovie(MovieSpec(drefEntries = listOf(selfUrl, selfUrl), sampleEntryRefs = listOf(1, 2)))) { assertEquals(true, it.trackDataSelfContained(it.traks.single())) }
+        ctxOf(buildMovie(MovieSpec(sampleEntryRefs = listOf(0)))) { assertNull(it.trackDataSelfContained(it.traks.single())) }
+        // first dref entry self-contained but the sample entry uses the external one → external
+        val ext = check(MovieSpec(drefEntries = two, sampleEntryRefs = listOf(2))).finding("bmff.dref.entries")
+        assertEquals(PASS, ext.status)
+        assertTrue(ext.details.any { it.contains("외부 데이터 참조") }, ext.details.toString())
+        assertEquals(PASS, check(MovieSpec(drefEntries = two, sampleEntryRefs = listOf(1, 2))).status("bmff.dref.entries"))
+    }
+
+    @Test
+    fun `data_reference_index 0 or past the dref fails naming track and index`() {
+        listOf(0, 2).forEach { idx ->
+            val f = check(MovieSpec(sampleEntryRefs = listOf(idx))).finding("bmff.dref.entries")
+            assertEquals(FAIL, f.status, "index $idx")
+            assertTrue(f.details.any { it.contains("trak #1") && it.contains("data_reference_index $idx") }, f.details.toString())
+        }
+    }
+
+    @Test
+    fun `version 1 headers pass with their fields read at version 1 offsets`() {
+        val r = check(MovieSpec(mvhdVersion = 1, tkhdVersion = 1, mdhdVersion = 1, movieTimescale = 600, mediaTimescale = 90000,
+            trackId = 7, nextTrackId = 9, language = 0x15C7 /* "eng" */))
+        assertNull(r.inspectionError)
+        fieldIds.forEach { id -> assertEquals(PASS, r.status(id), "$id ${r.finding(id).details}") }
+        assertTrue(r.finding("bmff.mvhd.timescale").details.single().endsWith("timescale 600"))
+        assertTrue(r.finding("bmff.mdhd.timescale").details.single().endsWith("timescale 90000"))
+        assertTrue(r.finding("bmff.tkhd.track_id").details.single().endsWith("track_ID 7"))
+        assertTrue(r.finding("bmff.mvhd.next_track_id").details.single().contains("next_track_ID 9 > 최대 track_ID 7"))
+        assertTrue(r.finding("bmff.mdhd.language").details.single().contains("'eng'"))
+        assertEquals(FAIL, check(MovieSpec(mvhdVersion = 1, tkhdVersion = 1, trackId = 7, nextTrackId = 7)).status("bmff.mvhd.next_track_id"))
+    }
+
+    @Test
+    fun `next_track_ID is read from the defined field, not the box end`() {
+        // mvhd v0 with 4 extra bytes after next_track_ID (= 2): end - 4 would read 0xFFFFFFFF.
+        val mvhd = fullBox("mvhd", 0, 0, be32(0), be32(0), be32(1000), be32(300), be32(0x00010000), be16(0x0100), ByteArray(10),
+            ByteArray(36), ByteArray(24), be32(1), be32(0xFFFFFFFFL))
+        assertEquals(FAIL, check(MovieSpec(replaceBox = mapOf("mvhd" to mvhd))).status("bmff.mvhd.next_track_id"))
+    }
+
+    @Test
+    fun `truncated mvhd, tkhd and mdhd fail their fields without an inspection error`() {
+        val m = check(MovieSpec(replaceBox = mapOf("mvhd" to fullBox("mvhd", 0, 0, ByteArray(8)))))
+        assertNull(m.inspectionError)
+        assertEquals(FAIL, m.status("bmff.mvhd.timescale"))
+        assertEquals(FAIL, m.status("bmff.mvhd.next_track_id"))
+        val t = check(MovieSpec(replaceBox = mapOf("tkhd" to fullBox("tkhd", 0, 3, ByteArray(8)))))
+        assertNull(t.inspectionError)
+        assertEquals(FAIL, t.status("bmff.tkhd.track_id"))
+        val d = check(MovieSpec(replaceBox = mapOf("mdhd" to fullBox("mdhd", 0, 0, ByteArray(12)))))
+        assertNull(d.inspectionError)
+        assertEquals(FAIL, d.status("bmff.mdhd.timescale"))
+        assertEquals(NOT_CHECKED, d.status("bmff.mdhd.language"))
+        val d2 = check(MovieSpec(replaceBox = mapOf("mdhd" to fullBox("mdhd", 0, 0, be32(0), be32(0), be32(1000), be32(300)))))
+        assertEquals(PASS, d2.status("bmff.mdhd.timescale"))
+        assertEquals(NOT_CHECKED, d2.status("bmff.mdhd.language"))
+    }
+
+    @Test
+    fun `stsd sample entries must be at least 16 bytes and fit`() {
+        val past = fullBox("stsd", 0, 0, be32(1), be32(200) + "avc1".toByteArray() + ByteArray(6) + be16(1) + ByteArray(70))
+        assertEquals(FAIL, check(MovieSpec(replaceBox = mapOf("stsd" to past))).status("bmff.stsd.entries"))
+        val tiny = fullBox("stsd", 0, 0, be32(1), box("avc1", ByteArray(4)))
+        assertEquals(FAIL, check(MovieSpec(replaceBox = mapOf("stsd" to tiny))).status("bmff.stsd.entries"))
+        val huge = fullBox("stsd", 0, 0, be32(3_000_000), box("avc1", ByteArray(6), be16(1), ByteArray(70)))
+        assertEquals(FAIL, check(MovieSpec(replaceBox = mapOf("stsd" to huge))).status("bmff.stsd.entries"))
     }
 
     private fun fixture(name: String) = File(javaClass.getResource("/isobmff-conformance/$name")!!.toURI())
