@@ -7,6 +7,9 @@ fun registerAllDecoders() {
     if (registered) return
     registered = true
 
+    for (type in listOf("vmhd", "smhd", "btrt", "fiel")) {
+        BoxRegistry.register(type, BasicMediaBoxDecoder)
+    }
     BoxRegistry.register("ftyp", FtypBoxDecoder)
     BoxRegistry.register("mvhd", MvhdBoxDecoder)
     BoxRegistry.register("tkhd", TkhdBoxDecoder)

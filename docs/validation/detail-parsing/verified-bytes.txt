@@ -1,0 +1,13 @@
+app/src/test/resources/detail-parsing/default-avc-aac.mp4
+/moov/trak/mdia/minf/vmhd offset=377 payload=385 size=20 hex=000000010000000000000000
+/moov/trak/mdia/minf/stbl/stsd/avc1/btrt offset=612 payload=620 size=20 hex=000000000000c28800000000
+/moov/trak/mdia/minf/smhd offset=985 payload=993 size=16 hex=0000000000000000
+/moov/trak/mdia/minf/stbl/stsd/mp4a/esds offset=1097 payload=1105 size=54 hex=0000000003808080250002000480808017401500000000011952000119520580808005118856e500068080800102
+/moov/trak/mdia/minf/stbl/stsd/mp4a/btrt offset=1151 payload=1159 size=20 hex=000000000001195200011952
+/moov/trak/mdia/minf/stbl/sgpd offset=1383 payload=1391 size=26 hex=01000000726f6c6c0000000200000001ffff
+/moov/trak/mdia/minf/stbl/sbgp offset=1409 payload=1417 size=28 hex=00000000726f6c6c000000010000001400000001
+app/src/test/resources/hdr/av1_hdr.mp4
+/moov/trak/mdia/minf/vmhd offset=16406 payload=16414 size=20 hex=000000010000000000000000
+/moov/trak/mdia/minf/stbl/stsd/av01/fiel offset=16600 payload=16608 size=10 hex=0100
+/moov/trak/mdia/minf/stbl/stsd/av01/btrt offset=16626 payload=16634 size=20 hex=000000000005dd380005dd38
+/moov/trak/mdia/minf/stbl/sdtp offset=16694 payload=16702 size=22 hex=0000000020181018102018101810
