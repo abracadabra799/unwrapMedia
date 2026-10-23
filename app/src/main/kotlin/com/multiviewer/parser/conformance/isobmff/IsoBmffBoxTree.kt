@@ -14,6 +14,11 @@ data class BmffBox(
     val payload: Long get() = offset + headerSize
 }
 
+/**
+ * [trailingBytes]/[trailingOffset]: bytes after the last valid top-level box up to EOF (non-box data or < 8 bytes).
+ * If the top level ends on a problem box (invalid header), the problem is reported on that box instead, so
+ * trailingBytes = 0 and trailingOffset = null.
+ */
 data class BmffTree(val top: List<BmffBox>, val trailingBytes: Long, val trailingOffset: Long?)
 
 val BMFF_CONTAINERS: Set<String> = setOf(
@@ -50,6 +55,7 @@ object IsoBmffBoxTree {
             var problem: String? = null
             if (rawSize == 1L) {
                 if (pos + 16 > limit) {
+                    // The 64-bit largesize field does not fit in the parent's range: record a problem box.
                     boxes += BmffBox(type, pos, 8, limit - pos, rawSize, "largesize 헤더가 상위 범위를 넘음", emptyList(), parent)
                     problemEnd = true; break
                 }
@@ -59,7 +65,7 @@ object IsoBmffBoxTree {
                 size = limit - pos
             }
             if (size < header) problem = "박스 크기($size)가 헤더 크기($header)보다 작음"
-            else if (size < 0 || pos + size > limit) problem = "박스 크기($size)가 상위 범위를 넘음"
+            else if (size < 0 || size > limit - pos) problem = "박스 크기($size)가 상위 범위를 넘음"
             if (problem != null) {
                 boxes += BmffBox(type, pos, header, size, rawSize, problem, emptyList(), parent)
                 problemEnd = true

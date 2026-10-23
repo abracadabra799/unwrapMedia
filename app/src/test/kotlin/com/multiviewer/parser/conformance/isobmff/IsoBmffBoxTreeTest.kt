@@ -79,4 +79,78 @@ class IsoBmffBoxTreeTest {
         val qt = walk(box("meta", hdlr)).top.single()
         assertEquals(listOf("hdlr"), qt.children.map { it.type })
     }
+
+    @Test
+    fun `largesize near Long MAX is a problem with sane trailing`() {
+        val ftyp = box("ftyp", "isom".toByteArray(), be32(0))
+        val bad = be32(1) + "mdat".toByteArray() + be32(0x7FFFFFFFL) + be32(0xFFFFFFFFL) + ByteArray(8)
+        val tree = walk(ftyp + bad)
+        val mdat = tree.top.last()
+        assertNotNull(mdat.problem)
+        assertEquals(0L, tree.trailingBytes)
+        assertNull(tree.trailingOffset)
+    }
+
+    @Test
+    fun `fewer than 8 bytes after last box are trailing`() {
+        val ftyp = box("ftyp", "isom".toByteArray(), be32(0))
+        val tree = walk(ftyp + ByteArray(5))
+        assertEquals(1, tree.top.size)
+        assertEquals(5L, tree.trailingBytes)
+        assertEquals(ftyp.size.toLong(), tree.trailingOffset)
+    }
+
+    @Test
+    fun `largesize header cut at EOF is a problem`() {
+        val tree = walk(be32(1) + "mdat".toByteArray() + ByteArray(4))
+        assertNotNull(tree.top.single().problem)
+        assertEquals(0L, tree.trailingBytes)
+    }
+
+    @Test
+    fun `non printable type stops the level`() {
+        val ftyp = box("ftyp", "isom".toByteArray(), be32(0))
+        val junk = be32(16) + byteArrayOf(0, 1, 2, 3) + ByteArray(8)
+        val tree = walk(ftyp + junk + box("free"))
+        assertEquals(listOf("ftyp"), tree.top.map { it.type })
+        assertEquals((junk.size + 8).toLong(), tree.trailingBytes)
+    }
+
+    @Test
+    fun `nested size zero box ends at parent end`() {
+        val moov = box("moov", box("free"), be32(0) + "skip".toByteArray() + ByteArray(5))
+        val m = walk(moov).top.single()
+        val skip = m.children.last()
+        assertEquals("skip", skip.type)
+        assertEquals(0L, skip.rawSize)
+        assertEquals(m.end, skip.end)
+        assertNull(skip.problem)
+    }
+
+    @Test
+    fun `nesting deeper than the cap does not throw`() {
+        var b = box("free")
+        repeat(20) { b = box("moov", b) }
+        val tree = walk(b)
+        var depth = 0
+        var cur: BmffBox? = tree.top.single()
+        while (cur != null) { depth++; cur = cur.children.firstOrNull { it.type == "moov" } }
+        assertTrue(depth in 12..14)
+    }
+
+    private fun stco0(bytes: ByteArray): Long {
+        val tree = walk(bytes)
+        val stco = all(tree.top).first { it.type == "stco" }
+        return ByteReader.open(fileOf(bytes)).use { it.readUInt32(stco.payload + 8) }
+    }
+
+    @Test
+    fun `builder stco points at first mdat payload byte`() {
+        for (spec in listOf(MovieSpec(), MovieSpec(extraTopLevelBefore = listOf(box("free"))))) {
+            val bytes = buildMovie(spec)
+            val off = stco0(bytes).toInt()
+            assertEquals(7, bytes[off].toInt())
+            assertEquals(0x6D.toByte(), bytes[off - 4]) // 'm' of "mdat"
+        }
+    }
 }
