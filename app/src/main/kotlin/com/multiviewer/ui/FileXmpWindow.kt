@@ -4,7 +4,6 @@ import androidx.compose.foundation.LocalScrollbarStyle
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.rememberScrollbarAdapter
@@ -209,11 +208,11 @@ fun FileXmpWindow(
                                         .border(1.dp, AppColors.Border, RoundedCornerShape(4.dp)),
                                 ) {
                                     val verticalScroll = rememberScrollState()
-                                    val horizontalScroll = rememberScrollState()
                                     val pretty = remember(found[selected]) { prettyPrintXmlOrRaw(found[selected].text) }
                                     SelectionContainer {
                                         Text(
                                             pretty,
+                                            softWrap = true,
                                             style = AppTypography.bodyLarge.copy(
                                                 fontFamily = FontFamily.Monospace,
                                                 fontSize = 11.sp,
@@ -222,7 +221,6 @@ fun FileXmpWindow(
                                             modifier = Modifier
                                                 .fillMaxSize()
                                                 .verticalScroll(verticalScroll)
-                                                .horizontalScroll(horizontalScroll)
                                                 .padding(12.dp),
                                         )
                                     }
