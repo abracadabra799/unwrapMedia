@@ -22,6 +22,7 @@ object JpegConformanceChecker {
         val error = try {
             val ctx = JpegContext(reader, JpegStreamScanner.scan(reader))
             findings += JpegT81Rules.evaluate(ctx)
+            findings += JpegJfifRules.evaluate(ctx)
             null
         } catch (e: CancellationException) {
             throw e
