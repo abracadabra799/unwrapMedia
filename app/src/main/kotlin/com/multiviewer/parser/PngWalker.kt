@@ -11,6 +11,8 @@ val PNG_COLOR_TYPE_NAMES = mapOf(
 fun parsePngChunks(reader: ByteReader, start: Long, end: Long): List<BoxNode> {
     val result = mutableListOf<BoxNode>()
     var pos = start
+    var colorContext = PngColorContext()
+    var headerCount = 0
     while (pos < end) {
         if (pos + 8 > end) {
             result.add(BoxNode("?", pos, 0, end - pos, warnings = listOf("Trailing ${end - pos} byte(s): too short for a chunk header")))
@@ -24,14 +26,26 @@ fun parsePngChunks(reader: ByteReader, start: Long, end: Long): List<BoxNode> {
             result.add(BoxNode(type, pos, 8, end - pos, warnings = listOf("Chunk declares length $length but only ${end - pos - 8} byte(s) remain")))
             break
         }
-        result.add(decodePngChunk(reader, type, pos, dataStart, length, chunkTotalSize))
+        result.add(decodePngChunk(reader, type, pos, dataStart, length, chunkTotalSize, colorContext))
+        if (type == "IHDR") {
+            headerCount++
+            colorContext = PngColorContext()
+            if (headerCount == 1 && length == 13L) {
+                val depth = reader.readUInt8(dataStart + 8)
+                val color = reader.readUInt8(dataStart + 9)
+                val validDepths = when (color) { 0 -> setOf(1, 2, 4, 8, 16); 3 -> setOf(1, 2, 4, 8); 2, 4, 6 -> setOf(8, 16); else -> emptySet() }
+                if (depth in validDepths) colorContext = PngColorContext(color, depth)
+            }
+        } else if (type == "PLTE") {
+            colorContext = colorContext.copy(paletteEntries = if (length in 3L..768L && length % 3 == 0L) (length / 3).toInt() else null)
+        }
         pos += chunkTotalSize
     }
     return result
 }
 
-private fun decodePngChunk(reader: ByteReader, type: String, offset: Long, dataStart: Long, length: Long, totalSize: Long): BoxNode =
-    decodePngExtraChunk(reader, type, offset, length, totalSize) ?: when (type) {
+private fun decodePngChunk(reader: ByteReader, type: String, offset: Long, dataStart: Long, length: Long, totalSize: Long, context: PngColorContext): BoxNode =
+    decodePngExtraChunk(reader, type, offset, length, totalSize) ?: decodePngColorChunk(reader, type, offset, length, totalSize, context) ?: when (type) {
         "IHDR" -> decodeIhdr(reader, offset, dataStart, totalSize)
         "pHYs" -> decodePhys(reader, offset, dataStart, totalSize)
         "tEXt" -> decodeText(reader, offset, dataStart, length, totalSize)
@@ -351,11 +365,11 @@ private fun decodeItxt(reader: ByteReader, offset: Long, dataStart: Long, length
 }
 
 private fun decodePlte(reader: ByteReader, offset: Long, dataStart: Long, length: Long, totalSize: Long): BoxNode {
-    if (length % 3 != 0L) {
-        return BoxNode(type = "PLTE", offset = offset, headerSize = 8, size = totalSize, warnings = listOf("PLTE length $length is not a multiple of 3"))
+    if (length % 3 != 0L || length !in 3L..768L) {
+        return BoxNode(type = "PLTE", offset = offset, headerSize = 8, size = totalSize, warnings = listOf("Invalid PLTE length $length (1–256 RGB entries required) / PLTE 길이 오류"), interpretation = ValueInterpretation.UNPARSABLE)
     }
     val count = (length / 3).toInt()
-    val previewCount = minOf(count, 8)
+    val previewCount = count
     val fields = mutableListOf<BoxField>()
     for (i in 0 until previewCount) {
         val entryStart = dataStart + i * 3L
