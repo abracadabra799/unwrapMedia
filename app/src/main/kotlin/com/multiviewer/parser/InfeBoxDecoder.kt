@@ -1,70 +1,78 @@
 package com.multiviewer.parser
 
 object InfeBoxDecoder : BoxDecoder {
-    override fun decode(
-        reader: ByteReader,
-        type: String,
-        offset: Long,
-        headerSize: Int,
-        size: Long,
-        warnings: List<String>,
-    ): BoxNode {
+    override fun decode(reader: ByteReader, type: String, offset: Long, headerSize: Int,
+                        size: Long, warnings: List<String>): BoxNode {
         val w = warnings.toMutableList()
-        val payloadStart = offset + headerSize
-        val payloadEnd = offset + size
-        if (payloadEnd - payloadStart < 4) {
-            w.add("Box too short to contain a FullBox header")
-            return BoxNode(type, offset, headerSize, size, warnings = w)
+        val fields = mutableListOf<BoxField>()
+        fun node(summary: String? = null) = BoxNode(type, offset, headerSize, size,
+            fields = fields.toList(), warnings = w.toList(), summary = summary)
+        if (offset < 0 || headerSize < 0 || size < headerSize || offset > reader.length ||
+            size > reader.length - offset || size - headerSize < 4) {
+            w += "Truncated infe header / infe 헤더 잘림"
+            return node()
         }
-        val version = reader.readUInt8(payloadStart)
-        if (version < 2) {
-            w.add("Unsupported infe version $version")
-            return BoxNode(type, offset, headerSize, size, warnings = w)
+        val start = offset + headerSize
+        val end = offset + size
+        val version = reader.readUInt8(start)
+        if (version !in 2..3) {
+            w += "Unsupported infe version / 미지원 infe 버전: $version"
+            return node()
         }
-        val itemIdWidth = if (version == 2) 2 else 4
-        val needed = 4 + itemIdWidth + 2 + 4
-        if (payloadEnd - payloadStart < needed) {
-            w.add("Box too short for infe version $version fields")
-            return BoxNode(type, offset, headerSize, size, warnings = w)
+        val idWidth = if (version == 2) 2 else 4
+        if (end - start < 4 + idWidth + 6) {
+            w += "Truncated infe fixed fields / infe 고정 필드 잘림"
+            return node()
         }
-        val itemIdOffset = payloadStart + 4
-        val itemId = if (itemIdWidth == 2) {
-            reader.readUInt16(itemIdOffset).toLong()
-        } else {
-            reader.readUInt32(itemIdOffset)
+        val flags = reader.readUInt32(start) and 0xffffff
+        val idStart = start + 4
+        val itemId = if (idWidth == 2) reader.readUInt16(idStart).toLong() else reader.readUInt32(idStart)
+        val typeStart = idStart + idWidth + 2
+        val itemType = reader.readFourCC(typeStart)
+        fields += BoxField("item_ID", itemId.toString(), idStart, idWidth.toLong())
+        fields += BoxField("item_protection_index", reader.readUInt16(typeStart - 2).toString(), typeStart - 2, 2)
+        fields += BoxField("item_type", itemType, typeStart, 4)
+        var pos = typeStart + 4
+        var stopped = false
+        fun string(name: String, optional: Boolean = false): String? {
+            if (stopped || optional && pos == end) return null
+            if (pos == end) {
+                w += "Missing $name / 문자열 없음"
+                stopped = true
+                return null
+            }
+            val bytes = reader.readBytes(pos, minOf(end - pos, 65536L).toInt())
+            val zero = bytes.indexOf(0)
+            val length = if (zero >= 0) zero else bytes.size
+            val value = String(bytes, 0, length, Charsets.UTF_8)
+            val limited = zero < 0 && end - pos > bytes.size
+            fields += BoxField(if (limited) "${name}_preview" else name, value, pos, length.toLong())
+            if (zero < 0) {
+                w += if (limited) "String inspection limit reached / 문자열 검사 한도 초과" else "Unterminated $name / 문자열 종결자 없음"
+                if (limited) fields += BoxField("unparsed_payload_bytes", (end - pos - length).toString(), pos + length, end - pos - length)
+                stopped = true
+                return null
+            }
+            pos += length + 1
+            return value
         }
-        val protectionIndexOffset = itemIdOffset + itemIdWidth
-        val protectionIndex = reader.readUInt16(protectionIndexOffset)
-        val itemTypeOffset = protectionIndexOffset + 2
-        val itemType = reader.readFourCC(itemTypeOffset)
-        val nameOffset = itemTypeOffset + 4
-        val remainingBytes = reader.readBytes(nameOffset, (payloadEnd - nameOffset).toInt())
-        val nameNullIndex = remainingBytes.indexOf(0)
-        val nameLength = if (nameNullIndex >= 0) nameNullIndex else remainingBytes.size
-        val itemName = String(remainingBytes, 0, nameLength, Charsets.UTF_8)
-
-        val fields = mutableListOf(
-            BoxField("item_ID", itemId.toString(), itemIdOffset, itemIdWidth.toLong()),
-            BoxField("item_protection_index", protectionIndex.toString(), protectionIndexOffset, 2),
-            BoxField("item_type", itemType, itemTypeOffset, 4),
-            BoxField("item_name", itemName, nameOffset, nameLength.toLong()),
-        )
-
-        var summary = "$itemType: $itemName"
-        if (itemType == "mime" && nameNullIndex >= 0) {
-            val contentTypeStart = nameNullIndex + 1
-            val contentTypeBytes = remainingBytes.copyOfRange(contentTypeStart, remainingBytes.size)
-            val contentTypeNullIndex = contentTypeBytes.indexOf(0)
-            val contentTypeLength = if (contentTypeNullIndex >= 0) contentTypeNullIndex else contentTypeBytes.size
-            val contentType = String(contentTypeBytes, 0, contentTypeLength, Charsets.UTF_8)
-            fields.add(BoxField("content_type", contentType, nameOffset + contentTypeStart, contentTypeLength.toLong()))
-            summary = "$itemType ($contentType): $itemName"
+        val name = string("item_name")
+        var summary = name?.let { "$itemType: $it" }
+        if (itemType == "mime") {
+            val contentType = string("content_type")
+            if (name != null && contentType != null) summary = "$itemType ($contentType): $name"
+            string("content_encoding", optional = true)
+        } else if (itemType == "uri ") {
+            string("item_uri_type")
         }
-
-        return BoxNode(
-            type = type, offset = offset, headerSize = headerSize, size = size,
-            fields = fields, warnings = w,
-            summary = summary,
-        )
+        // Append added headers so existing field positions remain stable.
+        fields += BoxField("version", version.toString(), start, 1)
+        fields += BoxField("flags", "0x${flags.toString(16).padStart(6, '0')}", start + 1, 3)
+        fields += BoxField("hidden_item", (flags and 1 != 0L).toString(), start + 1, 3)
+        if (flags and 0xfffffe != 0L) w += "Unknown infe flags / 미지원 infe 플래그"
+        if (!stopped && pos < end) {
+            fields += BoxField("unparsed_payload_bytes", (end - pos).toString(), pos, end - pos)
+        }
+        return node(summary)
     }
 }
