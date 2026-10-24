@@ -1,0 +1,5 @@
+app/src/test/resources/detail-parsing/signed-ctts.mp4
+/moov/trak/mdia/minf/vmhd offset=4618 payload=4626 size=20 hex=000000010000000000000000
+/moov/trak/mdia/minf/stbl/stsd/avc1/avcC offset=4784 payload=4792 size=53 hex=0164000affe100186764000aacd94426c044000003000400000300283c48965801000668ebe3cb22c0fdf8f800
+/moov/trak/mdia/minf/stbl/stsd/avc1/btrt offset=4853 payload=4861 size=20 hex=00000000000083e800000000
+/moov/trak/mdia/minf/stbl/ctts offset=4917 payload=4925 size=48 hex=01000000000000040000000100000000000000010000100000000002fffff8000000000100000000
