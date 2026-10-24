@@ -321,6 +321,15 @@ class HeifStructureRulesTest {
         assertTrue(r.findings.none { it.status == FAIL }, r.findings.filter { it.status == FAIL }.map { it.rule.id }.toString())
         assertEquals(PASS, r.status("heif.ftyp.mif1"))
         assertEquals(PASS, r.status("heif.meta.present"))
+        r.findings.filter { it.status == FAIL || it.status == WARN }.forEach {
+            assertNotNull(it.rule.citation, "${it.rule.id} has no citation")
+        }
+        val c = f.rule.citation!!
+        assertEquals("ISO/IEC 14496-12:2026", c.document)
+        assertEquals("§4.3 (ftyp)", c.section)
+        assertEquals("https://www.iso.org/standard/85596.html", c.url)
+        assertEquals(false, c.verified)
+        assertNull(c.page)
     }
 
     private fun mp4(vararg extra: ByteArray, compat: List<String> = listOf("isom", "mp42")) =

@@ -10,6 +10,7 @@ import com.multiviewer.parser.conformance.ConformanceStatus.WARN
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -71,6 +72,36 @@ class IsoBmffFixtureTest {
             val unexpected = r.ids(FAIL) - target - allowed
             assertTrue(unexpected.isEmpty(), "$name unexpected FAIL $unexpected: ${r.dump()}")
             assertEquals(emptySet(), r.ids(WARN), "$name: ${r.dump()}")
+        }
+    }
+
+    @Test
+    fun `every WARN and FAIL in a corrupted ISO-BMFF report cites ISO-IEC 14496-12`() {
+        corrupted.keys.forEach { name ->
+            val bad = check(name).findings.filter { it.status == FAIL || it.status == WARN }
+            assertTrue(bad.isNotEmpty(), name)
+            bad.forEach { f ->
+                val c = assertNotNull(f.rule.citation, "$name ${f.rule.id} has no citation")
+                assertEquals("ISO/IEC 14496-12:2026", c.document, "$name ${f.rule.id}")
+                assertEquals("https://www.iso.org/standard/85596.html", c.url, "$name ${f.rule.id}")
+                assertEquals(false, c.verified, "$name ${f.rule.id}")
+                assertNull(c.page, "$name ${f.rule.id}")
+                assertTrue(f.rule.reference!!.startsWith("ISO/IEC 14496-12 ${c.section},"), "${f.rule.id}: ${c.section} vs ${f.rule.reference}")
+            }
+        }
+    }
+
+    @Test
+    fun `QuickTime profile findings cite the QuickTime File Format`() {
+        val r = check("v.mov")
+        assertEquals("QuickTime", r.format)
+        r.findings.forEach { f ->
+            val c = assertNotNull(f.rule.citation, f.rule.id)
+            assertEquals("Apple QuickTime File Format", c.document, f.rule.id)
+            assertEquals("https://developer.apple.com/documentation/quicktime-file-format", c.url, f.rule.id)
+            assertEquals(false, c.verified, f.rule.id)
+            assertNull(c.page, f.rule.id)
+            assertEquals(f.rule.reference!!.removePrefix("QTFF: "), c.section, f.rule.id)
         }
     }
 

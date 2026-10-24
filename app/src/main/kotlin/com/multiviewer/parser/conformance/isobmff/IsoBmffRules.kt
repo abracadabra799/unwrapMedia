@@ -1,6 +1,7 @@
 package com.multiviewer.parser.conformance.isobmff
 
 import com.multiviewer.parser.conformance.ConformanceRule
+import com.multiviewer.parser.conformance.SpecCitation
 
 enum class BmffProfile { ISO, QUICKTIME }
 
@@ -11,6 +12,17 @@ data class BmffRuleDef(val id: String, val titleKo: String, val titleEn: String,
 object IsoBmffRules {
     const val ISO_SOURCE = "ISO/IEC 14496-12 (공개 자료 기반, 원문 미대조)"
     const val QT_SOURCE = "QuickTime File Format (공개 자료 기반, 원문 미대조)"
+
+    /**
+     * Current edition (Edition 8, published 2026-04, supersedes :2022 / 83102), confirmed by web search; iso.org
+     * answers 403 to curl. Paid standard: the clause hints were not checked against it, so no page and unverified.
+     */
+    const val ISO_DOCUMENT = "ISO/IEC 14496-12:2026"
+    const val ISO_URL = "https://www.iso.org/standard/85596.html"
+
+    /** Apple's QTFF documentation is JS-rendered; only the document root URL is known to resolve (HTTP 200). */
+    const val QT_DOCUMENT = "Apple QuickTime File Format"
+    const val QT_URL = "https://developer.apple.com/documentation/quicktime-file-format"
 
     const val SCOPE_STRUCTURE = "박스 구조 / Box structure"
     const val SCOPE_FTYP = "ftyp"
@@ -25,10 +37,10 @@ object IsoBmffRules {
 
     private fun iso(section: String) = "ISO/IEC 14496-12 $section, 판에 따라 다를 수 있음"
 
-    private class Entry(val def: BmffRuleDef, val qtReference: String)
+    private class Entry(val def: BmffRuleDef, val isoSection: String, val qtReference: String)
 
     private fun r(id: String, ko: String, en: String, section: String, scope: String, qt: String = QT_MOVIE) =
-        Entry(BmffRuleDef(id, ko, en, iso(section), scope), qt)
+        Entry(BmffRuleDef(id, ko, en, iso(section), scope), section, qt)
 
     private val entries = listOf(
         // Box structure
@@ -78,10 +90,17 @@ object IsoBmffRules {
 
     fun def(id: String): BmffRuleDef = byId.getValue(id).def
 
-    fun rule(def: BmffRuleDef, profile: BmffProfile): ConformanceRule = when (profile) {
-        BmffProfile.ISO -> ConformanceRule(def.id, "${def.titleKo} / ${def.titleEn}", ISO_SOURCE, def.reference, def.scope)
-        BmffProfile.QUICKTIME -> ConformanceRule(def.id, "${def.titleKo} / ${def.titleEn}", QT_SOURCE,
-            byId[def.id]?.qtReference ?: QT_MOVIE, def.scope)
+    fun rule(def: BmffRuleDef, profile: BmffProfile): ConformanceRule {
+        val entry = byId[def.id]
+        return when (profile) {
+            BmffProfile.ISO -> ConformanceRule(def.id, "${def.titleKo} / ${def.titleEn}", ISO_SOURCE, def.reference, def.scope,
+                citation = entry?.let { SpecCitation(ISO_DOCUMENT, it.isoSection, null, ISO_URL, false) })
+            BmffProfile.QUICKTIME -> {
+                val qt = entry?.qtReference ?: QT_MOVIE
+                ConformanceRule(def.id, "${def.titleKo} / ${def.titleEn}", QT_SOURCE, qt, def.scope,
+                    citation = SpecCitation(QT_DOCUMENT, qt.removePrefix("QTFF: "), null, QT_URL, false))
+            }
+        }
     }
 
     fun rule(id: String, profile: BmffProfile): ConformanceRule = rule(def(id), profile)
