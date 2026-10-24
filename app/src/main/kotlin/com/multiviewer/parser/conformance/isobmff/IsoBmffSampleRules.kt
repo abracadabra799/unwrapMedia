@@ -50,6 +50,8 @@ internal object IsoBmffSampleRules {
         return Table.Ok(b, count, start, entryBits)
     }
 
+    private fun Table.Ok.cursor(ctx: BmffContext) = TableCursor(ctx.reader, start, count, entryBits)
+
     private fun Table.Ok.u32(ctx: BmffContext, i: Long, field: Int = 0) =
         ctx.reader.readUInt32(start + i * (entryBits / 8) + field * 4L)
 
@@ -66,17 +68,8 @@ internal object IsoBmffSampleRules {
         is Table.Bad -> Got.Bad(reason)
     }
 
-    private class Sizes(val count: Long, val fixed: Long, val table: Table.Ok?) {
-        fun size(ctx: BmffContext, i: Long): Long {
-            val t = table ?: return fixed
-            return when (t.entryBits) {
-                32 -> ctx.reader.readUInt32(t.start + 4 * i)
-                16 -> ctx.reader.readUInt16(t.start + 2 * i).toLong()
-                8 -> ctx.reader.readUInt8(t.start + i).toLong()
-                else -> { val v = ctx.reader.readUInt8(t.start + i / 2); (if (i % 2 == 0L) v shr 4 else v and 0xF).toLong() }
-            }
-        }
-    }
+    /** stsz/stz2: [fixed] sample size, or [table] of per-sample sizes (read through a [TableCursor]). */
+    private class Sizes(val count: Long, val fixed: Long, val table: Table.Ok?)
 
     private class StscCheck(val violations: List<String>, val structural: Boolean, val unchecked: List<String>)
 
@@ -124,9 +117,6 @@ internal object IsoBmffSampleRules {
             if (found.size > 1) return Got.Skip("$type ${found.size}개 (bmff.trak.required 참고)")
             return table(ctx, found.single(), 4, bits).got()
         }
-
-        fun chunkOffset(t: Table.Ok, i: Long): Long =
-            if (t.entryBits == 64) ctx.reader.readUInt64(t.start + 8 * i) else ctx.reader.readUInt32(t.start + 4 * i)
 
         val stsdCount: Int? by lazy {
             val stsd = trak.child("mdia", "minf", "stbl", "stsd") ?: return@lazy null
@@ -369,17 +359,22 @@ internal object IsoBmffSampleRules {
                 a.skip(t, "stsc 순서/범위 오류로 샘플 위치를 계산하지 않음 (bmff.stsc.order/coverage 참고)"); continue
             }
             if (sizes.count == 0L) { a.pass(t, "샘플 없음"); continue }
+            // One buffered cursor per table: the walk below alternates stsc/stco/stsz reads (see TableCursor).
+            val stscC = stsc.cursor(ctx)
+            val chunkC = chunks.cursor(ctx)
+            val sizeC = sizes.table?.cursor(ctx)
+            fun sizeOf(i: Long) = sizeC?.value(i) ?: sizes.fixed
             val outFile = ArrayList<String>(); var outFileN = 0L
             val outMdat = ArrayList<String>(); var outMdatN = 0L
             var e = 0L
             var sample = 0L
             for (c in 0 until chunks.count) {
-                while (e + 1 < stsc.count && stsc.u32(ctx, e + 1, 0) <= c + 1) e++
-                val spc = stsc.u32(ctx, e, 1)
-                val off = t.chunkOffset(chunks, c)
+                while (e + 1 < stsc.count && stscC.u32(e + 1, 0) <= c + 1) e++
+                val spc = stscC.u32(e, 1)
+                val off = chunkC.value(c)
                 var extent = 0L
                 if (sizes.table == null) extent = satMul(spc, sizes.fixed)
-                else for (k in 0 until spc) extent = satAdd(extent, sizes.size(ctx, sample + k))
+                else for (k in 0 until spc) extent = satAdd(extent, sizeOf(sample + k))
                 // co64 offsets ≥ 2^63 read as negative Longs; they and saturated ends lie outside the file.
                 val end = if (off < 0) Long.MAX_VALUE else satAdd(off, extent)
                 fun label() = "청크 #${c + 1} @0x%s (샘플 #${sample + 1}–#${sample + spc})".format(java.lang.Long.toHexString(off).uppercase())
@@ -390,7 +385,7 @@ internal object IsoBmffSampleRules {
                         var pos = off
                         var nFile = 0L; var nMdat = 0L
                         for (k in 0 until spc) {
-                            val sz = if (sizes.table == null) sizes.fixed else sizes.size(ctx, sample + k)
+                            val sz = sizeOf(sample + k)
                             val se = if (pos < 0) Long.MAX_VALUE else satAdd(pos, sz)
                             if (sz > 0) { if (se > ctx.length) nFile++ else if (!inMdat(pos, se)) nMdat++ }
                             pos = se
