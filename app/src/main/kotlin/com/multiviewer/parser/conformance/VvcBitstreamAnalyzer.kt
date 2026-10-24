@@ -14,7 +14,7 @@ import java.io.File
 
 private const val MAX_REPORTED_OCCURRENCES_PER_RULE = 100
 
-/** Scans the first supported VVC video track. Every finding remains a structural observation. */
+/** Scans the first supported VVC video track. Rules cite their spec text via [ConformanceRule.citation]; unverified ones stay structural observations. */
 suspend fun analyzeVvcBitstream(
     file: File,
     root: BoxNode,

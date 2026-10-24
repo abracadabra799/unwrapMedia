@@ -115,10 +115,15 @@ private fun codecReportJson(report: CodecBitstreamReport, file: File): JsonValue
         "ruleId" to JsonValue.JString(finding.rule.id),
         "status" to JsonValue.JString(finding.status.name),
         "source" to JsonValue.JString(finding.rule.source),
+        "provenance" to JsonValue.JString(codecProvenanceFact(finding.rule)),
         "details" to JsonValue.JArray(finding.details.take(4).map { JsonValue.JString(scrubPaths(it, file).take(1_000)) }),
         "ranges" to JsonValue.JArray(finding.ranges.take(4).map { range -> JsonValue.JObject(listOf(
             "start" to JsonValue.JNumber(range.first), "endInclusive" to JsonValue.JNumber(range.last))) }),
-    )) }),
+    ) + (finding.rule.citation?.let { listOf("citation" to com.multiviewer.cli.citationJson(it)) }
+        ?: conformanceSourceNote(finding.rule)
+            ?.takeIf { finding.status == ConformanceStatus.WARN || finding.status == ConformanceStatus.FAIL }
+            ?.let { listOf("sourceNote" to JsonValue.JString(it)) }
+        ?: emptyList())) }),
 ))
 
 const val STALE_CONTENT_CHECK_NOTICE =
@@ -196,7 +201,7 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
         appendLine("- $codec 바이트 검사: $checkedSamples/$indexedSamples samples; complete=$complete; ${promptText(checkedTrack)}")
         appendCapped(limitations, MAX_ITEMS, "  • ") { promptText(it) }
         appendCapped(findings, MAX_ITEMS, "  • ") { finding ->
-            "[${finding.status.name}] ${finding.rule.id}; 구조 관측값·규격 조항 미확인; " +
+            "[${finding.status.name}] ${finding.rule.id}; ${codecProvenanceFact(finding.rule)}; " +
                 finding.details.take(4).joinToString("; ") { promptText(it) } +
                 (if (finding.status == ConformanceStatus.WARN || finding.status == ConformanceStatus.FAIL)
                     "; 출처: " + (finding.rule.citation?.let { "${promptText(it.label())} ${promptText(it.url)}" }

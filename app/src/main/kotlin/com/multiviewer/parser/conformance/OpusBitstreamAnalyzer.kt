@@ -15,7 +15,7 @@ private const val MAX_REPORTED_OCCURRENCES_PER_RULE = 100
 
 /**
  * Scans the first supported Opus audio track.
- * Every finding remains a structural observation until normative clauses are verified.
+ * Rules cite their spec text via [ConformanceRule.citation]; paid-document rules stay unverified.
  */
 suspend fun analyzeOpusBitstream(
     file: File,
