@@ -27,6 +27,9 @@ const val HEIF_MAX_ENTRIES = 1_000_000L
 /** Problem prefix used when a table count exceeds [HEIF_MAX_ENTRIES]. */
 const val HEIF_COUNT_CAP_PROBLEM = "항목 수 상한 초과"
 
+/** meta children that may appear at most once; extra copies are reported (the first is used). */
+private val UNIQUE_META_CHILDREN = listOf("hdlr", "pitm", "iinf", "iloc", "iprp", "idat", "iref", "dinf")
+
 /**
  * Reads the HEIF item metadata of the first top-level `meta` box. Bounded and lenient: every malformed piece is
  * recorded in [HeifModel.problems] and skipped; it never throws (except cancellation from the reader).
@@ -65,6 +68,10 @@ object HeifItemModel {
         }
 
         val children = meta.children
+        for (type in UNIQUE_META_CHILDREN) {
+            val n = children.count { it.type == type }
+            if (n > 1) problems += "meta@${meta.offset}: $type 박스가 ${n}개 (첫 번째 사용)"
+        }
         fun first(type: String): BmffBox? {
             val all = children.filter { it.type == type }
             all.filter { it.problem != null }.forEach { problems += "$type@${it.offset}: ${it.problem}" }
@@ -93,9 +100,12 @@ object HeifItemModel {
                     problems += "iinf@${b.offset}: $HEIF_COUNT_CAP_PROBLEM ($count)"
                 } else {
                     val infes = childBoxes(reader, c.pos, b.end, "iinf", b.offset, problems)
+                    infes.filter { it.type != "infe" }.forEach {
+                        problems += "iinf@${b.offset}: infe가 아닌 하위 박스 ${it.type}@${it.offset}"
+                    }
                     for (infe in infes.filter { it.type == "infe" }) {
                         if (items.size >= HEIF_MAX_ENTRIES) break
-                        guarded(infe) { readInfe(reader, infe) }?.let { items += it }
+                        guarded(infe) { readInfe(reader, infe, problems) }?.let { items += it }
                     }
                     val infeCount = infes.count { it.type == "infe" }
                     if (infeCount.toLong() != count) problems += "iinf@${b.offset}: entry_count($count)와 infe 박스 수($infeCount)가 다름"
@@ -106,7 +116,7 @@ object HeifItemModel {
         val locations = ArrayList<HeifLocation>()
         var ilocVersion: Int? = null
         first("iloc")?.let { b ->
-            guarded(b) { ilocVersion = readIloc(reader, b, locations, problems) }
+            guarded(b) { readIloc(reader, b, locations, problems) { ilocVersion = it } }
         }
 
         val properties = ArrayList<HeifProperty>()
@@ -140,6 +150,7 @@ object HeifItemModel {
                         val to = ArrayList<Long>(minOf(n, 4096))
                         repeat(n) { to += if (version == 0) rc.u16().toLong() else rc.u32() }
                         references += HeifReference(r.type, from, to, r)
+                        if (rc.remaining > 0) problems += "${r.type}@${r.offset}: 참조 ID 뒤 남은 바이트 ${rc.remaining}"
                     }
                 }
             }
@@ -151,8 +162,8 @@ object HeifItemModel {
             properties, associations, ipmaOrder, references, idat, problems)
     }
 
-    private fun readInfe(reader: ByteReader, b: BmffBox): HeifItemInfo {
-        val c = Cursor(reader, b.payload, b.end, "infe@${b.offset}")
+    private fun readInfe(reader: ByteReader, b: BmffBox, problems: MutableList<String>): HeifItemInfo {
+        val c = Cursor(reader, b.payload, b.end, "infe")
         val version = c.u8()
         val flags = (c.u8() shl 16) or (c.u8() shl 8) or c.u8()
         val id: Long
@@ -162,14 +173,31 @@ object HeifItemModel {
             version == 2 -> { id = c.u16().toLong(); c.u16(); type = c.fourCC() }
             else -> { id = c.u32(); c.u16(); type = c.fourCC() }
         }
+        if (version >= 2) {
+            // item_name, then content_type [+ optional content_encoding] for mime, item_uri_type for uri.
+            fun cString(field: String): Boolean {
+                while (c.pos < c.end) { if (c.u8() == 0) return true }
+                problems += "infe@${b.offset}: $field 문자열에 null 종료가 없음"
+                return false
+            }
+            var ok = cString("item_name")
+            if (ok && type == "mime") { ok = cString("content_type"); if (ok && c.remaining > 0) ok = cString("content_encoding") }
+            if (ok && type == "uri ") ok = cString("item_uri_type")
+            if (ok && c.remaining > 0) problems += "infe@${b.offset}: 필드 뒤 남은 바이트 ${c.remaining}"
+        }
         return HeifItemInfo(id, type, version, flags and 1 != 0, b)
     }
 
-    /** Returns the iloc version; appends the entries that parsed completely. */
-    private fun readIloc(reader: ByteReader, b: BmffBox, out: MutableList<HeifLocation>, problems: MutableList<String>): Int {
+    /**
+     * Reports the version via [onVersion] as soon as it is read; appends the entries that parsed completely and whose
+     * offsets/lengths are representable (no 2^63+ values, no base_offset + extent_offset overflow).
+     */
+    private fun readIloc(
+        reader: ByteReader, b: BmffBox, out: MutableList<HeifLocation>, problems: MutableList<String>, onVersion: (Int) -> Unit,
+    ) {
         val c = Cursor(reader, b.payload, b.end, "iloc")
-        val version = c.u8(); c.need(3); c.pos += 3
-        if (version > 2) { problems += "iloc@${b.offset}: 지원하지 않는 버전 $version"; return version }
+        val version = c.u8(); onVersion(version); c.need(3); c.pos += 3
+        if (version > 2) { problems += "iloc@${b.offset}: 지원하지 않는 버전 $version"; return }
         val s1 = c.u8(); val s2 = c.u8()
         val offsetSize = s1 ushr 4; val lengthSize = s1 and 0xF
         val baseOffsetSize = s2 ushr 4; val indexSize = if (version >= 1) s2 and 0xF else 0
@@ -177,10 +205,12 @@ object HeifItemModel {
             "index_size" to indexSize).filter { it.second !in setOf(0, 4, 8) }
         if (bad.isNotEmpty()) {
             problems += "iloc@${b.offset}: 허용되지 않는 필드 크기 " + bad.joinToString { "${it.first}=${it.second}" }
-            return version
+            return
         }
         val count = if (version < 2) c.u16().toLong() else c.u32()
-        if (count > HEIF_MAX_ENTRIES) { problems += "iloc@${b.offset}: $HEIF_COUNT_CAP_PROBLEM ($count)"; return version }
+        if (count > HEIF_MAX_ENTRIES) { problems += "iloc@${b.offset}: $HEIF_COUNT_CAP_PROBLEM ($count)"; return }
+        // Extents may be zero-width (all field sizes 0) and consume no bytes: bound their total across all items.
+        var extentBudget = HEIF_MAX_ENTRIES
         for (i in 0 until count) {
             try {
                 val id = if (version < 2) c.u16().toLong() else c.u32()
@@ -188,21 +218,33 @@ object HeifItemModel {
                 val dri = c.u16()
                 val base = c.uN(baseOffsetSize)
                 val extentCount = c.u16()
+                if (extentCount > extentBudget) {
+                    problems += "iloc@${b.offset}: $HEIF_COUNT_CAP_PROBLEM (extent 합계 > $HEIF_MAX_ENTRIES, 항목 ${i + 1}/$count)"
+                    return
+                }
+                extentBudget -= extentCount
+                var wrapped: String? = if (base < 0) "base_offset이 2^63 이상" else null
                 val extents = ArrayList<HeifExtent>(minOf(extentCount, 4096))
-                repeat(extentCount) {
+                repeat(extentCount) { e ->
                     if (indexSize > 0) c.uN(indexSize)
                     val off = c.uN(offsetSize)
                     val len = c.uN(lengthSize)
-                    extents += HeifExtent(base + off, len)
+                    if (wrapped != null) return@repeat
+                    when {
+                        off < 0 -> wrapped = "extent ${e + 1} extent_offset이 2^63 이상"
+                        len < 0 -> wrapped = "extent ${e + 1} extent_length가 2^63 이상"
+                        base > Long.MAX_VALUE - off -> wrapped = "extent ${e + 1} base_offset + extent_offset 오버플로"
+                        else -> extents += HeifExtent(base + off, len)
+                    }
                 }
-                out += HeifLocation(id, method, dri, base, extents)
+                if (wrapped != null) problems += "iloc@${b.offset}: 항목 ${i + 1}/$count (item_ID $id) 건너뜀 — $wrapped"
+                else out += HeifLocation(id, method, dri, base, extents)
             } catch (e: Truncated) {
                 problems += "iloc@${b.offset}: 항목 ${i + 1}/$count 잘림 (${e.message})"
                 break
             }
         }
         if (c.remaining > 0) problems += "iloc@${b.offset}: 항목 뒤 남은 바이트 ${c.remaining}"
-        return version
     }
 
     private fun readIpma(

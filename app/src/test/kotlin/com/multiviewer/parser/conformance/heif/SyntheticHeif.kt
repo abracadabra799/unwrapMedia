@@ -48,7 +48,9 @@ internal fun buildHeif(s: HeifSpec = HeifSpec()): ByteArray {
         val hdlr = fullBox("hdlr", 0, 0, be32(0), s.handler.toByteArray(), ByteArray(12), byteArrayOf(0))
         val pitm = fullBox("pitm", 0, 0, be16(s.primary.toInt()))
         val infes = s.items.map { item ->
-            fullBox("infe", item.infeVersion, if (item.hidden) 1 else 0, be16(item.id.toInt()), be16(0), item.type.toByteArray(), byteArrayOf(0))
+            require(item.infeVersion in 2..3) { "builder supports infe version 2 or 3 only" }
+            val id = if (item.infeVersion == 3) be32(item.id) else be16(item.id.toInt())
+            fullBox("infe", item.infeVersion, if (item.hidden) 1 else 0, id, be16(0), item.type.toByteArray(), byteArrayOf(0))
         }
         val iinf = fullBox("iinf", 0, 0, be16(s.items.size), *infes.toTypedArray())
         var mdatCursor = mdatStart
@@ -60,6 +62,7 @@ internal fun buildHeif(s: HeifSpec = HeifSpec()): ByteArray {
         }
         val iloc = fullBox("iloc", s.ilocVersion, 0, byteArrayOf(0x44, 0x00), be16(located.size), *ilocEntries.toTypedArray())
         val ipco = box("ipco", *s.props.toTypedArray())
+        require(s.assoc.all { (_, list) -> list.all { it.first in 0..127 } }) { "builder writes 7-bit ipma indices only" }
         val ipmaEntries = s.assoc.map { (id, list) ->
             be16(id.toInt()) + byteArrayOf(list.size.toByte()) + list.map { (idx, ess) -> ((if (ess) 0x80 else 0) or idx).toByte() }.toByteArray()
         }

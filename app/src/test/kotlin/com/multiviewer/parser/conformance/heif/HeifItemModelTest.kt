@@ -8,12 +8,14 @@ import com.multiviewer.parser.conformance.isobmff.box
 import com.multiviewer.parser.conformance.isobmff.fullBox
 import com.multiviewer.parser.fileOf
 import org.junit.jupiter.api.Assumptions.assumeTrue
+import org.junit.jupiter.api.Timeout
 import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -121,7 +123,7 @@ class HeifItemModelTest {
     fun `truncated infe and miscounted iinf record problems without throwing`() {
         val badIinf = fullBox("iinf", 0, 0, be16(4), fullBox("infe", 2, 0, be16(1)))
         val m = model(buildHeif(HeifSpec(dropMetaChild = "iinf", extraMetaChildren = listOf(badIinf))))
-        assertTrue(m.problems.any { "infe" in it }, m.problems.toString())
+        assertTrue(m.problems.any { it.startsWith("infe@") }, m.problems.toString())
         assertTrue(m.problems.any { "iinf" in it && "entry_count" in it }, m.problems.toString())
         assertEquals(4L, m.iinfEntryCount)
         assertTrue(m.items.isEmpty())
@@ -191,5 +193,170 @@ class HeifItemModelTest {
         } finally {
             dir.deleteRecursively()
         }
+    }
+
+    private fun be64(v: Long) = be32(v ushr 32) + be32(v and 0xFFFFFFFFL)
+    private fun iloc(version: Int, sizes: Int, baseIndex: Int, count: ByteArray, vararg entries: ByteArray) =
+        fullBox("iloc", version, 0, byteArrayOf(sizes.toByte(), baseIndex.toByte()), count, *entries)
+    private fun withIloc(iloc: ByteArray) = model(buildHeif(HeifSpec(dropMetaChild = "iloc", extraMetaChildren = listOf(iloc))))
+
+    @Test
+    @Timeout(10)
+    fun `zero-width extents are capped across items`() {
+        val entry = be32(1) + be16(0) + be16(0) + be16(65535)   // v2, all field sizes 0: each extent is 0 bytes
+        val m = withIloc(iloc(2, 0x00, 0x00, be32(100), *Array(100) { entry }))
+        assertTrue(m.problems.any { HEIF_COUNT_CAP_PROBLEM in it && it.startsWith("iloc@") }, m.problems.toString())
+        assertTrue(m.locations.sumOf { it.extents.size }.toLong() <= HEIF_MAX_ENTRIES)
+    }
+
+    @Test
+    fun `8-byte extent offset with the top bit set is rejected and only that location skipped`() {
+        val bad = be16(1) + be16(0) + be16(0) + be16(1) + be64(Long.MIN_VALUE) + be64(16)
+        val good = be16(2) + be16(0) + be16(0) + be16(1) + be64(100) + be64(16)
+        val m = withIloc(iloc(1, 0x88, 0x00, be16(2), bad, good))
+        assertTrue(m.problems.any { it.startsWith("iloc@") && "항목 1" in it }, m.problems.toString())
+        assertEquals(listOf(2L), m.locations.map { it.itemId })
+        assertEquals(listOf(HeifExtent(100, 16)), m.locations.single().extents)
+    }
+
+    @Test
+    fun `base_offset plus extent_offset overflow is rejected`() {
+        val bad = be16(1) + be16(0) + be16(0) + be64(Long.MAX_VALUE - 15) + be16(1) + be64(0x20) + be64(16)
+        val m = withIloc(iloc(1, 0x88, 0x80, be16(1), bad))
+        assertTrue(m.problems.any { it.startsWith("iloc@") }, m.problems.toString())
+        assertTrue(m.locations.isEmpty())
+    }
+
+    @Test
+    fun `8-byte extent length with the top bit set is rejected`() {
+        val bad = be16(1) + be16(0) + be16(0) + be16(1) + be64(100) + be64(-1L)
+        val m = withIloc(iloc(1, 0x88, 0x00, be16(1), bad))
+        assertTrue(m.problems.any { it.startsWith("iloc@") }, m.problems.toString())
+        assertTrue(m.locations.isEmpty())
+    }
+
+    @Test
+    fun `8-byte fields parse`() {
+        val e = be16(1) + be16(0) + be16(0) + be64(0x1_0000_0000L) + be16(1) + be64(0x10) + be64(0x2_0000_0000L)
+        val m = withIloc(iloc(1, 0x88, 0x80, be16(1), e))
+        assertEquals(emptyList(), m.problems)
+        val loc = m.locations.single()
+        assertEquals(0x1_0000_0000L, loc.baseOffset)
+        assertEquals(listOf(HeifExtent(0x1_0000_0010L, 0x2_0000_0000L)), loc.extents)
+    }
+
+    @Test
+    fun `iloc version 2 uses 32-bit item ids and count`() {
+        val e = be32(70000) + be16(1) + be16(0) + be16(1) + be32(4) + be32(8)
+        val m = withIloc(iloc(2, 0x44, 0x00, be32(1), e))
+        assertEquals(emptyList(), m.problems)
+        assertEquals(2, m.ilocVersion)
+        val loc = m.locations.single()
+        assertEquals(70000L, loc.itemId); assertEquals(1, loc.method)
+        assertEquals(listOf(HeifExtent(4, 8)), loc.extents)
+    }
+
+    @Test
+    fun `index_size above zero is skipped per extent`() {
+        val e = be16(1) + be16(0) + be16(0) + be16(2) + be32(9) + be32(100) + be32(10) + be32(9) + be32(200) + be32(20)
+        val m = withIloc(iloc(1, 0x44, 0x04, be16(1), e))
+        assertEquals(emptyList(), m.problems)
+        assertEquals(listOf(HeifExtent(100, 10), HeifExtent(200, 20)), m.locations.single().extents)
+    }
+
+    @Test
+    fun `base_offset is added to extent offsets`() {
+        val e = be16(1) + be16(0) + be16(0) + be32(1000) + be16(1) + be32(24) + be32(16)
+        val m = withIloc(iloc(1, 0x44, 0x40, be16(1), e))
+        assertEquals(emptyList(), m.problems)
+        val loc = m.locations.single()
+        assertEquals(1000L, loc.baseOffset)
+        assertEquals(listOf(HeifExtent(1024, 16)), loc.extents)
+    }
+
+    @Test
+    fun `iloc version is known even when the rest is truncated`() {
+        val m = withIloc(fullBox("iloc", 1, 0))
+        assertEquals(1, m.ilocVersion)
+        assertTrue(m.problems.any { it.startsWith("iloc@") }, m.problems.toString())
+    }
+
+    @Test
+    fun `iloc item count above the cap is reported`() {
+        val m = withIloc(iloc(2, 0x44, 0x00, be32(2_000_000)))
+        assertTrue(m.problems.any { HEIF_COUNT_CAP_PROBLEM in it && it.startsWith("iloc@") }, m.problems.toString())
+    }
+
+    @Test
+    fun `iinf and ipma counts above the cap are reported`() {
+        val iinf = fullBox("iinf", 1, 0, be32(2_000_000))
+        val iprp = box("iprp", box("ipco", hvcC()), fullBox("ipma", 0, 0, be32(2_000_000)))
+        val m = model(buildHeif(HeifSpec(dropMetaChild = "iinf", extraMetaChildren = listOf(iinf))))
+        assertTrue(m.problems.any { HEIF_COUNT_CAP_PROBLEM in it && it.startsWith("iinf@") }, m.problems.toString())
+        val m2 = model(buildHeif(HeifSpec(dropMetaChild = "iprp", extraMetaChildren = listOf(iprp))))
+        assertTrue(m2.problems.any { HEIF_COUNT_CAP_PROBLEM in it && it.startsWith("ipma@") }, m2.problems.toString())
+    }
+
+    @Test
+    fun `pitm version 1 uses a 32-bit item id`() {
+        val m = model(buildHeif(HeifSpec(dropMetaChild = "pitm", extraMetaChildren = listOf(fullBox("pitm", 1, 0, be32(70000))))))
+        assertEquals(70000L, m.primaryId)
+    }
+
+    @Test
+    fun `duplicate unique meta children are reported and the first is used`() {
+        val hdlr2 = fullBox("hdlr", 0, 0, be32(0), "vide".toByteArray(), ByteArray(12), byteArrayOf(0))
+        val m = model(buildHeif(HeifSpec(extraMetaChildren = listOf(hdlr2, fullBox("pitm", 0, 0, be16(7))))))
+        assertEquals("pict", m.handler)
+        assertEquals(1L, m.primaryId)
+        assertTrue(m.problems.any { "hdlr 박스가 2개" in it }, m.problems.toString())
+        assertTrue(m.problems.any { "pitm 박스가 2개" in it }, m.problems.toString())
+    }
+
+    @Test
+    fun `non-infe child in iinf is reported`() {
+        val iinf = fullBox("iinf", 0, 0, be16(1), fullBox("infe", 2, 0, be16(1), be16(0), "hvc1".toByteArray(), byteArrayOf(0)), box("free"))
+        val m = model(buildHeif(HeifSpec(dropMetaChild = "iinf", extraMetaChildren = listOf(iinf))))
+        assertEquals(1, m.items.size)
+        assertTrue(m.problems.any { it.startsWith("iinf@") && "free" in it }, m.problems.toString())
+    }
+
+    @Test
+    fun `trailing bytes after infe fields are reported`() {
+        val iinf = fullBox("iinf", 0, 0, be16(1), fullBox("infe", 2, 0, be16(1), be16(0), "hvc1".toByteArray(), byteArrayOf(0), byteArrayOf(9, 9)))
+        val m = model(buildHeif(HeifSpec(dropMetaChild = "iinf", extraMetaChildren = listOf(iinf))))
+        assertEquals(1, m.items.size)
+        assertTrue(m.problems.any { it.startsWith("infe@") }, m.problems.toString())
+    }
+
+    @Test
+    fun `mime infe with content type has no problems`() {
+        val iinf = fullBox("iinf", 0, 0, be16(1), fullBox("infe", 2, 0, be16(1), be16(0), "mime".toByteArray(),
+            "XMP\u0000application/rdf+xml\u0000".toByteArray()))
+        val m = model(buildHeif(HeifSpec(dropMetaChild = "iinf", extraMetaChildren = listOf(iinf))))
+        assertEquals(emptyList(), m.problems)
+        assertEquals("mime", m.items.single().type)
+    }
+
+    @Test
+    fun `trailing bytes after iref to-ids are reported`() {
+        val iref = fullBox("iref", 0, 0, box("dimg", be16(10), be16(1), be16(1), byteArrayOf(9)))
+        val m = model(buildHeif(HeifSpec(extraMetaChildren = listOf(iref))))
+        assertEquals(1, m.references.size)
+        assertTrue(m.problems.any { "dimg" in it }, m.problems.toString())
+    }
+
+    @Test
+    fun `builder writes 32-bit item id for infe version 3`() {
+        val m = model(buildHeif(HeifSpec(items = listOf(HeifItem(5, "hvc1", infeVersion = 3)), primary = 5,
+            assoc = listOf(5L to listOf(1 to true)))))
+        assertEquals(emptyList(), m.problems)
+        assertEquals(5L, m.items.single().id); assertEquals(3, m.items.single().infeVersion)
+    }
+
+    @Test
+    fun `builder rejects unsupported infe versions and wide ipma indices`() {
+        assertFailsWith<IllegalArgumentException> { buildHeif(HeifSpec(items = listOf(HeifItem(1, "hvc1", infeVersion = 1)))) }
+        assertFailsWith<IllegalArgumentException> { buildHeif(HeifSpec(assoc = listOf(1L to listOf(128 to false)))) }
     }
 }
