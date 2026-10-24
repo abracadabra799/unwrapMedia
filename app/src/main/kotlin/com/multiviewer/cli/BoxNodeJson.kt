@@ -54,7 +54,8 @@ private fun TableData.toJsonValue(): JsonValue = JsonValue.JObject(
         "fieldWidths" to JsonValue.JArray(fieldWidths.map { JsonValue.JNumber(it.toLong()) }),
         "entriesStart" to JsonValue.JNumber(entriesStart),
         "entryCount" to JsonValue.JNumber(entryCount),
-    ),
+    ) + if (rowEncoding != com.multiviewer.parser.TableRowEncoding.UNSIGNED)
+        listOf("rowEncoding" to JsonValue.JString(rowEncoding.name)) else emptyList(),
 )
 
 private fun GridData.toJsonValue(): JsonValue = JsonValue.JObject(

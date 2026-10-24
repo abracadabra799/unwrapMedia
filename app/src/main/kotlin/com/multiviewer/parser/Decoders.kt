@@ -66,6 +66,8 @@ fun registerAllDecoders() {
 
     BoxRegistry.register("stsd", CountedBoxDetailsDecoder)
     BoxRegistry.register("sbgp", CountedBoxDetailsDecoder)
+    BoxRegistry.register("sdtp", SampleDetailsDecoder)
+    BoxRegistry.register("sgpd", SampleDetailsDecoder)
     BoxRegistry.register("meta", MetaBoxDecoder)
     BoxRegistry.register("iref", IrefBoxDecoder)
     BoxRegistry.register("keys", QuickTimeKeysBoxDecoder)

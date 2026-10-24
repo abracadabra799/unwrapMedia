@@ -10,3 +10,20 @@ fun readTableRow(reader: ByteReader, entriesStart: Long, fieldWidths: List<Int>,
     }
     return row
 }
+
+/** Decode only the requested visible row; fieldWidths always describes on-disk storage. */
+fun readTableRow(reader: ByteReader, table: TableData, rowIndex: Long): List<Long> {
+    require(rowIndex >= 0 && rowIndex < table.entryCount) { "Row outside table" }
+    return when (table.rowEncoding) {
+        TableRowEncoding.UNSIGNED -> readTableRow(reader, table.entriesStart, table.fieldWidths, rowIndex)
+        TableRowEncoding.SDTP_BITS -> {
+            require(table.fieldWidths == listOf(1))
+            val value = reader.readUInt8(table.entriesStart + rowIndex)
+            listOf(6, 4, 2, 0).map { ((value shr it) and 3).toLong() }
+        }
+        TableRowEncoding.SIGNED_16 -> {
+            require(table.fieldWidths == listOf(2))
+            listOf(reader.readUInt16(table.entriesStart + rowIndex * 2).toShort().toLong())
+        }
+    }
+}

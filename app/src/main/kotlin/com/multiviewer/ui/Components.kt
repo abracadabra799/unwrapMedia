@@ -351,7 +351,7 @@ fun EmbeddedTableView(file: File, table: TableData) {
     }
 
     val rows = remember(table, page) {
-        (start until end).map { rowIndex -> readTableRow(reader, table.entriesStart, table.fieldWidths, rowIndex) }
+        (start until end).map { rowIndex -> readTableRow(reader, table, rowIndex) }
     }
 
     Column(

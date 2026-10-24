@@ -7,11 +7,14 @@ data class BoxField(
     val length: Long,
 )
 
+enum class TableRowEncoding { UNSIGNED, SDTP_BITS, SIGNED_16 }
+
 data class TableData(
     val columns: List<String>,
     val fieldWidths: List<Int>,
     val entriesStart: Long,
     val entryCount: Long,
+    val rowEncoding: TableRowEncoding = TableRowEncoding.UNSIGNED,
 )
 
 data class GridData(
