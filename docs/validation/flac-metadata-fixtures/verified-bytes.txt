@@ -1,0 +1,49 @@
+default.flac 8570
+block 0 offset 4 payload 8 length 34
+block 4 offset 42 payload 46 length 46
+ vendor 50 13 b'Lavf62.12.102'
+ comment_count 1 offset 63
+ comment 71 21 b'encoder=Lavf62.12.102'
+block 1 offset 92 payload 96 length 8192
+metadata.flac 1207
+block 0 offset 4 payload 8 length 34
+block 4 offset 42 payload 46 length 100
+ vendor 50 13 b'Lavf62.12.102'
+ comment_count 4 offset 63
+ comment 71 21 b'encoder=Lavf62.12.102'
+ comment 96 17 b'TITLE=\xea\xb2\x80\xec\xa6\x9d FLAC'
+ comment 117 12 b'ARTIST=First'
+ comment 133 13 b'ARTIST=Second'
+block 5 offset 146 payload 150 length 540
+catalog b'1234567890123' lead_in 88200 flags 0x80 tracks 3
+ track 546 offset 0 number 1 ISRC b'USAAA2600001' flags 0x40 indices 2
+  index 582 offset 0 number 0
+  index 594 offset 588 number 1
+ track 606 offset 44100 number 2 ISRC b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00' flags 0x0 indices 1
+  index 642 offset 0 number 1
+ track 654 offset 88200 number 170 ISRC b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00' flags 0x0 indices 0
+block 6 offset 690 payload 694 length 143
+ picture_type 3
+  mime offset 702 length 9 text image/png
+  description offset 715 length 6 text 표지
+ dimensions (8, 8, 24, 0, 96)
+ image_data 741 length 96 prefix 89504e470d0a1a0a0000000d49484452000000080000000808020000004b6d29dc00000009704859
+block 6 offset 837 payload 841 length 80
+ picture_type 4
+  mime offset 849 length 3 text -->
+  description offset 856 length 12 text Remote cover
+ dimensions (0, 0, 0, 0, 33)
+ image_data 888 length 33 prefix 68747470733a2f2f6578616d706c652e696e76616c69642f636f7665722e706e67
+block 1 offset 921 payload 925 length 0
+non-cd.flac 862
+block 0 offset 4 payload 8 length 34
+block 4 offset 42 payload 46 length 46
+ vendor 50 13 b'Lavf62.12.102'
+ comment_count 1 offset 63
+ comment 71 21 b'encoder=Lavf62.12.102'
+block 5 offset 92 payload 96 length 480
+catalog b'' lead_in 0 flags 0x0 tracks 2
+ track 492 offset 17 number 1 ISRC b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00' flags 0x80 indices 1
+  index 528 offset 3 number 1
+ track 540 offset 88200 number 255 ISRC b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00' flags 0x0 indices 0
+block 1 offset 576 payload 580 length 0

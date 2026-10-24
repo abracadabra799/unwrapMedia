@@ -66,11 +66,12 @@ private fun decodeFlacBlock(
     warnings: List<String>,
 ): BoxNode {
     val payloadLength = (payloadEnd - payloadStart).toInt()
-    if (payloadLength <= 0 && name !in setOf("APPLICATION", "STREAMINFO", "VORBIS_COMMENT", "PICTURE")) return BoxNode(name, offset, headerSize, size, warnings = warnings)
+    if (payloadLength <= 0 && name !in setOf("APPLICATION", "STREAMINFO", "VORBIS_COMMENT", "PICTURE", "CUESHEET")) return BoxNode(name, offset, headerSize, size, warnings = warnings)
     return when (name) {
         "STREAMINFO" -> decodeStreamInfo(reader, name, offset, headerSize, size, payloadStart, payloadLength, warnings)
         "VORBIS_COMMENT" -> decodeVorbisComment(reader, name, offset, headerSize, size, payloadStart, payloadLength, warnings)
         "PICTURE" -> decodePicture(reader, name, offset, headerSize, size, payloadStart, payloadLength, warnings)
+        "CUESHEET" -> FlacCueSheetDecoder.decode(reader, name, offset, headerSize, size, warnings)
         "SEEKTABLE", "APPLICATION" -> FlacExtraMetadataDecoder.decode(reader, name, offset, headerSize, size, warnings)
         else -> BoxNode(name, offset, headerSize, size, summary = "$payloadLength byte(s)", warnings = warnings,
             fields = if (name == "PADDING") emptyList() else listOf(BoxField("parsing_status", "Uninterpreted payload / 미해석 페이로드", payloadStart, payloadLength.toLong(), ValueInterpretation.UNINTERPRETED)))
