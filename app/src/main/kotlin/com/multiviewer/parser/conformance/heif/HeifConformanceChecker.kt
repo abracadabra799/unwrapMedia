@@ -128,9 +128,10 @@ object HeifConformanceChecker {
             findings += IsoBmffStructureRules.boxTrailing(bmff)
             val trailer = appendedVideoFtyp(tree, reader)
             findings += ftypPosition(bmff, tree, reader, trailer)
-            val ctx = HeifContext(tree, reader, HeifItemModel.read(heifHead(tree, trailer), reader), trailer)
+            val ctx = HeifContext(tree, reader, heifModel(tree, reader, trailer), trailer)
             avif = isAvif(ctx)
             findings += HeifStructureRules.evaluate(ctx)
+            findings += HeifPropertyRules.evaluate(ctx, avif)
             null
         } catch (e: CancellationException) {
             throw e
@@ -170,10 +171,11 @@ object HeifConformanceChecker {
     }
 
     /** The HEIF item model of [reader], read over the HEIF part only (never an appended video's boxes). */
-    internal fun heifModel(reader: ByteReader): HeifModel {
-        val tree = IsoBmffBoxTree.walk(reader)
-        return HeifItemModel.read(heifHead(tree, appendedVideoFtyp(tree, reader)), reader)
-    }
+    internal fun heifModel(reader: ByteReader): HeifModel = IsoBmffBoxTree.walk(reader).let { heifModel(it, reader) }
+
+    /** The single model-building path shared by [check] and [heifModel]: [tree] cut before [trailer], then read. */
+    internal fun heifModel(tree: BmffTree, reader: ByteReader, trailer: BmffBox? = appendedVideoFtyp(tree, reader)): HeifModel =
+        HeifItemModel.read(heifHead(tree, trailer), reader)
 
     private fun isAvif(ctx: HeifContext): Boolean {
         val sniffed = try { sniffFormat(ctx.reader) } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
@@ -370,7 +372,7 @@ internal object HeifStructureRules {
     private fun ilocItems(ctx: HeifContext): ConformanceFinding {
         val id = "heif.iloc.items"
         ilocUnavailable(ctx, id, needItems = true)?.let { return it }
-        val iloc = ilocBox(ctx)!!
+        val iloc = ilocBox(ctx) ?: return ctx.finding(id, NOT_CHECKED, listOf("iloc 없음"))
         val m = ctx.model
         val skipped = ilocProblems(ctx).mapNotNull(::heifSkippedItemId)
         val counts = HashMap<Long, Int>()
@@ -409,12 +411,13 @@ internal object HeifStructureRules {
     private fun ilocMethod(ctx: HeifContext): ConformanceFinding {
         val id = "heif.iloc.method"
         val m = ctx.model
-        val iloc = ilocBox(ctx)
-        val v = m.ilocVersion
-        if (iloc != null && v != null && v > 2)
-            return ctx.finding(id, FAIL, listOf("${at(iloc)}: 정의되지 않은 iloc 버전 $v (0~2)"), listOf(ctx.range(iloc)))
+        val maybeIloc = ilocBox(ctx)
+        val maybeVersion = m.ilocVersion
+        if (maybeIloc != null && maybeVersion != null && maybeVersion > 2) return ctx.finding(id, FAIL,
+            listOf("${at(maybeIloc)}: 정의되지 않은 iloc 버전 $maybeVersion (0~2)"), listOf(ctx.range(maybeIloc)))
         ilocUnavailable(ctx, id, needItems = false)?.let { return it }
-        iloc!!; v!!
+        val iloc = maybeIloc ?: return ctx.finding(id, NOT_CHECKED, listOf("iloc 없음"))
+        val v = maybeVersion ?: return ctx.finding(id, NOT_CHECKED, listOf("iloc 버전을 읽지 못함"))
         val fails = ArrayList<String>()
         val warns = ArrayList<String>()
         val ranges = ArrayList<LongRange>()
@@ -445,7 +448,7 @@ internal object HeifStructureRules {
         val id = "heif.iloc.extents"
         ilocUnavailable(ctx, id, needItems = false)?.let { return it }
         val m = ctx.model
-        val iloc = ilocBox(ctx)!!
+        val iloc = ilocBox(ctx) ?: return ctx.finding(id, NOT_CHECKED, listOf("iloc 없음"))
         val fails = ArrayList<String>()
         val ranges = ArrayList<LongRange>()
         val unchecked = ArrayList<String>()

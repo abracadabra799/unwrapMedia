@@ -19,6 +19,9 @@ object HeifRules {
     const val SCOPE_META = "meta 구조 / meta structure"
     const val SCOPE_ITEMS = "항목 / Items"
     const val SCOPE_ILOC = "항목 위치 / Item locations"
+    const val SCOPE_PROPS = "속성 / Properties"
+    const val SCOPE_REFS = "참조 / References"
+    const val SCOPE_DERIVED = "파생 항목 / Derived items"
 
     private class Def(val id: String, val ko: String, val en: String, val clause: String, val scope: String)
 
@@ -41,6 +44,22 @@ object HeifRules {
             "§6 (항목 위치 iloc, ISO/IEC 14496-12 §8.11.3)", SCOPE_ILOC),
         Def("heif.iloc.extents", "익스텐트 범위", "Extent ranges",
             "§6 (항목 위치 iloc, ISO/IEC 14496-12 §8.11.3)", SCOPE_ILOC),
+        Def("heif.ipma.refs", "속성 연결 참조", "Property association references",
+            "§6 (속성 연결 ipma, ISO/IEC 14496-12 §8.11.14)", SCOPE_PROPS),
+        Def("heif.props.ispe", "이미지 크기 속성 ispe", "Image spatial extents (ispe)",
+            "§6.5 (이미지 속성: ispe)", SCOPE_PROPS),
+        Def("heif.props.codec_config", "디코더 구성 속성", "Decoder configuration property",
+            "§6.5 및 코덱별 부속서 (hvcC 등 디코더 구성 속성)", SCOPE_PROPS),
+        Def("heif.props.essential", "변환 속성 essential 표시", "Transformative properties marked essential",
+            "§6.5 (변환 속성 irot/imir/clap)", SCOPE_PROPS),
+        Def("heif.props.unique", "항목별 속성 중복", "At most one property of each kind per item",
+            "§6.5 (이미지 속성: ispe/pixi/irot/imir/clap/colr)", SCOPE_PROPS),
+        Def("heif.iref.targets", "항목 참조 대상", "Item reference targets",
+            "§6 (항목 참조 iref: thmb/auxl/cdsc/dimg, ISO/IEC 14496-12 §8.11.12)", SCOPE_REFS),
+        Def("heif.derived.grid", "grid 파생 이미지", "Grid derived image",
+            "§6.6 (파생 이미지: grid)", SCOPE_DERIVED),
+        Def("heif.derived.inputs", "파생 이미지 입력", "Derived image inputs",
+            "§6.6 (파생 이미지: grid/iovl/iden/tmap 입력 dimg)", SCOPE_DERIVED),
     )
 
     val all: List<ConformanceRule> = defs.map { d ->

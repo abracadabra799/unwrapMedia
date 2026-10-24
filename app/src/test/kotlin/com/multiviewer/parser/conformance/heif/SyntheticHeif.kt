@@ -16,6 +16,8 @@ internal fun ispe(w: Long, h: Long) = fullBox("ispe", 0, 0, be32(w), be32(h))
 internal fun pixi(vararg bits: Int) = fullBox("pixi", 0, 0, byteArrayOf(bits.size.toByte()), bits.map { it.toByte() }.toByteArray())
 internal fun irot(angle: Int) = box("irot", byteArrayOf(angle.toByte()))
 internal fun pasp(h: Long, v: Long) = box("pasp", be32(h), be32(v))
+internal fun colrNclx() = box("colr", "nclx".toByteArray(), be16(1), be16(13), be16(6), byteArrayOf(0x80.toByte()))
+internal fun colrIcc() = box("colr", "prof".toByteArray(), ByteArray(8))
 internal fun auxC(urn: String) = fullBox("auxC", 0, 0, urn.toByteArray(Charsets.US_ASCII) + byteArrayOf(0))
 internal fun gridData(rows: Int, cols: Int, w: Int, h: Int) =
     byteArrayOf(0, 0, (rows - 1).toByte(), (cols - 1).toByte()) + be16(w) + be16(h)
@@ -55,7 +57,9 @@ internal fun buildHeif(s: HeifSpec = HeifSpec()): ByteArray {
                 fullBox("infe", item.infeVersion, flags, be16(item.id.toInt()), be16(0), byteArrayOf(0, 0, 0))
             } else {
                 val id = if (item.infeVersion == 3) be32(item.id) else be16(item.id.toInt())
-                fullBox("infe", item.infeVersion, flags, id, be16(0), item.type.toByteArray(), byteArrayOf(0))
+                // mime items carry a content_type string after item_name.
+                val tail = if (item.type == "mime") "application/rdf+xml".toByteArray() + byteArrayOf(0) else ByteArray(0)
+                fullBox("infe", item.infeVersion, flags, id, be16(0), item.type.toByteArray(), byteArrayOf(0), tail)
             }
         }
         val iinf = fullBox("iinf", 0, 0, be16(s.items.size), *infes.toTypedArray())

@@ -19,6 +19,8 @@ data class HeifModel(
     val items: List<HeifItemInfo>, val iinfEntryCount: Long?, val locations: List<HeifLocation>, val ilocVersion: Int?,
     val properties: List<HeifProperty>, val associations: List<HeifAssociation>, val ipmaOrder: List<Long>,
     val references: List<HeifReference>, val idat: BmffBox?, val problems: List<String>,
+    /** The ipco that was read (first in iprp) and every ipma box of iprp, for ranges and problem attribution. */
+    val ipco: BmffBox? = null, val ipmas: List<BmffBox> = emptyList(),
 )
 
 /** Count above which an item/property/association/reference table is not read (rules report NOT_CHECKED). */
@@ -143,16 +145,20 @@ object HeifItemModel {
         val properties = ArrayList<HeifProperty>()
         val associations = ArrayList<HeifAssociation>()
         val ipmaOrder = ArrayList<Long>()
+        var ipcoBox: BmffBox? = null
+        val ipmaBoxes = ArrayList<BmffBox>()
         first("iprp")?.let { iprp ->
             val iprpChildren = childBoxes(reader, iprp.payload, iprp.end, "iprp", iprp.offset, problems)
             val ipcos = iprpChildren.filter { it.type == "ipco" }
             if (ipcos.size > 1) problems += "iprp@${iprp.offset}: ipco 박스가 ${ipcos.size}개"
             ipcos.firstOrNull()?.let { ipco ->
+                ipcoBox = ipco
                 childBoxes(reader, ipco.payload, ipco.end, "ipco", ipco.offset, problems).forEachIndexed { i, p ->
                     if (i < HEIF_MAX_ENTRIES) properties += HeifProperty(i + 1, p.type, p)
                 }
             }
             for (ipma in iprpChildren.filter { it.type == "ipma" }) {
+                ipmaBoxes += ipma
                 guarded(ipma) { readIpma(reader, ipma, associations, ipmaOrder, problems) }
             }
         }
@@ -180,7 +186,7 @@ object HeifItemModel {
         val idat = first("idat")
 
         return HeifModel(meta, metas.size, handler, primaryId, items, iinfEntryCount, locations, ilocVersion,
-            properties, associations, ipmaOrder, references, idat, problems)
+            properties, associations, ipmaOrder, references, idat, problems, ipcoBox, ipmaBoxes)
     }
 
     private fun readInfe(reader: ByteReader, b: BmffBox, problems: MutableList<String>): HeifItemInfo {

@@ -26,10 +26,15 @@ class HeifStructureRulesTest {
     private val heifSource = "ISO/IEC 23008-12 (공개 자료 기반, 원문 미대조)"
     private val isoSource = "ISO/IEC 14496-12 (공개 자료 기반, 원문 미대조)"
     private val reusedIds = listOf("bmff.box.size", "bmff.box.size0", "bmff.box.trailing", "bmff.ftyp.position")
-    private val heifIds = listOf(
+    private val structureIds = listOf(
         "heif.ftyp.mif1", "heif.ftyp.codec_brand", "heif.meta.present", "heif.meta.required", "heif.items.ids",
         "heif.items.primary", "heif.iloc.items", "heif.iloc.method", "heif.iloc.extents",
     )
+    private val propertyIds = listOf(
+        "heif.ipma.refs", "heif.props.ispe", "heif.props.codec_config", "heif.props.essential", "heif.props.unique",
+        "heif.iref.targets", "heif.derived.grid", "heif.derived.inputs",
+    )
+    private val heifIds = structureIds + propertyIds
     private val scopes = setOf("ftyp", "meta 구조 / meta structure", "항목 / Items", "항목 위치 / Item locations",
         "속성 / Properties", "참조 / References", "파생 항목 / Derived items", "AVIF")
 
@@ -49,8 +54,9 @@ class HeifStructureRulesTest {
             HeifItem(20, "Exif"), HeifItem(30, "iden")),
         primary = 10,
         props = listOf(hvcC(), ispe(64, 48), ispe(128, 48)),
-        assoc = listOf(1L to listOf(1 to true, 2 to false), 2L to listOf(1 to true, 2 to false), 10L to listOf(3 to false)),
-        refs = listOf(Triple("dimg", 10L, listOf(1L, 2L)), Triple("cdsc", 20L, listOf(10L))),
+        assoc = listOf(1L to listOf(1 to true, 2 to false), 2L to listOf(1 to true, 2 to false), 10L to listOf(3 to false),
+            30L to listOf(3 to false)),
+        refs = listOf(Triple("dimg", 10L, listOf(1L, 2L)), Triple("cdsc", 20L, listOf(10L)), Triple("dimg", 30L, listOf(10L))),
     )
 
     @Test
@@ -59,15 +65,16 @@ class HeifStructureRulesTest {
         report.assertClean()
         assertEquals("HEIF", report.format)
         assertEquals("ISO/IEC 23008-12 phase 1", report.profile)
-        (reusedIds + heifIds).forEach { id -> assertEquals(PASS, report.status(id), id) }
+        (reusedIds + structureIds).forEach { id -> assertEquals(PASS, report.status(id), id) }
         assertEquals((reusedIds + heifIds).size, report.findings.size)
+        assertEquals((reusedIds + heifIds).toSet(), report.findings.map { it.rule.id }.toSet())
     }
 
     @Test
     fun `grid primary with hidden tiles, idat, Exif and iden items is clean`() {
         val report = check(gridSpec)
         report.assertClean()
-        heifIds.forEach { id -> assertEquals(PASS, report.status(id), id) }
+        (structureIds + propertyIds - "heif.props.essential").forEach { id -> assertEquals(PASS, report.status(id), id) }
     }
 
     @Test
