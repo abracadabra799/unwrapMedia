@@ -153,4 +153,25 @@ class IsoBmffBoxTreeTest {
             assertEquals(0x6D.toByte(), bytes[off - 4]) // 'm' of "mdat"
         }
     }
+
+    @Test
+    fun `non box bytes inside a container are recorded as a leftover span`() {
+        val garbage = byteArrayOf(0, 0, 0, 16, 0, 1, 2, 3) + ByteArray(8)
+        val moov = box("moov", box("mvhd", ByteArray(4)), garbage)
+        val tree = walk(moov)
+        val left = tree.leftovers.single()
+        assertEquals("moov", left.container)
+        assertEquals(0L, left.containerOffset)
+        assertEquals(20L, left.offset)
+        assertEquals(16L, left.bytes)
+        assertEquals(1, tree.top.single().children.size)
+    }
+
+    @Test
+    fun `no leftovers inside meta and none when a level ends on a problem box`() {
+        val meta = box("meta", ByteArray(4), box("hdlr", ByteArray(8)), ByteArray(12) { 0x0E })
+        assertTrue(walk(box("moov", meta)).leftovers.isEmpty())
+        val bad = be32(1000) + "free".toByteArray() + ByteArray(4)
+        assertTrue(walk(box("moov", bad)).leftovers.isEmpty())
+    }
 }

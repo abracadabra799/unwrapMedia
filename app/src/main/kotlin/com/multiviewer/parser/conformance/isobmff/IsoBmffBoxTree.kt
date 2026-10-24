@@ -19,7 +19,16 @@ data class BmffBox(
  * If the top level ends on a problem box (invalid header), the problem is reported on that box instead, so
  * trailingBytes = 0 and trailingOffset = null.
  */
-data class BmffTree(val top: List<BmffBox>, val trailingBytes: Long, val trailingOffset: Long?)
+data class BmffTree(
+    val top: List<BmffBox>, val trailingBytes: Long, val trailingOffset: Long?,
+    val leftovers: List<BmffLeftover> = emptyList(),
+)
+
+/**
+ * Bytes inside container [container] (box at [containerOffset]) from the first byte that is not a box header
+ * ([offset]) to the container's end. Not recorded inside `meta` (its payload may start with a version/flags word).
+ */
+data class BmffLeftover(val container: String, val containerOffset: Long, val offset: Long, val bytes: Long)
 
 val BMFF_CONTAINERS: Set<String> = setOf(
     "moov", "trak", "mdia", "minf", "dinf", "stbl", "edts", "udta", "mvex", "moof", "traf", "mfra", "tref",
@@ -31,16 +40,24 @@ object IsoBmffBoxTree {
 
     fun walk(reader: ByteReader): BmffTree {
         val length = reader.length
-        val level = walkLevel(reader, 0L, length, null, 0)
+        val leftovers = ArrayList<BmffLeftover>()
+        val level = walkLevel(reader, 0L, length, null, -1L, 0, leftovers)
         val trailing = if (level.endedOnProblem) 0L else length - level.validEnd
-        return BmffTree(level.boxes, trailing, if (trailing > 0) level.validEnd else null)
+        return BmffTree(level.boxes, trailing, if (trailing > 0) level.validEnd else null, leftovers)
     }
 
     private class Level(val boxes: List<BmffBox>, val validEnd: Long, val endedOnProblem: Boolean)
 
     private fun validType(t: ByteArray) = t.size == 4 && t.all { val v = it.toInt() and 0xFF; v in 0x20..0x7E || v == 0xA9 }
 
-    private fun walkLevel(reader: ByteReader, start: Long, limit: Long, parent: String?, depth: Int): Level {
+    /**
+     * Walks [start, limit). A nested level (not top, not `meta`) that stops before [limit] without a problem box
+     * — a non-printable child type or fewer than 8 bytes left — records the rest of the parent as a leftover.
+     */
+    private fun walkLevel(
+        reader: ByteReader, start: Long, limit: Long, parent: String?, parentOffset: Long, depth: Int,
+        leftovers: MutableList<BmffLeftover>,
+    ): Level {
         val boxes = ArrayList<BmffBox>()
         var pos = start
         var validEnd = start
@@ -75,10 +92,10 @@ object IsoBmffBoxTree {
             val payload = pos + header
             val children = if (depth < MAX_DEPTH) {
                 when {
-                    type in BMFF_CONTAINERS -> walkLevel(reader, payload, end, type, depth + 1).boxes
+                    type in BMFF_CONTAINERS -> walkLevel(reader, payload, end, type, pos, depth + 1, leftovers).boxes
                     type == "meta" -> {
                         val childStart = if (looksLikeBoxHeader(reader, payload, end)) payload else payload + 4
-                        if (childStart <= end) walkLevel(reader, childStart, end, type, depth + 1).boxes else emptyList()
+                        if (childStart <= end) walkLevel(reader, childStart, end, type, pos, depth + 1, leftovers).boxes else emptyList()
                     }
                     else -> emptyList()
                 }
@@ -87,6 +104,8 @@ object IsoBmffBoxTree {
             pos = end
             validEnd = end
         }
+        if (parent != null && parent != "meta" && !problemEnd && validEnd < limit)
+            leftovers += BmffLeftover(parent, parentOffset, validEnd, limit - validEnd)
         return Level(boxes, validEnd, problemEnd)
     }
 

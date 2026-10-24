@@ -94,6 +94,8 @@ object IsoBmffConformanceChecker {
 internal object IsoBmffStructureRules {
     private const val MAX_BRANDS = 4096
     private const val MAX_UNKNOWN_LISTED = 50
+    /** Unparsed bytes inside a container (other than meta) at or above this size fail bmff.box.size. */
+    private const val MIN_LEFTOVER_FAIL = 8L
 
     private val PREFTYP_ALLOWED = setOf("free", "skip", "wide", "uuid")
     private const val MAX_BRANDS_SHOWN = 16
@@ -145,9 +147,14 @@ internal object IsoBmffStructureRules {
     private fun boxSize(ctx: BmffContext): ConformanceFinding {
         if (ctx.allBoxes.isEmpty()) return noBoxes(ctx, "bmff.box.size")
         val bad = ctx.allBoxes.filter { it.problem != null }
-        if (bad.isEmpty()) return ctx.finding("bmff.box.size", PASS, listOf("모든 박스 크기가 헤더 이상이며 상위 범위 안에 있음 (${ctx.allBoxes.size}개)"))
+        // Shorter leftovers are tolerated: QuickTime ends some containers (udta) with a 4-byte zero terminator.
+        val left = ctx.tree.leftovers.filter { it.bytes >= MIN_LEFTOVER_FAIL }
+        if (bad.isEmpty() && left.isEmpty())
+            return ctx.finding("bmff.box.size", PASS, listOf("모든 박스 크기가 헤더 이상이며 상위 범위 안에 있음 (${ctx.allBoxes.size}개)"))
         return ctx.finding("bmff.box.size", FAIL,
-            bad.map { "${at(it)}${it.parent?.let { p -> " ($p 안)" } ?: ""}: ${it.problem}" }, bad.map(ctx::range))
+            bad.map { "${at(it)}${it.parent?.let { p -> " ($p 안)" } ?: ""}: ${it.problem}" } +
+                left.map { "${it.bytes}바이트가 ${it.container} 안에서 박스로 해석되지 않습니다 @0x%X".format(it.offset) },
+            bad.map(ctx::range) + left.map { it.offset until minOf(it.offset + it.bytes, ctx.length) })
     }
 
     private fun boxSize0(ctx: BmffContext): ConformanceFinding {

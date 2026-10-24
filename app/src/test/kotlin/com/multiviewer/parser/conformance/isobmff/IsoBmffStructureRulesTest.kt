@@ -405,4 +405,23 @@ class IsoBmffStructureRulesTest {
         }
         return out
     }
+
+    @Test
+    fun `non box bytes inside a nested container fail box size`() {
+        val garbage = be32(16) + byteArrayOf(0, 1, 2, 3) + ByteArray(8)
+        val bytes = buildMovie(MovieSpec(extraMoov = listOf(garbage)))
+        val f = check(bytes).finding("bmff.box.size")
+        assertEquals(FAIL, f.status, f.details.toString())
+        val start = (bytes.size - 16).toLong()
+        assertTrue(f.details.any { it == "16바이트가 moov 안에서 박스로 해석되지 않습니다 @0x%X".format(start) }, f.details.toString())
+        assertEquals(listOf(start until start + 16), f.ranges)
+    }
+
+    @Test
+    fun `a 4-byte zero terminator inside udta and junk inside meta are tolerated`() {
+        val udta = box("udta", box("name", "x".toByteArray()), ByteArray(4))
+        val meta = box("meta", ByteArray(4), fullBox("hdlr", 0, 0, ByteArray(4), "mdir".toByteArray(), ByteArray(12)), ByteArray(12) { 0x0E })
+        val f = check(MovieSpec(extraMoov = listOf(udta, meta))).finding("bmff.box.size")
+        assertEquals(PASS, f.status, f.details.toString())
+    }
 }

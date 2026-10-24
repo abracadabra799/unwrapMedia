@@ -57,6 +57,8 @@ class IsoBmffFixtureTest {
         "vmhd-flags-0.mp4" to ("bmff.vmhd.flags" to emptySet()),
         "size0-nested.mp4" to ("bmff.box.size0" to emptySet()),
         "trailing-garbage.mp4" to ("bmff.box.trailing" to emptySet()),
+        // 2nd trak's type → 00 01 02 03: the audio trak and udta after it are not boxes inside moov.
+        "bad-type-nested.mp4" to ("bmff.box.size" to emptySet()),
     )
 
     @Test
@@ -91,5 +93,14 @@ class IsoBmffFixtureTest {
         val r = check("stsc-gap.mp4")
         assertEquals(NOT_CHECKED, r.status("bmff.stsc.coverage"))
         assertEquals(NOT_CHECKED, r.status("bmff.sample.location"))
+    }
+
+    @Test
+    fun `non box bytes inside moov are reported, never an overall PASS`() {
+        val r = check("bad-type-nested.mp4")
+        assertTrue(r.overall != PASS, r.dump().toString())
+        val f = r.findings.single { it.rule.id == "bmff.box.size" }
+        assertTrue(f.details.any { it.contains("바이트가 moov 안에서 박스로 해석되지 않습니다 @0x") }, f.details.toString())
+        assertEquals(1, f.ranges.size)
     }
 }

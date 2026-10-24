@@ -137,6 +137,12 @@ def main():
         moov = find(t, b"moov")
         insert(data, moov.end, struct.pack(">I4s", 0, b"free"), chain(moov))
 
+    def bad_type_nested(data, t):
+        traks = [b for b in find(t, b"moov").children if b.type == b"trak"]
+        if len(traks) < 2:
+            raise SystemExit("source needs two traks")
+        data[traks[1].offset + 4:traks[1].offset + 8] = b"\x00\x01\x02\x03"  # size unchanged
+
     def trailing_garbage(data, t):
         data.extend(b"\x0E" * 20)
 
@@ -149,6 +155,7 @@ def main():
     variant("vmhd-flags-0.mp4", vmhd_flags_0)
     variant("size0-nested.mp4", size0_nested)
     variant("trailing-garbage.mp4", trailing_garbage)
+    variant("bad-type-nested.mp4", bad_type_nested)
 
 
 if __name__ == "__main__":
