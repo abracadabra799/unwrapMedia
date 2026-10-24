@@ -188,6 +188,8 @@ internal object IsoBmffFieldRules {
             val expectedQt = when { !ctx.isQt -> null; b.parent == "mdia" -> "mhlr"; b.parent == "minf" -> "dhlr"; else -> null }
             when {
                 expectedQt != null && comp == expectedQt -> a.pass(b, "구성요소 유형 '$comp' (핸들러 $handler)")
+                // Some QuickTime writers leave the component type 0: tolerated (WARN); any other value FAILs.
+                expectedQt != null && raw == 0L -> a.warn(b, "QuickTime ${b.parent} hdlr component type 0 ($expectedQt 기대)")
                 expectedQt != null -> a.fail(b, "구성요소 유형 ${show4(comp)} (${b.parent} 안에서는 '$expectedQt'이어야 함)")
                 raw == 0L -> a.pass(b, "pre_defined 0 (핸들러 $handler)")
                 !ctx.isQt && (b.parent == "mdia" && comp == "mhlr" || b.parent == "minf" && comp == "dhlr") ->

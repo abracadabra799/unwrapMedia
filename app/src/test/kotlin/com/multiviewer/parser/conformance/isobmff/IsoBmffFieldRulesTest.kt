@@ -107,11 +107,16 @@ class IsoBmffFieldRulesTest {
         assertEquals(WARN, check(MovieSpec(qtDataHandler = true)).status("bmff.hdlr.predefined"))
         assertEquals(FAIL, check(MovieSpec(qtDataHandler = true, qtDataHandlerType = "mhlr")).status("bmff.hdlr.predefined"))
         assertEquals(FAIL, check(qtSpec.copy(qtDataHandlerType = "mhlr")).status("bmff.hdlr.predefined"))
-        assertEquals(FAIL, check(qtSpec.copy(qtDataHandlerType = "\u0000\u0000\u0000\u0000")).status("bmff.hdlr.predefined"))
         assertEquals(PASS, check(qtSpec).status("bmff.hdlr.predefined"))
-        // QuickTime: mdia hdlr must say mhlr
-        assertEquals(FAIL, check(qtSpec.copy(handlerPreDefined = "\u0000\u0000\u0000\u0000")).status("bmff.hdlr.predefined"))
+        // QuickTime: mdia hdlr must say mhlr, minf hdlr dhlr; component type 0 is only a WARN, other values FAIL
+        val minf0 = check(qtSpec.copy(qtDataHandlerType = "\u0000\u0000\u0000\u0000")).finding("bmff.hdlr.predefined")
+        assertEquals(WARN, minf0.status, minf0.details.toString())
+        assertTrue(minf0.details.any { it.contains("QuickTime minf hdlr component type 0 (dhlr 기대)") }, minf0.details.toString())
+        val mdia0 = check(qtSpec.copy(handlerPreDefined = "\u0000\u0000\u0000\u0000")).finding("bmff.hdlr.predefined")
+        assertEquals(WARN, mdia0.status, mdia0.details.toString())
+        assertTrue(mdia0.details.any { it.contains("QuickTime mdia hdlr component type 0 (mhlr 기대)") }, mdia0.details.toString())
         assertEquals(FAIL, check(qtSpec.copy(handlerPreDefined = "dhlr")).status("bmff.hdlr.predefined"))
+        assertEquals(FAIL, check(qtSpec.copy(handlerPreDefined = "abcd")).status("bmff.hdlr.predefined"))
     }
 
     @Test
