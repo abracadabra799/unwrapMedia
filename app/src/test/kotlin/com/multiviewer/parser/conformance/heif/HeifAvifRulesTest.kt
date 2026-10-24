@@ -210,6 +210,13 @@ class HeifAvifRulesTest {
         assertStatus(PASS, other, "avif.alpha.auxc")
         assertTrue(other.finding("avif.alpha.auxc").details.single().contains("알파가 아닌"), other.finding("avif.alpha.auxc").details.toString())
         assertStatus(WARN, check(withAux("urn:mpeg:mpegb:cicp:systems:auxiliary:alpha")), "avif.alpha.auxc")
+        // A typo in the prefix itself is still a near miss of the whole URN (edit distance <= 3).
+        assertStatus(WARN, check(withAux("urn:mpeg:mpegB:cicp:system:auxiliary:alpha")), "avif.alpha.auxc")
+        assertStatus(WARN, check(withAux("urn:mpeg:mpgeB:cicp:systems:auxiliary:depth")), "avif.alpha.auxc")
+        assertStatus(WARN, check(withAux("urn:mpeg:mpegB:cicp:systems:auxilary:alpha")), "avif.alpha.auxc")
+        // Far from both URNs, or very long: not a typo.
+        assertStatus(PASS, check(withAux("urn:mpeg:mpegB:cicp:sys:aux:alpha")), "avif.alpha.auxc")
+        assertStatus(PASS, check(withAux("urn:mpeg:mpegB:cicp:systems:auxiliary:alpha" + "x".repeat(40))), "avif.alpha.auxc")
     }
 
     @Test

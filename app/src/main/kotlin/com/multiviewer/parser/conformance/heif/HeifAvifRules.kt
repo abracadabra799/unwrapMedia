@@ -77,7 +77,6 @@ internal object HeifAvifRules {
     const val DEPTH_URN = "urn:mpeg:mpegB:cicp:systems:auxiliary:depth"
     /** HEVC alpha aux type (ISO/IEC 23008-2 SEI auxId 1), accepted as alpha. */
     const val HEVC_ALPHA_URN = "urn:mpeg:hevc:2015:auxid:1"
-    private const val CICP_AUX_PREFIX = "urn:mpeg:mpegb:cicp:systems:auxiliary:"
 
     /** Derived image item types followed through `dimg` for §6.2 (HEIF derived images plus AVIF §4.2.3 'sato'). */
     private val AVIF_DERIVED = DERIVED_TYPES + "sato"
@@ -297,14 +296,17 @@ internal object HeifAvifRules {
     }
 
     /**
-     * A URN under the CICP auxiliary prefix that is not exactly the alpha/depth URN but looks like a misspelt one:
-     * a case/whitespace variant or within edit distance 3. Any other suffix is another auxiliary type (not alpha).
+     * A URN that is not exactly the alpha/depth URN but looks like a misspelt one: a case/whitespace variant or within
+     * edit distance 3 of the whole URN (also when the typo is in the prefix; only URNs under [NEAR_MISS_MAX_CHARS]
+     * are compared). Any other suffix under the CICP prefix is another auxiliary type (not alpha).
      */
     private fun nearMissAlpha(urn: String): Boolean {
         val lower = urn.trim().lowercase()
-        if (!lower.startsWith(CICP_AUX_PREFIX)) return false
+        if (lower.length >= NEAR_MISS_MAX_CHARS) return false
         return listOf(ALPHA_URN, DEPTH_URN).map { it.lowercase() }.any { lower == it || editDistance(lower, it) <= 3 }
     }
+
+    private const val NEAR_MISS_MAX_CHARS = 80
 
     private fun alphaAuxC(ctx: HeifContext, p: HeifPropertyRules.Props): ConformanceFinding {
         val id = "avif.alpha.auxc"
