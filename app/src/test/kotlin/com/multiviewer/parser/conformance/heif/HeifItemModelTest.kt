@@ -356,7 +356,7 @@ class HeifItemModelTest {
 
     @Test
     fun `builder rejects unsupported infe versions and wide ipma indices`() {
-        assertFailsWith<IllegalArgumentException> { buildHeif(HeifSpec(items = listOf(HeifItem(1, "hvc1", infeVersion = 1)))) }
+        assertFailsWith<IllegalArgumentException> { buildHeif(HeifSpec(items = listOf(HeifItem(1, "hvc1", infeVersion = 4)))) }
         assertFailsWith<IllegalArgumentException> { buildHeif(HeifSpec(assoc = listOf(1L to listOf(128 to false)))) }
     }
 }

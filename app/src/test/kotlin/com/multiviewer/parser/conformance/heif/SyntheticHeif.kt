@@ -30,7 +30,7 @@ internal data class HeifSpec(
     val assoc: List<Pair<Long, List<Pair<Int, Boolean>>>> = listOf(1L to listOf(1 to true, 2 to false)), // (1-based index, essential)
     val refs: List<Triple<String, Long, List<Long>>> = emptyList(),
     val handler: String = "pict",
-    val dropMetaChild: String? = null,       // "hdlr" | "pitm" | "iinf" | "iloc" | "iprp"
+    val dropMetaChild: String? = null,       // "hdlr" | "pitm" | "iinf" | "iloc" | "iprp" | "idat"
     val ilocVersion: Int = 1,
     val ilocExtentDelta: Long = 0,            // added to every method-0 extent offset
     val extraMetaChildren: List<ByteArray> = emptyList(),
@@ -48,9 +48,15 @@ internal fun buildHeif(s: HeifSpec = HeifSpec()): ByteArray {
         val hdlr = fullBox("hdlr", 0, 0, be32(0), s.handler.toByteArray(), ByteArray(12), byteArrayOf(0))
         val pitm = fullBox("pitm", 0, 0, be16(s.primary.toInt()))
         val infes = s.items.map { item ->
-            require(item.infeVersion in 2..3) { "builder supports infe version 2 or 3 only" }
-            val id = if (item.infeVersion == 3) be32(item.id) else be16(item.id.toInt())
-            fullBox("infe", item.infeVersion, if (item.hidden) 1 else 0, id, be16(0), item.type.toByteArray(), byteArrayOf(0))
+            require(item.infeVersion in 0..3) { "builder supports infe versions 0 to 3 only" }
+            val flags = if (item.hidden) 1 else 0
+            if (item.infeVersion < 2) {
+                // Versions 0/1 carry no item_type: item_ID, protection_index, item_name, content_type, content_encoding.
+                fullBox("infe", item.infeVersion, flags, be16(item.id.toInt()), be16(0), byteArrayOf(0, 0, 0))
+            } else {
+                val id = if (item.infeVersion == 3) be32(item.id) else be16(item.id.toInt())
+                fullBox("infe", item.infeVersion, flags, id, be16(0), item.type.toByteArray(), byteArrayOf(0))
+            }
         }
         val iinf = fullBox("iinf", 0, 0, be16(s.items.size), *infes.toTypedArray())
         var mdatCursor = mdatStart
@@ -74,7 +80,7 @@ internal fun buildHeif(s: HeifSpec = HeifSpec()): ByteArray {
         val idat = if (idatItems.isEmpty()) ByteArray(0) else box("idat", idatPayload)
         fun keep(name: String, b: ByteArray) = if (s.dropMetaChild == name) ByteArray(0) else b
         return fullBox("meta", 0, 0, keep("hdlr", hdlr), keep("pitm", pitm), keep("iinf", iinf), keep("iloc", iloc),
-            keep("iprp", iprp), iref, idat, *s.extraMetaChildren.toTypedArray())
+            keep("iprp", iprp), iref, keep("idat", idat), *s.extraMetaChildren.toTypedArray())
     }
     val head = ftyp + s.extraTop.fold(ByteArray(0)) { a, b -> a + b }
     val probe = meta(0)

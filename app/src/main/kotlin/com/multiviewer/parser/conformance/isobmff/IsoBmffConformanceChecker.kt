@@ -144,7 +144,7 @@ internal object IsoBmffStructureRules {
 
     private fun noBoxes(ctx: BmffContext, id: String) = ctx.finding(id, NOT_CHECKED, listOf("유효한 박스가 없음"))
 
-    private fun boxSize(ctx: BmffContext): ConformanceFinding {
+    internal fun boxSize(ctx: BmffContext): ConformanceFinding {
         if (ctx.allBoxes.isEmpty()) return noBoxes(ctx, "bmff.box.size")
         val bad = ctx.allBoxes.filter { it.problem != null }
         // Shorter leftovers are tolerated: QuickTime ends some containers (udta) with a 4-byte zero terminator.
@@ -157,7 +157,7 @@ internal object IsoBmffStructureRules {
             bad.map(ctx::range) + left.map { it.offset until minOf(it.offset + it.bytes, ctx.length) })
     }
 
-    private fun boxSize0(ctx: BmffContext): ConformanceFinding {
+    internal fun boxSize0(ctx: BmffContext): ConformanceFinding {
         if (ctx.allBoxes.isEmpty()) return noBoxes(ctx, "bmff.box.size0")
         val nested = ctx.allBoxes.filter { it.rawSize == 0L && it.parent != null }
         if (nested.isNotEmpty()) return ctx.finding("bmff.box.size0", FAIL,
@@ -167,7 +167,7 @@ internal object IsoBmffStructureRules {
             if (top.isEmpty()) listOf("크기 0 박스 없음") else top.map { "최상위 ${at(it)}: 크기 0 (파일 끝까지, 마지막 박스)" })
     }
 
-    private fun boxTrailing(ctx: BmffContext): ConformanceFinding {
+    internal fun boxTrailing(ctx: BmffContext): ConformanceFinding {
         val t = ctx.tree
         if (t.trailingBytes > 0 && t.trailingOffset != null) return ctx.finding("bmff.box.trailing", FAIL,
             listOf("마지막 최상위 박스 뒤 ${t.trailingBytes}바이트(오프셋 0x%X)가 박스가 아님".format(t.trailingOffset)),
@@ -187,7 +187,7 @@ internal object IsoBmffStructureRules {
         }
     }
 
-    private fun ftypPosition(ctx: BmffContext): ConformanceFinding {
+    internal fun ftypPosition(ctx: BmffContext): ConformanceFinding {
         val all = ftyps(ctx)
         if (all.isEmpty()) return ctx.finding("bmff.ftyp.position", NOT_APPLICABLE, listOf("ftyp 없음"))
         val idx = ctx.tree.top.indexOf(all.first())
