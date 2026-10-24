@@ -78,6 +78,18 @@ not open coded item data except the grid descriptor and the `tmap` metadata head
   inputs 41 + 47, Exif/XMP `cdsc` items 49–51; `iloc` v1 with `idat`; every image item has an essential `ispe`;
   trailing `free`/`mpvd`/`sefd` boxes): expected no FAIL. Unknown top-level `mpvd`/`sefd` are judged by the Google
   Motion Photo checker, not here.
+- Samsung Galaxy S26 HEIC (`20261012_131852_s26.heic`): HEIF `ftyp`/`uuid`/`mdat`/`meta`/`free`, then a complete
+  `mp42` MP4 (`ftyp mp42 [isom mp42]`, `mdat`, `moov`) appended at top level after the HEIF `meta`, then `sefd`. The
+  second `ftyp` lists no image brand, so it is treated as the start of an appended video: `bmff.ftyp.position` is
+  evaluated over the HEIF part and reported as WARN (single-ftyp layout broken), the HEIF item model reads only the
+  boxes before it, and the video is left to the Google Motion Photo checker. A later `ftyp` listing an image brand
+  still FAILs.
+
+### Spec citation URL
+
+HEIF rules cite `ISO/IEC 23008-12:2025` at https://www.iso.org/standard/89035.html (Edition 3, published 2025-07;
+83650 is the withdrawn 2022 edition). The page was confirmed by web search because iso.org blocks automated requests
+(HTTP 403 for curl, also with a browser user agent). Clause hints are unverified; no pages or anchors.
 
 ## Architecture
 
