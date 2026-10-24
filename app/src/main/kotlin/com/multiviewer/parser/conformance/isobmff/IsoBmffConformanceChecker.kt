@@ -104,7 +104,7 @@ internal object IsoBmffStructureRules {
     private val ISO_BRANDS = setOf(
         "isom", "avc1", "avc2", "avc3", "avc4", "mp41", "mp42", "mp71", "M4A ", "M4V ", "M4P ", "M4B ", "M4VH", "M4VP",
         "f4v ", "f4a ", "f4p ", "f4b ", "dash", "msdh", "msix", "cmfc", "cmf2", "mmp4", "MSNV", "XAVC", "iso2", "iso3",
-        "iso4", "iso5", "iso6", "iso7", "iso8", "iso9", "isoa", "isob", "isoc",
+        "iso4", "iso5", "iso6", "iso7", "iso8", "iso9", "isoa", "isob", "isoc", "piff", "isml",
     )
 
     private const val TOP = ""

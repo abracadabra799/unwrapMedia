@@ -214,7 +214,7 @@ class IsoBmffStructureRulesTest {
 
     @Test
     fun `M4A and 3GP brands are accepted`() {
-        listOf("M4A " to "M4A isomiso2", "3gp4" to "isom3gp4", "mp42" to "mp42mp41").forEach { (major, compat) ->
+        listOf("M4A " to "M4A isomiso2", "3gp4" to "isom3gp4", "mp42" to "mp42mp41", "isml" to "ismlpiff", "piff" to "piff").forEach { (major, compat) ->
             val ftyp = box("ftyp", major.toByteArray(), be32(0), compat.toByteArray())
             assertEquals(PASS, check(MovieSpec(ftyp = ftyp)).status("bmff.ftyp.brands"), major)
         }
