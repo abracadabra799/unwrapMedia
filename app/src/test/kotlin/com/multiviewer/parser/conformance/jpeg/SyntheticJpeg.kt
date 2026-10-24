@@ -1,5 +1,9 @@
 package com.multiviewer.parser.conformance.jpeg
 
+import com.multiviewer.parser.byteReaderOf
+import com.multiviewer.parser.conformance.ConformanceReport
+import com.multiviewer.parser.conformance.ConformanceStatus
+
 /** Marker segment 0xFF<marker> + Lx + payload. */
 internal fun seg(marker: Int, vararg payload: Int): ByteArray =
     byteArrayOf(0xFF.toByte(), marker.toByte(), ((payload.size + 2) shr 8).toByte(), (payload.size + 2).toByte()) +
@@ -45,3 +49,8 @@ internal fun baseline(
     tail: ByteArray = EOI,
 ) = SOI + app + tables + frame + scan + tail
 
+internal fun check(bytes: ByteArray): ConformanceReport = byteReaderOf(bytes).use { JpegConformanceChecker.check(it) }
+internal fun ConformanceReport.status(id: String): ConformanceStatus = findings.single { it.rule.id == id }.status
+internal fun ConformanceReport.ids(vararg s: ConformanceStatus): Set<String> = findings.filter { it.status in s }.map { it.rule.id }.toSet()
+internal fun ConformanceReport.dump(): List<String> = findings.filter { it.status != ConformanceStatus.PASS && it.status != ConformanceStatus.NOT_APPLICABLE }
+    .map { "${it.status} ${it.rule.id} ${it.details}" }
