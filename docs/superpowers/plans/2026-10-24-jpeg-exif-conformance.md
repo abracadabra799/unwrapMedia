@@ -3,7 +3,7 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Content Check's Container Conformance row checks JPEG files rule by rule against ITU-T T.81, T.871 (JFIF),
-CIPA DC-008-2023 (Exif 3.0) and DC-007-2026 (MPF); every rule carries a verified page citation.
+CIPA DC-008-2026 (Exif 3.1) and DC-007-2026 (MPF); every rule carries a verified page citation.
 
 **Architecture:** New package `com.multiviewer.parser.conformance.jpeg` (catalog, bounded marker/entropy scanner,
 rule groups, checker). `containerConformanceFor` dispatches `ContainerFormat.JPEG` to `JpegConformanceChecker`; the
@@ -24,7 +24,10 @@ stop and report.
   (subagents have committed into the main repo before). Commit trailer `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - Status mapping: violated rule → FAIL, except `JpegRules.WARN_RULES` (`t81.marker.reserved`, `t81.trailing`,
   `exif.tags.recommended`, `mpf.endian`) → WARN; satisfied → PASS; not evaluable → NOT_CHECKED with the reason; no
-  JFIF/Exif/MPF segment → NOT_APPLICABLE. Never INFO, never a PASS without evaluation.
+  JFIF/Exif/MPF segment → NOT_APPLICABLE. Never INFO, never a PASS without evaluation. One exception inside a FAIL-level
+  rule (user decision 2026-10-25): `jfif.version` 1.00 / 1.01 (`JpegRules.LEGACY_JFIF_VERSIONS`) → WARN with "matches the
+  earlier JFIF 1.0x edition"; any other value ≠ 1.02 → FAIL. `exif.tags.recommended` reports one row listing every
+  missing R tag.
 - Never throw out of the checker except `CancellationException`; all reads bounded (segment payloads ≤ 64 KiB, entropy
   data in 64 KiB chunks, ≤ 100,000 segments, ≤ 10,000 MP entries, after-EOI `ftyp` search ≤ 4 MiB).
 - Kotlin string templates: a `$name` directly followed by Hangul is parsed as one identifier — always write `${name}개`.
@@ -107,8 +110,8 @@ object JpegRules {
     const val T871_DOCUMENT = "ITU-T T.871 (05/2011)"
     const val T871_URL = "https://www.itu.int/rec/dologin_pub.asp?lang=e&id=T-REC-T.871-201105-I!!PDF-E&type=items"
     /** CIPA serves the PDF only by POST after accepting its terms: the link opens the download page; the page is of that PDF. */
-    const val EXIF_DOCUMENT = "CIPA DC-008-Translation-2023 (Exif 3.0)"
-    const val EXIF_URL = "https://www.cipa.jp/std/documents/download_e.html?DC-008-Translation-2023-E"
+    const val EXIF_DOCUMENT = "CIPA DC-008-Translation-2026 (Exif 3.1)"
+    const val EXIF_URL = "https://www.cipa.jp/std/documents/download_e.html?CIPA_DC-008-2026-E"
     const val MPF_DOCUMENT = "CIPA DC-007-Translation-2026 (MPF)"
     const val MPF_URL = "https://www.cipa.jp/std/documents/download_e.html?CIPA_DC-007-2026_E"
 
@@ -147,17 +150,17 @@ object JpegRules {
         jfif("jfif.extension", "JFIF 확장 APP0", "JFIF extension APP0 (JFXX)", "6.4 APP0 marker used to specify JFIF extensions", 9),
         jfif("jfif.app0", "응용 APP0 식별자", "Application-specific APP0 identifiers", "6.5 Application marker segments used for application-specific information", 9),
 
-        exif("exif.app1.position", "Exif APP1 위치", "Exif APP1 position", "4.7.2.1 Order of APP1 recording", 113),
-        exif("exif.tiff.header", "TIFF 헤더", "TIFF header", "4.5.2 Table 1 TIFF Headers", 30),
-        exif("exif.ifd.structure", "IFD 구조·오프셋", "IFD structure and offsets", "4.6.2 IFD Structure$DEFINITIONAL_SUFFIX", 37),
-        exif("exif.ifd.order", "태그 오름차순", "Tags in ascending order", "4.6.2 IFD Structure", 38),
-        exif("exif.tag.type", "태그 Type·Count", "Tag Type and Count", "4.6.2 IFD Structure (Type) / 4.6.3-4.6.8 tag definitions$DEFINITIONAL_SUFFIX", 37),
-        exif("exif.tag.ascii", "ASCII·UTF-8 값", "ASCII and UTF-8 values", "4.6.2 IFD Structure (Type)", 37),
-        exif("exif.tags.mandatory", "필수 태그", "Mandatory tags", "4.6.9 Tag Support Levels, Table 17-21 (M)", 102),
-        exif("exif.tags.not_allowed", "기록 금지 태그", "Tags not allowed", "4.6.9 Tag Support Levels, Table 17-21 (N, J)", 102),
-        exif("exif.tags.recommended", "권장 태그", "Recommended tags", "4.6.9 Tag Support Levels, Table 17-21 (R)", 102),
-        exif("exif.dimensions", "유효 이미지 크기", "Valid image dimensions", "4.6.6.3.1 PixelXDimension", 58),
-        exif("exif.thumbnail", "압축 썸네일", "Compressed thumbnail", "4.5.8 Basic Structure of Thumbnail Data", 36),
+        exif("exif.app1.position", "Exif APP1 위치", "Exif APP1 position", "4.7.2.1 Order of APP1 recording", 116),
+        exif("exif.tiff.header", "TIFF 헤더", "TIFF header", "4.5.2 Table 1 TIFF Headers", 31),
+        exif("exif.ifd.structure", "IFD 구조·오프셋", "IFD structure and offsets", "4.6.2 IFD Structure$DEFINITIONAL_SUFFIX", 38),
+        exif("exif.ifd.order", "태그 오름차순", "Tags in ascending order", "4.6.2 IFD Structure", 39),
+        exif("exif.tag.type", "태그 Type·Count", "Tag Type and Count", "4.6.2 IFD Structure (Type) / 4.6.3-4.6.8 tag definitions$DEFINITIONAL_SUFFIX", 38),
+        exif("exif.tag.ascii", "ASCII·UTF-8 값", "ASCII and UTF-8 values", "4.6.2 IFD Structure (Type)", 38),
+        exif("exif.tags.mandatory", "필수 태그", "Mandatory tags", "4.6.9 Tag Support Levels, Table 17-21 (M)", 104),
+        exif("exif.tags.not_allowed", "기록 금지 태그", "Tags not allowed", "4.6.9 Tag Support Levels, Table 17-21 (N, J)", 105),
+        exif("exif.tags.recommended", "권장 태그", "Recommended tags", "4.6.9 Tag Support Levels, Table 17-21 (R)", 105),
+        exif("exif.dimensions", "유효 이미지 크기", "Valid image dimensions", "4.6.6.3.1 PixelXDimension", 59),
+        exif("exif.thumbnail", "압축 썸네일", "Compressed thumbnail", "4.5.8 Basic Structure of Thumbnail Data", 37),
 
         mpf("mpf.count", "MP 확장 APP2 개수", "One MP Extensions APP2", "5.2.1 The MP Format Identifier$DEFINITIONAL_SUFFIX", 15),
         mpf("mpf.header", "MP 헤더", "MP header", "5.2.1 The MP Format Identifier", 14),
@@ -173,6 +176,9 @@ object JpegRules {
     val all: List<ConformanceRule> = defs.map { d ->
         citedRule(d.id, "${d.ko} / ${d.en}", d.scope, d.doc, d.section, d.page, "${d.base}#page=${d.page}")
     }
+
+    /** jfif.version is FAIL-level but reports the earlier JFIF editions 1.00 / 1.01 as WARN (user decision 2026-10-25). */
+    val LEGACY_JFIF_VERSIONS = setOf(0x0100, 0x0101)
 
     /** Rules whose violation is WARN (recommendation / unexplained data); every other rule FAILs. */
     val WARN_RULES = setOf("t81.marker.reserved", "t81.trailing", "exif.tags.recommended", "mpf.endian")
@@ -233,8 +239,8 @@ ls -l "$out"
 Usage: python3 -I build.py <out dir>   (needs ffmpeg-default.jpg, ffmpeg-thumb.jpg, ffmpeg-second.jpg, cjpeg-restart.jpg,
 cjpeg-restart-thumb.jpg in <out dir>)
 
-ffmpeg writes no Exif and exiftool is not installed, so the Exif APP1 and MPF APP2 are written here from CIPA DC-008-2023
-(Exif 3.0, every M and R tag of the compressed-image column) and DC-007-2026 (Baseline MP file: Baseline MP Primary Image
+ffmpeg writes no Exif and exiftool is not installed, so the Exif APP1 and MPF APP2 are written here from CIPA DC-008-2026
+(Exif 3.1; ExifVersion "0300" kept, every M and R tag of the compressed-image column) and DC-007-2026 (Baseline MP file: Baseline MP Primary Image
 + one Large Thumbnail class 1). All image data comes from ffmpeg / cjpeg output unchanged.
 """
 import struct
@@ -422,7 +428,7 @@ patch('cjpeg-restart.jpg', 'rst-order.jpg', [(rst0 + 1, b'\xd1')])              
 | `exif-mpf.jpg` | 3519 | D8 E1 E2 DB C4 C0 DA D9 + secondary JPEG | as ffmpeg | APP1 @2 len 0x346 `Exif\0\0II*\0`, 0th IFD @8 (10 entries 010E..8769), Exif IFD 11 entries (829A..A460, ExifVersion `0300`), 1st IFD (0103=6, 0201, 0202), thumbnail @TIFF+398, 432 bytes (SOF0, no APPn/COM/RST). APP2 @842: `FF E2 00 58 'MPF\0' 49 49 2A 00 08 00 00 00`, 3 tags B000 `0100` / B001 2 / B002 count 32 @0x32, next 0; entry 1 `A0030000` size 2715 offset 0 dep (2,0); entry 2 `40010001` size 804 offset 1865 (→ abs 2715 = primary end). Primary EOI end 2715, 804 bytes after EOI |
 | `exif-thumb-rst.jpg` | 4073 | as exif-mpf | | thumbnail = cjpeg 32x24 `-restart 1B` without APP0: DRI + 3 RSTs |
 
-Variants (each fails exactly the listed rule; cjpeg-based ones also keep the source's `jfif.version` FAIL):
+Variants (each fails exactly the listed rule; cjpeg-based ones also keep the source's `jfif.version` WARN):
 `no-eoi` (last 2 bytes cut) → `t81.eoi`; `trailing-garbage` (+16 zero bytes) → `t81.trailing` WARN; `no-dqt` (DQT
 marker byte → 0xFE COM) → `t81.tables`; `sof-h0` (SOF component 1 H 1→0 at SOF+11) → `t81.frame.header`; `scan-se`
 (SOS Se 63→62 at SOS+6+2Ns) → `t81.scan.header`; `jfif-not-first` (COM moved before APP0) → `jfif.position`;
@@ -1336,7 +1342,7 @@ import com.multiviewer.parser.conformance.ConformanceReport
 import java.util.concurrent.CancellationException
 
 object JpegConformanceChecker {
-    const val PROFILE = "ITU-T T.81 + T.871 (JFIF) + CIPA DC-008-2023 (Exif 3.0) + DC-007-2026 (MPF) phase 1"
+    const val PROFILE = "ITU-T T.81 + T.871 (JFIF) + CIPA DC-008-2026 (Exif 3.1) + DC-007-2026 (MPF) phase 1"
 
     val LIMITATIONS = listOf(
         "엔트로피 부호화 데이터는 해독하지 않습니다(RSTm 마커만 셉니다) / Entropy-coded data is not decoded (only RSTm markers are counted)",
@@ -1407,8 +1413,15 @@ class JpegJfifRulesTest {
         failsOnly(baseline(app = seg(0xFE, 0x41) + jfifApp0()), "jfif.position")
         failsOnly(baseline(app = jfifApp0(hd = 0)), "jfif.fields")
         failsOnly(baseline(app = jfifApp0(units = 3)), "jfif.fields")
-        failsOnly(baseline(app = jfifApp0(minor = 1)), "jfif.version")       // libjpeg-turbo default 1.01
-        assertTrue(check(baseline(app = jfifApp0(minor = 1))).findings.single { it.rule.id == "jfif.version" }.details.single().contains("1.01"))
+        // 1.00 / 1.01 (libjpeg-turbo default) = earlier JFIF editions → WARN; anything else ≠ 1.02 → FAIL.
+        listOf(0, 1).forEach { minor ->
+            val r = check(baseline(app = jfifApp0(minor = minor)))
+            assertEquals(WARN, r.status("jfif.version"), r.dump().toString())
+            assertEquals(emptySet(), r.ids(FAIL))
+            assertTrue(r.findings.single { it.rule.id == "jfif.version" }.details.single().contains("earlier JFIF 1.0$minor edition"))
+        }
+        assertEquals(FAIL, check(baseline(app = jfifApp0(minor = 3))).status("jfif.version"))
+        assertEquals(FAIL, check(baseline(app = jfifApp0(major = 2, minor = 1))).status("jfif.version"))
     }
 
     @Test fun `frame constraints`() {
@@ -1482,9 +1495,12 @@ internal object JpegJfifRules {
         val major = p[5].toInt() and 0xFF
         val minor = p[6].toInt() and 0xFF
         val ok = major == 1 && minor == 2
-        return ctx.finding("jfif.version",
-            if (ok) emptyList() else listOf("JFIF APP0 @${hex(s.offset)}: version %d.%02d (0x%02X%02X) ≠ 0x0102 — T.871은 1.02를 요구 / T.871 requires X'0102'".format(major, minor, major, minor)),
+        val legacy = ((major shl 8) or minor) in JpegRules.LEGACY_JFIF_VERSIONS
+        val detail = if (legacy) "JFIF APP0 @${hex(s.offset)}: version %d.%02d — 이전 JFIF %d.%02d 판과 일치, T.871은 X'0102'를 요구 / matches the earlier JFIF %d.%02d edition; T.871 requires X'0102'".format(major, minor, major, minor, major, minor)
+            else "JFIF APP0 @${hex(s.offset)}: version %d.%02d (0x%02X%02X) ≠ 0x0102 — T.871은 1.02를 요구 / T.871 requires X'0102'".format(major, minor, major, minor)
+        val f = ctx.finding("jfif.version", if (ok) emptyList() else listOf(detail),
             if (ok) emptyList() else listOf(s.offset + 9 until s.offset + 11), listOf("version 1.02"))
+        return if (legacy) f.copy(status = com.multiviewer.parser.conformance.ConformanceStatus.WARN) else f
     }
 
     private fun frame(ctx: JpegContext): ConformanceFinding {
@@ -1535,7 +1551,8 @@ internal object JpegJfifRules {
 
 ### Task 6: Exif APP1 rules
 
-**Files:** Create `ExifTiff.kt` (TIFF reader + DC-008-2023 tag Type/Count table, each row's page from the PDF),
+**Files:** Create `ExifTiff.kt` (TIFF reader + DC-008-2026 (Exif 3.1) tag Type/Count table — 160 tags incl. the seven
+new 3.1 tags, each row's physical page re-read from the 2026 PDF),
 `JpegExifRules.kt`; add the `exifSegment`/`exif` vals to `JpegContext` and `findings += JpegExifRules.evaluate(ctx)`
 to the checker.
 
@@ -1653,7 +1670,7 @@ class ExifTiff private constructor(val bytes: ByteArray, val base: Long) {
         val ifd0 = visit(ExifIfd.IFD0, firstIfd) ?: return
         if (ifd0.next != 0L) {
             visit(ExifIfd.IFD1, ifd0.next)?.let { ifd1 ->
-                if (ifd1.next != 0L) structureProblems += "1st IFD @${ifd1.offset}: 다음 IFD 오프셋 ${ifd1.next} — APP1에는 0th/1st IFD 최대 2개 (§4.5.4, p.31) / at most two IFDs"
+                if (ifd1.next != 0L) structureProblems += "1st IFD @${ifd1.offset}: 다음 IFD 오프셋 ${ifd1.next} — APP1에는 0th/1st IFD 최대 2개 (§4.5.4, p.32) / at most two IFDs"
             }
         }
         fun pointer(from: TiffIfd, tag: Int, kind: ExifIfd) {
@@ -1668,7 +1685,7 @@ class ExifTiff private constructor(val bytes: ByteArray, val base: Long) {
     }
 }
 
-/** One tag definition of CIPA DC-008-2023 (Type, Count, physical PDF page of its definition). */
+/** One tag definition of CIPA DC-008-2026 (Type, Count, physical PDF page of its definition). */
 data class ExifTagDef(val group: ExifTagGroup, val tag: Int, val name: String, val types: Set<Int>, val count: Long?, val page: Int)
 
 enum class ExifTagGroup { TIFF, EXIF, GPS, INTEROP }
@@ -1680,7 +1697,7 @@ fun ExifIfd.group(): ExifTagGroup = when (this) {
     ExifIfd.INTEROP -> ExifTagGroup.INTEROP
 }
 
-/** Tag Type/Count definitions copied from CIPA DC-008-Translation-2023 §4.6.3-4.6.8 ("Tag = / Type = / Count ="). */
+/** Tag Type/Count definitions copied from CIPA DC-008-Translation-2026 (Exif 3.1) §4.6.3-4.6.8 ("Tag = / Type = / Count ="). */
 object ExifTagTable {
     private fun d(g: ExifTagGroup, tag: Int, name: String, types: Set<Int>, count: Long?, page: Int) = ExifTagDef(g, tag, name, types, count, page)
     private val TIFF = ExifTagGroup.TIFF
@@ -1689,159 +1706,166 @@ object ExifTagTable {
     private val INTEROP = ExifTagGroup.INTEROP
 
     val all: List<ExifTagDef> = listOf(
-        d(TIFF, 0x8769, "ExifIFDPointer", setOf(4), 1, 38),
-        d(TIFF, 0x8825, "GPSInfoIFDPointer", setOf(4), 1, 39),
-        d(EXIF, 0xA005, "InteroperabilityIFDPointer", setOf(4), 1, 39),
-        d(TIFF, 0x0100, "ImageWidth", setOf(3, 4), 1, 42),
-        d(TIFF, 0x0101, "ImageLength", setOf(3, 4), 1, 42),
-        d(TIFF, 0x0102, "BitsPerSample", setOf(3), 3, 42),
-        d(TIFF, 0x0103, "Compression", setOf(3), 1, 43),
-        d(TIFF, 0x0106, "PhotometricInterpretation", setOf(3), 1, 43),
-        d(TIFF, 0x0112, "Orientation", setOf(3), 1, 43),
-        d(TIFF, 0x0115, "SamplesPerPixel", setOf(3), 1, 47),
-        d(TIFF, 0x011A, "XResolution", setOf(5), 1, 47),
-        d(TIFF, 0x011B, "YResolution", setOf(5), 1, 47),
-        d(TIFF, 0x011C, "PlanarConfiguration", setOf(3), 1, 48),
-        d(TIFF, 0x0128, "ResolutionUnit", setOf(3), 1, 48),
-        d(TIFF, 0x0212, "YCbCrSubSampling", setOf(3), 2, 48),
-        d(TIFF, 0x0213, "YCbCrPositioning", setOf(3), 1, 49),
+        d(TIFF, 0x8769, "ExifIFDPointer", setOf(4), 1, 39),
+        d(TIFF, 0x8825, "GPSInfoIFDPointer", setOf(4), 1, 40),
+        d(EXIF, 0xA005, "InteroperabilityIFDPointer", setOf(4), 1, 40),
+        d(TIFF, 0x0100, "ImageWidth", setOf(3, 4), 1, 43),
+        d(TIFF, 0x0101, "ImageLength", setOf(3, 4), 1, 43),
+        d(TIFF, 0x0102, "BitsPerSample", setOf(3), 3, 43),
+        d(TIFF, 0x0103, "Compression", setOf(3), 1, 44),
+        d(TIFF, 0x0106, "PhotometricInterpretation", setOf(3), 1, 44),
+        d(TIFF, 0x0112, "Orientation", setOf(3), 1, 44),
+        d(TIFF, 0x0115, "SamplesPerPixel", setOf(3), 1, 48),
+        d(TIFF, 0x011A, "XResolution", setOf(5), 1, 48),
+        d(TIFF, 0x011B, "YResolution", setOf(5), 1, 48),
+        d(TIFF, 0x011C, "PlanarConfiguration", setOf(3), 1, 49),
+        d(TIFF, 0x0128, "ResolutionUnit", setOf(3), 1, 49),
+        d(TIFF, 0x0212, "YCbCrSubSampling", setOf(3), 2, 49),
+        d(TIFF, 0x0213, "YCbCrPositioning", setOf(3), 1, 50),
         d(TIFF, 0x0111, "StripOffsets", setOf(3, 4), null, 50),
-        d(TIFF, 0x0116, "RowsPerStrip", setOf(3, 4), 1, 50),
-        d(TIFF, 0x0117, "StripByteCounts", setOf(3, 4), null, 50),
-        d(TIFF, 0x0201, "JPEGInterchangeFormat", setOf(4), 1, 50),
+        d(TIFF, 0x0116, "RowsPerStrip", setOf(3, 4), 1, 51),
+        d(TIFF, 0x0117, "StripByteCounts", setOf(3, 4), null, 51),
+        d(TIFF, 0x0201, "JPEGInterchangeFormat", setOf(4), 1, 51),
         d(TIFF, 0x0202, "JPEGInterchangeFormatLength", setOf(4), 1, 51),
-        d(TIFF, 0x012D, "TransferFunction", setOf(3), 768, 51),
-        d(TIFF, 0x013E, "WhitePoint", setOf(5), 2, 51),
-        d(TIFF, 0x013F, "PrimaryChromaticities", setOf(5), 6, 51),
-        d(TIFF, 0x0211, "YCbCrCoefficients", setOf(5), 3, 51),
+        d(TIFF, 0x012D, "TransferFunction", setOf(3), 768, 52),
+        d(TIFF, 0x013E, "WhitePoint", setOf(5), 2, 52),
+        d(TIFF, 0x013F, "PrimaryChromaticities", setOf(5), 6, 52),
+        d(TIFF, 0x0211, "YCbCrCoefficients", setOf(5), 3, 52),
         d(TIFF, 0x0214, "ReferenceBlackWhite", setOf(5), 6, 52),
-        d(TIFF, 0x010E, "ImageDescription", setOf(2, 129), null, 52),
-        d(TIFF, 0x010F, "Make", setOf(2, 129), null, 52),
-        d(TIFF, 0x0110, "Model", setOf(2, 129), null, 52),
+        d(TIFF, 0x010E, "ImageDescription", setOf(2, 129), null, 53),
+        d(TIFF, 0x010F, "Make", setOf(2, 129), null, 53),
+        d(TIFF, 0x0110, "Model", setOf(2, 129), null, 53),
         d(TIFF, 0x0131, "Software", setOf(2, 129), null, 53),
-        d(TIFF, 0x0132, "DateTime", setOf(2), 20, 53),
-        d(TIFF, 0x013B, "Artist", setOf(2, 129), null, 53),
+        d(TIFF, 0x0132, "DateTime", setOf(2), 20, 54),
+        d(TIFF, 0x013B, "Artist", setOf(2, 129), null, 54),
         d(TIFF, 0x8298, "Copyright", setOf(2, 129), null, 54),
-        d(EXIF, 0x9000, "ExifVersion", setOf(7), 4, 57),
-        d(EXIF, 0xA000, "FlashpixVersion", setOf(7), 4, 57),
+        d(EXIF, 0x9000, "ExifVersion", setOf(7), 4, 58),
+        d(EXIF, 0xA000, "FlashpixVersion", setOf(7), 4, 58),
         d(EXIF, 0xA001, "ColorSpace", setOf(3), 1, 58),
-        d(EXIF, 0xA500, "Gamma", setOf(5), 1, 58),
-        d(EXIF, 0xA002, "PixelXDimension", setOf(3, 4), 1, 58),
+        d(EXIF, 0xA500, "Gamma", setOf(5), 1, 59),
+        d(EXIF, 0xA002, "PixelXDimension", setOf(3, 4), 1, 59),
         d(EXIF, 0xA003, "PixelYDimension", setOf(3, 4), 1, 59),
-        d(EXIF, 0x9101, "ComponentsConfiguration", setOf(7), 4, 59),
-        d(EXIF, 0x9102, "CompressedBitsPerPixel", setOf(5), 1, 59),
+        d(EXIF, 0x9101, "ComponentsConfiguration", setOf(7), 4, 60),
+        d(EXIF, 0x9102, "CompressedBitsPerPixel", setOf(5), 1, 60),
         d(EXIF, 0x927C, "MakerNote", setOf(7), null, 60),
         d(EXIF, 0x9286, "UserComment", setOf(7), null, 60),
-        d(EXIF, 0xA004, "RelatedSoundFile", setOf(2), 13, 61),
-        d(EXIF, 0x9003, "DateTimeOriginal", setOf(2), 20, 61),
-        d(EXIF, 0x9004, "DateTimeDigitized", setOf(2), 20, 62),
-        d(EXIF, 0x9010, "OffsetTime", setOf(2), 7, 62),
-        d(EXIF, 0x9011, "OffsetTimeOriginal", setOf(2), 7, 62),
-        d(EXIF, 0x9012, "OffsetTimeDigitized", setOf(2), 7, 63),
-        d(EXIF, 0x9290, "SubsecTime", setOf(2), null, 63),
-        d(EXIF, 0x9291, "SubsecTimeOriginal", setOf(2), null, 63),
-        d(EXIF, 0x9292, "SubsecTimeDigitized", setOf(2), null, 63),
-        d(EXIF, 0x829A, "ExposureTime", setOf(5), 1, 64),
-        d(EXIF, 0x829D, "FNumber", setOf(5), 1, 64),
-        d(EXIF, 0x8822, "ExposureProgram", setOf(3), 1, 64),
-        d(EXIF, 0x8824, "SpectralSensitivity", setOf(2), null, 65),
-        d(EXIF, 0x8827, "PhotographicSensitivity", setOf(3), null, 65),
-        d(EXIF, 0x8828, "OECF", setOf(7), null, 65),
-        d(EXIF, 0x8830, "SensitivityType", setOf(3), 1, 66),
-        d(EXIF, 0x8831, "StandardOutputSensitivity", setOf(4), 1, 67),
-        d(EXIF, 0x8832, "RecommendedExposureIndex", setOf(4), 1, 67),
-        d(EXIF, 0x8833, "ISOSpeed", setOf(4), 1, 67),
-        d(EXIF, 0x8834, "ISOSpeedLatitudeyyy", setOf(4), 1, 68),
-        d(EXIF, 0x8835, "ISOSpeedLatitudezzz", setOf(4), 1, 68),
-        d(EXIF, 0x9201, "ShutterSpeedValue", setOf(10), 1, 68),
-        d(EXIF, 0x9202, "ApertureValue", setOf(5), 1, 68),
-        d(EXIF, 0x9203, "BrightnessValue", setOf(10), 1, 68),
-        d(EXIF, 0x9204, "ExposureBiasValue", setOf(10), 1, 69),
-        d(EXIF, 0x9205, "MaxApertureValue", setOf(5), 1, 69),
-        d(EXIF, 0x9206, "SubjectDistance", setOf(5), 1, 69),
-        d(EXIF, 0x9207, "MeteringMode", setOf(3), 1, 69),
-        d(EXIF, 0x9208, "LightSource", setOf(3), 1, 70),
-        d(EXIF, 0x9209, "Flash", setOf(3), 1, 71),
-        d(EXIF, 0x9214, "SubjectArea", setOf(3), null, 72),
-        d(EXIF, 0x920A, "FocalLength", setOf(5), 1, 73),
-        d(EXIF, 0xA20B, "FlashEnergy", setOf(5), 1, 73),
-        d(EXIF, 0xA20E, "FocalPlaneXResolution", setOf(5), 1, 75),
-        d(EXIF, 0xA20F, "FocalPlaneYResolution", setOf(5), 1, 75),
-        d(EXIF, 0xA210, "FocalPlaneResolutionUnit", setOf(3), 1, 75),
-        d(EXIF, 0xA214, "SubjectLocation", setOf(3), 2, 75),
-        d(EXIF, 0xA215, "ExposureIndex", setOf(5), 1, 76),
-        d(EXIF, 0xA217, "SensingMethod", setOf(3), 1, 76),
-        d(EXIF, 0xA300, "FileSource", setOf(7), 1, 76),
-        d(EXIF, 0xA301, "SceneType", setOf(7), 1, 77),
-        d(EXIF, 0xA302, "CFAPattern", setOf(7), null, 77),
-        d(EXIF, 0xA401, "CustomRendered", setOf(3), 1, 78),
-        d(EXIF, 0xA402, "ExposureMode", setOf(3), 1, 78),
-        d(EXIF, 0xA403, "WhiteBalance", setOf(3), 1, 79),
-        d(EXIF, 0xA404, "DigitalZoomRatio", setOf(5), 1, 79),
-        d(EXIF, 0xA405, "FocalLengthIn35mmFilm", setOf(3), 1, 79),
-        d(EXIF, 0xA406, "SceneCaptureType", setOf(3), 1, 79),
-        d(EXIF, 0xA407, "GainControl", setOf(3), 1, 80),
-        d(EXIF, 0xA408, "Contrast", setOf(3), 1, 80),
-        d(EXIF, 0xA409, "Saturation", setOf(3), 1, 80),
-        d(EXIF, 0xA40A, "Sharpness", setOf(3), 1, 81),
-        d(EXIF, 0xA40B, "DeviceSettingDescription", setOf(7), null, 81),
-        d(EXIF, 0xA40C, "SubjectDistanceRange", setOf(3), 1, 81),
-        d(EXIF, 0xA460, "CompositeImage", setOf(3), 1, 82),
-        d(EXIF, 0xA461, "SourceImageNumberOfCompositeImage", setOf(3), 2, 82),
-        d(EXIF, 0xA462, "SourceExposureTimesOfCompositeImage", setOf(7), null, 83),
-        d(EXIF, 0x9400, "Temperature", setOf(10), 1, 84),
-        d(EXIF, 0x9401, "Humidity", setOf(5), 1, 84),
-        d(EXIF, 0x9402, "Pressure", setOf(5), 1, 85),
-        d(EXIF, 0x9403, "WaterDepth", setOf(10), 1, 85),
-        d(EXIF, 0x9404, "Acceleration", setOf(5), 1, 85),
-        d(EXIF, 0x9405, "CameraElevationAngle", setOf(10), 1, 86),
-        d(EXIF, 0xA420, "ImageUniqueID", setOf(2), 33, 86),
-        d(EXIF, 0xA430, "CameraOwnerName", setOf(2, 129), null, 86),
-        d(EXIF, 0xA431, "BodySerialNumber", setOf(2), null, 86),
-        d(EXIF, 0xA432, "LensSpecification", setOf(5), 4, 87),
-        d(EXIF, 0xA433, "LensMake", setOf(2, 129), null, 87),
-        d(EXIF, 0xA434, "LensModel", setOf(2, 129), null, 87),
-        d(EXIF, 0xA435, "LensSerialNumber", setOf(2), null, 87),
-        d(EXIF, 0xA436, "ImageTitle", setOf(2, 129), null, 88),
-        d(EXIF, 0xA437, "Photographer", setOf(2, 129), null, 88),
-        d(EXIF, 0xA438, "ImageEditor", setOf(2, 129), null, 88),
-        d(EXIF, 0xA439, "CameraFirmware", setOf(2, 129), null, 88),
-        d(EXIF, 0xA43A, "RAWDevelopingSoftware", setOf(2, 129), null, 89),
-        d(EXIF, 0xA43B, "ImageEditingSoftware", setOf(2, 129), null, 89),
-        d(EXIF, 0xA43C, "MetadataEditingSoftware", setOf(2, 129), null, 89),
-        d(GPS, 0x0000, "GPSVersionID", setOf(1), 4, 91),
-        d(GPS, 0x0001, "GPSLatitudeRef", setOf(2), 2, 91),
-        d(GPS, 0x0002, "GPSLatitude", setOf(5), 3, 92),
-        d(GPS, 0x0003, "GPSLongitudeRef", setOf(2), 2, 92),
-        d(GPS, 0x0004, "GPSLongitude", setOf(5), 3, 92),
-        d(GPS, 0x0005, "GPSAltitudeRef", setOf(1), 1, 93),
-        d(GPS, 0x0006, "GPSAltitude", setOf(5), 1, 93),
-        d(GPS, 0x0007, "GPSTimeStamp", setOf(5), 3, 93),
-        d(GPS, 0x0008, "GPSSatellites", setOf(2), null, 93),
-        d(GPS, 0x0009, "GPSStatus", setOf(2), 2, 94),
-        d(GPS, 0x000A, "GPSMeasureMode", setOf(2), 2, 94),
-        d(GPS, 0x000B, "GPSDOP", setOf(5), 1, 94),
-        d(GPS, 0x000C, "GPSSpeedRef", setOf(2), 2, 94),
-        d(GPS, 0x000D, "GPSSpeed", setOf(5), 1, 95),
-        d(GPS, 0x000E, "GPSTrackRef", setOf(2), 2, 95),
-        d(GPS, 0x000F, "GPSTrack", setOf(5), 1, 95),
-        d(GPS, 0x0010, "GPSImgDirectionRef", setOf(2), 2, 96),
-        d(GPS, 0x0011, "GPSImgDirection", setOf(5), 1, 96),
-        d(GPS, 0x0012, "GPSMapDatum", setOf(2), null, 96),
-        d(GPS, 0x0013, "GPSDestLatitudeRef", setOf(2), 2, 96),
-        d(GPS, 0x0014, "GPSDestLatitude", setOf(5), 3, 97),
-        d(GPS, 0x0015, "GPSDestLongitudeRef", setOf(2), 2, 97),
-        d(GPS, 0x0016, "GPSDestLongitude", setOf(5), 3, 97),
-        d(GPS, 0x0017, "GPSDestBearingRef", setOf(2), 2, 97),
-        d(GPS, 0x0018, "GPSDestBearing", setOf(5), 1, 98),
-        d(GPS, 0x0019, "GPSDestDistanceRef", setOf(2), 2, 98),
-        d(GPS, 0x001A, "GPSDestDistance", setOf(5), 1, 98),
-        d(GPS, 0x001B, "GPSProcessingMethod", setOf(7), null, 98),
-        d(GPS, 0x001C, "GPSAreaInformation", setOf(7), null, 99),
-        d(GPS, 0x001D, "GPSDateStamp", setOf(2), 11, 100),
-        d(GPS, 0x001E, "GPSDifferential", setOf(3), 1, 100),
-        d(GPS, 0x001F, "GPSHPositioningError", setOf(5), 1, 100),
-        d(INTEROP, 0x0001, "InteroperabilityIndex", setOf(2), null, 101),
+        d(EXIF, 0xA004, "RelatedSoundFile", setOf(2), 13, 63),
+        d(EXIF, 0x9003, "DateTimeOriginal", setOf(2), 20, 63),
+        d(EXIF, 0x9004, "DateTimeDigitized", setOf(2), 20, 64),
+        d(EXIF, 0x9010, "OffsetTime", setOf(2), 7, 64),
+        d(EXIF, 0x9011, "OffsetTimeOriginal", setOf(2), 7, 64),
+        d(EXIF, 0x9012, "OffsetTimeDigitized", setOf(2), 7, 65),
+        d(EXIF, 0x9290, "SubsecTime", setOf(2), null, 65),
+        d(EXIF, 0x9291, "SubsecTimeOriginal", setOf(2), null, 65),
+        d(EXIF, 0x9292, "SubsecTimeDigitized", setOf(2), null, 65),
+        d(EXIF, 0x829A, "ExposureTime", setOf(5), 1, 66),
+        d(EXIF, 0x829D, "FNumber", setOf(5), 1, 66),
+        d(EXIF, 0x8822, "ExposureProgram", setOf(3), 1, 66),
+        d(EXIF, 0x8824, "SpectralSensitivity", setOf(2), null, 67),
+        d(EXIF, 0x8827, "PhotographicSensitivity", setOf(3), null, 67),
+        d(EXIF, 0x8828, "OECF", setOf(7), null, 67),
+        d(EXIF, 0x8830, "SensitivityType", setOf(3), 1, 68),
+        d(EXIF, 0x8831, "StandardOutputSensitivity", setOf(4), 1, 69),
+        d(EXIF, 0x8832, "RecommendedExposureIndex", setOf(4), 1, 69),
+        d(EXIF, 0x8833, "ISOSpeed", setOf(4), 1, 69),
+        d(EXIF, 0x8834, "ISOSpeedLatitudeyyy", setOf(4), 1, 70),
+        d(EXIF, 0x8835, "ISOSpeedLatitudezzz", setOf(4), 1, 70),
+        d(EXIF, 0x9201, "ShutterSpeedValue", setOf(10), 1, 70),
+        d(EXIF, 0x9202, "ApertureValue", setOf(5), 1, 70),
+        d(EXIF, 0x9203, "BrightnessValue", setOf(10), 1, 70),
+        d(EXIF, 0x9204, "ExposureBiasValue", setOf(10), 1, 70),
+        d(EXIF, 0x9205, "MaxApertureValue", setOf(5), 1, 71),
+        d(EXIF, 0x9206, "SubjectDistance", setOf(5), 1, 71),
+        d(EXIF, 0x9207, "MeteringMode", setOf(3), 1, 71),
+        d(EXIF, 0x9208, "LightSource", setOf(3), 1, 71),
+        d(EXIF, 0x9209, "Flash", setOf(3), 1, 72),
+        d(EXIF, 0x9214, "SubjectArea", setOf(3), null, 73),
+        d(EXIF, 0x920A, "FocalLength", setOf(5), 1, 75),
+        d(EXIF, 0xA20B, "FlashEnergy", setOf(5), 1, 75),
+        d(EXIF, 0xA20E, "FocalPlaneXResolution", setOf(5), 1, 76),
+        d(EXIF, 0xA20F, "FocalPlaneYResolution", setOf(5), 1, 77),
+        d(EXIF, 0xA210, "FocalPlaneResolutionUnit", setOf(3), 1, 77),
+        d(EXIF, 0xA214, "SubjectLocation", setOf(3), 2, 77),
+        d(EXIF, 0xA215, "ExposureIndex", setOf(5), 1, 77),
+        d(EXIF, 0xA217, "SensingMethod", setOf(3), 1, 78),
+        d(EXIF, 0xA300, "FileSource", setOf(7), 1, 78),
+        d(EXIF, 0xA301, "SceneType", setOf(7), 1, 78),
+        d(EXIF, 0xA302, "CFAPattern", setOf(7), null, 78),
+        d(EXIF, 0xA401, "CustomRendered", setOf(3), 1, 80),
+        d(EXIF, 0xA402, "ExposureMode", setOf(3), 1, 80),
+        d(EXIF, 0xA403, "WhiteBalance", setOf(3), 1, 80),
+        d(EXIF, 0xA404, "DigitalZoomRatio", setOf(5), 1, 80),
+        d(EXIF, 0xA405, "FocalLengthIn35mmFilm", setOf(3), 1, 81),
+        d(EXIF, 0xA406, "SceneCaptureType", setOf(3), 1, 81),
+        d(EXIF, 0xA407, "GainControl", setOf(3), 1, 81),
+        d(EXIF, 0xA408, "Contrast", setOf(3), 1, 81),
+        d(EXIF, 0xA409, "Saturation", setOf(3), 1, 82),
+        d(EXIF, 0xA40A, "Sharpness", setOf(3), 1, 82),
+        d(EXIF, 0xA40B, "DeviceSettingDescription", setOf(7), null, 82),
+        d(EXIF, 0xA40C, "SubjectDistanceRange", setOf(3), 1, 83),
+        d(EXIF, 0xA460, "CompositeImage", setOf(3), 1, 86),
+        d(EXIF, 0xA461, "SourceImageNumberOfCompositeImage", setOf(3), 2, 86),
+        d(EXIF, 0xA462, "SourceExposureTimesOfCompositeImage", setOf(7), null, 87),
+        d(EXIF, 0x9400, "Temperature", setOf(10), 1, 88),
+        d(EXIF, 0x9401, "Humidity", setOf(5), 1, 88),
+        d(EXIF, 0x9402, "Pressure", setOf(5), 1, 89),
+        d(EXIF, 0x9403, "WaterDepth", setOf(10), 1, 89),
+        d(EXIF, 0x9404, "Acceleration", setOf(5), 1, 89),
+        d(EXIF, 0x9405, "CameraElevationAngle", setOf(10), 1, 89),
+        d(EXIF, 0xA420, "ImageUniqueID", setOf(2), 33, 90),
+        d(EXIF, 0xA430, "CameraOwnerName", setOf(2, 129), null, 90),
+        d(EXIF, 0xA431, "BodySerialNumber", setOf(2), null, 90),
+        d(EXIF, 0xA432, "LensSpecification", setOf(5), 4, 90),
+        d(EXIF, 0xA433, "LensMake", setOf(2, 129), null, 91),
+        d(EXIF, 0xA434, "LensModel", setOf(2, 129), null, 91),
+        d(EXIF, 0xA435, "LensSerialNumber", setOf(2), null, 91),
+        d(EXIF, 0xA436, "ImageTitle", setOf(2, 129), null, 91),
+        d(EXIF, 0xA437, "Photographer", setOf(2, 129), null, 91),
+        d(EXIF, 0xA438, "ImageEditor", setOf(2, 129), null, 92),
+        d(EXIF, 0xA439, "CameraFirmware", setOf(2, 129), null, 92),
+        d(EXIF, 0xA43A, "RAWDevelopingSoftware", setOf(2, 129), null, 92),
+        d(EXIF, 0xA43B, "ImageEditingSoftware", setOf(2, 129), null, 92),
+        d(EXIF, 0xA43C, "MetadataEditingSoftware", setOf(2, 129), null, 93),
+        d(EXIF, 0x9287, "LearningOptOutIn", setOf(7), null, 61),
+        d(EXIF, 0xA40D, "DevelopmentType", setOf(3), 1, 84),
+        d(EXIF, 0xA40E, "DevelopmentTypeDescription", setOf(129), null, 85),
+        d(EXIF, 0xA40F, "DistortionCorrection", setOf(3), 1, 85),
+        d(EXIF, 0xA410, "ChromaticAberrationCorrection", setOf(3), 1, 85),
+        d(EXIF, 0xA411, "ShadingCorrection", setOf(3), 1, 85),
+        d(EXIF, 0xA412, "NoiseReduction", setOf(3), 1, 85),
+        d(GPS, 0x0000, "GPSVersionID", setOf(1), 4, 94),
+        d(GPS, 0x0001, "GPSLatitudeRef", setOf(2), 2, 95),
+        d(GPS, 0x0002, "GPSLatitude", setOf(5), 3, 95),
+        d(GPS, 0x0003, "GPSLongitudeRef", setOf(2), 2, 95),
+        d(GPS, 0x0004, "GPSLongitude", setOf(5), 3, 95),
+        d(GPS, 0x0005, "GPSAltitudeRef", setOf(1), 1, 96),
+        d(GPS, 0x0006, "GPSAltitude", setOf(5), 1, 96),
+        d(GPS, 0x0007, "GPSTimeStamp", setOf(5), 3, 96),
+        d(GPS, 0x0008, "GPSSatellites", setOf(2), null, 97),
+        d(GPS, 0x0009, "GPSStatus", setOf(2), 2, 97),
+        d(GPS, 0x000A, "GPSMeasureMode", setOf(2), 2, 97),
+        d(GPS, 0x000B, "GPSDOP", setOf(5), 1, 97),
+        d(GPS, 0x000C, "GPSSpeedRef", setOf(2), 2, 98),
+        d(GPS, 0x000D, "GPSSpeed", setOf(5), 1, 98),
+        d(GPS, 0x000E, "GPSTrackRef", setOf(2), 2, 98),
+        d(GPS, 0x000F, "GPSTrack", setOf(5), 1, 98),
+        d(GPS, 0x0010, "GPSImgDirectionRef", setOf(2), 2, 98),
+        d(GPS, 0x0011, "GPSImgDirection", setOf(5), 1, 99),
+        d(GPS, 0x0012, "GPSMapDatum", setOf(2), null, 99),
+        d(GPS, 0x0013, "GPSDestLatitudeRef", setOf(2), 2, 99),
+        d(GPS, 0x0014, "GPSDestLatitude", setOf(5), 3, 99),
+        d(GPS, 0x0015, "GPSDestLongitudeRef", setOf(2), 2, 100),
+        d(GPS, 0x0016, "GPSDestLongitude", setOf(5), 3, 100),
+        d(GPS, 0x0017, "GPSDestBearingRef", setOf(2), 2, 100),
+        d(GPS, 0x0018, "GPSDestBearing", setOf(5), 1, 100),
+        d(GPS, 0x0019, "GPSDestDistanceRef", setOf(2), 2, 101),
+        d(GPS, 0x001A, "GPSDestDistance", setOf(5), 1, 101),
+        d(GPS, 0x001B, "GPSProcessingMethod", setOf(7), null, 101),
+        d(GPS, 0x001C, "GPSAreaInformation", setOf(7), null, 102),
+        d(GPS, 0x001D, "GPSDateStamp", setOf(2), 11, 102),
+        d(GPS, 0x001E, "GPSDifferential", setOf(3), 1, 102),
+        d(GPS, 0x001F, "GPSHPositioningError", setOf(5), 1, 103),
+        d(INTEROP, 0x0001, "InteroperabilityIndex", setOf(2), null, 103),
     )
 
     private val byKey = all.associateBy { it.group to it.tag }
@@ -1865,7 +1889,7 @@ import com.multiviewer.parser.conformance.jpeg.JpegContext.Companion.hex
 import com.multiviewer.parser.conformance.jpeg.JpegContext.Companion.markerName
 
 /**
- * CIPA DC-008-2023 (Exif 3.0) rules for the primary image's Exif APP1 ("Exif\0\0"), compressed (JPEG) primary image
+ * CIPA DC-008-2026 (Exif 3.1) rules for the primary image's Exif APP1 ("Exif\0\0"), compressed (JPEG) primary image
  * column of Tables 17-21. They apply only when such an APP1 exists.
  */
 internal object JpegExifRules {
@@ -1913,7 +1937,7 @@ internal object JpegExifRules {
     private fun header(ctx: JpegContext, s: JpegSegment, t: ExifTiff): ConformanceFinding {
         val v = ArrayList<String>()
         val p = ctx.payload(s)
-        if (p.size < 6 || p[5] != 0.toByte()) v += "Exif ID 코드가 \"Exif\" + 00.H 2바이트가 아님 / Exif ID code is not 'Exif' + two 00.H (§4.7.2.3, p.113)"
+        if (p.size < 6 || p[5] != 0.toByte()) v += "Exif ID 코드가 \"Exif\" + 00.H 2바이트가 아님 / Exif ID code is not 'Exif' + two 00.H (§4.7.2.3, p.116)"
         v += t.headerProblems
         return ctx.finding("exif.tiff.header", v.map { "Exif APP1 @${hex(s.offset)}: $it" }, if (v.isEmpty()) emptyList() else listOf(s.range),
             listOf("${if (t.littleEndian) "II" else "MM"}, 42, 0th IFD 오프셋 ${t.firstIfd}"))
@@ -1939,7 +1963,7 @@ internal object JpegExifRules {
             ifd.entries.forEach { e ->
                 val def = ExifTagTable.def(ifd.kind, e.tag)
                 val name = ExifTagTable.name(ifd.kind, e.tag)
-                if (e.type !in ExifTagTable.EXIF_TYPES) v += "${ifd.kind.label} $name: Type ${e.type} — Exif에서 쓰는 Type이 아님 / not an Exif type (§4.6.2, p.37)"
+                if (e.type !in ExifTagTable.EXIF_TYPES) v += "${ifd.kind.label} $name: Type ${e.type} — Exif에서 쓰는 Type이 아님 / not an Exif type (§4.6.2, p.38)"
                 else if (def != null && (e.type !in def.types || (def.count != null && e.count != def.count)))
                     v += "${ifd.kind.label} $name: Type ${e.type} Count ${e.count} ≠ 정의 Type ${def.types.joinToString("/")} Count ${def.count ?: "Any"} (p.${def.page})"
             }
@@ -1955,7 +1979,7 @@ internal object JpegExifRules {
                 val name = ExifTagTable.name(ifd.kind, e.tag)
                 if (b.isEmpty() || b.last() != 0.toByte()) v += "${ifd.kind.label} $name: ${if (e.type == 2) "ASCII" else "UTF-8"} Count ${e.count}에 NULL 종료 미포함 / count does not include the NULL terminator"
                 if (e.type == 129 && b.size >= 3 && b[0] == 0xEF.toByte() && b[1] == 0xBB.toByte() && b[2] == 0xBF.toByte())
-                    v += "${ifd.kind.label} $name: UTF-8 BOM 사용 / BOM shall not be used (p.38)"
+                    v += "${ifd.kind.label} $name: UTF-8 BOM 사용 / BOM shall not be used (p.39)"
             }
         }
         return ctx.finding("exif.tag.ascii", v, emptyList(), listOf("ASCII/UTF-8 값이 NULL로 끝남 / ASCII and UTF-8 values are NULL-terminated"))
@@ -1969,7 +1993,7 @@ internal object JpegExifRules {
         MANDATORY_0TH.forEach { (tag, name) -> if (ifd0?.entry(tag) == null) v += "0th IFD: $name 없음 / missing" }
         val exif = t.ifds[ExifIfd.EXIF]
         MANDATORY_EXIF.forEach { (tag, name) -> if (exif?.entry(tag) == null) v += "Exif IFD: $name 없음 / missing" }
-        t.ifds[ExifIfd.GPS]?.let { if (it.entries.isNotEmpty() && it.entry(0x0000) == null) v += "GPS IFD: GPSVersionID 없음 — GPS 태그가 있으면 필수 (§4.6.7.1.1, p.91) / mandatory when a GPS tag is present" }
+        t.ifds[ExifIfd.GPS]?.let { if (it.entries.isNotEmpty() && it.entry(0x0000) == null) v += "GPS IFD: GPSVersionID 없음 — GPS 태그가 있으면 필수 (§4.6.7.1.1, p.94) / mandatory when a GPS tag is present" }
         val notes = ArrayList<String>()
         t.ifds[ExifIfd.IFD1]?.let { ifd1 ->
             if (ifd1.entry(0x0103) == null) v += "1st IFD: Compression 없음 / missing"
@@ -1991,11 +2015,12 @@ internal object JpegExifRules {
     }
 
     private fun recommended(ctx: JpegContext, t: ExifTiff): ConformanceFinding {
-        val v = ArrayList<String>()
         val ifd0 = t.ifds[ExifIfd.IFD0]
-        RECOMMENDED_0TH.forEach { (tag, name) -> if (ifd0?.entry(tag) == null) v += "0th IFD: $name 없음 (R) / recommended tag missing" }
         val exif = t.ifds[ExifIfd.EXIF]
-        RECOMMENDED_EXIF.forEach { (tag, name) -> if (exif?.entry(tag) == null) v += "Exif IFD: $name 없음 (R) / recommended tag missing" }
+        val missing = RECOMMENDED_0TH.filter { ifd0?.entry(it.key) == null }.map { "0th IFD ${it.value}" } +
+            RECOMMENDED_EXIF.filter { exif?.entry(it.key) == null }.map { "Exif IFD ${it.value}" }
+        // One row listing every missing tag name (user decision 2026-10-25).
+        val v = if (missing.isEmpty()) emptyList() else listOf("권장(R) 태그 ${missing.size}개 없음 / ${missing.size} recommended tag(s) missing: " + missing.joinToString(", "))
         return ctx.finding("exif.tags.recommended", v, emptyList(), listOf("권장(R) 태그 모두 있음 / all recommended tags present"))
     }
 
@@ -2007,8 +2032,8 @@ internal object JpegExifRules {
         val f = ctx.frame ?: return ctx.skip("exif.dimensions", NOT_CHECKED, "프레임 헤더를 읽을 수 없음 / frame header unreadable")
         val lines = ctx.lines ?: return ctx.skip("exif.dimensions", NOT_CHECKED, "줄 수(Y/DNL)를 알 수 없음 / number of lines unknown")
         val v = ArrayList<String>()
-        if (px < 1 || px > f.samplesPerLine) v += "PixelXDimension $px — 1..SOF X(${f.samplesPerLine}) 범위 밖 (§4.8.1 Table 23, p.124) / outside 1..X"
-        if (py != lines.toLong()) v += "PixelYDimension $py ≠ SOF Y $lines — SOF는 유효 이미지 높이와 같음 (§4.8.1, p.124) / differs from the SOF height"
+        if (px < 1 || px > f.samplesPerLine) v += "PixelXDimension $px — 1..SOF X(${f.samplesPerLine}) 범위 밖 (§4.8.1 Table 23, p.128) / outside 1..X"
+        if (py != lines.toLong()) v += "PixelYDimension $py ≠ SOF Y $lines — SOF는 유효 이미지 높이와 같음 (§4.8.1, p.129) / differs from the SOF height"
         return ctx.finding("exif.dimensions", v, emptyList(), listOf("PixelX/Y ${px}x$py, SOF ${f.samplesPerLine}x$lines"))
     }
 
@@ -2356,17 +2381,23 @@ class JpegFixtureTest {
         assertTrue(r.findings.single { it.rule.id == "t81.trailing" }.details.any { it.contains("MPF") })
     }
 
-    @Test fun `libjpeg-turbo writes JFIF 1_01, which fails only jfif version`() {
+    @Test fun `libjpeg-turbo writes JFIF 1_01, which only warns on jfif version`() {
         listOf("cjpeg-default.jpg", "cjpeg-progressive.jpg", "cjpeg-restart.jpg").forEach { name ->
-            assertEquals(setOf("jfif.version"), run(name).ids(FAIL, WARN), "$name: ${run(name).dump()}")
+            val r = run(name)
+            assertEquals(emptySet(), r.ids(FAIL), "$name: ${r.dump()}")
+            assertEquals(setOf("jfif.version"), r.ids(WARN), "$name: ${r.dump()}")
+            assertEquals(WARN, r.overall, name)
         }
         assertTrue(run("cjpeg-restart.jpg").findings.single { it.rule.id == "t81.restart" }.details.single().contains("RST 2"))
     }
 
-    @Test fun `macOS sips (ImageIO) output fails JFIF version, Exif position and mandatory tags`() {
+    @Test fun `macOS sips (ImageIO) output fails Exif position and mandatory tags`() {
         val r = run("sips.jpg")
-        assertEquals(setOf("jfif.version", "exif.app1.position", "exif.tags.mandatory"), r.ids(FAIL), r.dump().toString())
-        assertEquals(setOf("exif.tags.recommended"), r.ids(WARN))
+        assertEquals(setOf("exif.app1.position", "exif.tags.mandatory"), r.ids(FAIL), r.dump().toString())
+        assertEquals(setOf("jfif.version", "exif.tags.recommended"), r.ids(WARN))
+        val rec = r.findings.single { it.rule.id == "exif.tags.recommended" }
+        assertEquals(1, rec.details.size, rec.details.toString())
+        assertTrue(rec.details.single().contains("0th IFD ImageDescription") && rec.details.single().contains("Exif IFD CompositeImage"), rec.details.toString())
     }
 
     @Test fun `each variant fails exactly its targeted rule`() {
@@ -2528,7 +2559,7 @@ index e9a42f59..0bcaccd8 100644
 - [ ] **Step 6: Manual** (copies only, never committed): copy the seven Samsung JPEGs listed in the spec to a temp dir
   and run `./gradlew -q :app:run --args="check <copy>"`; confirm `containerConformance.format == "JPEG"`, no
   `inspectionError`, and the FAIL/WARN set of the spec's "Expected outcome" table (S26: `mpf.images` difference
-  -14494). Report differences instead of changing rules. GUI: open one Samsung JPEG in Content Check (⌘⇧C), check the
+  -14494; no JFIF row since Samsung writes no JFIF APP0). Report differences instead of changing rules. GUI: open one Samsung JPEG in Content Check (⌘⇧C), check the
   "컨테이너 포맷 규격" row lists the rules grouped by the four scopes and the 출처 links open.
 - [ ] **Step 7:** sync the spec (status line, any measured differences); commits `feat: show JPEG conformance in
   Content Check and CLI`, `docs: add JPEG citation sources`, `docs: sync JPEG conformance spec with results`.

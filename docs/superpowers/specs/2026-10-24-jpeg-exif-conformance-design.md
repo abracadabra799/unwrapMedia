@@ -1,6 +1,6 @@
 # JPEG / JFIF / Exif / MPF conformance — design (phase 1)
 
-Date: 2026-10-24. Status: designed on `feat/jpeg-conformance` (documents only). Item 3 of the standards-conformance
+Date: 2026-10-24. Status: designed on `feat/jpeg-conformance` (documents only); review decisions of 2026-10-25 applied. Item 3 of the standards-conformance
 roadmap (after ISO-BMFF and HEIF/AVIF). Plan: `docs/superpowers/plans/2026-10-24-jpeg-exif-conformance.md`.
 
 ## Goal
@@ -9,8 +9,8 @@ Content Check's **"컨테이너 포맷 규격"** row reports rule-by-rule confor
 structural observations `jpeg.soi/frame/dqt/dht/eoi/trailing`, which stay in the Structure row). Every WARN/FAIL rule
 carries a `SpecCitation` checked against the original PDF (physical page, quoted sentence below).
 
-- **Phase 1 (this spec):** ITU-T T.81 interchange-format marker syntax, JFIF APP0 (T.871), Exif APP1 (CIPA DC-008-2023,
-  Exif 3.0), MPF APP2 (CIPA DC-007-2026), and data after EOI.
+- **Phase 1 (this spec):** ITU-T T.81 interchange-format marker syntax, JFIF APP0 (T.871), Exif APP1 (CIPA DC-008-2026,
+  Exif 3.1), MPF APP2 (CIPA DC-007-2026), and data after EOI.
 - **Later:** XMP (APP1 `http://ns.adobe.com/xap/1.0/`), ICC (APP2), hierarchical mode, Exif inside MPF secondary images,
   uncompressed Exif thumbnails, MPF Extended files (MP Attribute IFD, panorama/disparity numbering, large-thumbnail
   pixel classes), entropy decoding.
@@ -39,7 +39,7 @@ carries a `SpecCitation` checked against the original PDF (physical page, quoted
 |---|---|---|---|
 | ITU-T (CCITT) Rec. T.81 = ISO/IEC 10918-1 | 09/1992, 186 pp ("Microsoft Word - T081E.DOC") | https://www.w3.org/Graphics/JPEG/itu-t81.pdf | 631031d4ba56b06abee3e312a0f235b9422da9c7267d1c8f7604418795768bf0 |
 | ITU-T Rec. T.871 = ISO/IEC 10918-5 (JFIF) | 05/2011, 18 pp | https://www.itu.int/rec/dologin_pub.asp?lang=e&id=T-REC-T.871-201105-I!!PDF-E&type=items | ca3d749e7e04016f7695ba9d319eeeab3ad80c99265a883c14f03b9daf3e1c9a |
-| CIPA DC-008-Translation-2023 (Exif 3.0) | established May 2023, 255 pp | https://www.cipa.jp/std/documents/download_e.html?DC-008-Translation-2023-E | 563e0ccb3b3700b5e35f104a0207ef6d577dbad10b1f1dc91116a80682bda39c |
+| CIPA DC-008-Translation-2026 (Exif 3.1) = JEITA CP-3451H | published January 2026, 267 pp | https://www.cipa.jp/std/documents/download_e.html?CIPA_DC-008-2026-E | 9cc36399a46ab7aa4a65473bb8a4945d3b044da739b8f16a01b0be11886dcff9 |
 | CIPA DC-007-Translation-2026 (Multi-Picture Format) | August 2026, 65 pp | https://www.cipa.jp/std/documents/download_e.html?CIPA_DC-007-2026_E | fa03dcd8ac56ce173c5966cc5926c80ca3ff0e934e1f13dc3295627815f1b42e |
 
 Notes:
@@ -47,13 +47,16 @@ Notes:
   in the ITU shop). The W3C copy is the ITU/CCITT original PDF; its physical pages are used.
 - **CIPA serves PDFs only by POST** (`dll.cgi`, `dlltarget=<id>`) after accepting its terms; no GET URL exists. The
   citation URL is the download page plus `#page=N` (the fragment documents the page of the downloaded PDF; the browser
-  ignores it on the HTML page). DC-008-2023 is no longer linked from cipa.jp (current: DC-008-2024 Exif 3.0 and
-  DC-008-2026 Exif 3.1) but `DC-008-Translation-2023-E` still downloads. The compressed-image **M** set (Table 17-21)
-  is identical in 2023, 2024 and 2026 (checked).
+  ignores it on the HTML page). Exif cites the current DC-008-2026 (Exif 3.1, user decision 2026-10-25); every exif.*
+  page and quoted sentence was re-read in that PDF. The compressed-image M/R/N/J sets of Table 17-21 are identical in
+  2023 (sha256 563e0ccb…), 2024 (0ae2ad60…) and 2026; Exif 3.1 adds seven Optional tags (LearningOptOutIn 0x9287,
+  DevelopmentType 0xA40D, DevelopmentTypeDescription 0xA40E, Distortion/ChromaticAberration/Shading Correction and
+  NoiseReduction 0xA40F-0xA412), added to the Type/Count table (160 tags).
 - DC-007: the user named no edition; the current 2026 translation is used (it adds MP Type `050000` Gain map image,
   relevant for Ultra HDR / Samsung gain maps). Older editions downloaded for comparison: 2009 (sha256 169bd991…),
   2021 (91fd2e0d…), 2025 (69049863…).
-- DC-007's physical page = printed page + 4; DC-008-2023 and T.81's printed pages differ (T.81 printed 31 = physical 35).
+- DC-007's physical page = printed page + 4; T.81 printed 31 = physical 35; DC-008-2026 pages are physical pages of the
+  2026 PDF.
   All pages below are physical.
 
 ## Rules (39: 35 FAIL-level, 4 WARN-level)
@@ -86,26 +89,26 @@ row's `jpeg.*` observation ids. Scopes: `JPEG 마커 구문 / JPEG marker syntax
 |---|---|---|---|---|
 | `jfif.position` | JFIF APP0 is the segment right after SOI | FAIL | 6.3 (9) | "The JFIF APP0 marker segment shall immediately follow the SOI marker." |
 | `jfif.fields` | Lp = 16+3k; units 0-2; Hdensity, Vdensity ≠ 0 | FAIL | 10.1 (12) | Lp "Shall be equal to 16 + 3 * k, with k = HthumbnailA * VthumbnailA." / Hdensity "Must be non-zero." (T.871 p.4: "must" expresses requirements) |
-| `jfif.version` | version = 0x0102 | FAIL | 10.1 (12) | "Files encoded according to this Recommendation \| International Standard shall use the value X'0102' (corresponding to version 1.02)." |
+| `jfif.version` | version = 0x0102; **1.00 / 1.01 → WARN** ("matches the earlier JFIF 1.0x edition", user decision 2026-10-25); any other value → FAIL | FAIL (1.00/1.01 WARN) | 10.1 (12) | "Files encoded according to this Recommendation \| International Standard shall use the value X'0102' (corresponding to version 1.02)." |
 | `jfif.frame` | Nf 1 or 3, P = 8, component ids 1(,2,3) (§10.1 p.13) | FAIL | 6.1 (8) | "The encoded image in the JPEG File Interchange Format shall have 1 or 3 colour channels and 8 bits per colour channel." |
 | `jfif.extension` | JFXX segments immediately follow the JFIF APP0; extension_code 0x10/0x11/0x13 (§10.2 p.13) | FAIL | 6.4 (9) | "If used, these segment(s) must immediately follow the JFIF APP0 marker segment." |
 | `jfif.app0` | no second `JFIF` APP0; application APP0s start with a zero-terminated identifier | FAIL | 6.5 (9) | "Application-specific APP0 marker segments shall contain application data bytes such that the initial application data bytes contain a zero-terminated string value that identifies the application. For application-specific APP0 marker segments, this string shall not be the zero-terminated string values "JFIF" … or "JFXX"…" |
 
-### Exif (11 rules) — only when an APP1 starts with `Exif\0`; first such APP1 of the primary image
+### Exif (11 rules, DC-008-2026 physical pages) — only when an APP1 starts with `Exif\0`; first such APP1 of the primary image
 
 | ID | Checks | Level | Citation (p.) | Quoted sentence |
 |---|---|---|---|---|
-| `exif.app1.position` | Exif APP1 is the segment right after SOI | FAIL | 4.7.2.1 (113) | "APP1 shall be recorded immediately after the SOI marker indicating the start of the file (see Figure 7)." |
-| `exif.tiff.header` | Exif ID `Exif`+00 00 (§4.7.2.3 p.113), II/MM, 42, 0th IFD offset inside the APP1 | FAIL | 4.5.2 Table 1 (30) | Byte Order: "Either "II" (4949.H) (little endian) or "MM" (4D4D.H) (big endian) depending on the CPU of the machine doing the recording shall be written." / 42: "002A.H (fixed)" |
-| `exif.ifd.structure` | every IFD (0th, 1st, Exif, GPS, Interop) and every value inside the APP1; no loops/shared IFDs; no IFD after the 1st (§4.5.4 p.31 "a maximum of two IFD") | FAIL | 4.6.2, def. (37) | "The IFD used in this standard consists of a 2-byte count (number of fields), 12-byte field entry arrays, and 4-byte offset to the next IFD, in conformance with TIFF Rev. 6.0[17]." |
-| `exif.ifd.order` | strictly ascending tags in every IFD | FAIL | 4.6.2 (38) | "Note that field entry shall be recorded in sequence starting from the smallest tag number." |
-| `exif.tag.type` | Type ∈ {1,2,3,4,5,7,9,10,129}; 153 defined tags have their Type/Count (table copied from §4.6.3-4.6.8, each with its page) | FAIL | 4.6.2 + tag definitions, def. (37) | "The following types are used in Exif: 1 = BYTE … 129 = UTF-8"; per tag e.g. ImageUniqueID "Type = ASCII, Count = 33" (p.86) |
-| `exif.tag.ascii` | ASCII/UTF-8 count includes the NULL; UTF-8 has no BOM | FAIL | 4.6.2 (37) | "The ASCII count shall include NULL." / UTF-8: "BOM (Byte Order Mark) shall not be used." (p.38) |
-| `exif.tags.mandatory` | 0th: ExifIFDPointer, YCbCrPositioning; Exif: ExifVersion, ComponentsConfiguration, ColorSpace, PixelX/YDimension; GPS IFD with tags → GPSVersionID (§4.6.7.1.1 p.91 "This tag is mandatory when at least one tag related to the GPS is present."); compressed thumbnail → Compression, JPEGInterchangeFormat(Length) | FAIL | 4.6.9 Table 17-21 (102) | "M : Mandatory (shall be recorded)" |
-| `exif.tags.not_allowed` | 0th IFD of a compressed primary: ImageWidth, ImageLength, BitsPerSample, Compression, PhotometricInterpretation, StripOffsets, SamplesPerPixel, RowsPerStrip, StripByteCounts, PlanarConfiguration, JPEGInterchangeFormat(Length), YCbCrSubSampling; 1st IFD of a compressed thumbnail: the Table 21 N/J set | FAIL | 4.6.9 Table 17-21 (102) | "N : It is not allowed to record" / "J : It is not allowed to record (included in JPEG marker)" |
-| `exif.tags.recommended` | 0th: ImageDescription, Make, Model, Orientation, DateTime; Exif: ExposureTime, Flash, ExposureMode, WhiteBalance, SceneCaptureType, CompositeImage | WARN | 4.6.9 Table 17-21 (102) | "R : Recommended" |
-| `exif.dimensions` | 1 ≤ PixelXDimension ≤ SOF X; PixelYDimension = SOF Y (or DNL) | FAIL | 4.6.6.3.1 (58) | "When a compressed file is recorded, the valid width of the meaningful image shall be recorded in this tag, whether or not there is padding data or a restart marker." (+ §4.8.1 p.124 "The SOF marker always has the same value as the effective image height tag.") |
-| `exif.thumbnail` | compressed thumbnail inside the APP1, exactly SOI..EOI, SOF0, no APPn/COM/RST; uncompressed → NOT_CHECKED | FAIL | 4.5.8 (36) | "The images are recorded at the designated location as a JPEG stream (from SOI to EOI) conforming to the JPEG Baseline DCT format[7]. APPn marker, COM marker, nor restart marker shall not be recorded in the JPEG stream (see Figure 9)." |
+| `exif.app1.position` | Exif APP1 is the segment right after SOI | FAIL | 4.7.2.1 (116) | "APP1 shall be recorded immediately after the SOI marker indicating the start of the file (see Figure 7)." |
+| `exif.tiff.header` | Exif ID `Exif`+00 00 (§4.7.2.3 p.116), II/MM, 42, 0th IFD offset inside the APP1 | FAIL | 4.5.2 Table 1 (31) | Byte Order: "Either "II" (4949.H) (little endian) or "MM" (4D4D.H) (big endian) depending on the CPU of the machine doing the recording shall be written." / 42: "002A.H (fixed)" |
+| `exif.ifd.structure` | every IFD (0th, 1st, Exif, GPS, Interop) and every value inside the APP1; no loops/shared IFDs; no IFD after the 1st (§4.5.4 p.32 "a maximum of two IFD") | FAIL | 4.6.2, def. (38) | "The IFD used in this standard consists of a 2-byte count (number of fields), 12-byte field entry arrays, and 4-byte offset to the next IFD, in conformance with TIFF Rev. 6.0[17]." |
+| `exif.ifd.order` | strictly ascending tags in every IFD | FAIL | 4.6.2 (39) | "Note that field entry shall be recorded in sequence starting from the smallest tag number." |
+| `exif.tag.type` | Type ∈ {1,2,3,4,5,7,9,10,129}; 160 defined tags have their Type/Count (table copied from §4.6.3-4.6.8 of the 2026 PDF, each with its page) | FAIL | 4.6.2 + tag definitions, def. (38) | "The following types are used in Exif: 1 = BYTE … 129 = UTF-8"; per tag e.g. ImageUniqueID "Type = ASCII, Count = 33" (p.90) |
+| `exif.tag.ascii` | ASCII/UTF-8 count includes the NULL; UTF-8 has no BOM | FAIL | 4.6.2 (38) | "The ASCII count shall include NULL." / UTF-8: "BOM (Byte Order Mark) shall not be used." (p.39) |
+| `exif.tags.mandatory` | 0th: ExifIFDPointer, YCbCrPositioning; Exif: ExifVersion, ComponentsConfiguration, ColorSpace, PixelX/YDimension; GPS IFD with tags → GPSVersionID (§4.6.7.1.1 p.94 "This tag is mandatory when at least one tag related to the GPS is present."); compressed thumbnail → Compression, JPEGInterchangeFormat(Length) | FAIL | 4.6.9 Table 17-21 (104) | "M : Mandatory (shall be recorded)" |
+| `exif.tags.not_allowed` | 0th IFD of a compressed primary: ImageWidth, ImageLength, BitsPerSample, Compression, PhotometricInterpretation, StripOffsets, SamplesPerPixel, RowsPerStrip, StripByteCounts, PlanarConfiguration, JPEGInterchangeFormat(Length), YCbCrSubSampling; 1st IFD of a compressed thumbnail: the Table 21 N/J set | FAIL | 4.6.9 Table 17-21 (105) | "N : It is not allowed to record" / "J : It is not allowed to record (included in JPEG marker)" |
+| `exif.tags.recommended` | 0th: ImageDescription, Make, Model, Orientation, DateTime; Exif: ExposureTime, Flash, ExposureMode, WhiteBalance, SceneCaptureType, CompositeImage — one row listing every missing tag (user decision 2026-10-25) | WARN | 4.6.9 Table 17-21 (105) | "R : Recommended" |
+| `exif.dimensions` | 1 ≤ PixelXDimension ≤ SOF X; PixelYDimension = SOF Y (or DNL) | FAIL | 4.6.6.3.1 (59) | "When a compressed file is recorded, the valid width of the meaningful image shall be recorded in this tag, whether or not there is padding data or a restart marker." (+ §4.8.1 p.129 "The SOF marker always has the same value as the effective image height tag.") |
+| `exif.thumbnail` | compressed thumbnail inside the APP1, exactly SOI..EOI, SOF0, no APPn/COM/RST; uncompressed → NOT_CHECKED | FAIL | 4.5.8 (37) | "The images are recorded at the designated location as a JPEG stream (from SOI to EOI) conforming to the JPEG Baseline DCT format[7]. APPn marker, COM marker, nor restart marker shall not be recorded in the JPEG stream (see Figure 9)." |
 
 Exif is checked only in the primary image: DC-007 §7 (p.40) says individual images other than large thumbnails
 "should" follow Exif support levels, and phase 1 does not open secondary images.
@@ -144,10 +147,10 @@ Exif is checked only in the primary image: DC-007 §7 (p.40) says individual ima
 | `t81.trailing` | PASS, WARN on `1.jpg` | `1.jpg` has 217 unexplained bytes (a SEF-like fragment without `SEFT`) between the gain map and an appended MP4 |
 
 Other files: ffmpeg 8.1.2 default output → PASS (no WARN). libjpeg-turbo 3.2.0 `cjpeg` default/progressive/restart
-→ FAIL only `jfif.version` (writes JFIF 1.01). macOS `sips` (ImageIO) re-encode → FAIL `jfif.version`,
-`exif.app1.position` (JFIF APP0 first, Exif second — a file with both cannot satisfy T.871 §6.3 and DC-008 §4.7.2.1
+→ overall WARN, only `jfif.version` (writes JFIF 1.01). macOS `sips` (ImageIO) re-encode → WARN `jfif.version`,
+FAIL `exif.app1.position` (JFIF APP0 first, Exif second — a file with both cannot satisfy T.871 §6.3 and DC-008 §4.7.2.1
 at once), `exif.tags.mandatory` (no YCbCrPositioning/ExifVersion/ComponentsConfiguration), WARN
-`exif.tags.recommended`. Photoshop export (`fig2d.jpg`) → FAIL `exif.tags.mandatory`, `exif.thumbnail` (APP2/13/14
+`exif.tags.recommended`. Web JPEG `mangu.jpg` (JFIF 1.01, progressive) → overall WARN. Photoshop export (`fig2d.jpg`) → FAIL `exif.tags.mandatory`, `exif.thumbnail` (APP2/13/14
 and RSTs in the thumbnail). **iPhone / Pixel camera JPEGs: none available locally — not measured**; expect at least
 `mpf.type` FAIL on Ultra HDR files whose gain map is typed 0x000000.
 
@@ -155,7 +158,7 @@ and RSTs in the thumbnail). **iPhone / Pixel camera JPEGs: none available locall
 
 New package `app/src/main/kotlin/com/multiviewer/parser/conformance/jpeg/`:
 
-- `JpegRules.kt` — catalog (`citedRule`, verified citations, `WARN_RULES`).
+- `JpegRules.kt` — catalog (`citedRule`, verified citations, `WARN_RULES`, `LEGACY_JFIF_VERSIONS` 0x0100/0x0101).
 - `JpegStream.kt` — `JpegStreamScanner.scan(reader, start, limit)`: bounded marker walk (fill bytes, standalone
   markers, length checks, 100,000-segment cap) and entropy-data scan in 64 KiB chunks counting RSTm (order checked)
   and stopping at the first other marker; `JpegHeaders` parses SOF/SOS/DQT/DHT/DRI/DNL inside their segments.
@@ -182,12 +185,10 @@ New package `app/src/main/kotlin/com/multiviewer/parser/conformance/jpeg/`:
   (listed in the plan with verified byte offsets).
 - Manual: the Samsung copies above via `./gradlew -q :app:run --args="check <copy>"`; results must match the table.
 
-## Open decisions for the user
+## Review decisions (2026-10-25, applied)
 
-1. **`jfif.version` = FAIL for JFIF 1.01** makes every libjpeg/libjpeg-turbo, `sips` and most web JPEG fail
-   (T.871 literally requires 0x0102 for files "encoded according to this Recommendation"). Alternative: treat 1.00/1.01
-   as the pre-T.871 JFIF spec (PASS with a note). Phase 1 implements the literal FAIL.
-2. **Exif edition**: 2023 (Exif 3.0) as instructed; 2026 (Exif 3.1) is current and has the same M set. Switching only
-   changes citations/pages.
-3. **`exif.tags.recommended` WARN** fires on nearly every real file (ImageDescription, CompositeImage). Kept as WARN
-   per decision 1.
+1. `jfif.version`: 1.00 and 1.01 → WARN citing the same T.871 §10.1 sentence, detail "matches the earlier JFIF 1.0x
+   edition"; every other value ≠ 0x0102 stays FAIL.
+2. Exif citations use the latest edition, CIPA DC-008-2026 (Exif 3.1); all exif.* pages and quotes re-verified.
+3. `exif.tags.recommended` stays WARN, reported as one row listing every missing R tag name.
+4. DC-007-2026 confirmed.
