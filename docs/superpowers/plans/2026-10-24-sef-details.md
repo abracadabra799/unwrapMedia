@@ -6,8 +6,10 @@ Real S26 fixtures independently verified in sef-bytes.txt: HEIC SEFH=8509091, ve
 - [x] Record raw fixture layout before code.
 - [x] Failing tests for header and directory/source ranges, block header, raw binary preview and out-of-file declaration.
 - [x] Add fields and enforce directory end before trailer, blocks before SEFH, bounded directory expansion (4096), byte previews (256).
-- [ ] Focused/full tests, independent review, commit, merge local main.
+- [x] Focused/full tests, independent review, commit, merge local main.
 
 Review: independent review found no introduced blocking defects; added direct directory/trailer and block/SEFH overlap regression tests. Existing whole-name/payload allocations remain a known limitation; the 256-byte binary preview limits display size, not total parsing memory.
 
 Validation: new initial tests failed on missing fields and out-of-range EOF; focused tests and full :app:test then passed. Reviewer-requested additional boundary test passed in a subsequent focused run (4 SEF detail tests).
+
+Merged into local main on 2026-10-24; remote push not performed.
