@@ -24,6 +24,9 @@ object JpegConformanceChecker {
             findings += JpegT81Rules.evaluate(ctx)
             findings += JpegJfifRules.evaluate(ctx)
             findings += JpegExifRules.evaluate(ctx)
+            val mpf = JpegMpfRules.evaluate(ctx)
+            findings += mpf.findings
+            findings += JpegTrailer.evaluate(ctx, mpf.images)
             null
         } catch (e: CancellationException) {
             throw e

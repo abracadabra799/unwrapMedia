@@ -83,6 +83,7 @@ class JpegT81RulesTest {
 
     @Test fun `missing EOI fails and trailing data is judged only after EOI`() {
         failsOnly(baseline(tail = ByteArray(0)), "t81.eoi")
-        // Task 7: t81.trailing asserts re-enabled once JpegTrailer exists.
+        assertEquals(NOT_CHECKED, check(baseline(tail = ByteArray(0))).status("t81.trailing"))
+        failsOnly(baseline(tail = EOI + ByteArray(8)), "t81.trailing")
     }
 }

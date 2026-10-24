@@ -27,6 +27,8 @@ class JpegFixtureTest {
             assertEquals(emptySet(), r.ids(FAIL, WARN, NOT_CHECKED), "$name: ${r.dump()}")
             assertEquals(PASS, r.overall, name)
         }
+        val r = run("exif-mpf.jpg")
+        assertTrue(r.findings.single { it.rule.id == "t81.trailing" }.details.any { it.contains("MPF") })
     }
 
     @Test fun `libjpeg-turbo writes JFIF 1_01, which only warns on jfif version`() {
@@ -52,6 +54,7 @@ class JpegFixtureTest {
         val cjpeg = setOf("jfif.version")
         val expected = mapOf(
             "no-eoi.jpg" to setOf("t81.eoi"),
+            "trailing-garbage.jpg" to setOf("t81.trailing"),
             "no-dqt.jpg" to setOf("t81.tables"),
             "sof-h0.jpg" to setOf("t81.frame.header"),
             "scan-se.jpg" to setOf("t81.scan.header"),
@@ -65,11 +68,22 @@ class JpegFixtureTest {
             "exif-ifd-loop.jpg" to setOf("exif.ifd.structure"),
             "exif-ascii-nonull.jpg" to setOf("exif.tag.ascii"),
             "exif-thumb-rst.jpg" to setOf("exif.thumbnail"),
+            "mpf-type0.jpg" to setOf("mpf.type"),
+            "mpf-size.jpg" to setOf("mpf.images"),
         )
         expected.forEach { (name, ids) ->
             val r = run(name)
             assertNull(r.inspectionError, name)
             assertEquals(ids, r.ids(FAIL, WARN), "$name: ${r.dump()}")
         }
+        assertEquals(WARN, run("trailing-garbage.jpg").overall)
+    }
+
+    @Test fun `FAIL findings carry a verified citation with the physical PDF page`() {
+        val f = run("mpf-type0.jpg").findings.single { it.rule.id == "mpf.type" }
+        val c = f.rule.citation!!
+        assertTrue(c.verified)
+        assertEquals(19, c.page)
+        assertTrue(c.url.endsWith("#page=19"), c.url)
     }
 }
