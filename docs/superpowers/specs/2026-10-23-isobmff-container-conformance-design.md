@@ -60,12 +60,12 @@ NOT_CHECKED > PASS > NOT_APPLICABLE (a mix of PASS and NOT_APPLICABLE tracks is 
 
 | ID | Rule | Level | Profile |
 |---|---|---|---|
-| `bmff.box.size` | Every box: size ≥ header (8, or 16 with largesize), ends within its parent | FAIL | B |
+| `bmff.box.size` | Every box: size ≥ header (8, or 16 with largesize), ends within its parent; inside every container other than `meta`, the children cover the payload — ≥ 8 bytes from the first non-box child (non-printable type) to the container end → FAIL "{N}바이트가 {container} 안에서 박스로 해석되지 않습니다 @0x…" with that span as the range (shorter leftovers, e.g. QuickTime's 4-byte `udta` zero terminator, are tolerated) | FAIL | B |
 | `bmff.box.size0` | size 0 ("to end of file") only on a top-level box (a top-level size-0 box is by definition the last one) | FAIL | B |
 | `bmff.box.trailing` | No bytes after the last top-level box that are not a box | FAIL | B |
 | `bmff.ftyp.present` | `ftyp` present | ISO: WARN (pre-ftyp files allowed for compatibility); QT: PASS with "optional" detail | B |
 | `bmff.ftyp.position` | `ftyp` precedes `moov` and `mdat` (only `free`/`skip`/`wide`/`uuid` may precede it); a second `ftyp` FAILs | FAIL | B |
-| `bmff.ftyp.brands` | `ftyp` size = 16 + 4·n; major brand and compatible brands are 4 printable chars; ISO profile: major brand or a compatible brand is an ISO brand (`isom`, `iso2`…`isoc`, `mp41`, `mp42`, `M4A `, `M4V `, `3g*`, `avc1` etc.) — malformed size/brand chars FAIL, no recognised ISO brand WARN; brands beyond 4096 are not listed (detail line) | FAIL / WARN | B |
+| `bmff.ftyp.brands` | `ftyp` size = 16 + 4·n; major brand and compatible brands are 4 printable chars; ISO profile: major brand or a compatible brand is an ISO brand (`isom`, `iso2`…`isoc`, `mp41`, `mp42`, `M4A `, `M4V `, `3g*`, `avc1`, `piff`, `isml` etc.) — malformed size/brand chars FAIL, no recognised ISO brand WARN; brands beyond 4096 are not listed (detail line) | FAIL / WARN | B |
 | `bmff.moov.count` | Exactly one top-level `moov` | FAIL | B |
 | `bmff.mvhd.count` | Exactly one `mvhd` in `moov` | FAIL | B |
 | `bmff.trak.count` | At least one `trak` (QT reference movie with `rmra`: NOT_APPLICABLE) | FAIL | B |
@@ -75,9 +75,9 @@ NOT_CHECKED > PASS > NOT_APPLICABLE (a mix of PASS and NOT_APPLICABLE tracks is 
 | `bmff.fullbox.version` | `mvhd`/`tkhd`/`mdhd`/`elst`/`ctts` versions 0 or 1 only; `hdlr`/`stsd`/`stts`/`stsc`/`stsz`/`stco`/`co64`/`stss`/`vmhd`/`smhd`/`dref` version 0 | FAIL | B |
 | `bmff.mvhd.timescale` / `bmff.mdhd.timescale` | timescale > 0 | FAIL | B |
 | `bmff.tkhd.track_id` | track_ID ≠ 0 and unique within the file | FAIL | B |
-| `bmff.mvhd.next_track_id` | next_track_ID > every track_ID in use (0xFFFFFFFF = "no next" → PASS with detail) | FAIL | B |
+| `bmff.mvhd.next_track_id` | next_track_ID > every track_ID in use (0xFFFFFFFF = "no next" → PASS with detail); applies to fragmented files too (ffmpeg's fragmented output fails it — kept FAIL by decision, see Observed real files) | FAIL | B |
 | `bmff.vmhd.flags` | `vmhd` flags = 1 (no `vmhd` → NOT_APPLICABLE). `vmhd` is the media header for `vide` and also the `auxv`/`pict` handlers | FAIL | B |
-| `bmff.hdlr.predefined` | ISO: `hdlr` pre_defined = 0 → FAIL otherwise, except a QuickTime component type (`mhlr` in `mdia`, `dhlr` in `minf`) → WARN; QT: component type `mhlr` in `mdia`, `dhlr` in `minf` | FAIL / WARN | I / Q |
+| `bmff.hdlr.predefined` | ISO: `hdlr` pre_defined = 0 → FAIL otherwise, except a QuickTime component type (`mhlr` in `mdia`, `dhlr` in `minf`) → WARN; QT: component type `mhlr` in `mdia`, `dhlr` in `minf` — component type 0 there → WARN ("QuickTime mdia hdlr component type 0 (mhlr 기대)" / "… minf … (dhlr 기대)"), any other value → FAIL | FAIL / WARN | I / Q |
 | `bmff.mdhd.language` | ISO: pad bit 0 and three 5-bit chars each 1..26 (ISO-639-2/T packing; 0 — written by some devices and by ffmpeg on chapter tracks — is WARN); QT: value < 0x400 = Macintosh language code, 0x7FFF = unspecified, else ISO packing | WARN | I / Q |
 | `bmff.dref.entries` | `dref` entry_count ≥ 1 and entries fit; a self-contained entry (`url `/`urn ` flags & 1) is required for sample data in this file (external references → PASS with detail, and the track's sample-location rules NOT_APPLICABLE) | FAIL | B |
 | `bmff.stsd.entries` | `stsd` entry_count ≥ 1 and every sample entry fits inside `stsd` | FAIL | B |
@@ -101,6 +101,16 @@ old parser-warning-only report; the old report's "파서 근거 / Parser evidenc
 `check` JSON and the analysis case (window "Save analysis case" and CLI `--case`) carry the same
 `containerConformance` object.
 
+### Limitations
+
+- Only files that Content Check classifies as MP4/MOV/M4A get this report. A file whose `ftyp` is malformed (e.g.
+  size < 16, so `FormatSniffer` does not recognise it), or whose compatible brands make the sniffer classify it as
+  HEIF/AVIF (e.g. `mif1`/`heic`/`avif` listed next to `isom`), falls back to the parser-only report (Container
+  Conformance NOT_CHECKED), never PASS.
+- Fragmented files: only the `moov`-level rules are evaluated; fragment sample tables are phase 2.
+- Sample-table walks read each table through its own buffered cursor (`TableCursor`, 4096 entries per bulk read);
+  a 1 h 60 fps MP4 (168k chunks per track) checks in ≈ 0.2 s on macOS.
+
 ### Observed real files (2026-10-23, ffmpeg 8.1.2)
 
 Committed fixtures (`app/src/test/resources/isobmff-conformance/`, from `docs/validation/isobmff-conformance-fixtures/`):
@@ -112,12 +122,18 @@ Committed fixtures (`app/src/test/resources/isobmff-conformance/`, from `docs/va
 | `a.m4a` (aac 0.5 s, `M4A `) | 2,222 | ISO | NOT_APPLICABLE `vmhd.flags` (no vmhd), `duration.consistency` |
 | `v.3gp` (h263 176x144 + aac 8 kHz mono, `3gp4`) | 14,849 | ISO | NOT_APPLICABLE `duration.consistency` |
 | `chapters.mp4` / `chapters.m4a` (aac + chapter text track) | 3,890 / 3,850 | ISO | WARN `mediaheader.match` (gmhd), WARN `mdhd.language` (language 0 on the chapter track) |
+| `frag.mp4` (as v.mp4, `-movflags +frag_keyframe+empty_moov`) | 8,309 | ISO | FAIL `mvhd.next_track_id` only; `fragmented` PASS with detail; sample-table rules NOT_APPLICABLE |
+
+ffmpeg fragmented output violates next_track_ID (= max track_ID); reported FAIL by decision. ffmpeg 8.1.2 writes
+`next_track_ID` 2 with track_IDs 1 and 2 for `-movflags +frag_keyframe+empty_moov` (MP4 and MOV) and for `-f ismv`
+(bytes checked with xxd); the user chose to keep the strict FAIL.
 
 Corrupted variants of `v.mp4` (`corrupt.py`; each 8,161–8,269 bytes) — each fails exactly its targeted rule, no other
 FAIL and no WARN: `no-moov` → `moov.count` (moov-dependent rules NOT_CHECKED), `dup-mvhd` → `mvhd.count`,
 `track-id-0` → `tkhd.track_id`, `stts-mismatch` → `stbl.sample_count`, `stsc-gap` → `stsc.order` (coverage and
 sample location NOT_CHECKED), `stco-past-eof` → `sample.location`, `vmhd-flags-0` → `vmhd.flags`, `size0-nested` →
-`box.size0`, `trailing-garbage` → `box.trailing`.
+`box.size0`, `trailing-garbage` → `box.trailing`, `bad-type-nested` (2nd `trak` type → `00 01 02 03`, size unchanged)
+→ `box.size` (the audio `trak` and `udta` after it are reported as non-box bytes inside `moov`; overall never PASS).
 
 Manual (kept out of the repo, `unwrapMedia check` on copies):
 
