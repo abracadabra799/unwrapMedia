@@ -27,6 +27,8 @@ internal object HeifPropertyRules {
     private val AVIF_CODEC_CITATION = SpecCitation("AVIF v1.2.0 (AOMedia, 2025-10-16)", "§2.1 AV1 Image Item", null,
         "https://aomediacodec.github.io/av1-avif/v1.2.0.html#image-item", true)
 
+    private const val AVIF_SOURCE = "AVIF v1.2.0 (AOMedia)"
+
     fun evaluate(ctx: HeifContext, avif: Boolean): List<ConformanceFinding> {
         val p = Props(ctx)
         return listOf(
@@ -94,6 +96,11 @@ internal object HeifPropertyRules {
         }
     }
 
+    /** True when the item/property tables were read completely (no cap, iinf readable, iprp intact). */
+    private fun propsReadable(ctx: HeifContext, p: Props): Boolean =
+        p.meta != null && ctx.capped("iinf", "iprp", "ipco", "ipma").isEmpty() && p.iinf != null &&
+            p.m.iinfEntryCount != null && p.propsIncomplete.isEmpty()
+
     /** Non-null = item/property tables cannot be read completely; the NOT_CHECKED finding to return. */
     private fun propsUnavailable(ctx: HeifContext, p: Props, finding: (ConformanceStatus, List<String>) -> ConformanceFinding): ConformanceFinding? {
         if (p.meta == null) return finding(NOT_CHECKED, listOf("최상위 meta 없음"))
@@ -143,13 +150,13 @@ internal object HeifPropertyRules {
         counts.filter { it.value > 1 }.keys.sorted().forEach {
             fails += "item_ID $it 이(가) ipma에 ${counts[it]}번 나옴 (최대 1번)"; ranges += ipmaRange
         }
-        if (m.ipmas.size == 1) {
-            for (i in 1 until m.ipmaOrder.size) {
-                val a = m.ipmaOrder[i - 1]; val b = m.ipmaOrder[i]
-                if (b < a) { fails += "ipma item_ID 순서가 증가하지 않음: $a 다음 $b"; ranges += ipmaRange }
+        // item_IDs increase within each ipma box; across boxes only uniqueness (above) applies.
+        m.ipmaOrders.forEachIndexed { boxIndex, order ->
+            val box = m.ipmas.getOrNull(boxIndex) ?: return@forEachIndexed
+            for (i in 1 until order.size) {
+                val a = order[i - 1]; val b = order[i]
+                if (b < a) { fails += "${at(box)}: item_ID 순서가 증가하지 않음: $a 다음 $b"; ranges += ctx.range(box) }
             }
-        } else {
-            unchecked += "ipma 박스 ${m.ipmas.size}개: 박스별 item_ID 순서는 검사하지 않음"
         }
         val declared = ctx.itemsById.keys
         counts.keys.filter { it !in declared }.sorted().forEach {
@@ -191,7 +198,8 @@ internal object HeifPropertyRules {
         val id = "heif.props.codec_config"
         val base = HeifRules.rule(id)
         val rule = if (avif && p.items.any { it.type == "av01" })
-            base.copy(reference = "AVIF v1.2.0 §2.1; ${base.reference}", citation = AVIF_CODEC_CITATION) else base
+            base.copy(source = AVIF_SOURCE, reference = "AVIF v1.2.0 §2.1 (AV1 Image Item)", citation = AVIF_CODEC_CITATION)
+        else base
         propsUnavailable(ctx, p) { s, d -> ConformanceFinding(rule, s, d, emptyList()) }?.let { return it }
         val coded = p.items.filter { it.type in CODED_IMAGE_TYPES }
         val fails = ArrayList<String>()
@@ -268,11 +276,12 @@ internal object HeifPropertyRules {
         val unchecked = ArrayList<String>()
         val ranges = ArrayList<LongRange>()
         if (p.refsIncomplete.isNotEmpty()) unchecked += listOf("iref를 끝까지 읽지 못해 일부 참조 미검사") + p.refsIncomplete
+        // Problems of individual reference boxes: an unreadable one may hide references, so it blocks a PASS.
         problemsWithin(ctx, iref).filterNot { it.startsWith("iref@") }.forEach {
-            if (it.contains("남은 바이트")) warns += it else fails += it
-            ranges += ctx.range(iref)
+            if (isHeifUnreadableProblem(it)) unchecked += "읽지 못한 참조 박스 — $it"
+            else { warns += it; ranges += ctx.range(iref) }
         }
-        val propsGap = propsUnavailable(ctx, p) { s, d -> ctx.finding(id, s, d) }
+        val propsReadable = propsReadable(ctx, p)
         val declared = ctx.itemsById.keys
         fun typeOf(itemId: Long) = ctx.itemsById[itemId]?.first()?.type
         for (r in m.references) {
@@ -295,7 +304,7 @@ internal object HeifPropertyRules {
             }
             if (r.type == "auxl" && r.from in declared) {
                 when {
-                    propsGap != null -> unchecked += "$where: item_ID ${r.from} 의 auxC — 속성을 읽지 못해 미검사"
+                    !propsReadable -> unchecked += "$where: item_ID ${r.from} 의 auxC — 속성을 읽지 못해 미검사"
                     p.props(r.from, "auxC").isEmpty() -> {
                         fails += "$where: 보조 이미지 item_ID ${r.from} 에 auxC 속성 없음"; ranges += ctx.range(r.box)
                     }
@@ -359,9 +368,11 @@ internal object HeifPropertyRules {
         val id = "heif.derived.grid"
         if (p.meta == null) return ctx.finding(id, NOT_CHECKED, listOf("최상위 meta 없음"))
         val grids = p.items.filter { it.type == "grid" }
-        if (grids.isEmpty() && p.m.iinfEntryCount != null && ctx.capped("iinf").isEmpty())
+        if (grids.isEmpty() && p.m.iinfEntryCount != null && ctx.capped("iinf").isEmpty() && p.itemsIncomplete.isEmpty())
             return ctx.finding(id, NOT_APPLICABLE, listOf("grid 항목 없음"))
         refsUnavailable(ctx, p, id)?.let { return it }
+        if (grids.isEmpty()) return ctx.finding(id, NOT_CHECKED,
+            listOf("iinf를 끝까지 읽지 못해 grid 항목 여부를 확인할 수 없음") + p.itemsIncomplete.capped())
         propsUnavailable(ctx, p) { s, d -> ctx.finding(id, s, d) }?.let { return it }
         ctx.capped("iloc").takeIf { it.isNotEmpty() }?.let { return ctx.finding(id, NOT_CHECKED, it) }
         val fails = ArrayList<String>()
@@ -419,9 +430,11 @@ internal object HeifPropertyRules {
         val id = "heif.derived.inputs"
         if (p.meta == null) return ctx.finding(id, NOT_CHECKED, listOf("최상위 meta 없음"))
         val derived = p.items.filter { it.type in DERIVED_TYPES }
-        if (derived.isEmpty() && p.m.iinfEntryCount != null && ctx.capped("iinf").isEmpty())
+        if (derived.isEmpty() && p.m.iinfEntryCount != null && ctx.capped("iinf").isEmpty() && p.itemsIncomplete.isEmpty())
             return ctx.finding(id, NOT_APPLICABLE, listOf("파생 이미지 항목 없음"))
         refsUnavailable(ctx, p, id)?.let { return it }
+        if (derived.isEmpty()) return ctx.finding(id, NOT_CHECKED,
+            listOf("iinf를 끝까지 읽지 못해 파생 이미지 항목 여부를 확인할 수 없음") + p.itemsIncomplete.capped())
         val fails = ArrayList<String>()
         val unchecked = ArrayList<String>()
         val ranges = ArrayList<LongRange>()
@@ -439,7 +452,7 @@ internal object HeifPropertyRules {
                 }
             }
             if (d.type == "tmap" && inputs.size != 2) { fails += "$tag: 입력 ${inputs.size}개 (정확히 2개여야 함)"; ranges += ctx.range(d.infe) }
-            if (d.type == "iden" && inputs.size != 1) { fails += "$tag: 입력 ${inputs.size}개 (정확히 1개여야 함)"; ranges += ctx.range(d.infe) }
+            if (d.type == "iden" && inputs.size != 1) { fails += "$tag: 입력 ${inputs.size}개 (§6.6.2.2 iden: dimg 입력 1개)"; ranges += ctx.range(d.infe) }
         }
         val byType = derived.groupingBy { it.type }.eachCount().entries.joinToString(", ") { "${it.key} ${it.value}개" }
         return result(ctx, id, fails, emptyList(), unchecked, ranges, "파생 항목 ${derived.size}개 ($byType): dimg 입력이 모두 선언된 이미지 항목")

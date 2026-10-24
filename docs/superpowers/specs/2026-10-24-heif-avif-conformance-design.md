@@ -54,7 +54,7 @@ Groups (scope labels): `"ftyp"`, `"meta 구조 / meta structure"`, `"항목 / It
 | `heif.props.codec_config` | Coded image items have their decoder configuration: `hvc1`→`hvcC`, `av01`→`av1C` (AVIF §2.1), `j2k1`→`j2kH`, `vvc1`→`vvcC`, … unknown item types → NOT_APPLICABLE | FAIL | HEIF / AVIF §2.1 |
 | `heif.props.essential` | Transformative properties (`irot`, `imir`, `clap`) are marked essential | WARN | HEIF |
 | `heif.props.unique` | At most one of each of `ispe`, `pixi`, `irot`, `imir`, `clap`, `colr` (per colour_type) per item | WARN | HEIF |
-| `heif.iref.targets` | Every `iref` from/to item_ID is declared; `thmb`/`auxl`/`cdsc` sources point at existing master items; an `auxl` source has an `auxC` property | FAIL | HEIF |
+| `heif.iref.targets` | Every `iref` from/to item_ID is declared; `thmb`/`auxl`/`cdsc` sources point at existing master items; an `auxl` source has an `auxC` property; for `cdsc` only declaration of both ends is checked (the described item need not be an image item, per our reading) | FAIL | HEIF |
 | `heif.derived.grid` | grid descriptor readable (version 0, flags → 16/32-bit sizes), `dimg` count = rows × columns, all tiles same `ispe`, rows·tile_height ≥ output height and columns·tile_width ≥ output width, grid `ispe` = output size | FAIL | HEIF |
 | `heif.derived.inputs` | `iovl` / `tmap` / other derived items have `dimg` inputs that exist; `tmap` has exactly two inputs | FAIL | HEIF |
 | `avif.primary` | Primary item is `av01` or a derived image whose inputs are `av01` | FAIL | AVIF §6.2 |

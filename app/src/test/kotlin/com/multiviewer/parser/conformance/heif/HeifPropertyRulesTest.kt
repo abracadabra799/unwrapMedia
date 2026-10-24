@@ -9,6 +9,7 @@ import com.multiviewer.parser.conformance.ConformanceStatus.PASS
 import com.multiviewer.parser.conformance.ConformanceStatus.WARN
 import com.multiviewer.parser.conformance.isobmff.be16
 import com.multiviewer.parser.conformance.isobmff.be32
+import com.multiviewer.parser.conformance.isobmff.box
 import com.multiviewer.parser.conformance.isobmff.fullBox
 import com.multiviewer.parser.fileOf
 import kotlin.test.Test
@@ -293,5 +294,105 @@ class HeifPropertyRulesTest {
         r.assertClean()
         listOf("heif.ipma.refs", "heif.props.ispe", "heif.props.codec_config", "heif.props.essential", "heif.props.unique",
             "heif.iref.targets", "heif.derived.grid", "heif.derived.inputs").forEach { assertStatus(PASS, r, it) }
+    }
+
+    // ---- review fixes ----
+
+    private val avifSpec = HeifSpec(major = "avif", compatible = listOf("avif", "mif1", "miaf"),
+        items = listOf(HeifItem(1, "av01")), props = listOf(av1C(), ispe(64, 48)))
+
+    @Test
+    fun `AVIF codec config carries the AVIF source together with the AVIF citation`() {
+        val rule = check(avifSpec).finding("heif.props.codec_config").rule
+        assertEquals("AVIF v1.2.0 (AOMedia)", rule.source)
+        assertEquals("§2.1 AV1 Image Item", rule.citation?.section)
+        assertEquals(true, rule.citation?.verified)
+        val heic = check(HeifSpec()).finding("heif.props.codec_config").rule
+        assertEquals("ISO/IEC 23008-12 (공개 자료 기반, 원문 미대조)", heic.source)
+        assertEquals("ISO/IEC 23008-12:2025", heic.citation?.document)
+    }
+
+    @Test
+    fun `AVIF-branded file without av01 items keeps the HEIF source and citation`() {
+        val r = check(avifSpec.copy(items = listOf(HeifItem(1, "hvc1")), props = listOf(hvcC(), ispe(64, 48))))
+        val rule = r.finding("heif.props.codec_config").rule
+        assertEquals("ISO/IEC 23008-12 (공개 자료 기반, 원문 미대조)", rule.source)
+        assertEquals("ISO/IEC 23008-12:2025", rule.citation?.document)
+    }
+
+    /** iprp with props [hvcC, ispe] and one ipma box per list of item_IDs (each item gets hvcC! + ispe). */
+    private fun multiIpma(vararg boxes: List<Int>): HeifSpec {
+        val ipmas = boxes.map { ids ->
+            fullBox("ipma", 0, 0, be32(ids.size.toLong()), *ids.map { be16(it) + byteArrayOf(2, 0x81.toByte(), 0x02) }.toTypedArray())
+        }
+        val iprp = box("iprp", box("ipco", hvcC(), ispe(64, 48)), *ipmas.toTypedArray())
+        return HeifSpec(items = listOf(HeifItem(1, "hvc1"), HeifItem(2, "hvc1", hidden = true), HeifItem(3, "hvc1", hidden = true)),
+            dropMetaChild = "iprp", extraMetaChildren = listOf(iprp))
+    }
+
+    @Test
+    fun `ipma order is checked per box`() {
+        assertStatus(PASS, check(multiIpma(listOf(1, 2), listOf(3))), "heif.ipma.refs")
+        assertStatus(PASS, check(multiIpma(listOf(3), listOf(1, 2))), "heif.ipma.refs")
+        assertStatus(FAIL, check(multiIpma(listOf(2, 1), listOf(3))), "heif.ipma.refs")
+        assertStatus(FAIL, check(multiIpma(listOf(1, 2), listOf(2, 3))), "heif.ipma.refs")
+    }
+
+    /** iinf whose entry_count (2) does not match its single infe: items may be missing. */
+    private val shortIinf = fullBox("iinf", 0, 0, be16(2), fullBox("infe", 2, 0, be16(1), be16(0), "hvc1".toByteArray(), byteArrayOf(0)))
+
+    @Test
+    fun `incomplete iinf leaves derived rules unchecked instead of not applicable`() {
+        val r = check(HeifSpec(dropMetaChild = "iinf", extraMetaChildren = listOf(shortIinf)))
+        assertStatus(NOT_CHECKED, r, "heif.derived.grid")
+        assertStatus(NOT_CHECKED, r, "heif.derived.inputs")
+    }
+
+    private fun refRulesUnchecked(r: ConformanceReport) =
+        listOf("heif.iref.targets", "heif.derived.grid", "heif.derived.inputs").forEach { assertStatus(NOT_CHECKED, r, it) }
+
+    @Test
+    fun `item count cap leaves reference and derived rules unchecked`() {
+        val iinf = fullBox("iinf", 1, 0, be32(2_000_000))
+        refRulesUnchecked(check(grid().copy(dropMetaChild = "iinf", extraMetaChildren = listOf(iinf))))
+    }
+
+    @Test
+    fun `iref with a broken child box leaves reference and derived rules unchecked`() {
+        val iref = fullBox("iref", 0, 0, box("dimg", be16(10), be16(2), be16(1), be16(2)), be32(100), "thmb".toByteArray())
+        refRulesUnchecked(check(grid().copy(refs = emptyList(), extraMetaChildren = listOf(iref))))
+    }
+
+    @Test
+    fun `unreadable reference box leaves reference and derived rules unchecked`() {
+        val iref = fullBox("iref", 0, 0, box("dimg", be16(10), be16(2), be16(1), be16(2)), box("thmb", be16(10)))
+        refRulesUnchecked(check(grid().copy(refs = emptyList(), extraMetaChildren = listOf(iref))))
+    }
+
+    @Test
+    fun `auxl or thmb whose source is a metadata item fails`() {
+        val base = HeifSpec(items = listOf(HeifItem(1, "hvc1"), HeifItem(2, "Exif")), assoc = listOf(1L to tileProps))
+        assertStatus(FAIL, check(base.copy(refs = listOf(Triple("auxl", 2L, listOf(1L))))), "heif.iref.targets")
+        assertStatus(FAIL, check(base.copy(refs = listOf(Triple("thmb", 2L, listOf(1L))))), "heif.iref.targets")
+        // cdsc is only checked for declaration.
+        assertStatus(PASS, check(base.copy(refs = listOf(Triple("cdsc", 2L, listOf(1L))))), "heif.iref.targets")
+    }
+
+    @Test
+    fun `grid stored in mdat with construction method 0 passes`() {
+        val spec = grid().let { g -> g.copy(items = g.items.map { if (it.type == "grid") it.copy(method = 0) else it }) }
+        val r = check(spec)
+        r.assertClean()
+        assertStatus(PASS, r, "heif.derived.grid")
+    }
+
+    @Test
+    fun `iden with two inputs fails naming its clause`() {
+        val spec = HeifSpec(items = listOf(HeifItem(1, "hvc1", hidden = true), HeifItem(2, "hvc1", hidden = true), HeifItem(3, "iden")),
+            primary = 3, assoc = listOf(1L to tileProps, 2L to tileProps, 3L to listOf(2 to false)),
+            refs = listOf(Triple("dimg", 3L, listOf(1L, 2L))))
+        val f = check(spec).finding("heif.derived.inputs")
+        assertEquals(FAIL, f.status)
+        assertTrue(f.details.any { "§6.6.2.2 iden: dimg 입력 1개" in it }, f.details.toString())
     }
 }

@@ -21,6 +21,8 @@ data class HeifModel(
     val references: List<HeifReference>, val idat: BmffBox?, val problems: List<String>,
     /** The ipco that was read (first in iprp) and every ipma box of iprp, for ranges and problem attribution. */
     val ipco: BmffBox? = null, val ipmas: List<BmffBox> = emptyList(),
+    /** item_IDs in entry order, one list per box of [ipmas] (same order); [ipmaOrder] is their concatenation. */
+    val ipmaOrders: List<List<Long>> = emptyList(),
 )
 
 /** Count above which an item/property/association/reference table is not read (rules report NOT_CHECKED). */
@@ -147,6 +149,7 @@ object HeifItemModel {
         val ipmaOrder = ArrayList<Long>()
         var ipcoBox: BmffBox? = null
         val ipmaBoxes = ArrayList<BmffBox>()
+        val ipmaOrders = ArrayList<List<Long>>()
         first("iprp")?.let { iprp ->
             val iprpChildren = childBoxes(reader, iprp.payload, iprp.end, "iprp", iprp.offset, problems)
             val ipcos = iprpChildren.filter { it.type == "ipco" }
@@ -159,7 +162,10 @@ object HeifItemModel {
             }
             for (ipma in iprpChildren.filter { it.type == "ipma" }) {
                 ipmaBoxes += ipma
-                guarded(ipma) { readIpma(reader, ipma, associations, ipmaOrder, problems) }
+                val order = ArrayList<Long>()
+                guarded(ipma) { readIpma(reader, ipma, associations, order, problems) }
+                ipmaOrders += order
+                ipmaOrder += order
             }
         }
 
@@ -186,7 +192,7 @@ object HeifItemModel {
         val idat = first("idat")
 
         return HeifModel(meta, metas.size, handler, primaryId, items, iinfEntryCount, locations, ilocVersion,
-            properties, associations, ipmaOrder, references, idat, problems, ipcoBox, ipmaBoxes)
+            properties, associations, ipmaOrder, references, idat, problems, ipcoBox, ipmaBoxes, ipmaOrders)
     }
 
     private fun readInfe(reader: ByteReader, b: BmffBox, problems: MutableList<String>): HeifItemInfo {
