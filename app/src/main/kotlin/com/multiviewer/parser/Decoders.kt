@@ -10,6 +10,7 @@ fun registerAllDecoders() {
     for (type in listOf("vmhd", "smhd", "btrt", "fiel")) {
         BoxRegistry.register(type, BasicMediaBoxDecoder)
     }
+    BoxRegistry.register("esds", EsdsBoxDecoder)
     BoxRegistry.register("ftyp", FtypBoxDecoder)
     BoxRegistry.register("mvhd", MvhdBoxDecoder)
     BoxRegistry.register("tkhd", TkhdBoxDecoder)
@@ -47,7 +48,7 @@ fun registerAllDecoders() {
     BoxRegistry.register("dvcC", DolbyVisionConfigDecoder)
     BoxRegistry.register("dvvC", DolbyVisionConfigDecoder)
     BoxRegistry.register("elst", ElstBoxDecoder)
-    BoxRegistry.register("dref", ContainerBoxDecoder(childOffsetInPayload = 8, summarize = true))
+    BoxRegistry.register("dref", CountedBoxDetailsDecoder)
     BoxRegistry.register("url ", UrlBoxDecoder)
     BoxRegistry.register("urn ", UrnBoxDecoder)
     BoxRegistry.register("colr", ColrBoxDecoder)
@@ -63,7 +64,8 @@ fun registerAllDecoders() {
     BoxRegistry.register("pitm", PitmBoxDecoder)
     BoxRegistry.register("ipma", IpmaBoxDecoder)
 
-    BoxRegistry.register("stsd", ContainerBoxDecoder(childOffsetInPayload = 8, summarize = true))
+    BoxRegistry.register("stsd", CountedBoxDetailsDecoder)
+    BoxRegistry.register("sbgp", CountedBoxDetailsDecoder)
     BoxRegistry.register("meta", MetaBoxDecoder)
     BoxRegistry.register("iref", IrefBoxDecoder)
     BoxRegistry.register("keys", QuickTimeKeysBoxDecoder)
