@@ -15,7 +15,7 @@ class GoogleMotionPhotoSpecCheckerTest {
         durationUs: Long? = 1_000_000,
     ): List<GoogleSpecFinding> = byteReaderOf(ByteArray(16)).use {
         GoogleMotionPhotoSpecChecker.check(GmpSpecInput(fileName, format, xmp, durationUs), it)
-    }
+    }.assertGmpCited()
 
     private fun List<GoogleSpecFinding>.rule(id: String) = single { it.ruleId == id }
 
@@ -196,6 +196,18 @@ class GoogleMotionPhotoSpecCheckerTest {
         assertEquals(SefIntegritySeverity.PASS, findings(gmpXmp(), fileName = "PXL_20231010_123456789.MP.jpg").rule("gmp.filename").severity)
         assertEquals(SefIntegritySeverity.PASS, findings(gmpXmp(), fileName = "abcMP.HEIC").rule("gmp.filename").severity)
         assertEquals(SpecRequirement.SHOULD, findings(gmpXmp()).rule("gmp.filename").requirement)
+    }
+
+    @Test
+    fun `citations point at the verified section anchors`() {
+        fun url(ruleId: String, section: String) = GoogleMotionPhotoCitations.forRule(ruleId, section)?.url
+        assertEquals("$GMP_DOC_URL#itemmime_type_values", url("gmp.item.mime_value", "3.4"))
+        assertEquals("$GMP_DOC_URL#itemmime_type_values", url("gmp.item.video_mime", "3.4"))
+        assertEquals("$GMP_DOC_URL#itemsemantic_values", url("gmp.layout.video_last", "3.4"))
+        assertEquals("$GMP_DOC_URL#itemsemantic_values", url("gmp.gainmap.item", "3.4"))
+        assertEquals("$GMP_DOC_URL#isobmff-image-specific-behavior", url("gmp.mpvd.last", "4"))
+        assertEquals("§3.2 Container element", GoogleMotionPhotoCitations.forRule("gmp.dir.present", "3.2")?.section)
+        assertEquals(null, GoogleMotionPhotoCitations.forRule("gmp.x", "9.9"), "unknown sections get no invented anchor")
     }
 
     @Test

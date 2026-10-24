@@ -1,6 +1,7 @@
 package com.multiviewer.ui
 
 import com.multiviewer.parser.SefIntegritySeverity
+import com.multiviewer.parser.motionphoto.assertGmpCited
 import com.multiviewer.parser.parseFile
 import java.io.File
 import kotlin.test.Test
@@ -10,7 +11,7 @@ import kotlin.test.assertTrue
 class GoogleMotionPhotoFixtureTest {
     private fun analyze(name: String): MotionPhotoIntegrityReport {
         val file = File(javaClass.getResource("/google-motion-photo/$name")!!.toURI())
-        return MotionPhotoIntegrityAnalyzer.analyze(file, parseFile(file))
+        return MotionPhotoIntegrityAnalyzer.analyze(file, parseFile(file)).also { it.googleSpec.assertGmpCited() }
     }
 
     private fun MotionPhotoIntegrityReport.rule(id: String) = googleSpec.single { it.ruleId == id }.severity

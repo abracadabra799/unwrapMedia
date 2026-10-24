@@ -21,7 +21,7 @@ class GoogleMotionPhotoLayoutTest {
     private val jpeg = hex("FFD8 FFE0 0006 4A464946 FFDA 0008 010100003F00 1234FF0056FFD078 FFD9")
 
     private fun check(bytes: ByteArray, xmp: String, format: ContainerFormat = ContainerFormat.JPEG, name: String = "PXL_1.MP.jpg") =
-        ByteReader.open(fileOf(bytes)).use { GoogleMotionPhotoSpecChecker.check(GmpSpecInput(name, format, xmp, 1_000_000), it) }
+        ByteReader.open(fileOf(bytes)).use { GoogleMotionPhotoSpecChecker.check(GmpSpecInput(name, format, xmp, 1_000_000), it) }.assertGmpCited()
 
     private fun List<GoogleSpecFinding>.rule(id: String) = single { it.ruleId == id }
     private fun jpegItems(videoLength: Int, primary: Map<String, String> = emptyMap(), video: Map<String, String> = emptyMap()) = listOf(

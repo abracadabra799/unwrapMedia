@@ -34,6 +34,37 @@ internal const val HDR_GAINMAP_NS = "http://ns.adobe.com/hdr-gain-map/1.0/"
 private val FILENAME_PATTERN = Regex("""^([^\s/\\][^/\\]*MP)\.(JPG|jpg|JPEG|jpeg|HEIC|heic|AVIF|avif)$""")
 private val ALLOWED_MIMES = listOf("image/jpeg", "image/heic", "image/avif", "video/mp4", "video/quicktime")
 
+/**
+ * Deep links into the published Google Motion Photo 1.0 page. Every anchor below was checked against the page's
+ * `id="…"` attributes; a section without a verified anchor gets no citation (never an invented one).
+ */
+object GoogleMotionPhotoCitations {
+    const val DOCUMENT = "Google Motion Photo Format 1.0 (Android Developers)"
+    const val URL = "https://developer.android.com/media/platform/motion-photo-format"
+
+    private class Anchor(val heading: String, val id: String)
+
+    private val bySection = mapOf(
+        "2.1" to Anchor("Filename Pattern", "file-name"),
+        "2.2" to Anchor("Media Data Encoding", "media-data"),
+        "3" to Anchor("XMP Attributes", "xmp-attributes"),
+        "3.1" to Anchor("Camera Metadata", "camera-metadata"),
+        "3.2" to Anchor("Container element", "container-element"),
+        "3.3" to Anchor("Item element", "item_element"),
+        "4" to Anchor("ISOBMFF-image-specific behavior", "isobmff-image-specific-behavior"),
+        "5" to Anchor("Video container contents", "video-container"),
+        "6" to Anchor("Video Metadata Track with Machine Intelligence Scoring", "video-metadata"),
+    )
+    private val mimeValues = Anchor("Item:Mime type values", "itemmime_type_values")
+    private val semanticValues = Anchor("Item:Semantic values", "itemsemantic_values")
+
+    /** §3.4 has two subsections: Item:Mime rules cite the Mime values, every other §3.4 rule the Semantic values. */
+    fun forRule(ruleId: String, section: String): SpecCitation? {
+        val anchor = if (section == "3.4") (if ("mime" in ruleId) mimeValues else semanticValues) else bySection[section]
+        return anchor?.let { SpecCitation(DOCUMENT, "§$section ${it.heading}", null, "$URL#${it.id}", true) }
+    }
+}
+
 /** PASS when [ok]; otherwise MUST → CRITICAL, SHOULD → WARNING, INFO → INFO. */
 internal fun spec(ruleId: String, section: String, requirement: SpecRequirement, ok: Boolean, title: String, detail: String) =
     GoogleSpecFinding(
@@ -43,15 +74,17 @@ internal fun spec(ruleId: String, section: String, requirement: SpecRequirement,
             SpecRequirement.SHOULD -> SefIntegritySeverity.WARNING
             SpecRequirement.INFO -> SefIntegritySeverity.INFO
         },
-        title, detail,
+        title, detail, GoogleMotionPhotoCitations.forRule(ruleId, section),
     )
 
 /** A rule that could not be evaluated: SKIPPED, never PASS. */
 internal fun specSkip(ruleId: String, section: String, requirement: SpecRequirement, title: String, reason: String) =
-    GoogleSpecFinding(ruleId, section, requirement, SefIntegritySeverity.SKIPPED, title, "검사하지 못함: $reason")
+    GoogleSpecFinding(ruleId, section, requirement, SefIntegritySeverity.SKIPPED, title, "검사하지 못함: $reason",
+        GoogleMotionPhotoCitations.forRule(ruleId, section))
 
 internal fun specInfo(ruleId: String, section: String, title: String, detail: String) =
-    GoogleSpecFinding(ruleId, section, SpecRequirement.INFO, SefIntegritySeverity.INFO, title, detail)
+    GoogleSpecFinding(ruleId, section, SpecRequirement.INFO, SefIntegritySeverity.INFO, title, detail,
+        GoogleMotionPhotoCitations.forRule(ruleId, section))
 
 /** Row shape of the existing motion-photo tables: "§3.3 [MUST] title". */
 fun GoogleSpecFinding.toSefCheckResult(): SefCheckResult = SefCheckResult(severity, "§$section [${requirement.name}] $title", detail)
