@@ -21,9 +21,10 @@ fun codecBitstreamFindings(report: CodecBitstreamReport): List<ContentFinding> =
         offset = range?.first,
         length = range?.let { it.last - it.first + 1 },
         summary = finding.details.firstOrNull().orEmpty(),
-        verifiedFacts = finding.details + "Structural observation; exact normative clause not verified / 구조 관측값·규격 조항 미확인",
+        verifiedFacts = finding.details + (
+            if (finding.rule.citation?.verified == true) "Checked against the cited spec text / 인용한 규격 원문 대조 완료"
+            else "Structural observation; exact normative clause not verified / 구조 관측값·규격 조항 미확인"),
         citation = finding.rule.citation,
-        // Codec catalogs are not cited yet (retrofit branch): name the rule source, never an invented link.
         sourceNote = conformanceSourceNote(finding.rule),
     )
 }

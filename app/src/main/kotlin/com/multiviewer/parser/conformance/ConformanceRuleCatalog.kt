@@ -18,9 +18,13 @@ private fun structuralRules(prefix: String, vararg entries: Pair<String, String>
         )
     }
 
-private fun pngRule(id: String, title: String, scope: String) = ConformanceRule(
-    "png.$id", title, "W3C PNG Third Edition", "https://www.w3.org/TR/png-3/", scope,
-)
+private const val PNG_DOCUMENT = "W3C PNG Third Edition"
+private const val PNG_URL = "https://www.w3.org/TR/png-3/"
+
+private fun pngRule(id: String, title: String, scope: String, section: String, anchor: String): ConformanceRule {
+    val url = "$PNG_URL#$anchor"
+    return ConformanceRule("png.$id", title, PNG_DOCUMENT, url, scope, SpecCitation(PNG_DOCUMENT, section, null, url, true))
+}
 
 private val catalog: Map<String, List<ConformanceRule>> = mapOf(
     "JPEG" to structuralRules("jpeg",
@@ -32,12 +36,12 @@ private val catalog: Map<String, List<ConformanceRule>> = mapOf(
         "trailing" to "EOI 이후 데이터 / Data after EOI",
     ),
     "PNG" to listOf(
-        pngRule("truncated", "청크 배치 / Chunk layout", "청크 경계·잘림 / Chunk header and declared data/CRC extent fit in the file"),
-        pngRule("crc", "청크 CRC / Chunk CRCs", "청크 CRC 비교 / Stored CRC compared with CRC of chunk type and data; critical FAIL, ancillary WARN"),
-        pngRule("ihdr", "헤더 청크 / Header chunk (IHDR)", "첫 청크·길이 / First chunk is IHDR with a 13-byte payload; IHDR fields are not validated"),
-        pngRule("idat", "이미지 데이터 / Image data (IDAT)", "IDAT 존재·연속성 / At least one IDAT and consecutive IDAT chunks; compressed image syntax is not validated"),
-        pngRule("iend", "끝 청크 / End chunk (IEND)", "IEND 존재 / IEND is present; payload length and uniqueness are not validated"),
-        pngRule("trailing", "IEND 이후 데이터 / Data after IEND", "후행 바이트 / Bytes after the first IEND are reported as a warning"),
+        pngRule("truncated", "청크 배치 / Chunk layout", "청크 경계·잘림 / Chunk header and declared data/CRC extent fit in the file", "5.3 Chunk layout$DEFINITIONAL_SUFFIX", "5Chunk-layout"),
+        pngRule("crc", "청크 CRC / Chunk CRCs", "청크 CRC 비교 / Stored CRC compared with CRC of chunk type and data; critical FAIL, ancillary WARN", "5.3 Chunk layout / 5.5 CRC algorithm$DEFINITIONAL_SUFFIX", "5Chunk-layout"),
+        pngRule("ihdr", "헤더 청크 / Header chunk (IHDR)", "첫 청크·길이 / First chunk is IHDR with a 13-byte payload; IHDR fields are not validated", "11.2.1 IHDR Image header", "11IHDR"),
+        pngRule("idat", "이미지 데이터 / Image data (IDAT)", "IDAT 존재·연속성 / At least one IDAT and consecutive IDAT chunks; compressed image syntax is not validated", "11.2.3 IDAT Image data", "11IDAT"),
+        pngRule("iend", "끝 청크 / End chunk (IEND)", "IEND 존재 / IEND is present; payload length and uniqueness are not validated", "11.2 Critical chunks", "11Critical-chunks"),
+        pngRule("trailing", "IEND 이후 데이터 / Data after IEND", "후행 바이트 / Bytes after the first IEND are reported as a warning", "15.3.1 Conformance of PNG datastreams", "15FileConformance"),
     ),
     "GIF" to structuralRules("gif",
         "lsd" to "논리 화면 설명자 / Logical screen descriptor",
