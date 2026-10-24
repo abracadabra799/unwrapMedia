@@ -6,6 +6,8 @@ Actual checked-in config, independently dumped before code in av1-apv-config-byt
 - [x] Verify actual config against official serializer before code.
 - [x] Red tests: actual header and capture flag source offsets; multiple entries/frames with optional color; malformed versions/truncation/file bounds.
 - [x] Replace fixed-position decoder with bounded sequential parsing, retain root compatibility.
-- [ ] Focused/full regression and independent review; commit/local main merge.
+- [x] Focused/full regression and independent review; commit/local main merge.
 
 Validation: focused tests and final whole-branch :app:test passed: {'tests': 2588, 'failures': 0, 'errors': 0, 'skipped': 1}. Independent read-only reviews completed; reported defects have regression tests and were resolved. UI compiled with Material3 badges; no manual GUI screenshot verification was performed.
+
+Merged into local main on 2026-10-24. Remote push not performed.

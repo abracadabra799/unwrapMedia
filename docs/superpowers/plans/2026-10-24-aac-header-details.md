@@ -6,6 +6,8 @@ Actual fixture BEFORE code: ffmpeg -hide_banner -loglevel error -f lavfi -i sine
 - [x] Generate actual ADTS fixture and verify bytes.
 - [x] Red tests for actual raw fields/source spans, single-block CRC, reserved frequency handling.
 - [x] Append bounded fields in AacWalker, preserve existing field order.
-- [ ] Focused/full tests and review; commit/local main merge.
+- [x] Focused/full tests and review; commit/local main merge.
 
 Validation: focused tests and final whole-branch :app:test passed: {'tests': 2588, 'failures': 0, 'errors': 0, 'skipped': 1}. Independent read-only reviews completed; reported defects have regression tests and were resolved. UI compiled with Material3 badges; no manual GUI screenshot verification was performed.
+
+Merged into local main on 2026-10-24. Remote push not performed.

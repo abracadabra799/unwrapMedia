@@ -6,8 +6,10 @@ Actual Pillow11.3.0 fixture created BEFORE parser code: `Image.new('RGB',(16,16)
 - [x] Verify actual AVIF/MP4 bytes before implementation.
 - [x] Red tests: empty actual AVIF config, actual sequence OBU source range, optional delay12-bit, extension IDs, malformed LEB128/payload/range and node cap.
 - [x] Implement Av1ConfigObuDecoder helper and append fixed fields in Av1CBoxDecoder; retain existing order.
-- [ ] Focused/full tests, independent review, commit/local main merge. No push.
+- [x] Focused/full tests, independent review, commit/local main merge. No push.
 
 Integration correction: new av1C warnings initially preempted the analyzer's specific invalid-marker/version diagnostic. Existing malformedAv1cReportsUnsupported reproduced this. Moved the generic layout-warning check after raw marker/version validation; focused analyzer regression passed without relaxing the assertion.
 
 Validation: focused tests and final whole-branch :app:test passed: {'tests': 2588, 'failures': 0, 'errors': 0, 'skipped': 1}. Independent read-only reviews completed; reported defects have regression tests and were resolved. UI compiled with Material3 badges; no manual GUI screenshot verification was performed.
+
+Merged into local main on 2026-10-24. Remote push not performed.
