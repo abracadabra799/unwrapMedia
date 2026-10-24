@@ -78,7 +78,6 @@ internal object HeifAvifRules {
     /** HEVC alpha aux type (ISO/IEC 23008-2 SEI auxId 1), accepted as alpha. */
     const val HEVC_ALPHA_URN = "urn:mpeg:hevc:2015:auxid:1"
     private const val CICP_AUX_PREFIX = "urn:mpeg:mpegb:cicp:systems:auxiliary:"
-    private const val HEVC_AUX_PREFIX = "urn:mpeg:hevc:2015:auxid:"
 
     /** Derived image item types followed through `dimg` for §6.2 (HEIF derived images plus AVIF §4.2.3 'sato'). */
     private val AVIF_DERIVED = DERIVED_TYPES + "sato"
@@ -205,7 +204,8 @@ internal object HeifAvifRules {
         for (item in items) {
             val configs = p.byItem[item.id].orEmpty().filter { it.first.type == "av1C" }
             when {
-                configs.isEmpty() -> unchecked += "item_ID ${item.id}: av1C 없음 (heif.props.codec_config 참조)"
+                configs.isEmpty() -> unchecked += "item_ID ${item.id}: av1C 없음 — essential 여부 미검사 " +
+                    "(av1C 누락은 heif.props.codec_config 에서 FAIL로 보고)"
                 configs.any { !it.second } -> {
                     warns += "item_ID ${item.id}: av1C (속성 ${configs.first { !it.second }.first.index}) 이(가) essential이 아님 (§2.2.1: essential로 표시해야 함(should))"
                     ranges += configs.filter { !it.second }.map { ctx.range(it.first.box) }
@@ -296,14 +296,14 @@ internal object HeifAvifRules {
         return prev[b.length]
     }
 
-    /** A URN that is not exactly an alpha/depth URN but looks like a misspelt one (e.g. case or a typo). */
+    /**
+     * A URN under the CICP auxiliary prefix that is not exactly the alpha/depth URN but looks like a misspelt one:
+     * a case/whitespace variant or within edit distance 3. Any other suffix is another auxiliary type (not alpha).
+     */
     private fun nearMissAlpha(urn: String): Boolean {
         val lower = urn.trim().lowercase()
-        if (lower == HEVC_ALPHA_URN) return true // case/whitespace variant of the HEVC alpha URN
-        if (lower.startsWith(HEVC_AUX_PREFIX)) return false // other HEVC aux types (e.g. auxid:2 depth)
-        if (lower.startsWith(CICP_AUX_PREFIX)) return true
-        if ("alpha" in lower || "alfa" in lower) return true
-        return urn.length < 80 && editDistance(lower, ALPHA_URN.lowercase()) <= 3
+        if (!lower.startsWith(CICP_AUX_PREFIX)) return false
+        return listOf(ALPHA_URN, DEPTH_URN).map { it.lowercase() }.any { lower == it || editDistance(lower, it) <= 3 }
     }
 
     private fun alphaAuxC(ctx: HeifContext, p: HeifPropertyRules.Props): ConformanceFinding {

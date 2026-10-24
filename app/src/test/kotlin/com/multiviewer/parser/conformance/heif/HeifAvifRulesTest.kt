@@ -67,12 +67,11 @@ class HeifAvifRulesTest {
     }
 
     @Test
-    fun `AV1 primary without avif or avis brand fails`() {
+    fun `AV1 primary without avif or avis brand stays HEIF and warns codec brand`() {
         val r = check(avif.copy(major = "mif1", compatible = listOf("mif1", "miaf", "MA1B")))
-        assertEquals("AVIF", r.format)
-        assertStatus(FAIL, r, "avif.ftyp.avif")
-        // avif.primary only binds files that carry the avif brand.
-        assertStatus(NOT_APPLICABLE, r, "avif.primary")
+        assertEquals("HEIF", r.format)
+        assertStatus(WARN, r, "heif.ftyp.codec_brand")
+        avifIds.forEach { assertStatus(NOT_APPLICABLE, r, it) }
     }
 
     @Test
@@ -140,6 +139,32 @@ class HeifAvifRulesTest {
     }
 
     @Test
+    fun `truncated pasp fails`() {
+        assertStatus(FAIL, check(withExtra(box("pasp", be32(1)) to false)), "avif.props.pasp")
+    }
+
+    @Test
+    fun `tmap primary over an av01 base and an av01 gain map passes`() {
+        val spec = avif.copy(
+            items = listOf(HeifItem(1, "av01"), HeifItem(2, "av01", hidden = true), HeifItem(10, "tmap", data = ByteArray(20) { 1 }, method = 1)),
+            primary = 10,
+            assoc = listOf(1L to avifProps, 2L to avifProps, 10L to listOf(1 to false, 2 to false)),
+            refs = listOf(Triple("dimg", 10L, listOf(1L, 2L))),
+        )
+        val r = check(spec)
+        assertEquals("AVIF", r.format)
+        assertStatus(PASS, r, "avif.primary")
+    }
+
+    @Test
+    fun `av01 without av1C is left to codec config`() {
+        val r = check(avif.copy(assoc = listOf(1L to listOf(1 to false, 2 to false, 4 to false))))
+        assertStatus(NOT_CHECKED, r, "avif.props.av1c_essential")
+        assertTrue(r.finding("avif.props.av1c_essential").details.any { "heif.props.codec_config 에서 FAIL로 보고" in it })
+        assertStatus(FAIL, r, "heif.props.codec_config")
+    }
+
+    @Test
     fun `pasp must be 1 to 1`() {
         assertStatus(FAIL, check(withExtra(pasp(2, 1) to false)), "avif.props.pasp")
         assertStatus(PASS, check(withExtra(pasp(1, 1) to false)), "avif.props.pasp")
@@ -178,6 +203,12 @@ class HeifAvifRulesTest {
         assertStatus(PASS, check(withAux("urn:com:photo:aux:hdrgainmap")), "avif.alpha.auxc")
         // §4.1 defines alpha by this exact aux_type; a near miss is not an alpha item (no "shall" to violate): WARN.
         assertStatus(WARN, check(withAux("urn:mpeg:mpegB:cicp:systems:auxiliary:alfa")), "avif.alpha.auxc")
+        assertStatus(WARN, check(withAux("urn:mpeg:mpegB:cicp:systems:auxiliary:alpha ")), "avif.alpha.auxc")
+        assertStatus(WARN, check(withAux("urn:mpeg:mpegB:cicp:systems:auxiliary:dpeth")), "avif.alpha.auxc")
+        // Another CICP auxiliary type is simply not alpha.
+        val other = check(withAux("urn:mpeg:mpegB:cicp:systems:auxiliary:disparitymap"))
+        assertStatus(PASS, other, "avif.alpha.auxc")
+        assertTrue(other.finding("avif.alpha.auxc").details.single().contains("알파가 아닌"), other.finding("avif.alpha.auxc").details.toString())
         assertStatus(WARN, check(withAux("urn:mpeg:mpegb:cicp:systems:auxiliary:alpha")), "avif.alpha.auxc")
     }
 

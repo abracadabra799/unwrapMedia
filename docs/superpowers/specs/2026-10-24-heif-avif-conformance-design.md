@@ -41,7 +41,7 @@ Groups (scope labels): `"ftyp"`, `"meta 구조 / meta structure"`, `"항목 / It
 | `heif.ftyp.mif1` | `mif1` (or `msf1` when a `moov` image sequence exists) in compatible brands | WARN | HEIF |
 | `heif.ftyp.codec_brand` | HEVC primary → `heic`/`heix`/`heim`/`heis` brand listed; AV1 primary → `avif` | WARN | HEIF |
 | `avif.ftyp.miaf` | AVIF files list `miaf` | FAIL | AVIF §7 |
-| `avif.ftyp.avif` | AVIF files list `avif` or `avis` | FAIL | AVIF §7 |
+| `avif.ftyp.avif` | AVIF files list `avif` or `avis` (note: a report is AVIF only when the sniffer says AVIF or an `avif`/`avis` brand is present with an `av01` primary, so this rule can only PASS by construction; a brandless file whose primary resolves to `av01` stays on the HEIF profile and is covered by `heif.ftyp.codec_brand` — AVIF §6.2 "Files that conform with these constraints should include the brand avif in the FileTypeBox.") | FAIL | AVIF §7 |
 | `heif.meta.present` | Exactly one top-level `meta` (FullBox) | FAIL | HEIF |
 | `heif.meta.required` | `meta` holds exactly one each of `hdlr` (handler `pict`), `pitm`, `iinf`, `iloc`; at most one `iprp`, `iref`, `idat`, `dinf` | FAIL | HEIF |
 | `heif.items.ids` | `infe` versions 2 or 3; item_IDs unique and non-zero; `iinf` entry_count = number of `infe` | FAIL | HEIF |
@@ -63,7 +63,7 @@ Groups (scope labels): `"ftyp"`, `"meta 구조 / meta structure"`, `"항목 / It
 | `avif.props.pasp` | `pasp`, if present, is 1:1 | FAIL | AVIF §9.1.2 |
 | `avif.props.a1op` | `a1op`, if associated, is essential | FAIL | AVIF §2.3.2.1.2 |
 | `avif.props.a1lx` | `a1lx`, if associated, is not essential | FAIL | AVIF §2.3.2.3.2 |
-| `avif.alpha.auxc` | An auxiliary item linked by `auxl` whose `auxC` names alpha uses `urn:mpeg:mpegB:cicp:systems:auxiliary:alpha` (or the HEVC alpha URN) | FAIL | AVIF §4.1 |
+| `avif.alpha.auxc` | An auxiliary item linked by `auxl` whose `auxC` names alpha uses `urn:mpeg:mpegB:cicp:systems:auxiliary:alpha` (or the HEVC alpha URN). Under the `urn:mpeg:mpegB:cicp:systems:auxiliary:` prefix, only case/whitespace variants of the alpha/depth URNs or an edit distance ≤ 3 to them WARN; any other suffix is "not alpha" (PASS). WARN, not FAIL: §4.1 is definitional, not a "shall" — "An AV1 Alpha Image Item (respectively an AV1 Alpha Image Sequence) is an AV1 Auxiliary Image Item (respectively an AV1 Auxiliary Image Sequence), and as defined in [MIAF], with the aux_type field of the AuxiliaryTypeProperty (respectively AuxiliaryTypeInfoBox) set to urn:mpeg:mpegB:cicp:systems:auxiliary:alpha." | WARN | AVIF §4.1 |
 
 Codec-bitstream comparisons (sequence header, SPS, ispe vs frame size, pixi vs bit depth) are phase 2: phase 1 does
 not open coded item data except the grid descriptor and the `tmap` metadata header count.

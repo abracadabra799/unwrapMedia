@@ -181,14 +181,10 @@ object HeifConformanceChecker {
     private fun isAvif(ctx: HeifContext): Boolean {
         val sniffed = try { sniffFormat(ctx.reader) } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
         if (sniffed == ContainerFormat.AVIF) return true
-        val primary = ctx.model.primaryId ?: return false
-        val brands = ctx.brands
-        val primaryType = ctx.itemsById[primary]?.firstOrNull()?.type
-        if (brands != null && brands.all.any { it == "avif" || it == "avis" } && primaryType == "av01") return true
-        // AV1 image items stored in HEIF are AVIF (AVIF v1.2.0 §1) even when the avif/avis brand is missing, so that
-        // avif.ftyp.avif can report the missing brand instead of the file silently being treated as plain HEIF.
-        val coded = ctx.codedTypes(primary)
-        return coded.isNotEmpty() && coded.all { it == "av01" }
+        // A brandless AV1 file stays HEIF: heif.ftyp.codec_brand warns about the missing 'avif' brand (AVIF §6.2 "should").
+        val brands = ctx.brands ?: return false
+        val primaryType = ctx.model.primaryId?.let { ctx.itemsById[it]?.firstOrNull()?.type }
+        return brands.all.any { it == "avif" || it == "avis" } && primaryType == "av01"
     }
 }
 
