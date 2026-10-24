@@ -14,5 +14,8 @@ object AvcRuleCatalog {
             DOC, "7.4.1 NAL unit semantics (nal_ref_idc)", 90, "$PDF#page=90"),
     ).associateBy { it.id }
 
+    /** Every rule of this catalog, for catalog-wide checks. */
+    val all: List<ConformanceRule> get() = rules.values.toList()
+
     fun rule(id: String): ConformanceRule? = rules[id]
 }

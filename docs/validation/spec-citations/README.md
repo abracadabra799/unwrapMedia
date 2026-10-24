@@ -22,9 +22,9 @@ its physical page) was copied from the original listed here. `#page=N` is the 1-
 | RFC 9924 (APV) | Feb 2026 | https://www.rfc-editor.org/rfc/rfc9924.html | (not hashed; anchors checked) |
 | openapv APV ISOBMFF binding | commit 114280b9202a7eccbf0933f62360f65fabd9c0d8, 2025-07-18 | https://github.com/openapv/openapv/blob/114280b9202a7eccbf0933f62360f65fabd9c0d8/readme/apv_isobmff.md | (markdown, not hashed) |
 | RFC 6716 (Opus) | Sept 2012 | https://www.rfc-editor.org/rfc/rfc6716.html | c82a8f3977bf8320ed47c2f3b6376d32ba2b85600054d090c6f3e683f25ee245 |
-| Encapsulation of Opus in ISOBMFF | v0.6.8 (incomplete), 2016-04-28; page has no anchors, cited at the page root with the section number in the text | https://opus-codec.org/docs/opus_in_isobmff.html | 8abc41e0ca01d947408902e8bbe9bab4f8a07254ee2d77a171471971109b1cf0 |
+| Encapsulation of Opus in ISOBMFF | v0.6.8 (incomplete), 2016-04-28; cited with the page's `<a name="4.3.x">` section anchors (#4.3.1, #4.3.2, #4.3.3) | https://opus-codec.org/docs/opus_in_isobmff.html | 8abc41e0ca01d947408902e8bbe9bab4f8a07254ee2d77a171471971109b1cf0 |
 | RFC 9639 (FLAC) | Dec 2024 | https://www.rfc-editor.org/rfc/rfc9639.html | d99e71319d66dba55074dc69e70920e5592977145927d42c3e3624c5607c2982 |
-| Encapsulation of FLAC in ISOBMFF (`doc/isoflac.txt`) | v0.0.4, xiph/flac commit 78d85dd4e4e8044d0f6989182cd1a22a461dce37 (2022-06-14); line links pinned to that commit | https://github.com/xiph/flac/blob/78d85dd4e4e8044d0f6989182cd1a22a461dce37/doc/isoflac.txt | 7d404928125747a46e048d1d056ed94a332b584eef55a4652fb4fa145c6dfc2e |
+| Encapsulation of FLAC in ISOBMFF (`doc/isoflac.txt`) | v0.0.4, xiph/flac commit 78d85dd4e4e8044d0f6989182cd1a22a461dce37 (author date 2022-06-10, committer date 2022-06-14); line links pinned to that commit | https://github.com/xiph/flac/blob/78d85dd4e4e8044d0f6989182cd1a22a461dce37/doc/isoflac.txt | 7d404928125747a46e048d1d056ed94a332b584eef55a4652fb4fa145c6dfc2e |
 | W3C PNG Third Edition | Recommendation 2025-06-24 | https://www.w3.org/TR/png-3/ | a3ac82bb9eb8664b93961a2a9ff6def3d70e3a9f63d92721143c1f391d04edec |
 
 ## Paid ISO documents (not checked against the original; store page only, `verified=false`, no page)

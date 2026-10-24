@@ -24,5 +24,8 @@ object AacRuleCatalog {
             ISO_14496_3, "sample extents (실제 규칙은 ISO/IEC 14496-12 sample table)", ISO_14496_3_URL),
     ).associateBy { it.id }
 
+    /** Every rule of this catalog, for catalog-wide checks. */
+    val all: List<ConformanceRule> get() = rules.values.toList()
+
     fun rule(id: String): ConformanceRule? = rules[id]
 }

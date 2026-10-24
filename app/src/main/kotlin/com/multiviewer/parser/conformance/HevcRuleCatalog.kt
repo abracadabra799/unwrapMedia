@@ -14,5 +14,8 @@ object HevcRuleCatalog {
             DOC, "7.4.2.2 NAL unit header semantics", 86, "$PDF#page=86"),
     ).associateBy { it.id }
 
+    /** Every rule of this catalog, for catalog-wide checks. */
+    val all: List<ConformanceRule> get() = rules.values.toList()
+
     fun rule(id: String): ConformanceRule? = rules[id]
 }

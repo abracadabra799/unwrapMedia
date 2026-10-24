@@ -19,5 +19,8 @@ object Vp9RuleCatalog {
             BINDING, "VP Codec Configuration Box semantics", null, "https://www.webmproject.org/vp9/mp4/#semantics_1"),
     ).associateBy { it.id }
 
+    /** Every rule of this catalog, for catalog-wide checks. */
+    val all: List<ConformanceRule> get() = rules.values.toList()
+
     fun rule(id: String): ConformanceRule? = rules[id]
 }

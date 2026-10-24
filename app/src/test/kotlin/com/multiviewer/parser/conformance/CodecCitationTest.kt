@@ -1,7 +1,12 @@
 package com.multiviewer.parser.conformance
 
 import com.multiviewer.parser.parseFile
+import com.multiviewer.cli.renderCompact
+import com.multiviewer.ui.ContentCheckSnapshot
+import com.multiviewer.ui.MediaType
 import com.multiviewer.ui.codecBitstreamFindings
+import com.multiviewer.ui.contentCheckPromptSection
+import com.multiviewer.ui.contentCheckWorkflowJson
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import com.multiviewer.ui.conformanceSourceNote
@@ -12,35 +17,9 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class CodecCitationTest {
-    private val codecRules: List<ConformanceRule> = listOf(
-        "avc.nal.framing", "avc.nal.forbidden_zero_bit", "avc.nal.idr_ref_idc",
-        "hevc.nal.framing", "hevc.nal.forbidden_zero_bit", "hevc.nal.temporal_id_plus1",
-        "vvc.config.vvcc", "vvc.nal.framing", "vvc.nal.forbidden_zero_bit", "vvc.nal.reserved_zero_bit",
-        "vvc.nal.temporal_id_plus1", "vvc.sample.framing",
-        "av1.obu.framing", "av1.obu.forbidden_bit", "av1.obu.reserved_bit", "av1.obu.extension_reserved_bits",
-        "av1.config.sequence_header",
-        "vp9.frame.framing", "vp9.frame.marker", "vp9.frame.sync_code", "vp9.frame.profile_reserved_bit", "vp9.config.vpcc",
-        "apv.au.signature", "apv.pbu.framing", "apv.pbu.reserved_zero", "apv.frame.profile", "apv.frame.reserved_zero",
-        "apv.config.apvc",
-        "aac.config.esds", "aac.config.asc", "aac.config.match", "aac.frame.adts_guard", "aac.frame.element",
-        "aac.frame.ics_reserved", "aac.sample.framing",
-        "opus.config.dops", "opus.config.match", "opus.packet.toc", "opus.packet.framing", "opus.sample.framing",
-        "flac.config.dfla", "flac.config.match", "flac.frame.header", "flac.frame.crc", "flac.sample.framing",
-    ).map { id ->
-        assertNotNull(
-            when (id.substringBefore('.')) {
-                "avc" -> AvcRuleCatalog.rule(id)
-                "hevc" -> HevcRuleCatalog.rule(id)
-                "vvc" -> VvcRuleCatalog.rule(id)
-                "av1" -> Av1RuleCatalog.rule(id)
-                "vp9" -> Vp9RuleCatalog.rule(id)
-                "apv" -> ApvRuleCatalog.rule(id)
-                "aac" -> AacRuleCatalog.rule(id)
-                "opus" -> OpusRuleCatalog.rule(id)
-                else -> FlacRuleCatalog.rule(id)
-            }, id,
-        )
-    }
+    private val codecRules: List<ConformanceRule> = AvcRuleCatalog.all + HevcRuleCatalog.all + VvcRuleCatalog.all +
+        Av1RuleCatalog.all + Vp9RuleCatalog.all + ApvRuleCatalog.all + AacRuleCatalog.all + OpusRuleCatalog.all +
+        FlacRuleCatalog.all
 
     private val pngRules = rulesFor("PNG")
 
@@ -49,6 +28,7 @@ class CodecCitationTest {
     @Test
     fun everyCodecAndPngRuleHasACitationMatchingItsReference() {
         assertEquals(6, pngRules.size)
+        assertEquals(45, codecRules.size)
         for (rule in codecRules + pngRules) {
             val c = assertNotNull(rule.citation, rule.id)
             assertEquals(c.url, rule.reference, rule.id)
@@ -70,8 +50,7 @@ class CodecCitationTest {
                 if (c.url.endsWith(".pdf#page=${c.page}") || c.url.contains("type=items#page=")) {
                     assertEquals(c.url.substringAfter("#page=").toInt(), c.page, rule.id)
                 } else {
-                    // Opus-in-ISOBMFF is one page without anchors; every other HTML/markdown source has an anchor.
-                    assertTrue((c.url.contains("#") || c.url == "https://opus-codec.org/docs/opus_in_isobmff.html") && c.page == null, rule.id)
+                        assertTrue(c.url.contains("#") && c.page == null, rule.id)
                 }
             }
         }
@@ -98,8 +77,8 @@ class CodecCitationTest {
 
     @Test
     fun definitionalRulesAreMarked() {
-        for (id in listOf("av1.obu.framing", "vp9.frame.framing", "apv.pbu.framing", "opus.sample.framing", "flac.sample.framing", "opus.packet.toc")) {
-            val rule = (codecRules).single { it.id == id }
+        for (id in listOf("av1.obu.framing", "vp9.frame.framing", "apv.pbu.framing", "opus.sample.framing", "flac.sample.framing", "opus.packet.toc", "flac.frame.crc", "png.truncated", "png.crc")) {
+            val rule = (codecRules + pngRules).single { it.id == id }
             assertTrue(rule.citation!!.section.endsWith(DEFINITIONAL_SUFFIX), id)
         }
     }
@@ -137,5 +116,37 @@ class CodecCitationTest {
             assertEquals(url, finding.citation?.url, ruleId)
             assertNull(finding.sourceNote, ruleId)
         }
+    }
+
+    private fun reportWith(vararg findings: Pair<ConformanceRule, ConformanceStatus>) = CodecBitstreamReport(
+        BitstreamCodec.HEVC, findings.map { (r, st) -> ConformanceFinding(r, st, listOf("bad"), listOf(10L..11L)) },
+        1, 1, emptyMap(), emptyList(), "track 1", true,
+    )
+
+    private fun snapshot(report: CodecBitstreamReport) =
+        ContentCheckSnapshot(null, null, false, null, null, null, MediaType.VIDEO, codecBitstreams = listOf(report))
+
+    @Test
+    fun provenanceFactDistinguishesVerbatimDerivedAndUnverified() {
+        fun fact(rule: ConformanceRule) = codecBitstreamFindings(reportWith(rule to ConformanceStatus.FAIL)).single().verifiedFacts.last()
+        assertTrue(fact(HevcRuleCatalog.rule("hevc.nal.forbidden_zero_bit")!!).startsWith("Checked against the cited spec text"))
+        assertTrue(fact(OpusRuleCatalog.rule("opus.packet.toc")!!).startsWith("Derived from the cited definition"))
+        assertTrue(fact(HevcRuleCatalog.rule("hevc.nal.framing")!!).startsWith("Structural observation"))
+    }
+
+    @Test
+    fun promptAndJsonCarryCitationAndNeverCallVerifiedRulesStructural() {
+        val file = File("x.mp4")
+        val verified = HevcRuleCatalog.rule("hevc.nal.forbidden_zero_bit")!!
+        val paid = HevcRuleCatalog.rule("hevc.nal.framing")!!
+        val snap = snapshot(reportWith(verified to ConformanceStatus.FAIL, paid to ConformanceStatus.FAIL))
+        val prompt = contentCheckPromptSection(snap, file).lines()
+        val v = prompt.single { it.startsWith("  • [FAIL] hevc.nal.forbidden_zero_bit") }
+        assertTrue(v.contains("#page=83") && !v.contains("구조 관측값·규격 조항 미확인"), v)
+        val p = prompt.single { it.startsWith("  • [FAIL] hevc.nal.framing") }
+        assertTrue(p.contains("구조 관측값·규격 조항 미확인") && p.contains("원문 미대조"), p)
+        val json = contentCheckWorkflowJson(snap, file).renderCompact()
+        assertTrue(json.contains("\"page\":83") && json.contains("\"verified\":true") && json.contains("type=items#page=83"), json)
+        assertTrue(json.contains("\"verified\":false") && json.contains("https://www.iso.org/standard/89118.html"), json)
     }
 }

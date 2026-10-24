@@ -20,5 +20,8 @@ object VvcRuleCatalog {
             ISO_14496_15_DOCUMENT, "sample table / sample extents (ISO/IEC 14496-12 and 14496-15)", ISO_14496_15_URL),
     ).associateBy { it.id }
 
+    /** Every rule of this catalog, for catalog-wide checks. */
+    val all: List<ConformanceRule> get() = rules.values.toList()
+
     fun rule(id: String): ConformanceRule? = rules[id]
 }
