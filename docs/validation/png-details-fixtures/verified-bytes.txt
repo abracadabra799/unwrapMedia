@@ -1,0 +1,39 @@
+animation.png 215
+IHDR offset 8 length 13 payload 0000000a000000080806000000
+acTL offset 33 length 8 payload 0000000200000003
+fcTL offset 53 length 26 payload 000000000000000a000000080000000000000000006403e80000
+IDAT offset 91 length 23 payload 789c63fc...
+fcTL offset 126 length 26 payload 000000010000000a00000008000000000000000000fa03e80101
+fdAT offset 164 length 27 payload 00000002...
+IEND offset 203 length 0 payload 
+gray.png 109
+IHDR offset 8 length 13 payload 00000002000000020800000000
+sBIT offset 33 length 1 payload 04
+tRNS offset 46 length 2 payload 0007
+bKGD offset 60 length 2 payload 0011
+IDAT offset 74 length 11 payload 789c6360...
+IEND offset 97 length 0 payload 
+hdr-metadata.png 145
+IHDR offset 8 length 13 payload 00000002000000020802000000
+cICP offset 33 length 4 payload 09100001
+mDCV offset 49 length 24 payload 84d03e8033c286c41d4c0bb83d1340420098968000000032
+cLLI offset 85 length 8 payload 00989680003d0900
+IDAT offset 105 length 16 payload 789c63fc...
+IEND offset 133 length 0 payload 
+palette.png 195
+IHDR offset 8 length 13 payload 00000002000000020203000000
+sBIT offset 33 length 3 payload 050605
+sPLT offset 48 length 26 payload 576964650010ffff00000000800000640000ffff0000ffff0032
+PLTE offset 86 length 12 payload ff000000ff000000ffffffff
+tRNS offset 110 length 4 payload 004080ff
+bKGD offset 126 length 1 payload 02
+hIST offset 139 length 8 payload 000a0014001e0028
+IDAT offset 159 length 12 payload 789c6310...
+IEND offset 183 length 0 payload 
+rgb.png 119
+IHDR offset 8 length 13 payload 00000002000000020802000000
+sBIT offset 33 length 3 payload 050605
+tRNS offset 48 length 6 payload 000100020003
+bKGD offset 66 length 6 payload 000a0014001e
+IDAT offset 84 length 11 payload 789c6360...
+IEND offset 107 length 0 payload 

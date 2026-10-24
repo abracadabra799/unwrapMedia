@@ -31,7 +31,7 @@ fun parsePngChunks(reader: ByteReader, start: Long, end: Long): List<BoxNode> {
 }
 
 private fun decodePngChunk(reader: ByteReader, type: String, offset: Long, dataStart: Long, length: Long, totalSize: Long): BoxNode =
-    when (type) {
+    decodePngExtraChunk(reader, type, offset, length, totalSize) ?: when (type) {
         "IHDR" -> decodeIhdr(reader, offset, dataStart, totalSize)
         "pHYs" -> decodePhys(reader, offset, dataStart, totalSize)
         "tEXt" -> decodeText(reader, offset, dataStart, length, totalSize)
