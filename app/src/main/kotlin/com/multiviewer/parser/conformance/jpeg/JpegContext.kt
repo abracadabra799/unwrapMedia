@@ -32,6 +32,10 @@ internal class JpegContext(val reader: ByteReader, val stream: JpegStream) {
         return prefix.indices.all { p[it] == prefix[it] }
     }
 
+    /** The first Exif APP1 ("Exif\0") of the primary image and its TIFF structure. */
+    val exifSegment: JpegSegment? by lazy { segments.firstOrNull { it.marker == 0xE1 && startsWith(it, EXIF_ID) } }
+    val exif: ExifTiff? by lazy { exifSegment?.let { s -> ExifTiff.read(payload(s).copyOfRange(6.coerceAtMost(s.payloadSize), s.payloadSize), s.payload + 6) } }
+
     fun finding(id: String, violations: List<String>, ranges: List<LongRange>, pass: List<String>): ConformanceFinding {
         val status = when {
             violations.isEmpty() -> ConformanceStatus.PASS
