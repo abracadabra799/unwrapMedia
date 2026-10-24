@@ -1,6 +1,6 @@
 # HEIF / HEIC / AVIF image conformance — design (phase 1 of 3)
 
-Date: 2026-10-24. Status: approved in brainstorming. Item 2 of the standards-conformance roadmap.
+Date: 2026-10-24. Status: implemented on `feat/heif-conformance` (phase 1), synced with results 2026-10-24. Item 2 of the standards-conformance roadmap.
 
 ## Goal
 
@@ -37,7 +37,7 @@ Groups (scope labels): `"ftyp"`, `"meta 구조 / meta structure"`, `"항목 / It
 
 | ID | Rule | Level | Source |
 |---|---|---|---|
-| `heif.box.*` | Reuse ISO-BMFF `bmff.box.size`, `bmff.box.size0`, `bmff.box.trailing`, `bmff.ftyp.position` (ftyp first) | as ISO-BMFF | ISO-BMFF |
+| `heif.box.*` | Reuse ISO-BMFF `bmff.box.size`, `bmff.box.size0`, `bmff.box.trailing`, `bmff.ftyp.position` (ftyp first; reported under their `bmff.*` ids, without a `SpecCitation`, like the ISO-BMFF checker). `bmff.ftyp.position` is evaluated over the HEIF part only when a non-image `ftyp` (appended motion-photo video) follows: WARN | as ISO-BMFF | ISO-BMFF |
 | `heif.ftyp.mif1` | `mif1` (or `msf1` when a `moov` image sequence exists) in compatible brands | WARN | HEIF |
 | `heif.ftyp.codec_brand` | HEVC primary → `heic`/`heix`/`heim`/`heis` brand listed; AV1 primary → `avif` | WARN | HEIF |
 | `avif.ftyp.miaf` | AVIF files list `miaf` | FAIL | AVIF §7 |
@@ -63,27 +63,37 @@ Groups (scope labels): `"ftyp"`, `"meta 구조 / meta structure"`, `"항목 / It
 | `avif.props.pasp` | `pasp`, if present, is 1:1 | FAIL | AVIF §9.1.2 |
 | `avif.props.a1op` | `a1op`, if associated, is essential | FAIL | AVIF §2.3.2.1.2 |
 | `avif.props.a1lx` | `a1lx`, if associated, is not essential | FAIL | AVIF §2.3.2.3.2 |
-| `avif.alpha.auxc` | An auxiliary item linked by `auxl` whose `auxC` names alpha uses `urn:mpeg:mpegB:cicp:systems:auxiliary:alpha` (or the HEVC alpha URN). Under the `urn:mpeg:mpegB:cicp:systems:auxiliary:` prefix, only case/whitespace variants of the alpha/depth URNs or an edit distance ≤ 3 to them WARN; any other suffix is "not alpha" (PASS). WARN, not FAIL: §4.1 is definitional, not a "shall" — "An AV1 Alpha Image Item (respectively an AV1 Alpha Image Sequence) is an AV1 Auxiliary Image Item (respectively an AV1 Auxiliary Image Sequence), and as defined in [MIAF], with the aux_type field of the AuxiliaryTypeProperty (respectively AuxiliaryTypeInfoBox) set to urn:mpeg:mpegB:cicp:systems:auxiliary:alpha." | WARN | AVIF §4.1 |
+| `avif.alpha.auxc` | An auxiliary item linked by `auxl` whose `auxC` names alpha uses `urn:mpeg:mpegB:cicp:systems:auxiliary:alpha` (or the HEVC alpha URN). A case/whitespace variant of the alpha/depth URN, or any aux_type shorter than 80 characters within edit distance ≤ 3 of the whole alpha/depth URN (so a typo in the `urn:mpeg:mpegB:cicp:systems:auxiliary:` prefix counts too), WARNs; any other suffix under the CICP prefix, and any other URN, is "not alpha" (PASS). WARN, not FAIL: §4.1 is definitional, not a "shall" — "An AV1 Alpha Image Item (respectively an AV1 Alpha Image Sequence) is an AV1 Auxiliary Image Item (respectively an AV1 Auxiliary Image Sequence), and as defined in [MIAF], with the aux_type field of the AuxiliaryTypeProperty (respectively AuxiliaryTypeInfoBox) set to urn:mpeg:mpegB:cicp:systems:auxiliary:alpha." | WARN | AVIF §4.1 |
 
 Codec-bitstream comparisons (sequence header, SPS, ispe vs frame size, pixi vs bit depth) are phase 2: phase 1 does
 not open coded item data except the grid descriptor and the `tmap` metadata header count.
 
-### Observed real files (2026-10-24, not committed except where noted)
+### Observed real files (measured 2026-10-24 with `./gradlew -q :app:run --args="check <file>"`, copies only)
 
-- ffmpeg 8 `libsvtav1` AVIF (`avif mif1 miaf MA1B`; `ispe`, `pixi`, essential `av1C`, `colr`): expected clean.
-- macOS `sips` HEIC (`heic`; compatible `mif1 MiPr miaf MiHB heic`; `dinf` in meta; `colr`/`irot`/`hvcC` essential):
-  expected clean.
-- Samsung Galaxy HEIC (major `heic`, compatible `mif1 heic tmap`, no `miaf`; 51 items: 40 hidden HEVC tiles,
-  grid primary 41 (not hidden), thumbnail 42, hidden alpha/gain-map grid 47 via `auxl` with `auxC`, `tmap` 48 with
-  inputs 41 + 47, Exif/XMP `cdsc` items 49–51; `iloc` v1 with `idat`; every image item has an essential `ispe`;
-  trailing `free`/`mpvd`/`sefd` boxes): expected no FAIL. Unknown top-level `mpvd`/`sefd` are judged by the Google
-  Motion Photo checker, not here.
-- Samsung Galaxy S26 HEIC (`20261012_131852_s26.heic`): HEIF `ftyp`/`uuid`/`mdat`/`meta`/`free`, then a complete
-  `mp42` MP4 (`ftyp mp42 [isom mp42]`, `mdat`, `moov`) appended at top level after the HEIF `meta`, then `sefd`. The
-  second `ftyp` lists no image brand, so it is treated as the start of an appended video: `bmff.ftyp.position` is
-  evaluated over the HEIF part and reported as WARN (single-ftyp layout broken), the HEIF item model reads only the
-  boxes before it, and the video is left to the Google Motion Photo checker. A later `ftyp` listing an image brand
-  still FAILs.
+Every report below has no `inspectionError`; rows not listed are PASS. Non-AVIF HEICs list all nine `avif.*` rules as
+NOT_APPLICABLE ("AVIF 파일이 아님 (HEIF)").
+
+| File | Format / overall | Non-PASS rows (besides the `avif.*` N/A rows on HEIF) |
+|---|---|---|
+| ffmpeg 8.1.2 `libsvtav1` (SVT-AV1 4.2.0) `still.avif` (committed; `avif mif1 miaf MA1B`; `ispe`, `pixi`, essential `av1C`, `colr`) | AVIF / PASS | N/A: `heif.props.essential`, `heif.iref.targets`, `heif.derived.grid`, `heif.derived.inputs`, `avif.props.pasp`, `avif.props.a1op`, `avif.props.a1lx`, `avif.alpha.auxc` |
+| macOS `sips` `sips.heic` (committed; `heic`, compatible `mif1 MiPr miaf MiHB heic`; `dinf` in meta; `colr`/`clli`/`ispe`/`irot`/`pixi`/`hvcC`, `irot`/`hvcC`/`colr` essential; `iloc` after `iprp`; 64-bit largesize `mdat`) | HEIF / PASS | N/A: `heif.iref.targets`, `heif.derived.grid`, `heif.derived.inputs` |
+| Samsung Galaxy `20261012_223511.heic` | HEIF / PASS | none |
+| Samsung Galaxy `20260715_223828.heic` | HEIF / PASS | none |
+| Samsung Galaxy motion photo `20260715_223835_motion.heic` (trailing `mpvd`/`sefd`) | HEIF / PASS | none |
+| Samsung Galaxy S26 `20261012_131852_s26.heic` | HEIF / WARN | WARN `bmff.ftyp.position` (no citation: reused ISO-BMFF rule) — second `ftyp` @0x2E52AA without an image brand is the appended `mp42` motion-photo video |
+
+Samsung Galaxy HEIC structure (from the Task 2–4 dumps): major `heic`, compatible `mif1 heic tmap`, no `miaf`;
+51 items: 40 hidden HEVC tiles, grid primary 41 (not hidden), thumbnail 42, hidden alpha/gain-map grid 47 via `auxl`
+with `auxC`, `tmap` 48 with inputs 41 + 47, Exif/XMP `cdsc` items 49–51; `iloc` v1 with `idat`; every image item has
+an essential `ispe`; trailing `free`/`mpvd`/`sefd` boxes. Unknown top-level `mpvd`/`sefd` are judged by the Google
+Motion Photo checker, not here.
+
+Samsung Galaxy S26 HEIC (`20261012_131852_s26.heic`): HEIF `ftyp`/`uuid`/`mdat`/`meta`/`free`, then a complete
+`mp42` MP4 (`ftyp mp42 [isom mp42]`, `mdat`, `moov`) appended at top level after the HEIF `meta`, then `sefd`. The
+second `ftyp` lists no image brand, so it is treated as the start of an appended video: `bmff.ftyp.position` is
+evaluated over the HEIF part and reported as WARN (single-ftyp layout broken), the HEIF item model reads only the
+boxes before it, and the video is left to the Google Motion Photo checker. A later `ftyp` listing an image brand
+still FAILs.
 
 ### Spec citation URL
 
@@ -101,15 +111,26 @@ HEIF rules cite `ISO/IEC 23008-12:2025` at https://www.iso.org/standard/89035.ht
   - `HeifConformanceChecker.kt` — `fun check(reader: ByteReader): ConformanceReport` (format "HEIF" or "AVIF").
 - Reuses `IsoBmffBoxTree.walk` and the ISO-BMFF box-structure rule functions (expose them as internal functions
   rather than copying).
-- Wiring: `isoBmffConformanceFor` (rename to `containerConformanceFor`) dispatches HEIF/AVIF content to the HEIF
-  checker; everything downstream (window, CLI, case export, prompt) already handles any `ConformanceReport`.
+- Wiring: `containerConformanceFor` (`ui/ContentCheckPlan.kt`, formerly `isoBmffConformanceFor`) dispatches by
+  content: MP4/MOV/M4A → `IsoBmffConformanceChecker`, HEIF/AVIF → `HeifConformanceChecker`, anything else → null.
+  Content Check calls it for every media type inside the structure stage's IO block; for HEIF/AVIF image tabs the
+  HEIF report replaces the former structural-observation conformance report (those observations stay in the
+  Structure row; "파서 근거 / Parser evidence" lines are kept as limitations). The CLI `check` JSON, the `--case`
+  export and the AI prompt (`출처:` line) therefore carry `containerConformance` with `format` "HEIF"/"AVIF".
+  `effectiveConformanceStatus` is unchanged: an IMAGE tab still needs a completed STRUCTURE stage before a PASS.
 
 ## Testing
 
 - Synthetic HEIF builder in tests (ftyp + meta with hdlr/pitm/iinf/iloc/iprp/iref/idat + mdat) to inject one
   violation per rule, in HEIC and AVIF flavours.
-- Real fixtures (`docs/validation/heif-conformance-fixtures/generate.sh`): ffmpeg AVIF, `sips` HEIC (macOS only —
-  the script skips it elsewhere and the committed file is used), plus corrupted variants (missing `ispe`, `pitm` to a
-  hidden item, `ipma` index past `ipco`, `iloc` extent past EOF, grid with a missing tile, AVIF without `miaf`, AVIF
-  `av1C` missing, `pasp` 2:1).
+- Real fixtures (`docs/validation/heif-conformance-fixtures/generate.sh` → `app/src/test/resources/heif-conformance/`,
+  `HeifFixtureTest`): ffmpeg AVIF `still.avif`, `sips` HEIC `sips.heic` (macOS only — the script skips it elsewhere
+  and the committed file is used), both free of FAIL/WARN, plus `corrupt.py` variants (box sizes and file-relative
+  `iloc` offsets fixed; decoded output of the shifted files verified identical with ffmpeg), each failing exactly its
+  rule with no WARN: `no-ispe.heic` → `heif.props.ispe`, `hidden-primary.heic` → `heif.items.primary`,
+  `ipma-index.heic` → `heif.ipma.refs`, `iloc-past-eof.heic` → `heif.iloc.extents`, `no-miaf.avif` →
+  `avif.ftyp.miaf`, `no-av1c.avif` → `heif.props.codec_config` (`avif.props.av1c_essential` NOT_CHECKED),
+  `pasp-2-1.avif` → `avif.props.pasp`. The FAIL findings carry their citations (HEIF → iso.org 89035, unverified;
+  AVIF → aomediacodec v1.2.0 anchor, verified). The grid-with-a-missing-tile case is covered by synthetic tests
+  (`HeifPropertyRulesTest`) rather than a real-file variant: neither real tool writes a grid at 64x48.
 - Manual: several Samsung HEICs from `~/Downloads` (copies; motion photos included).
