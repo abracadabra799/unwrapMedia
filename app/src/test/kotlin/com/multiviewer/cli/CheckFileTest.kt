@@ -191,12 +191,22 @@ class CheckFileTest {
     }
 
     @Test
-    fun `checkFile omits containerConformance for non-ISO-BMFF files`() {
-        val file = File.createTempFile("check-iso-", ".jpg").also {
-            it.deleteOnExit(); it.writeBytes(com.multiviewer.parser.integrity.jpegBytes())
+    fun `checkFile omits containerConformance for formats without a container checker`() {
+        val file = File.createTempFile("check-iso-", ".png").also {
+            it.deleteOnExit(); it.writeBytes(com.multiviewer.parser.integrity.pngBytes())
         }
         val json = checkJson(file)
         assertTrue(!json.contains("containerConformance"), json)
+    }
+
+    @Test
+    fun `checkFile includes the JPEG containerConformance report`() {
+        val file = File.createTempFile("check-jpeg-", ".jpg").also {
+            it.deleteOnExit(); it.writeBytes(com.multiviewer.parser.integrity.jpegBytes())
+        }
+        val json = checkJson(file)
+        assertTrue(json.contains("\"containerConformance\""), json)
+        assertTrue(json.contains("t81.soi"), json)
     }
     @Test
     fun `analysis case includes containerConformance with the check JSON shape`() {
@@ -235,9 +245,9 @@ class CheckFileTest {
     }
 
     @Test
-    fun `analysis case omits containerConformance for non-ISO-BMFF files`() {
-        val file = File.createTempFile("check-iso-", ".jpg").also {
-            it.deleteOnExit(); it.writeBytes(com.multiviewer.parser.integrity.jpegBytes())
+    fun `analysis case omits containerConformance for formats without a container checker`() {
+        val file = File.createTempFile("check-iso-", ".png").also {
+            it.deleteOnExit(); it.writeBytes(com.multiviewer.parser.integrity.pngBytes())
         }
         val result = checkFile(file, includeCase = true) as CheckResult.Success
         assertTrue(!result.analysisCaseJson!!.contains("containerConformance"))

@@ -4,6 +4,7 @@ import com.multiviewer.parser.BoxNode
 import com.multiviewer.parser.ByteReader
 import com.multiviewer.parser.ContainerFormat
 import com.multiviewer.parser.conformance.heif.HeifConformanceChecker
+import com.multiviewer.parser.conformance.jpeg.JpegConformanceChecker
 import com.multiviewer.parser.conformance.isobmff.IsoBmffConformanceChecker
 import java.util.concurrent.CancellationException
 import com.multiviewer.parser.conformance.ConformanceReport
@@ -109,13 +110,15 @@ private val ISO_BMFF_CONTAINERS = setOf(ContainerFormat.MP4, ContainerFormat.MOV
  */
 fun containerConformanceFor(file: File): ConformanceReport? {
     val format = confidentFormat(file)
-    val heif = when (format) {
-        in ISO_BMFF_CONTAINERS -> false
-        ContainerFormat.HEIF, ContainerFormat.AVIF -> true
-        else -> return null
-    }
+    if (format !in ISO_BMFF_CONTAINERS && format != ContainerFormat.HEIF && format != ContainerFormat.AVIF && format != ContainerFormat.JPEG) return null
     return try {
-        ByteReader.open(file).use { if (heif) HeifConformanceChecker.check(it) else IsoBmffConformanceChecker.check(it) }
+        ByteReader.open(file).use {
+            when (format) {
+                ContainerFormat.JPEG -> JpegConformanceChecker.check(it)
+                ContainerFormat.HEIF, ContainerFormat.AVIF -> HeifConformanceChecker.check(it)
+                else -> IsoBmffConformanceChecker.check(it)
+            }
+        }
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
@@ -123,6 +126,7 @@ fun containerConformanceFor(file: File): ConformanceReport? {
         val (name, profile) = when (format) {
             ContainerFormat.AVIF -> "AVIF" to HeifConformanceChecker.AVIF_PROFILE
             ContainerFormat.HEIF -> "HEIF" to HeifConformanceChecker.HEIF_PROFILE
+            ContainerFormat.JPEG -> "JPEG" to JpegConformanceChecker.PROFILE
             else -> "ISO-BMFF" to "ISO/IEC 14496-12 phase 1"
         }
         ConformanceReport(name, profile, emptyList(), inspectionError = message,

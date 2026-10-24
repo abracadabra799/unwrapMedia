@@ -276,8 +276,11 @@ class ContentCheckPlanTest {
 
     @Test
     fun isoBmffConformanceIsOnlyComputedForMp4MovAndM4a() {
+        val png = File.createTempFile("ccp-iso-", ".png").also { it.deleteOnExit(); it.writeBytes(com.multiviewer.parser.integrity.pngBytes()) }
+        assertNull(containerConformanceFor(png))
         val jpeg = File.createTempFile("ccp-iso-", ".jpg").also { it.deleteOnExit(); it.writeBytes(jpegBytes()) }
-        assertNull(containerConformanceFor(jpeg))
+        assertEquals("JPEG", containerConformanceFor(jpeg)?.format)
+        assertEquals(com.multiviewer.parser.conformance.jpeg.JpegConformanceChecker.PROFILE, containerConformanceFor(jpeg)?.profile)
         val mp4 = containerConformanceFor(movieFile("x.mp4"))
         assertEquals("ISO-BMFF", mp4?.format)
         // Content decides, not the extension.
