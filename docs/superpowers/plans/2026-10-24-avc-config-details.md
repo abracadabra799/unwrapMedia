@@ -6,6 +6,8 @@ Actual fixture signed-ctts.mp4 generated with libx264 before this parser change;
 - [x] Dump actual config before code.
 - [x] Red tests for actual extension values/offset, nonzero depths, truncated extension/NAL and invalid file bounds.
 - [x] Implement appended extension fields and bounded array reads.
-- [ ] Focused/full tests, independent review, commit/local main merge.
+- [x] Focused/full tests, independent review, commit/local main merge.
 
 Validation: new tests failed before implementation, then focused tests passed. Whole-branch :app:test: {'tests': 2570, 'failures': 0, 'errors': 0, 'skipped': 1}. Independent read-only review found no introduced issues.
+
+Merged into local main on 2026-10-24 after whole-branch regression (2570 tests, 0 failures, 1 skipped). Remote push not performed.

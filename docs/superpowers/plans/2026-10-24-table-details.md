@@ -6,6 +6,8 @@ Real fixture BEFORE parser code: `ffmpeg -hide_banner -loglevel error -f lavfi -
 - [x] Generate actual fixture and independent bytes before implementation.
 - [x] Red tests for signed actual row, v0 unsigned compatibility, count/source header fields, unknown versions, file bounds.
 - [x] Implement bounded header decode and version-dependent row encoding.
-- [ ] Focused/full regression, independent review, commit and local merge.
+- [x] Focused/full regression, independent review, commit and local merge.
 
 Validation: new tests failed before implementation, then focused tests passed. Whole-branch :app:test: {'tests': 2570, 'failures': 0, 'errors': 0, 'skipped': 1}. Independent read-only review found no introduced issues.
+
+Merged into local main on 2026-10-24 after whole-branch regression (2570 tests, 0 failures, 1 skipped). Remote push not performed.

@@ -6,6 +6,8 @@ Evidence: independent item-bytes.txt from S26 HEIC and signed.heif. S26 first in
 - [x] Independently dump real fixtures before parser changes.
 - [x] Red tests for actual hidden fields, MIME encoding and URI offsets, v3 uint32 IDs, unknown version, bounds/termination.
 - [x] Update InfeBoxDecoder only, maintaining existing field order and consumers.
-- [ ] Focused/full regression and review; commit and local main merge, no push.
+- [x] Focused/full regression and review; commit and local main merge, no push.
 
 Validation: initial tests failed on omitted properties and unknown-version acceptance; focused and full tests passed. Independent read-only review found no issues.
+
+Merged into local main on 2026-10-24 after whole-branch regression (2570 tests, 0 failures, 1 skipped). Remote push not performed.

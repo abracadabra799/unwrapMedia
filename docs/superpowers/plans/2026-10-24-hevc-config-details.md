@@ -6,6 +6,8 @@ Real fixtures BEFORE code: hevc-conformance/default-hev1.mp4 hvcC payload4782: 0
 - [x] Verify actual default and HDR bytes.
 - [x] Red tests for complete configuration values/source masks, nonzero bitfields, truncated NAL and file range.
 - [x] Add bounded fixed fields, retain existing order and summary, warn incomplete arrays.
-- [ ] Focused/full tests and independent review; commit/local main merge.
+- [x] Focused/full tests and independent review; commit/local main merge.
 
 Validation: new tests failed before implementation, then focused tests passed. Whole-branch :app:test: {'tests': 2570, 'failures': 0, 'errors': 0, 'skipped': 1}. Independent read-only review found no introduced issues.
+
+Merged into local main on 2026-10-24 after whole-branch regression (2570 tests, 0 failures, 1 skipped). Remote push not performed.
