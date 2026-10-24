@@ -37,7 +37,7 @@ Groups (scope labels): `"ftyp"`, `"meta 구조 / meta structure"`, `"항목 / It
 
 | ID | Rule | Level | Source |
 |---|---|---|---|
-| `heif.box.*` | Reuse ISO-BMFF `bmff.box.size`, `bmff.box.size0`, `bmff.box.trailing`, `bmff.ftyp.position` (ftyp first; reported under their `bmff.*` ids, without a `SpecCitation`, like the ISO-BMFF checker). `bmff.ftyp.position` is evaluated over the HEIF part only when a non-image `ftyp` (appended motion-photo video) follows: WARN | as ISO-BMFF | ISO-BMFF |
+| `heif.box.*` | Reuse ISO-BMFF `bmff.box.size`, `bmff.box.size0`, `bmff.box.trailing`, `bmff.ftyp.position` (ftyp first; reported under their `bmff.*` ids with the ISO-BMFF citation: `ISO/IEC 14496-12:2026` store page, clause hint, unverified). `bmff.ftyp.position` is evaluated over the HEIF part only when a non-image `ftyp` (appended motion-photo video) follows: WARN | as ISO-BMFF | ISO-BMFF |
 | `heif.ftyp.mif1` | `mif1` (or `msf1` when a `moov` image sequence exists) in compatible brands | WARN | HEIF |
 | `heif.ftyp.codec_brand` | HEVC primary → `heic`/`heix`/`heim`/`heis` brand listed; AV1 primary → `avif` | WARN | HEIF |
 | `avif.ftyp.miaf` | AVIF files list `miaf` | FAIL | AVIF §7 |
@@ -51,22 +51,23 @@ Groups (scope labels): `"ftyp"`, `"meta 구조 / meta structure"`, `"항목 / It
 | `heif.iloc.extents` | Every extent lies inside the file (method 0) or inside `idat` (method 1); extent_count ≥ 1 for items with data | FAIL | HEIF |
 | `heif.ipma.refs` | `ipma` entries name declared items, strictly increasing item_IDs, each item at most once; every property_index ≤ `ipco` count (0 = none allowed) | FAIL | HEIF |
 | `heif.props.ispe` | Every image item (coded and derived) has exactly one `ispe` | FAIL | HEIF |
-| `heif.props.codec_config` | Coded image items have their decoder configuration: `hvc1`→`hvcC`, `av01`→`av1C` (AVIF §2.1), `j2k1`→`j2kH`, `vvc1`→`vvcC`, … unknown item types → NOT_APPLICABLE | FAIL | HEIF / AVIF §2.1 |
+| `heif.props.codec_config` | Coded image items have their decoder configuration: `hvc1`→`hvcC`, `av01`→`av1C` (AVIF §2.1), `j2k1`→`j2kH`, `vvc1`→`vvcC`, … unknown item types → NOT_APPLICABLE. Citation: AVIF §2.1 (`#image-item`) only when every violation is an `av01` item of an AVIF file; any other item type's violation keeps the HEIF citation, and a mixed result adds a detail line naming AVIF §2.1 for the `av01` items | FAIL | HEIF / AVIF §2.1 |
 | `heif.props.essential` | Transformative properties (`irot`, `imir`, `clap`) are marked essential | WARN | HEIF |
 | `heif.props.unique` | At most one of each of `ispe`, `pixi`, `irot`, `imir`, `clap`, `colr` (per colour_type) per item | WARN | HEIF |
 | `heif.iref.targets` | Every `iref` from/to item_ID is declared; `thmb`/`auxl`/`cdsc` sources point at existing master items; an `auxl` source has an `auxC` property; for `cdsc` only declaration of both ends is checked (the described item need not be an image item, per our reading) | FAIL | HEIF |
 | `heif.derived.grid` | grid descriptor readable (version 0, flags → 16/32-bit sizes), `dimg` count = rows × columns, all tiles same `ispe`, rows·tile_height ≥ output height and columns·tile_width ≥ output width, grid `ispe` = output size | FAIL | HEIF |
-| `heif.derived.inputs` | `iovl` / `tmap` / other derived items have `dimg` inputs that exist; `tmap` has exactly two inputs | FAIL | HEIF |
+| `heif.derived.inputs` | `iovl` / `tmap` / `iden` / other derived items have `dimg` inputs that exist, are image items and are not the item itself; `tmap` has exactly two inputs; `iden` has exactly one input (detail names no clause number: unverified) | FAIL | HEIF |
 | `avif.primary` | Primary item is `av01` or a derived image whose inputs are `av01` | FAIL | AVIF §6.2 |
 | `avif.props.av1c_essential` | `av1C` should be marked essential | WARN | AVIF §2.2.1 |
 | `avif.props.pixi` | AV1 image items have `pixi` | FAIL | AVIF §9.1.1 (table) |
 | `avif.props.pasp` | `pasp`, if present, is 1:1 | FAIL | AVIF §9.1.2 |
-| `avif.props.a1op` | `a1op`, if associated, is essential | FAIL | AVIF §2.3.2.1.2 |
-| `avif.props.a1lx` | `a1lx`, if associated, is not essential | FAIL | AVIF §2.3.2.3.2 |
+| `avif.props.a1op` | `a1op`, if associated, is essential | FAIL | AVIF §2.3.2.1.2 (`#operating-point-selector-property-description`) |
+| `avif.props.a1lx` | `a1lx`, if associated, is not essential | FAIL | AVIF §2.3.2.3.2 (`#layered-image-indexing-property-description`) |
 | `avif.alpha.auxc` | An auxiliary item linked by `auxl` whose `auxC` names alpha uses `urn:mpeg:mpegB:cicp:systems:auxiliary:alpha` (or the HEVC alpha URN). A case/whitespace variant of the alpha/depth URN, or any aux_type shorter than 80 characters within edit distance ≤ 3 of the whole alpha/depth URN (so a typo in the `urn:mpeg:mpegB:cicp:systems:auxiliary:` prefix counts too), WARNs; any other suffix under the CICP prefix, and any other URN, is "not alpha" (PASS). WARN, not FAIL: §4.1 is definitional, not a "shall" — "An AV1 Alpha Image Item (respectively an AV1 Alpha Image Sequence) is an AV1 Auxiliary Image Item (respectively an AV1 Auxiliary Image Sequence), and as defined in [MIAF], with the aux_type field of the AuxiliaryTypeProperty (respectively AuxiliaryTypeInfoBox) set to urn:mpeg:mpegB:cicp:systems:auxiliary:alpha." | WARN | AVIF §4.1 |
 
 Codec-bitstream comparisons (sequence header, SPS, ispe vs frame size, pixi vs bit depth) are phase 2: phase 1 does
-not open coded item data except the grid descriptor and the `tmap` metadata header count.
+not open coded item data except the grid descriptor; `tmap` is checked by counting its `dimg` inputs only (its
+metadata header is not read in phase 1).
 
 ### Observed real files (measured 2026-10-24 with `./gradlew -q :app:run --args="check <file>"`, copies only)
 
@@ -80,7 +81,7 @@ NOT_APPLICABLE ("AVIF 파일이 아님 (HEIF)").
 | Samsung Galaxy `20261012_223511.heic` | HEIF / PASS | none |
 | Samsung Galaxy `20260715_223828.heic` | HEIF / PASS | none |
 | Samsung Galaxy motion photo `20260715_223835_motion.heic` (trailing `mpvd`/`sefd`) | HEIF / PASS | none |
-| Samsung Galaxy S26 `20261012_131852_s26.heic` | HEIF / WARN | WARN `bmff.ftyp.position` (no citation: reused ISO-BMFF rule) — second `ftyp` @0x2E52AA without an image brand is the appended `mp42` motion-photo video |
+| Samsung Galaxy S26 `20261012_131852_s26.heic` | HEIF / WARN | WARN `bmff.ftyp.position` (cites ISO/IEC 14496-12:2026 §4.3 (ftyp), iso.org 85596, unverified) — second `ftyp` @0x2E52AA without an image brand is the appended `mp42` motion-photo video |
 
 Samsung Galaxy HEIC structure (from the Task 2–4 dumps): major `heic`, compatible `mif1 heic tmap`, no `miaf`;
 51 items: 40 hidden HEVC tiles, grid primary 41 (not hidden), thumbnail 42, hidden alpha/gain-map grid 47 via `auxl`
@@ -100,6 +101,10 @@ still FAILs.
 HEIF rules cite `ISO/IEC 23008-12:2025` at https://www.iso.org/standard/89035.html (Edition 3, published 2025-07;
 83650 is the withdrawn 2022 edition). The page was confirmed by web search because iso.org blocks automated requests
 (HTTP 403 for curl, also with a browser user agent). Clause hints are unverified; no pages or anchors.
+
+Reused ISO-BMFF box rules cite `ISO/IEC 14496-12:2026` at https://www.iso.org/standard/85596.html (Edition 8,
+published 2026-04; supersedes the 2022 edition 83102), also confirmed by web search (iso.org 403s curl); clause
+hints unverified, no page.
 
 ## Architecture
 

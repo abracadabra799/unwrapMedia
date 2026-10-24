@@ -31,10 +31,10 @@ data class SpecCitation(
 | Document | Link form | Page | verified |
 |---|---|---|---|
 | AVIF v1.2.0 | `https://aomediacodec.github.io/av1-avif/v1.2.0.html#<id>` (ids verified, e.g. `#file-constraints`, `#av1-item-configuration-property`, `#avif-required-boxes`) | null (HTML) | true |
-| Google Motion Photo 1.0 | `https://developer.android.com/media/platform/motion-photo-format#<id>` (`#file-name`, `#camera-metadata`, `#container-element`, `#item_element`, `#itemmime_type_values`, `#itemsemantic_values`, `#isobmff-image-specific-behavior`, `#video-container`, `#video-metadata`) | null | true |
-| Apple QuickTime File Format | per-atom documentation page (verify each URL resolves, HTTP 200) | null | false until text checked |
+| Google Motion Photo 1.0 | `https://developer.android.com/media/platform/motion-photo-format#<id>` (`#file-name` §2.1, `#media-data` §2.2, `#xmp-attributes` §3, `#camera-metadata` §3.1, `#container-element` §3.2, `#item_element` §3.3, `#itemmime_type_values` / `#itemsemantic_values` §3.4 (Item:Mime rules / all other §3.4 rules), `#isobmff-image-specific-behavior` §4, `#video-container` §5, `#video-metadata` §6; each id checked in the published page; a section without a verified id gets no citation) | null | true |
+| Apple QuickTime File Format | document root `https://developer.apple.com/documentation/quicktime-file-format` (HTTP 200; per-atom pages are JS-rendered and not confirmed, so not used); section = QTFF chapter name | null | false |
 | ITU-T H.264 / H.265 / H.266, AV1, VP9, RFCs, CIPA, W3C | the free PDF/HTML; PDFs link `…pdf#page=N` after downloading the PDF and confirming the clause on that page | verified page | true when checked |
-| Paid ISO/IEC (14496-12, 14496-14, 14496-15, 23008-12, 23000-22, 14496-3) | ISO store page of the current edition (verify HTTP 200) | null, shown as "원문 미대조" | false |
+| Paid ISO/IEC (14496-12, 14496-14, 14496-15, 23008-12, 23000-22, 14496-3) | ISO store page of the current edition (iso.org 403s automated requests, so the page is confirmed by web search): 23008-12:2025 → `iso.org/standard/89035.html`, 14496-12:2026 → `iso.org/standard/85596.html` | null, shown as "원문 미대조" | false |
 
 Never invent a page number or anchor: an unverified anchor/page is omitted (link to the document root) and
 `verified = false`.
@@ -51,7 +51,9 @@ Never invent a page number or anchor: an unverified anchor/page is omitted (link
 
 ## Scope and order
 
-1. HEIF/AVIF (current branch): the citation model + UI/JSON/prompt plumbing + citations for every HEIF/AVIF rule.
-2. Retrofit (next branch): Google Motion Photo, ISO-BMFF (ISO store page + QTFF per-atom pages), codec bitstream
-   catalogs (download the ITU-T/AOM/IETF documents, verify pages).
+1. Done on this branch (`feat/heif-conformance`): the citation model + UI/JSON/prompt plumbing, citations for every
+   HEIF/AVIF rule, every ISO-BMFF rule (ISO profile → 14496-12:2026 store page; QuickTime profile → QTFF document
+   root), and every Google Motion Photo 1.0 rule (verified section anchors).
+2. Retrofit (next branch): codec bitstream catalogs (H.264/H.265/H.266, AV1, VP9, APV, AAC/Opus/FLAC) — download the
+   ITU-T/AOM/IETF documents and verify each `#page=N` against the PDF before marking verified.
 3. Every later roadmap format ships with citations from the start.
