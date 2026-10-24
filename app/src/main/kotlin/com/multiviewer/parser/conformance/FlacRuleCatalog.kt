@@ -13,12 +13,15 @@ object FlacRuleCatalog {
         citedRule("flac.config.match", "Sample entry and STREAMINFO parameter match / 샘플 엔트리와 STREAMINFO 일치성", SCOPE,
             BINDING, "3.3.1 Sample entry format", null, "$BINDING_URL#L135"),
         citedRule("flac.frame.header", "FLAC frame header sync, reserved bits, and CRC-8 / FLAC 프레임 헤더 동기단어, 예약 비트 및 CRC-8", SCOPE,
-            RFC, "9.1 Frame Header", null, "$RFC_URL#section-9.1"),
+            RFC, "9.1 Frame Header (sync code; reserved bit is 9.1.4, CRC-8 is 9.1.8)", null, "$RFC_URL#section-9.1"),
         citedRule("flac.frame.crc", "FLAC frame payload CRC-16 / FLAC 프레임 CRC-16 검증", SCOPE,
-            RFC, "9.3 Frame Footer", null, "$RFC_URL#section-9.3"),
+            RFC, "9.3 Frame Footer$DEFINITIONAL_SUFFIX", null, "$RFC_URL#section-9.3"),
         citedRule("flac.sample.framing", "Sample byte extents / 샘플 바이트 범위", SCOPE,
             BINDING, "3.3.3 Sample format$DEFINITIONAL_SUFFIX", null, "$BINDING_URL#L309"),
     ).associateBy { it.id }
+
+    /** Every rule of this catalog, for catalog-wide checks. */
+    val all: List<ConformanceRule> get() = rules.values.toList()
 
     fun rule(id: String): ConformanceRule? = rules[id]
 }

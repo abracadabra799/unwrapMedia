@@ -2,7 +2,7 @@ package com.multiviewer.parser.conformance
 
 /** Byte-level OBU and av1C checks cited to the AV1 specification and the AV1 ISOBMFF binding (HTML anchors). */
 object Av1RuleCatalog {
-    private const val SPEC = "AV1 Bitstream & Decoding Process Specification"
+    private const val SPEC = "AV1 Bitstream & Decoding Process Specification (v1.0.0 with Errata 1, HTML 2023-05-25)"
     private const val SPEC_URL = "https://aomediacodec.github.io/av1-spec/"
     private const val BINDING = "AV1 Codec ISO Media File Format Binding v1.3.0"
     private const val BINDING_URL = "https://aomediacodec.github.io/av1-isobmff/"
@@ -19,6 +19,9 @@ object Av1RuleCatalog {
         citedRule("av1.config.sequence_header", "Sequence Header in av1C / av1C 시퀀스 헤더", SCOPE,
             BINDING, "2.3.4 AV1CodecConfigurationBox Semantics (configOBUs)", null, "$BINDING_URL#av1codecconfigurationbox-semantics"),
     ).associateBy { it.id }
+
+    /** Every rule of this catalog, for catalog-wide checks. */
+    val all: List<ConformanceRule> get() = rules.values.toList()
 
     fun rule(id: String): ConformanceRule? = rules[id]
 }

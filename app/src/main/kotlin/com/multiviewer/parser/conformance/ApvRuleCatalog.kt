@@ -16,11 +16,14 @@ object ApvRuleCatalog {
         citedRule("apv.frame.profile", "band_idc in 0..3 and reserved_zero_5bits = 0 / 프로필·밴드·예약 비트", SCOPE,
             RFC, "5.3.6 Frame Information", null, "$RFC_URL#name-frame-information"),
         citedRule("apv.frame.reserved_zero", "frame_header reserved_zero_8bits = 0 / 프레임 헤더 예약 바이트", SCOPE,
-            RFC, "5.3.5 Frame Header", null, "$RFC_URL#name-frame-header"),
+            RFC, "5.3.5 Frame Header (and 5.3.6 Frame Information reserved_zero_8bits)", null, "$RFC_URL#name-frame-header"),
         citedRule("apv.config.apvc", "apvC configuration box / apvC 설정 상자", SCOPE,
             "APV ISOBMFF binding (openapv, commit 114280b, 2025-07-18)", "APV Codec Configuration Box", null,
             "$OPENAPV_URL#user-content-apv-codec-configuration-box"),
     ).associateBy { it.id }
+
+    /** Every rule of this catalog, for catalog-wide checks. */
+    val all: List<ConformanceRule> get() = rules.values.toList()
 
     fun rule(id: String): ConformanceRule? = rules[id]
 }
