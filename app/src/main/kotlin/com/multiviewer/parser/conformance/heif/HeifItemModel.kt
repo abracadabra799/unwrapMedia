@@ -27,6 +27,27 @@ const val HEIF_MAX_ENTRIES = 1_000_000L
 /** Problem prefix used when a table count exceeds [HEIF_MAX_ENTRIES]. */
 const val HEIF_COUNT_CAP_PROBLEM = "항목 수 상한 초과"
 
+/** Problem code: the box could not be read (truncated or I/O error) and its content was dropped. */
+const val HEIF_UNREADABLE_PROBLEM = "읽지 못함"
+
+/** Problem code: bytes left over after a table's last entry (entries themselves were read). */
+const val HEIF_TRAILING_BYTES_PROBLEM = "항목 뒤 남은 바이트"
+
+/** Problem code: an iloc entry was skipped because an offset/length is not representable; followed by "item_ID N". */
+const val HEIF_SKIPPED_ENTRY_PROBLEM = "항목 건너뜀"
+
+/** Text after the "box@offset: " prefix of a model problem. */
+private fun problemBody(p: String): String = p.substringAfter(": ", "")
+
+fun isHeifUnreadableProblem(p: String): Boolean = problemBody(p).startsWith(HEIF_UNREADABLE_PROBLEM)
+fun isHeifTrailingBytesProblem(p: String): Boolean = problemBody(p).startsWith(HEIF_TRAILING_BYTES_PROBLEM)
+fun isHeifCapProblem(p: String): Boolean = problemBody(p).startsWith(HEIF_COUNT_CAP_PROBLEM)
+
+private val SKIPPED_ITEM_ID = Regex("""^${HEIF_SKIPPED_ENTRY_PROBLEM} \(item_ID (\d+)\b""")
+
+/** item_ID of a [HEIF_SKIPPED_ENTRY_PROBLEM] problem, else null. */
+fun heifSkippedItemId(p: String): Long? = SKIPPED_ITEM_ID.find(problemBody(p))?.groupValues?.get(1)?.toLongOrNull()
+
 /** meta children that may appear at most once; extra copies are reported (the first is used). */
 private val UNIQUE_META_CHILDREN = listOf("hdlr", "pitm", "iinf", "iloc", "iprp", "idat", "iref", "dinf")
 
@@ -62,9 +83,9 @@ object HeifItemModel {
         fun <T> guarded(box: BmffBox, block: () -> T): T? = try {
             block()
         } catch (e: Truncated) {
-            problems += "${box.type}@${box.offset}: ${e.message}"; null
+            problems += "${box.type}@${box.offset}: $HEIF_UNREADABLE_PROBLEM — ${e.message}"; null
         } catch (e: IOException) {
-            problems += "${box.type}@${box.offset}: 읽기 오류 (${e.message})"; null
+            problems += "${box.type}@${box.offset}: $HEIF_UNREADABLE_PROBLEM — 읽기 오류 (${e.message})"; null
         }
 
         val children = meta.children
@@ -237,14 +258,14 @@ object HeifItemModel {
                         else -> extents += HeifExtent(base + off, len)
                     }
                 }
-                if (wrapped != null) problems += "iloc@${b.offset}: 항목 ${i + 1}/$count (item_ID $id) 건너뜀 — $wrapped"
+                if (wrapped != null) problems += "iloc@${b.offset}: $HEIF_SKIPPED_ENTRY_PROBLEM (item_ID $id, 항목 ${i + 1}/$count) — $wrapped"
                 else out += HeifLocation(id, method, dri, base, extents)
             } catch (e: Truncated) {
                 problems += "iloc@${b.offset}: 항목 ${i + 1}/$count 잘림 (${e.message})"
                 break
             }
         }
-        if (c.remaining > 0) problems += "iloc@${b.offset}: 항목 뒤 남은 바이트 ${c.remaining}"
+        if (c.remaining > 0) problems += "iloc@${b.offset}: $HEIF_TRAILING_BYTES_PROBLEM ${c.remaining}"
     }
 
     private fun readIpma(
@@ -275,7 +296,7 @@ object HeifItemModel {
                 return
             }
         }
-        if (c.remaining > 0) problems += "ipma@${b.offset}: 항목 뒤 남은 바이트 ${c.remaining}"
+        if (c.remaining > 0) problems += "ipma@${b.offset}: $HEIF_TRAILING_BYTES_PROBLEM ${c.remaining}"
     }
 
     /** Local bounded box loop for containers the ISO-BMFF walker does not descend into (iinf, iprp, ipco, iref). */

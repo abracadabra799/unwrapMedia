@@ -123,7 +123,7 @@ class HeifItemModelTest {
     fun `truncated infe and miscounted iinf record problems without throwing`() {
         val badIinf = fullBox("iinf", 0, 0, be16(4), fullBox("infe", 2, 0, be16(1)))
         val m = model(buildHeif(HeifSpec(dropMetaChild = "iinf", extraMetaChildren = listOf(badIinf))))
-        assertTrue(m.problems.any { it.startsWith("infe@") }, m.problems.toString())
+        assertTrue(m.problems.any { it.startsWith("infe@") && isHeifUnreadableProblem(it) }, m.problems.toString())
         assertTrue(m.problems.any { "iinf" in it && "entry_count" in it }, m.problems.toString())
         assertEquals(4L, m.iinfEntryCount)
         assertTrue(m.items.isEmpty())

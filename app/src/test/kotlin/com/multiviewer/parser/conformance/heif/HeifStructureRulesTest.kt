@@ -210,9 +210,50 @@ class HeifStructureRulesTest {
     }
 
     @Test
-    fun `iloc version 0 with an idat item fails method`() {
+    fun `iloc version 0 with an idat box warns about the unused idat`() {
         val r = check(HeifSpec(ilocVersion = 0, items = listOf(HeifItem(1, "hvc1", method = 1))))
-        assertEquals(FAIL, r.status("heif.iloc.method"))
+        val f = r.finding("heif.iloc.method")
+        assertEquals(WARN, f.status)
+        assertTrue(f.details.any { "사용되지 않는 idat" in it }, f.details.toString())
+    }
+
+    /** iloc v1, zero-width fields: [entries] items with item_ID 1 and 65535 extents each (no extent bytes). */
+    private fun zeroWidthIloc(entries: Int) = fullBox("iloc", 1, 0, byteArrayOf(0, 0), be16(entries),
+        *Array(entries) { be16(1) + be16(0) + be16(0) + be16(0xFFFF) })
+
+    @Test
+    fun `extent count over the cap is not checked for method, items and extents`() {
+        val r = check(HeifSpec(dropMetaChild = "iloc", extraMetaChildren = listOf(zeroWidthIloc(16))))
+        assertEquals(NOT_CHECKED, r.status("heif.iloc.method"))
+        assertEquals(NOT_CHECKED, r.status("heif.iloc.items"))
+        assertEquals(NOT_CHECKED, r.status("heif.iloc.extents"))
+    }
+
+    @Test
+    fun `truncated iloc is not a method pass`() {
+        // entry_count 2 but only one entry present.
+        val iloc = fullBox("iloc", 1, 0, byteArrayOf(0x44, 0), be16(2), be16(1), be16(0), be16(0), be16(1), be32(0), be32(4))
+        val r = check(HeifSpec(dropMetaChild = "iloc", extraMetaChildren = listOf(iloc)))
+        assertEquals(NOT_CHECKED, r.status("heif.iloc.method"))
+    }
+
+    @Test
+    fun `trailing bytes after iloc entries warn instead of failing items`() {
+        val good = buildHeif()
+        // Rebuild with the same layout plus 2 trailing bytes inside iloc: offsets shift by 2, so use delta -… via manual iloc.
+        val m = ByteReader.open(fileOf(good)).use { HeifItemModel.read(com.multiviewer.parser.conformance.isobmff.IsoBmffBoxTree.walk(it), it) }
+        val ext = m.locations.single().extents.single()
+        val iloc = fullBox("iloc", 1, 0, byteArrayOf(0x44, 0), be16(1), be16(1), be16(0), be16(0), be16(1),
+            be32(ext.offset + 2), be32(ext.length), byteArrayOf(0, 0))
+        val r = check(HeifSpec(dropMetaChild = "iloc", extraMetaChildren = listOf(iloc)))
+        assertEquals(WARN, r.status("heif.iloc.items"), r.finding("heif.iloc.items").details.toString())
+        assertEquals(PASS, r.status("heif.iloc.extents"))
+    }
+
+    @Test
+    fun `unknown item type without location is not checked`() {
+        val r = check(HeifSpec(items = listOf(HeifItem(1, "hvc1"), HeifItem(2, "zzzz", data = null))))
+        assertEquals(NOT_CHECKED, r.status("heif.iloc.items"))
     }
 
     @Test
@@ -271,6 +312,27 @@ class HeifStructureRulesTest {
         assertTrue(r.findings.none { it.status == FAIL }, r.findings.filter { it.status == FAIL }.map { it.rule.id }.toString())
         assertEquals(PASS, r.status("heif.ftyp.mif1"))
         assertEquals(PASS, r.status("heif.meta.present"))
+    }
+
+    private fun mp4(vararg extra: ByteArray, compat: List<String> = listOf("isom", "mp42")) =
+        box("ftyp", "mp42".toByteArray(), be32(0), *compat.map { it.toByteArray() }.toTypedArray()) +
+            box("mdat", ByteArray(8)) + box("moov") + extra.fold(ByteArray(0)) { a, b -> a + b }
+
+    @Test
+    fun `appended MP4 with its own top-level meta never reaches the HEIF model`() {
+        val bytes = buildHeif() + mp4(fullBox("meta", 0, 0, box("free")))
+        val r = check(bytes)
+        assertTrue(r.findings.none { it.status == FAIL }, r.findings.filter { it.status == FAIL }.map { it.rule.id to it.details }.toString())
+        assertEquals(PASS, r.status("heif.meta.present"))
+        val m = ByteReader.open(fileOf(bytes)).use { HeifConformanceChecker.heifModel(it) }
+        assertEquals(1, m.metaCount)
+        assertEquals(emptyList(), m.problems)
+    }
+
+    @Test
+    fun `appended ftyp listing an image brand past 64 brands still fails ftyp position`() {
+        val compat = List(70) { "zz%02d".format(it) } + "heic"
+        assertEquals(FAIL, check(buildHeif() + mp4(compat = compat)).status("bmff.ftyp.position"))
     }
 
     @Test

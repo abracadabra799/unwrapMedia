@@ -51,7 +51,7 @@ internal class HeifContext(val tree: BmffTree, val reader: ByteReader, val model
 
     /** Model problems of [box] (prefix "box@") that hit the count cap. */
     fun capped(vararg boxes: String): List<String> = model.problems.filter { p ->
-        p.contains(HEIF_COUNT_CAP_PROBLEM) && boxes.any { p.startsWith("$it@") }
+        isHeifCapProblem(p) && boxes.any { p.startsWith("$it@") }
     }
 
     fun problemsOf(box: String): List<String> = model.problems.filter { it.startsWith("$box@") }
@@ -96,11 +96,15 @@ internal fun appendedVideoFtyp(tree: BmffTree, reader: ByteReader): BmffBox? {
         if (b.type != "ftyp" || b.problem != null) return@firstOrNull false
         val end = minOf(b.end, reader.length)
         if (b.payload + 4 > end) return@firstOrNull false
-        val n = ((end - b.payload - 8) / 4).coerceIn(0, 64).toInt()
+        val n = ((end - b.payload - 8) / 4).coerceIn(0, HeifContext.MAX_BRANDS.toLong()).toInt()
         val brands = listOf(reader.readFourCC(b.payload)) + (0 until n).map { reader.readFourCC(b.payload + 8 + 4L * it) }
         brands.none { it in IMAGE_BRANDS }
     }
 }
+
+/** [tree] cut before [trailer] (an appended video ftyp); [tree] itself when there is none. */
+internal fun heifHead(tree: BmffTree, trailer: BmffBox?): BmffTree =
+    if (trailer == null) tree else BmffTree(tree.top.takeWhile { it !== trailer }, 0, null)
 
 internal val CODED_IMAGE_TYPES = setOf("hvc1", "av01", "avc1", "jpeg", "j2k1", "vvc1", "evc1", "unci", "lhv1", "mski")
 internal val DERIVED_TYPES = setOf("grid", "iovl", "iden", "tmap")
@@ -124,7 +128,7 @@ object HeifConformanceChecker {
             findings += IsoBmffStructureRules.boxTrailing(bmff)
             val trailer = appendedVideoFtyp(tree, reader)
             findings += ftypPosition(bmff, tree, reader, trailer)
-            val ctx = HeifContext(tree, reader, HeifItemModel.read(tree, reader), trailer)
+            val ctx = HeifContext(tree, reader, HeifItemModel.read(heifHead(tree, trailer), reader), trailer)
             avif = isAvif(ctx)
             findings += HeifStructureRules.evaluate(ctx)
             null
@@ -154,7 +158,7 @@ object HeifConformanceChecker {
      */
     private fun ftypPosition(bmff: BmffContext, tree: BmffTree, reader: ByteReader, trailer: BmffBox?): ConformanceFinding {
         if (trailer == null) return IsoBmffStructureRules.ftypPosition(bmff)
-        val head = BmffTree(tree.top.takeWhile { it !== trailer }, 0, null)
+        val head = heifHead(tree, trailer)
         val f = IsoBmffStructureRules.ftypPosition(BmffContext(head, reader, BmffProfile.ISO))
         val note = "${at(trailer)}: 이미지 브랜드가 없는 두 번째 ftyp — 이어 붙은 동영상(모션 포토)의 시작으로 보고 HEIF 구조에서 제외 " +
             "(단일 ftyp 배치 위반, Google Motion Photo 검사에서 판단)"
@@ -163,6 +167,12 @@ object HeifConformanceChecker {
             PASS -> f.copy(status = WARN, details = f.details + note, ranges = f.ranges + listOf(range))
             else -> f.copy(details = f.details + note, ranges = f.ranges + listOf(range))
         }
+    }
+
+    /** The HEIF item model of [reader], read over the HEIF part only (never an appended video's boxes). */
+    internal fun heifModel(reader: ByteReader): HeifModel {
+        val tree = IsoBmffBoxTree.walk(reader)
+        return HeifItemModel.read(heifHead(tree, appendedVideoFtyp(tree, reader)), reader)
     }
 
     private fun isAvif(ctx: HeifContext): Boolean {
@@ -291,7 +301,7 @@ internal object HeifStructureRules {
         fails += ctx.problemsOf("iinf")
         // A truncated infe is dropped by the model (guarded read); string issues keep the item.
         val infeProblems = ctx.problemsOf("infe")
-        val dropped = infeProblems.filter { it.contains("박스 끝") || it.contains("읽기 오류") }
+        val dropped = infeProblems.filter(::isHeifUnreadableProblem)
         fails += dropped
         warns += infeProblems - dropped.toSet()
         for (item in m.items) {
@@ -337,9 +347,12 @@ internal object HeifStructureRules {
 
     // ---- item locations ----
 
-    private val SKIPPED_ID = Regex("""item_ID (\d+)\) 건너뜀""")
-
     private fun ilocBox(ctx: HeifContext): BmffBox? = ctx.model.meta?.children?.firstOrNull { it.type == "iloc" }
+
+    private fun ilocProblems(ctx: HeifContext) = ctx.problemsOf("iloc")
+    /** iloc problems that may have hidden entries (truncation, bad field sizes): not skipped entries, not trailing bytes. */
+    private fun ilocIncomplete(ctx: HeifContext) =
+        ilocProblems(ctx).filter { heifSkippedItemId(it) == null && !isHeifTrailingBytesProblem(it) && !isHeifCapProblem(it) }
 
     /** Non-null = the iloc rules cannot be evaluated; the finding to return. */
     private fun ilocUnavailable(ctx: HeifContext, id: String, needItems: Boolean): ConformanceFinding? {
@@ -348,7 +361,7 @@ internal object HeifStructureRules {
         val capped = ctx.capped("iloc") + if (needItems) ctx.capped("iinf") else emptyList()
         if (capped.isNotEmpty()) return ctx.finding(id, NOT_CHECKED, capped)
         val v = ctx.model.ilocVersion
-        if (v == null) return ctx.finding(id, NOT_CHECKED, listOf("iloc 버전을 읽지 못함") + ctx.problemsOf("iloc"))
+        if (v == null) return ctx.finding(id, NOT_CHECKED, listOf("iloc 버전을 읽지 못함") + ilocProblems(ctx))
         if (v > 2) return ctx.finding(id, NOT_CHECKED, listOf("iloc 버전 $v: 해석할 수 없음"))
         if (needItems && ctx.model.iinfEntryCount == null) return ctx.finding(id, NOT_CHECKED, listOf("iinf를 읽지 못함"))
         return null
@@ -359,27 +372,35 @@ internal object HeifStructureRules {
         ilocUnavailable(ctx, id, needItems = true)?.let { return it }
         val iloc = ilocBox(ctx)!!
         val m = ctx.model
-        val skipped = ctx.problemsOf("iloc").mapNotNull { SKIPPED_ID.find(it)?.groupValues?.get(1)?.toLongOrNull() }
+        val skipped = ilocProblems(ctx).mapNotNull(::heifSkippedItemId)
         val counts = HashMap<Long, Int>()
         (m.locations.map { it.itemId } + skipped).forEach { counts[it] = (counts[it] ?: 0) + 1 }
         val fails = ArrayList<String>()
+        val warns = ArrayList<String>()
+        val unchecked = ArrayList<String>()
         val ranges = ArrayList<LongRange>()
-        // Parse problems other than wrapped offsets (reported by heif.iloc.extents) mean entries may be missing.
-        ctx.problemsOf("iloc").filter { SKIPPED_ID.find(it) == null }.forEach { fails += it; ranges += ctx.range(iloc) }
+        // Truncation / bad field sizes mean entries may be missing; wrapped offsets are reported by heif.iloc.extents.
+        ilocIncomplete(ctx).forEach { fails += it; ranges += ctx.range(iloc) }
+        ilocProblems(ctx).filter(::isHeifTrailingBytesProblem).forEach { warns += it }
         for (item in m.items) {
             val n = counts[item.id] ?: 0
             when {
                 n > 1 -> { fails += "item_ID ${item.id} ('${item.type}'): iloc 항목 ${n}개 (1개여야 함)"; ranges += ctx.range(iloc) }
-                n == 0 && item.type != "iden" -> {
+                n == 1 || item.type == "iden" -> Unit
+                item.type in CODED_IMAGE_TYPES || item.type in DERIVED_TYPES || item.type in METADATA_TYPES -> {
                     fails += "item_ID ${item.id} ('${item.type}'): iloc 항목 없음 (데이터가 필요한 항목)"; ranges += ctx.range(item.infe)
                 }
+                else -> unchecked += "item_ID ${item.id} ('${item.type.ifEmpty { "(없음)" }}'): iloc 항목 없음 — 알 수 없는 유형이라 데이터 필요 여부 미검사"
             }
         }
         val declared = ctx.itemsById.keys
         counts.keys.filter { it !in declared }.sorted().forEach {
             fails += "iloc item_ID $it 이(가) iinf에 선언되지 않음"; ranges += ctx.range(iloc)
         }
-        if (fails.isNotEmpty()) return ctx.finding(id, FAIL, fails.capped() + moreLine(fails.size), ranges.distinct().capped())
+        if (fails.isNotEmpty()) return ctx.finding(id, FAIL,
+            fails.capped() + moreLine(fails.size) + warns + unchecked.capped(), ranges.distinct().capped())
+        if (warns.isNotEmpty()) return ctx.finding(id, WARN, warns + unchecked.capped(), listOf(ctx.range(iloc)))
+        if (unchecked.isNotEmpty()) return ctx.finding(id, NOT_CHECKED, unchecked.capped() + moreLine(unchecked.size))
         val withoutData = m.items.count { (counts[it.id] ?: 0) == 0 }
         return ctx.finding(id, PASS, listOf("항목 ${m.items.size}개 중 ${m.items.size - withoutData}개가 iloc 항목 1개씩 가짐" +
             if (withoutData > 0) ", iden ${withoutData}개는 데이터 없음 (허용)" else ""))
@@ -388,16 +409,15 @@ internal object HeifStructureRules {
     private fun ilocMethod(ctx: HeifContext): ConformanceFinding {
         val id = "heif.iloc.method"
         val m = ctx.model
-        if (m.meta == null) return ctx.finding(id, NOT_CHECKED, listOf("최상위 meta 없음"))
-        val iloc = ilocBox(ctx) ?: return ctx.finding(id, NOT_CHECKED, listOf("iloc 없음"))
-        val v = m.ilocVersion ?: return ctx.finding(id, NOT_CHECKED, listOf("iloc 버전을 읽지 못함"))
-        if (v > 2) return ctx.finding(id, FAIL, listOf("${at(iloc)}: 정의되지 않은 iloc 버전 $v (0~2)"), listOf(ctx.range(iloc)))
+        val iloc = ilocBox(ctx)
+        val v = m.ilocVersion
+        if (iloc != null && v != null && v > 2)
+            return ctx.finding(id, FAIL, listOf("${at(iloc)}: 정의되지 않은 iloc 버전 $v (0~2)"), listOf(ctx.range(iloc)))
+        ilocUnavailable(ctx, id, needItems = false)?.let { return it }
+        iloc!!; v!!
         val fails = ArrayList<String>()
+        val warns = ArrayList<String>()
         val ranges = ArrayList<LongRange>()
-        if (v == 0 && m.idat != null) {
-            fails += "${at(iloc)}: iloc 버전 0에는 construction_method가 없어 idat(방법 1)을 가리킬 수 없지만 ${at(m.idat)}가 있음"
-            ranges += ctx.range(iloc); ranges += ctx.range(m.idat)
-        }
         val ilocRefs = m.references.filter { it.type == "iloc" }.map { it.from }.toSet()
         for (loc in m.locations) {
             when (loc.method) {
@@ -409,7 +429,13 @@ internal object HeifStructureRules {
                 else -> { fails += "item_ID ${loc.itemId}: 정의되지 않은 construction_method ${loc.method}"; ranges += ctx.range(iloc) }
             }
         }
-        if (fails.isNotEmpty()) return ctx.finding(id, FAIL, fails.capped() + moreLine(fails.size), ranges.distinct())
+        // v0 entries are implicitly method 0; an idat nobody references is allowed but suspicious.
+        if (v == 0 && m.idat != null) warns += "${at(m.idat)}: idat가 있지만 iloc v0은 idat를 가리킬 수 없음 (사용되지 않는 idat)"
+        if (fails.isNotEmpty()) return ctx.finding(id, FAIL, fails.capped() + moreLine(fails.size) + warns, ranges.distinct())
+        val incomplete = ilocIncomplete(ctx)
+        if (incomplete.isNotEmpty()) return ctx.finding(id, NOT_CHECKED,
+            listOf("iloc을 끝까지 읽지 못해 일부 항목의 construction_method를 확인할 수 없음") + incomplete + warns)
+        if (warns.isNotEmpty()) return ctx.finding(id, WARN, warns, listOfNotNull(m.idat?.let(ctx::range)))
         if (m.locations.isEmpty()) return ctx.finding(id, NOT_CHECKED, listOf("읽은 iloc 항목 없음"))
         val byMethod = m.locations.groupingBy { it.method }.eachCount().toSortedMap()
         return ctx.finding(id, PASS, listOf("iloc 버전 $v, " + byMethod.entries.joinToString(", ") { "방법 ${it.key}: ${it.value}개" }))
@@ -423,7 +449,7 @@ internal object HeifStructureRules {
         val fails = ArrayList<String>()
         val ranges = ArrayList<LongRange>()
         val unchecked = ArrayList<String>()
-        ctx.problemsOf("iloc").filter { SKIPPED_ID.find(it) != null }.forEach { fails += it; ranges += ctx.range(iloc) }
+        ilocProblems(ctx).filter { heifSkippedItemId(it) != null }.forEach { fails += it; ranges += ctx.range(iloc) }
         val idat = m.idat
         val idatSize = idat?.let { minOf(it.end, ctx.length) - it.payload }
         var checked = 0
@@ -455,6 +481,9 @@ internal object HeifStructureRules {
             checked++
         }
         if (fails.isNotEmpty()) return ctx.finding(id, FAIL, fails.capped() + moreLine(fails.size) + unchecked.capped(), ranges.distinct().capped())
+        val incomplete = ilocIncomplete(ctx)
+        if (incomplete.isNotEmpty()) return ctx.finding(id, NOT_CHECKED,
+            listOf("iloc을 끝까지 읽지 못해 일부 항목의 익스텐트를 확인할 수 없음") + incomplete + unchecked.capped())
         if (unchecked.isNotEmpty()) return ctx.finding(id, NOT_CHECKED, unchecked.capped() + moreLine(unchecked.size) +
             "나머지 ${checked}개 항목의 익스텐트는 범위 안")
         if (m.locations.isEmpty()) return ctx.finding(id, NOT_CHECKED, listOf("읽은 iloc 항목 없음"))
