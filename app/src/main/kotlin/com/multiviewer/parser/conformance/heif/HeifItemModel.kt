@@ -34,6 +34,9 @@ const val HEIF_COUNT_CAP_PROBLEM = "항목 수 상한 초과"
 /** Problem code: the box could not be read (truncated or I/O error) and its content was dropped. */
 const val HEIF_UNREADABLE_PROBLEM = "읽지 못함"
 
+/** Detail that follows [HEIF_UNREADABLE_PROBLEM] when the box could not be read because of an I/O error. */
+const val HEIF_READ_ERROR = "읽기 오류"
+
 /** Problem code: bytes left over after a table's last entry (entries themselves were read). */
 const val HEIF_TRAILING_BYTES_PROBLEM = "항목 뒤 남은 바이트"
 
@@ -44,6 +47,8 @@ const val HEIF_SKIPPED_ENTRY_PROBLEM = "항목 건너뜀"
 private fun problemBody(p: String): String = p.substringAfter(": ", "")
 
 fun isHeifUnreadableProblem(p: String): Boolean = problemBody(p).startsWith(HEIF_UNREADABLE_PROBLEM)
+/** An unreadable box whose bytes could not be read (I/O error), as opposed to a box whose content is too short. */
+fun isHeifReadErrorProblem(p: String): Boolean = problemBody(p).startsWith("$HEIF_UNREADABLE_PROBLEM — $HEIF_READ_ERROR")
 fun isHeifTrailingBytesProblem(p: String): Boolean = problemBody(p).startsWith(HEIF_TRAILING_BYTES_PROBLEM)
 fun isHeifCapProblem(p: String): Boolean = problemBody(p).startsWith(HEIF_COUNT_CAP_PROBLEM)
 
@@ -89,7 +94,7 @@ object HeifItemModel {
         } catch (e: Truncated) {
             problems += "${box.type}@${box.offset}: $HEIF_UNREADABLE_PROBLEM — ${e.message}"; null
         } catch (e: IOException) {
-            problems += "${box.type}@${box.offset}: $HEIF_UNREADABLE_PROBLEM — 읽기 오류 (${e.message})"; null
+            problems += "${box.type}@${box.offset}: $HEIF_UNREADABLE_PROBLEM — $HEIF_READ_ERROR (${e.message})"; null
         }
 
         val children = meta.children

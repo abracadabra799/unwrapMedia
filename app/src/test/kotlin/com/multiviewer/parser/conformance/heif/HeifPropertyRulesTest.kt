@@ -364,9 +364,33 @@ class HeifPropertyRulesTest {
     }
 
     @Test
-    fun `unreadable reference box leaves reference and derived rules unchecked`() {
+    fun `truncated reference box fails iref targets and leaves derived rules unchecked`() {
+        // thmb box size is fine but its content stops after from_item_ID (no reference_count).
         val iref = fullBox("iref", 0, 0, box("dimg", be16(10), be16(2), be16(1), be16(2)), box("thmb", be16(10)))
-        refRulesUnchecked(check(grid().copy(refs = emptyList(), extraMetaChildren = listOf(iref))))
+        val r = check(grid().copy(refs = emptyList(), extraMetaChildren = listOf(iref)))
+        assertStatus(FAIL, r, "heif.iref.targets")
+        assertTrue(r.finding("heif.iref.targets").ranges.isNotEmpty())
+        assertStatus(NOT_CHECKED, r, "heif.derived.grid")
+        assertStatus(NOT_CHECKED, r, "heif.derived.inputs")
+    }
+
+    @Test
+    fun `only an I-O read error counts as an unreadable reference box`() {
+        assertTrue(isHeifReadErrorProblem("thmb@100: $HEIF_UNREADABLE_PROBLEM — 읽기 오류 (disk)"))
+        assertTrue(!isHeifReadErrorProblem("thmb@100: $HEIF_UNREADABLE_PROBLEM — iref/thmb: 박스 끝(@110)을 넘는 필드 (@110, 2바이트)"))
+    }
+
+    @Test
+    fun `incomplete iinf keeps found derived items from passing`() {
+        // grid() with iinf entry_count one larger than its infe boxes: other items may be missing.
+        val bytes = buildHeif(grid())
+        val at = (0 until bytes.size - 4).first { String(bytes, it, 4, Charsets.ISO_8859_1) == "iinf" }
+        val count = ((bytes[at + 8].toInt() and 0xFF) shl 8) or (bytes[at + 9].toInt() and 0xFF)
+        bytes[at + 8] = ((count + 1) shr 8).toByte(); bytes[at + 9] = (count + 1).toByte()
+        val r = ByteReader.open(fileOf(bytes)).use { HeifConformanceChecker.check(it) }
+        assertStatus(NOT_CHECKED, r, "heif.derived.grid")
+        assertStatus(NOT_CHECKED, r, "heif.derived.inputs")
+        assertTrue(r.finding("heif.derived.grid").details.any { "iinf" in it }, r.finding("heif.derived.grid").details.toString())
     }
 
     @Test

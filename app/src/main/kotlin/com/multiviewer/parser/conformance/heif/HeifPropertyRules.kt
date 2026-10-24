@@ -272,10 +272,14 @@ internal object HeifPropertyRules {
         val unchecked = ArrayList<String>()
         val ranges = ArrayList<LongRange>()
         if (p.refsIncomplete.isNotEmpty()) unchecked += listOf("iref를 끝까지 읽지 못해 일부 참조 미검사") + p.refsIncomplete
-        // Problems of individual reference boxes: an unreadable one may hide references, so it blocks a PASS.
+        // Problems of individual reference boxes: a box whose content is shorter than its fields is malformed (FAIL);
+        // one that could not be read (I/O error) may hide references, so it blocks a PASS.
         problemsWithin(ctx, iref).filterNot { it.startsWith("iref@") }.forEach {
-            if (isHeifUnreadableProblem(it)) unchecked += "읽지 못한 참조 박스 — $it"
-            else { warns += it; ranges += ctx.range(iref) }
+            when {
+                isHeifReadErrorProblem(it) -> unchecked += "읽지 못한 참조 박스 — $it"
+                isHeifUnreadableProblem(it) -> { fails += "잘린 참조 박스 (내용이 필드보다 짧음) — $it"; ranges += ctx.range(iref) }
+                else -> { warns += it; ranges += ctx.range(iref) }
+            }
         }
         val propsReadable = propsReadable(ctx, p)
         val declared = ctx.itemsById.keys
@@ -418,6 +422,8 @@ internal object HeifPropertyRules {
                 }
             }
         }
+        if (p.itemsIncomplete.isNotEmpty())
+            unchecked += listOf("iinf를 끝까지 읽지 못해 다른 grid 항목이 있을 수 있음") + p.itemsIncomplete.capped()
         return result(ctx, id, fails, emptyList(), unchecked, ranges,
             "grid ${grids.size}개: 기술자 version 0, dimg 수 = rows×columns, 타일 ispe 동일·출력 크기 덮음, grid ispe = 출력 크기")
     }
@@ -450,6 +456,8 @@ internal object HeifPropertyRules {
             if (d.type == "tmap" && inputs.size != 2) { fails += "$tag: 입력 ${inputs.size}개 (정확히 2개여야 함)"; ranges += ctx.range(d.infe) }
             if (d.type == "iden" && inputs.size != 1) { fails += "$tag: 입력 ${inputs.size}개 (§6.6.2.2 iden: dimg 입력 1개)"; ranges += ctx.range(d.infe) }
         }
+        if (p.itemsIncomplete.isNotEmpty())
+            unchecked += listOf("iinf를 끝까지 읽지 못해 다른 파생 이미지 항목이 있을 수 있음") + p.itemsIncomplete.capped()
         val byType = derived.groupingBy { it.type }.eachCount().entries.joinToString(", ") { "${it.key} ${it.value}개" }
         return result(ctx, id, fails, emptyList(), unchecked, ranges, "파생 항목 ${derived.size}개 ($byType): dimg 입력이 모두 선언된 이미지 항목")
     }
