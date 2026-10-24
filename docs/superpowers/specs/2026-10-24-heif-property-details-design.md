@@ -1,0 +1,4 @@
+# HEIF property detail completion
+Continuation of the approved byte-parser coverage design. Extend existing pixi/auxC decoders, preserving existing fields and summaries and adding FullBox version/flags, channel count, and auxiliary subtype bytes. Original source offsets remain clickable. Do not infer proprietary subtype semantics. Unsupported versions/flags and unterminated strings warn; reads are bounded to box and file. Limit auxiliary text/hex previews to 4096 bytes and expose remaining byte count. No dependency or UI redesign.
+
+Verified S26 real-file bytes: pixi at 3016160, payload 0000000003080808; auxC at 3016461, payload FullBox zero plus NUL-terminated urn:com:samsung:photo:2024:aux:hdrgainmap. Existing external summaries are not suitable as source values. The direct decoder approach was approved in the overall design.

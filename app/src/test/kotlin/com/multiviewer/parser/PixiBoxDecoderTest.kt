@@ -20,7 +20,7 @@ class PixiBoxDecoderTest {
     }
 
     @Test
-    fun `a declared channel count exceeding the remaining bytes produces a warning and no fields`() {
+    fun `a declared channel count exceeding the remaining bytes warns without presenting an incomplete depth array`() {
         val body = byteArrayOf(
             0x00, 0x00, 0x00, 0x00, // version/flags
             0x05, // num_channels = 5, but only 1 byte follows
@@ -29,7 +29,8 @@ class PixiBoxDecoderTest {
         val reader = byteReaderOf(body)
         val node = PixiBoxDecoder.decode(reader, "pixi", 0, 0, body.size.toLong(), emptyList())
         assertTrue(node.warnings.isNotEmpty())
-        assertTrue(node.fields.isEmpty())
+        assertTrue(node.fields.none { it.name == "bits_per_channel" })
+        assertEquals("5", node.fields.first { it.name == "num_channels" }.value)
         reader.close()
     }
 }

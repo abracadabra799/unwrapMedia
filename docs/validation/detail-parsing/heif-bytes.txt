@@ -1,0 +1,6 @@
+app/src/test/resources/c2pa/s26-motion-photo.heic
+/meta/iprp/ipco/pixi offset=3016160 payload=3016168 size=16 hex=0000000003080808
+/meta/iprp/ipco/auxC offset=3016461 payload=3016469 size=54 hex=0000000075726e3a636f6d3a73616d73756e673a70686f746f3a323032343a6175783a6864726761696e6d617000
+/moov/trak/mdia/minf/smhd offset=7995458 payload=7995466 size=16 hex=0000000000000000
+/moov/trak/mdia/minf/stbl/stsd/mp4a/esds offset=7995570 payload=7995578 size=39 hex=000000000319000000041140150003000003e8000003e80005021190060102
+/moov/trak/mdia/minf/vmhd offset=7996549 payload=7996557 size=20 hex=000000010000000000000000
