@@ -76,7 +76,7 @@ class IsoBmffFixtureTest {
 
     @Test
     fun `fixtures stay tiny`() {
-        (listOf("v.mp4", "v.mov", "a.m4a", "v.3gp") + corrupted.keys).forEach { name ->
+        (listOf("v.mp4", "v.mov", "a.m4a", "v.3gp", "frag.mp4") + corrupted.keys).forEach { name ->
             assertTrue(fixture(name).length() < 20_000, "$name is ${fixture(name).length()} bytes")
         }
     }
@@ -102,5 +102,24 @@ class IsoBmffFixtureTest {
         val f = r.findings.single { it.rule.id == "bmff.box.size" }
         assertTrue(f.details.any { it.contains("바이트가 moov 안에서 박스로 해석되지 않습니다 @0x") }, f.details.toString())
         assertEquals(1, f.ranges.size)
+    }
+
+    @Test
+    fun `ffmpeg fragmented MP4 fails only next_track_ID and skips sample tables`() {
+        // ffmpeg +frag_keyframe+empty_moov writes next_track_ID 2 with track_IDs 1 and 2 (bytes checked with xxd);
+        // reported as FAIL by decision (strict: next_track_ID must exceed every track_ID).
+        val r = check("frag.mp4")
+        assertNull(r.inspectionError)
+        assertEquals("ISO-BMFF", r.format)
+        val frag = r.findings.single { it.rule.id == "bmff.fragmented" }
+        assertEquals(PASS, frag.status)
+        assertTrue(frag.details.any { it.startsWith("조각화 파일: ") && it.contains("mvex") && it.contains("moof") }, frag.details.toString())
+        listOf("bmff.stbl.sample_count", "bmff.stsc.order", "bmff.stsc.coverage", "bmff.ctts.count", "bmff.stss.order",
+            "bmff.sample.location", "bmff.mdat.present", "bmff.duration.consistency")
+            .forEach { assertEquals(NOT_APPLICABLE, r.status(it), it) }
+        assertEquals(setOf("bmff.mvhd.next_track_id"), r.ids(FAIL), r.dump().toString())
+        val next = r.findings.single { it.rule.id == "bmff.mvhd.next_track_id" }
+        assertTrue(next.details.any { it.contains("next_track_ID 2") }, next.details.toString())
+        assertEquals(FAIL, r.overall)
     }
 }
