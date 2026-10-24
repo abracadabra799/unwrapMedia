@@ -15,6 +15,10 @@ object SefdBoxDecoder : BoxDecoder {
         warnings: List<String>,
     ): BoxNode {
         val w = warnings.toMutableList()
+        if (offset < 0 || headerSize < 0 || size < headerSize || offset > reader.length || size > reader.length - offset) {
+            w.add("Invalid SEF byte range / SEF 바이트 범위 오류")
+            return BoxNode(type, offset, headerSize, size, warnings = w)
+        }
         val payloadStart = offset + headerSize
         val payloadEnd = offset + size
 
@@ -30,7 +34,7 @@ object SefdBoxDecoder : BoxDecoder {
         }
         val sefSize = readUInt32LE(reader, payloadEnd - 8)
         val sefhPosition = payloadEnd - 8 - sefSize
-        if (sefhPosition < payloadStart || sefhPosition + 12 > payloadEnd) {
+        if (sefhPosition < payloadStart || sefhPosition + 12 > payloadEnd - 8) {
             w.add("SEFH position computed from sef_size is out of bounds")
             return BoxNode(type, offset, headerSize, size, warnings = w)
         }
@@ -41,31 +45,55 @@ object SefdBoxDecoder : BoxDecoder {
         }
         val count = readUInt32LE(reader, sefhPosition + 8)
 
+        val fields = mutableListOf(
+            BoxField("header_magic", "SEFH", sefhPosition, 4),
+            BoxField("version", readUInt32LE(reader, sefhPosition + 4).toString(), sefhPosition + 4, 4),
+            BoxField("field_count", count.toString(), sefhPosition + 8, 4),
+            BoxField("sef_size", sefSize.toString(), payloadEnd - 8, 4),
+            BoxField("trailer_magic", "SEFT", payloadEnd - 4, 4),
+        )
         val children = mutableListOf<BoxNode>()
         var entryPos = sefhPosition + 12
         var entriesFound = 0L
-        while (entriesFound < count && entryPos + 12 <= payloadEnd) {
+        while (entriesFound < minOf(count, 4096L) && entryPos + 12 <= payloadEnd - 8) {
             val entryMarker = readUInt16LE(reader, entryPos + 2)
             val entryOffset = readUInt32LE(reader, entryPos + 4)
             val entrySize = readUInt32LE(reader, entryPos + 8)
+            val prefix = "directory[$entriesFound]"
+            fields += BoxField("$prefix.reserved", readUInt16LE(reader, entryPos).toString(), entryPos, 2)
+            fields += BoxField("$prefix.marker", "0x${entryMarker.toString(16).padStart(4, '0')}", entryPos + 2, 2)
+            fields += BoxField("$prefix.offset", entryOffset.toString(), entryPos + 4, 4)
+            fields += BoxField("$prefix.size", entrySize.toString(), entryPos + 8, 4)
             entryPos += 12
             entriesFound++
 
             val blockStart = sefhPosition - entryOffset
             val blockEnd = blockStart + entrySize
-            if (blockStart < payloadStart || blockEnd > payloadEnd) {
+            if (blockStart < payloadStart || blockEnd > sefhPosition) {
                 w.add("Field directory entry for marker 0x${entryMarker.toString(16)} points out of bounds")
                 continue
             }
-            children.add(decodeField(reader, blockStart, entrySize, entryMarker))
+            val child = decodeField(reader, blockStart, entrySize, entryMarker)
+            val details = mutableListOf<BoxField>()
+            if (entrySize >= 8) {
+                val nameSize = readUInt32LE(reader, blockStart + 4)
+                details += BoxField("reserved", readUInt16LE(reader, blockStart).toString(), blockStart, 2)
+                details += BoxField("name_size", nameSize.toString(), blockStart + 4, 4)
+                if (nameSize <= entrySize - 8 && child.headerSize >= 8) {
+                    details += BoxField("name", child.type, blockStart + 8, nameSize)
+                    details += BoxField("data_length", (entrySize - 8 - nameSize).toString(), blockStart + 8 + nameSize, entrySize - 8 - nameSize)
+                }
+            }
+            children.add(child.copy(fields = child.fields + details))
         }
+        if (count > 4096) w.add("SEF entry inspection limited to 4096 / SEF 항목 검사 한도 4096")
         if (entriesFound < count) {
             w.add("Declared $count directory entries but only found $entriesFound")
         }
 
         return BoxNode(
             type = type, offset = offset, headerSize = headerSize, size = size,
-            children = children, warnings = w,
+            children = children, fields = fields, warnings = w,
             summary = pluralize(count, "field", "fields"),
         )
     }
@@ -150,7 +178,12 @@ object SefdBoxDecoder : BoxDecoder {
         } else {
             BoxNode(
                 type = name, offset = blockStart, headerSize = fieldHeaderSize, size = blockSize,
-                fields = listOf(markerField), warnings = warnings,
+                fields = listOf(
+                    markerField,
+                    BoxField("raw_payload", dataBytes.take(256).joinToString(" ") { "%02x".format(it.toInt() and 255) }, dataStart, minOf(dataLength, 256).toLong()),
+                    BoxField("parsing_status", "Unparsed binary / 미해석 바이너리", dataStart, dataLength.toLong()),
+                ) + if (dataLength > 256) listOf(BoxField("unshown_payload_bytes", (dataLength - 256).toString(), dataStart + 256, (dataLength - 256).toLong())) else emptyList(),
+                warnings = warnings,
                 summary = "$dataLength bytes (binary)",
             )
         }

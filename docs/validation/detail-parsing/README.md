@@ -16,3 +16,5 @@ Fragment fixture (lavfi, default AVC tag):
 ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=size=64x64:rate=5 -t 0.4 -c:v libx264 -pix_fmt yuv420p -movflags +empty_moov+frag_keyframe+default_base_moof app/src/test/resources/detail-parsing/fragmented-avc.mp4
 python3 docs/validation/detail-parsing/dump_boxes.py app/src/test/resources/detail-parsing/fragmented-avc.mp4
 ```
+
+HEIF/SEF follow-up (2026-10-24): existing device fixtures under c2pa/ retain their original provenance. Regenerate heif-bytes.txt with `python3 docs/validation/detail-parsing/dump_boxes.py app/src/test/resources/c2pa/s26-motion-photo.heic`; regenerate sef-bytes.txt with `python3 docs/validation/detail-parsing/dump_sef.py app/src/test/resources/c2pa/s26-motion-photo.heic app/src/test/resources/c2pa/s26-camera.jpg`. The scripts are independent of application parsers.

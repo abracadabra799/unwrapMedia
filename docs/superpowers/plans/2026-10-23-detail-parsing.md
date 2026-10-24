@@ -39,3 +39,8 @@ Tasks 2/3 validation: new registry tests failed before implementation and passed
 
 ## Tasks 4/5 — sample dependencies and fragment headers
 Implemented sdtp bitfields, sgpd roll/prol signed recovery distances, mfhd/trex/tfhd/tfdt scalar fields and lazy trun rows, plus fragment container traversal. See 2026-10-24-sample-details.md and 2026-10-24-fragment-details.md for evidence. Fragment playback indexing, other group descriptions, HEIC/HEIF and subsequent formats remain pending.
+
+## Tasks 6/7 — HEIF properties and SEF structural details
+Completed pixi/auxC version/flags, channel count, raw subtype with explicit display limits; SEFH header/version/count, trailer, directory and field header/name/length display, unknown binary preview/status, and SEF bounds checks. Verified actual S26 HEIC/JPG layouts with independent scripts and regression tests. See 2026-10-24-heif-property-details.md and 2026-10-24-sef-details.md.
+
+Remaining: infe v0/v1 and missing MIME content_encoding/URI fields, broader HEIF property inventory; proprietary SEF binary payload semantics (only known layouts may be decoded), existing SEF large-name/payload allocation limits; JPG metadata and remaining codec/audio/image formats in approved priority order. These units do not mean full HEIF or SEF semantic coverage.
