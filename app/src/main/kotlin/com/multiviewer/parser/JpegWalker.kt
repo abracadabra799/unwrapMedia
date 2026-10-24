@@ -689,14 +689,23 @@ private fun decodeApp14(reader: ByteReader, name: String, offset: Long, declared
     val bodySize = 7 // version(2) + flags0(2) + flags1(2) + transform(1)
     val hasAdobePrefix = payloadEnd - payloadStart >= ADOBE_PREFIX.size &&
         reader.readBytes(payloadStart, ADOBE_PREFIX.size).contentEquals(ADOBE_PREFIX)
-    if (!hasAdobePrefix || payloadEnd - payloadStart < ADOBE_PREFIX.size + bodySize) {
+    if (!hasAdobePrefix) {
         return BoxNode(type = name, offset = offset, headerSize = 4, size = totalSize)
     }
+    if (payloadEnd - payloadStart < ADOBE_PREFIX.size + bodySize) {
+        return BoxNode(name, offset, 4, totalSize, warnings = listOf("Truncated Adobe header / Adobe 헤더 잘림"))
+    }
+    val bodyStart = payloadStart + ADOBE_PREFIX.size
     val transformPos = payloadStart + ADOBE_PREFIX.size + 6 // skip version(2)+flags0(2)+flags1(2)
     val colorTransform = reader.readUInt8(transformPos)
     return BoxNode(
         type = name, offset = offset, headerSize = 4, size = totalSize,
-        fields = listOf(BoxField("color_transform", colorTransform.toString(), transformPos, 1)),
+        fields = listOf(
+            BoxField("color_transform", colorTransform.toString(), transformPos, 1),
+            BoxField("version", reader.readUInt16(bodyStart).toString(), bodyStart, 2),
+            BoxField("flags0", reader.readUInt16(bodyStart + 2).toString(), bodyStart + 2, 2),
+            BoxField("flags1", reader.readUInt16(bodyStart + 4).toString(), bodyStart + 4, 2),
+        ),
         summary = "Adobe, color_transform=$colorTransform",
     )
 }

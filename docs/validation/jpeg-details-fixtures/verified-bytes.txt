@@ -1,0 +1,1 @@
+APP14 offset=2 size=16 payload=41646f626500640000000000 version=100 flags0=0 flags1=0 transform=0
