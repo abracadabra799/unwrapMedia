@@ -35,6 +35,7 @@ class HeifStructureRulesTest {
         "heif.iref.targets", "heif.derived.grid", "heif.derived.inputs",
     )
     private val heifIds = structureIds + propertyIds
+    private val avifIds = AvifRules.all.map { it.id }
     private val scopes = setOf("ftyp", "meta 구조 / meta structure", "항목 / Items", "항목 위치 / Item locations",
         "속성 / Properties", "참조 / References", "파생 항목 / Derived items", "AVIF")
 
@@ -66,8 +67,9 @@ class HeifStructureRulesTest {
         assertEquals("HEIF", report.format)
         assertEquals("ISO/IEC 23008-12 phase 1", report.profile)
         (reusedIds + structureIds).forEach { id -> assertEquals(PASS, report.status(id), id) }
-        assertEquals((reusedIds + heifIds).size, report.findings.size)
-        assertEquals((reusedIds + heifIds).toSet(), report.findings.map { it.rule.id }.toSet())
+        assertEquals((reusedIds + heifIds + avifIds).size, report.findings.size)
+        assertEquals((reusedIds + heifIds + avifIds).toSet(), report.findings.map { it.rule.id }.toSet())
+        avifIds.forEach { id -> assertEquals(NOT_APPLICABLE, report.status(id), id) }
     }
 
     @Test

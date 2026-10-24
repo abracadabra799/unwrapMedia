@@ -8,7 +8,6 @@ import com.multiviewer.parser.conformance.ConformanceStatus.NOT_APPLICABLE
 import com.multiviewer.parser.conformance.ConformanceStatus.NOT_CHECKED
 import com.multiviewer.parser.conformance.ConformanceStatus.PASS
 import com.multiviewer.parser.conformance.ConformanceStatus.WARN
-import com.multiviewer.parser.conformance.SpecCitation
 import com.multiviewer.parser.conformance.isobmff.BmffBox
 
 /**
@@ -24,10 +23,7 @@ internal object HeifPropertyRules {
     private val CODEC_CONFIG = mapOf("hvc1" to "hvcC", "av01" to "av1C", "vvc1" to "vvcC", "j2k1" to "j2kH", "avc1" to "avcC")
 
     /** `heif.props.codec_config` for an AVIF file with av01 items: AVIF v1.2.0 §2.1 (verified anchor). */
-    private val AVIF_CODEC_CITATION = SpecCitation("AVIF v1.2.0 (AOMedia, 2025-10-16)", "§2.1 AV1 Image Item", null,
-        "https://aomediacodec.github.io/av1-avif/v1.2.0.html#image-item", true)
-
-    private const val AVIF_SOURCE = "AVIF v1.2.0 (AOMedia)"
+    private val AVIF_CODEC_CITATION = AvifRules.citation("§2.1 AV1 Image Item", "image-item")
 
     fun evaluate(ctx: HeifContext, avif: Boolean): List<ConformanceFinding> {
         val p = Props(ctx)
@@ -45,13 +41,13 @@ internal object HeifPropertyRules {
     private val PROBLEM_OFFSET = Regex("""^[^@:]{1,8}@(\d+):""")
 
     /** Model problems whose box offset (the "type@offset:" prefix) lies inside [box]. */
-    private fun problemsWithin(ctx: HeifContext, box: BmffBox): List<String> = ctx.model.problems.filter { p ->
+    internal fun problemsWithin(ctx: HeifContext, box: BmffBox): List<String> = ctx.model.problems.filter { p ->
         val off = PROBLEM_OFFSET.find(p)?.groupValues?.get(1)?.toLongOrNull()
         off != null && off >= box.offset && off < box.end
     }
 
     /** Derived per-file views shared by the rules (computed once). */
-    private class Props(val ctx: HeifContext) {
+    internal class Props(val ctx: HeifContext) {
         val m = ctx.model
         val meta = m.meta
         val iprp: BmffBox? = meta?.children?.firstOrNull { it.type == "iprp" }
@@ -102,7 +98,7 @@ internal object HeifPropertyRules {
             p.m.iinfEntryCount != null && p.propsIncomplete.isEmpty()
 
     /** Non-null = item/property tables cannot be read completely; the NOT_CHECKED finding to return. */
-    private fun propsUnavailable(ctx: HeifContext, p: Props, finding: (ConformanceStatus, List<String>) -> ConformanceFinding): ConformanceFinding? {
+    internal fun propsUnavailable(ctx: HeifContext, p: Props, finding: (ConformanceStatus, List<String>) -> ConformanceFinding): ConformanceFinding? {
         if (p.meta == null) return finding(NOT_CHECKED, listOf("최상위 meta 없음"))
         ctx.capped("iinf", "iprp", "ipco", "ipma").takeIf { it.isNotEmpty() }?.let { return finding(NOT_CHECKED, it) }
         if (p.iinf == null || p.m.iinfEntryCount == null) return finding(NOT_CHECKED, listOf("iinf를 읽지 못함"))
@@ -198,7 +194,7 @@ internal object HeifPropertyRules {
         val id = "heif.props.codec_config"
         val base = HeifRules.rule(id)
         val rule = if (avif && p.items.any { it.type == "av01" })
-            base.copy(source = AVIF_SOURCE, reference = "AVIF v1.2.0 §2.1 (AV1 Image Item)", citation = AVIF_CODEC_CITATION)
+            base.copy(source = AvifRules.AVIF_SOURCE, reference = "AVIF v1.2.0 §2.1 (AV1 Image Item)", citation = AVIF_CODEC_CITATION)
         else base
         propsUnavailable(ctx, p) { s, d -> ConformanceFinding(rule, s, d, emptyList()) }?.let { return it }
         val coded = p.items.filter { it.type in CODED_IMAGE_TYPES }
