@@ -149,6 +149,7 @@ fun PropertyRow(
     label: String,
     value: String,
     onClick: (() -> Unit)? = null,
+    interpretation: com.multiviewer.parser.ValueInterpretation = com.multiviewer.parser.ValueInterpretation.PARSED,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -159,13 +160,26 @@ fun PropertyRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(label, style = AppTypography.labelLarge, modifier = Modifier.weight(1f))
-            Text(
-                value,
-                style = AppTypography.bodyLarge,
-                color = if (onClick != null) AppColors.NeonBlue else Color.Unspecified,
-                textAlign = TextAlign.End,
-                modifier = Modifier.weight(1f)
-            )
+            Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                if (interpretation != com.multiviewer.parser.ValueInterpretation.PARSED) {
+                    Text(
+                        if (interpretation == com.multiviewer.parser.ValueInterpretation.UNPARSABLE)
+                            "파싱 불가 · Cannot parse" else "미해석 · Uninterpreted",
+                        style = AppTypography.labelLarge.copy(fontSize = 10.sp),
+                        color = if (interpretation == com.multiviewer.parser.ValueInterpretation.UNPARSABLE)
+                            AppColors.NeonRed else AppColors.TextSecondary,
+                        modifier = Modifier.background(AppColors.Border.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 2.dp),
+                    )
+                    Spacer(Modifier.height(3.dp))
+                }
+                Text(
+                    value,
+                    style = AppTypography.bodyLarge,
+                    color = if (onClick != null) AppColors.NeonBlue else Color.Unspecified,
+                    textAlign = TextAlign.End,
+                )
+            }
         }
         Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AppColors.Border.copy(alpha = 0.5f)))
     }

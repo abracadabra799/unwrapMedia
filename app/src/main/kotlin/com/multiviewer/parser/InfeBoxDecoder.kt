@@ -46,10 +46,10 @@ object InfeBoxDecoder : BoxDecoder {
             val length = if (zero >= 0) zero else bytes.size
             val value = String(bytes, 0, length, Charsets.UTF_8)
             val limited = zero < 0 && end - pos > bytes.size
-            fields += BoxField(if (limited) "${name}_preview" else name, value, pos, length.toLong())
+            fields += BoxField(if (limited) "${name}_preview" else name, value, pos, length.toLong(), if (zero < 0) ValueInterpretation.UNPARSABLE else ValueInterpretation.PARSED)
             if (zero < 0) {
                 w += if (limited) "String inspection limit reached / 문자열 검사 한도 초과" else "Unterminated $name / 문자열 종결자 없음"
-                if (limited) fields += BoxField("unparsed_payload_bytes", (end - pos - length).toString(), pos + length, end - pos - length)
+                if (limited) fields += BoxField("unparsed_payload_bytes", (end - pos - length).toString(), pos + length, end - pos - length, ValueInterpretation.UNINTERPRETED)
                 stopped = true
                 return null
             }
@@ -71,7 +71,7 @@ object InfeBoxDecoder : BoxDecoder {
         fields += BoxField("hidden_item", (flags and 1 != 0L).toString(), start + 1, 3)
         if (flags and 0xfffffe != 0L) w += "Unknown infe flags / 미지원 infe 플래그"
         if (!stopped && pos < end) {
-            fields += BoxField("unparsed_payload_bytes", (end - pos).toString(), pos, end - pos)
+            fields += BoxField("unparsed_payload_bytes", (end - pos).toString(), pos, end - pos, ValueInterpretation.UNINTERPRETED)
         }
         return node(summary)
     }

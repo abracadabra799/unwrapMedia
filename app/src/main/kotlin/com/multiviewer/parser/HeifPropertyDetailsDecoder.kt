@@ -7,7 +7,8 @@ object HeifPropertyDetailsDecoder : BoxDecoder {
         val w = warnings.toMutableList()
         val fields = mutableListOf<BoxField>()
         fun node(summary: String? = null) = BoxNode(type, offset, headerSize, size,
-            fields = fields.toList(), warnings = w.toList(), summary = summary)
+            fields = fields.toList(), warnings = w.toList(), summary = summary,
+            interpretation = if (w.isNotEmpty()) ValueInterpretation.UNPARSABLE else ValueInterpretation.PARSED)
         if (offset < 0 || headerSize < 0 || size < headerSize || offset > reader.length ||
             size > reader.length - offset || size - headerSize < 4) {
             w += "Truncated property header / 속성 헤더 잘림"
@@ -45,11 +46,11 @@ object HeifPropertyDetailsDecoder : BoxDecoder {
         val terminator = bytes.indexOf(0)
         if (terminator < 0) {
             if (end - pos > bytes.size) {
-                fields += BoxField("aux_type_preview", String(bytes, Charsets.US_ASCII), pos, bytes.size.toLong())
-                fields += BoxField("unparsed_payload_bytes", (end - pos - bytes.size).toString(), pos + bytes.size, end - pos - bytes.size)
+                fields += BoxField("aux_type_preview", String(bytes, Charsets.US_ASCII), pos, bytes.size.toLong(), ValueInterpretation.UNPARSABLE)
+                fields += BoxField("unparsed_payload_bytes", (end - pos - bytes.size).toString(), pos + bytes.size, end - pos - bytes.size, ValueInterpretation.UNINTERPRETED)
                 w += "Auxiliary type exceeds inspection limit / 보조 타입 검사 한도 초과"
             } else {
-                fields += BoxField("aux_type", String(bytes, Charsets.US_ASCII), pos, bytes.size.toLong())
+                fields += BoxField("aux_type", String(bytes, Charsets.US_ASCII), pos, bytes.size.toLong(), ValueInterpretation.UNPARSABLE)
                 w += "Unterminated auxiliary type / 보조 타입 문자열 종결자 없음"
             }
             return node()
@@ -61,7 +62,7 @@ object HeifPropertyDetailsDecoder : BoxDecoder {
         if (length > 0) {
             val shown = minOf(length, 4096L).toInt()
             val hex = reader.readBytes(subtypeStart, shown).joinToString(" ") { "%02x".format(it.toInt() and 255) }
-            fields += BoxField("aux_subtype", hex, subtypeStart, shown.toLong())
+            fields += BoxField("aux_subtype", hex, subtypeStart, shown.toLong(), ValueInterpretation.UNINTERPRETED)
             fields += BoxField("aux_subtype_length", length.toString(), subtypeStart, length)
             if (length > shown) fields += BoxField("unshown_subtype_bytes", (length - shown).toString(), subtypeStart + shown, length - shown)
         }

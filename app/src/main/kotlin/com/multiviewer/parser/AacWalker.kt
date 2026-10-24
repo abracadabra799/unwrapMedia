@@ -82,12 +82,13 @@ fun parseAac(reader: ByteReader, start: Long, end: Long): List<BoxNode> {
             break
         }
 
-        val sampleRate = AAC_SAMPLING_FREQUENCIES.getOrElse(sampleRateIdx) { 44100 }
+        val sampleRate = AAC_SAMPLING_FREQUENCIES.getOrNull(sampleRateIdx)
+        val rateLabel = sampleRate?.let { "${it}Hz" } ?: "Unknown / 미지원 (index=$sampleRateIdx)"
         val profileName = AAC_PROFILES.getOrElse(profileIdx) { "Profile $profileIdx" }
         val channelsName = AAC_CHANNELS.getOrElse(channelConfig) { "$channelConfig channels" }
 
         if (totalFramesCount == 0) {
-            firstSampleRate = sampleRate
+            firstSampleRate = sampleRate ?: 0
             firstChannels = channelsName
             firstProfile = profileName
         }
@@ -97,11 +98,30 @@ fun parseAac(reader: ByteReader, start: Long, end: Long): List<BoxNode> {
             val fields = mutableListOf<BoxField>()
             fields.add(BoxField("mpeg_version", if (id == 0) "MPEG-4" else "MPEG-2", pos + 1, 1))
             fields.add(BoxField("profile", profileName, pos + 2, 1))
-            fields.add(BoxField("sample_rate", "${sampleRate}Hz", pos + 2, 1))
+            fields.add(BoxField("sample_rate", rateLabel, pos + 2, 1, if (sampleRate == null) ValueInterpretation.UNPARSABLE else ValueInterpretation.PARSED))
             fields.add(BoxField("channels", channelsName, pos + 2, 2))
             fields.add(BoxField("frame_length", "$frameLength bytes", pos + 3, 3))
             fields.add(BoxField("crc_present", (protectionAbsent == 0).toString(), pos + 1, 1))
 
+            fields += listOf(
+                BoxField("layer", layer.toString(), pos + 1, 1),
+                BoxField("profile_index", profileIdx.toString(), pos + 2, 1),
+                BoxField("sampling_frequency_index", sampleRateIdx.toString(), pos + 2, 1),
+                BoxField("private_bit", ((b2 shr 1) and 1).toString(), pos + 2, 1),
+                BoxField("channel_configuration", channelConfig.toString(), pos + 2, 2),
+                BoxField("original_copy", ((b3 shr 5) and 1).toString(), pos + 3, 1),
+                BoxField("home", ((b3 shr 4) and 1).toString(), pos + 3, 1),
+                BoxField("copyright_identification_bit", ((b3 shr 3) and 1).toString(), pos + 3, 1),
+                BoxField("copyright_identification_start", ((b3 shr 2) and 1).toString(), pos + 3, 1),
+                BoxField("adts_buffer_fullness", (((b5 and 31) shl 6) or (b6 shr 2)).toString(), pos + 5, 2),
+                BoxField("number_of_raw_data_blocks_in_frame", (b6 and 3).toString(), pos + 6, 1),
+            )
+            if (protectionAbsent == 0 && b6 and 3 == 0) {
+                fields += BoxField("crc_check", reader.readUInt16(pos + 7).toString(), pos + 7, 2)
+            }
+            val frameWarnings = mutableListOf<String>()
+            if (sampleRate == null) frameWarnings += "Reserved ADTS sampling frequency / 예약된 ADTS 샘플링 주파수"
+            if (layer != 0) frameWarnings += "Invalid ADTS layer / ADTS 레이어 오류"
             result.add(
                 BoxNode(
                     type = "ADTS Frame #$frameIndex",
@@ -109,7 +129,8 @@ fun parseAac(reader: ByteReader, start: Long, end: Long): List<BoxNode> {
                     headerSize = headerSize,
                     size = frameLength.toLong(),
                     fields = fields,
-                    summary = "AAC $profileName, ${sampleRate}Hz, $channelsName ($frameLength bytes)",
+                    warnings = frameWarnings,
+                    summary = "AAC $profileName, $rateLabel, $channelsName ($frameLength bytes)",
                 )
             )
             frameIndex++

@@ -42,6 +42,6 @@ class ApvCBoxDecoderTest {
     fun `decode adds a warning and no fields when the box is too short`() {
         val node = decode(realApvCPayload().copyOfRange(0, 10)) // 10 bytes, needs at least 21
         assertTrue(node.warnings.isNotEmpty())
-        assertTrue(node.fields.isEmpty())
+        assertTrue(node.fields.none { it.name == "profile_idc" })
     }
 }

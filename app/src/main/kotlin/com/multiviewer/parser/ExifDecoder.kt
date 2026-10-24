@@ -747,7 +747,7 @@ private fun decodeIfd(
             0x8649 -> { // Photoshop Image Resources (IPTC)
                 photoshopOffset = valueAbsolutePos
                 photoshopSize = totalSize
-                fields.add(BoxField("PhotoshopImageResources", "${formatSize(totalSize)} IRB block", valueAbsolutePos, totalSize))
+                fields.add(BoxField("PhotoshopImageResources", "${formatSize(totalSize)} IRB block", valueAbsolutePos, totalSize, ValueInterpretation.UNINTERPRETED))
             }
             0x87AF -> { // GeoKeyDirectory
                 geoKeyOffset = valueAbsolutePos
@@ -758,11 +758,13 @@ private fun decodeIfd(
             else -> {
                 val name = tagNames[tag] ?: "Tag 0x${tag.toString(16).padStart(4, '0')}"
                 if (valueAbsolutePos < 0 || valueAbsolutePos + totalSize > itemEnd) {
-                    fields.add(BoxField(name, "(out of bounds)", valueAbsolutePos, totalSize))
+                    fields.add(BoxField(name, "(out of bounds)", valueAbsolutePos, totalSize, ValueInterpretation.UNPARSABLE))
                 } else {
-                    val display = interpretedDisplay(label, tag, fieldType, count.toInt(), reader, valueAbsolutePos, littleEndian)
-                        ?: formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian)
-                    fields.add(BoxField(name, display, valueAbsolutePos, totalSize))
+                    val interpreted = interpretedDisplay(label, tag, fieldType, count.toInt(), reader, valueAbsolutePos, littleEndian)
+                    val display = interpreted ?: formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian)
+                    val state = if (tagNames[tag] == null || interpreted == null && fieldType !in setOf(2, 3, 4, 5, 8, 9, 10))
+                        ValueInterpretation.UNINTERPRETED else ValueInterpretation.PARSED
+                    fields.add(BoxField(name, display, valueAbsolutePos, totalSize, state))
                 }
             }
         }
@@ -928,10 +930,11 @@ private fun decodeMakerNote(
         }
         val name = tagNames[tag] ?: "Tag 0x${tag.toString(16).padStart(4, '0')}"
         if (valueAbsolutePos < 0 || valueAbsolutePos + totalSize > itemEnd) {
-            fields.add(BoxField(name, "(out of bounds)", valueAbsolutePos, totalSize))
+            fields.add(BoxField(name, "(out of bounds)", valueAbsolutePos, totalSize, ValueInterpretation.UNPARSABLE))
         } else {
             val display = formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian)
-            fields.add(BoxField(name, display, valueAbsolutePos, totalSize))
+            val state = if (tagNames[tag] == null || fieldType !in setOf(2, 3, 4, 5, 8, 9, 10)) ValueInterpretation.UNINTERPRETED else ValueInterpretation.PARSED
+            fields.add(BoxField(name, display, valueAbsolutePos, totalSize, state))
         }
         pos += 12
     }

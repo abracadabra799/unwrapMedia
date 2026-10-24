@@ -39,7 +39,12 @@ fun parseFlacBlocks(reader: ByteReader, start: Long, end: Long): List<BoxNode> {
         val name = FLAC_BLOCK_TYPE_NAMES[blockType] ?: "Unknown ($blockType)"
         val payloadStart = pos + headerSize
         val payloadEnd = pos + size
-        result.add(decodeFlacBlock(reader, name, pos, headerSize, size, payloadStart, payloadEnd, warnings))
+        val decoded = decodeFlacBlock(reader, name, pos, headerSize, size, payloadStart, payloadEnd, warnings)
+        result.add(decoded.copy(interpretation = if (decoded.warnings.isNotEmpty() && decoded.interpretation == ValueInterpretation.PARSED) ValueInterpretation.UNPARSABLE else decoded.interpretation, fields = decoded.fields + listOf(
+            BoxField("block_type", blockType.toString(), pos, 1),
+            BoxField("is_last_metadata_block", isLast.toString(), pos, 1),
+            BoxField("block_length", blockLength.toString(), pos + 1, 3),
+        )))
         pos += size
     }
 
@@ -61,13 +66,14 @@ private fun decodeFlacBlock(
     warnings: List<String>,
 ): BoxNode {
     val payloadLength = (payloadEnd - payloadStart).toInt()
-    if (payloadLength <= 0) return BoxNode(name, offset, headerSize, size, warnings = warnings)
+    if (payloadLength <= 0 && name !in setOf("APPLICATION", "STREAMINFO", "VORBIS_COMMENT", "PICTURE")) return BoxNode(name, offset, headerSize, size, warnings = warnings)
     return when (name) {
         "STREAMINFO" -> decodeStreamInfo(reader, name, offset, headerSize, size, payloadStart, payloadLength, warnings)
         "VORBIS_COMMENT" -> decodeVorbisComment(reader, name, offset, headerSize, size, payloadStart, payloadLength, warnings)
         "PICTURE" -> decodePicture(reader, name, offset, headerSize, size, payloadStart, payloadLength, warnings)
-        "SEEKTABLE" -> BoxNode(name, offset, headerSize, size, summary = "${payloadLength / 18} seek point(s)", warnings = warnings)
-        else -> BoxNode(name, offset, headerSize, size, summary = "$payloadLength byte(s)", warnings = warnings)
+        "SEEKTABLE", "APPLICATION" -> FlacExtraMetadataDecoder.decode(reader, name, offset, headerSize, size, warnings)
+        else -> BoxNode(name, offset, headerSize, size, summary = "$payloadLength byte(s)", warnings = warnings,
+            fields = if (name == "PADDING") emptyList() else listOf(BoxField("parsing_status", "Uninterpreted payload / 미해석 페이로드", payloadStart, payloadLength.toLong(), ValueInterpretation.UNINTERPRETED)))
     }
 }
 

@@ -4,6 +4,8 @@ import com.multiviewer.parser.BoxField
 import com.multiviewer.parser.BoxNode
 import com.multiviewer.parser.GridData
 import com.multiviewer.parser.TableData
+import com.multiviewer.parser.ValueInterpretation
+import com.multiviewer.parser.detailInterpretation
 import java.io.File
 
 fun buildDumpJson(file: File, root: BoxNode): String {
@@ -25,6 +27,8 @@ fun BoxNode.toJsonValue(): JsonValue {
         "size" to JsonValue.JNumber(size),
     )
     summary?.let { entries.add("summary" to JsonValue.JString(it)) }
+    val interpretation = detailInterpretation(this)
+    if (interpretation != ValueInterpretation.PARSED) entries.add("interpretation" to JsonValue.JString(interpretation.name))
     if (fields.isNotEmpty()) {
         entries.add("fields" to JsonValue.JArray(fields.map { it.toJsonValue() }))
     }
@@ -45,7 +49,8 @@ private fun BoxField.toJsonValue(): JsonValue = JsonValue.JObject(
         "value" to JsonValue.JString(value),
         "offset" to JsonValue.JNumber(offset),
         "length" to JsonValue.JNumber(length),
-    ),
+    ) + if (interpretation != ValueInterpretation.PARSED)
+        listOf("interpretation" to JsonValue.JString(interpretation.name)) else emptyList(),
 )
 
 private fun TableData.toJsonValue(): JsonValue = JsonValue.JObject(

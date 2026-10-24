@@ -1001,6 +1001,17 @@ private fun DetailPropertiesTabContent(appState: AppState, tab: TabState) {
                                 value = hexOffset,
                             )
                             PropertyRow("Size", "${selectedNode.size} bytes")
+                            val interpretation = com.multiviewer.parser.detailInterpretation(selectedNode)
+                            if (interpretation != com.multiviewer.parser.ValueInterpretation.PARSED) {
+                                val failed = interpretation == com.multiviewer.parser.ValueInterpretation.UNPARSABLE
+                                Text(
+                                    if (failed) "파싱 불가 항목이 있습니다. 원본 값과 경고를 확인하세요. / Some data could not be parsed."
+                                    else "미해석 데이터가 있습니다. 원본 바이트를 확인할 수 있습니다. / Contains uninterpreted data.",
+                                    style = AppTypography.labelLarge.copy(fontSize = 11.sp),
+                                    color = if (failed) AppColors.NeonRed else AppColors.TextSecondary,
+                                    modifier = Modifier.padding(vertical = 6.dp),
+                                )
+                            }
                             Spacer(Modifier.height(8.dp))
                         }
                         items(selectedNode.fields) { field ->
@@ -1017,7 +1028,7 @@ private fun DetailPropertiesTabContent(appState: AppState, tab: TabState) {
                                         .background(if (tab.selectedField == field) AppColors.Selection else Color.Transparent)
                                         .clickable { tab.selectedField = field },
                                 ) {
-                                    PropertyRow(field.name, field.value)
+                                    PropertyRow(field.name, field.value, interpretation = field.interpretation)
                                 }
                             }
                         }

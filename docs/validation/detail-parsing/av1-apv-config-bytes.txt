@@ -1,0 +1,13 @@
+app/src/test/resources/detail-parsing/default-avif.avif
+/meta/iinf/infe offset=135 payload=143 size=26 hex=020000000001000061763031436f6c6f7200
+/meta/iprp/ipco/pixi offset=197 payload=205 size=16 hex=0000000003080808
+/meta/iprp/ipco/av1C offset=213 payload=221 size=12 hex=81000c00
+app/src/test/resources/av1-conformance/default-av01.mp4
+/moov/trak/mdia/minf/vmhd offset=4140 payload=4148 size=20 hex=000000010000000000000000
+/moov/trak/mdia/minf/stbl/stsd/av01/av1C offset=4306 payload=4314 size=25 hex=81000c000a0b02000005557ffc02f80040
+/moov/trak/mdia/minf/stbl/stsd/av01/fiel offset=4331 payload=4339 size=10 hex=0100
+/moov/trak/mdia/minf/stbl/stsd/av01/btrt offset=4357 payload=4365 size=20 hex=0000000000003a8c00003a8c
+/moov/trak/mdia/minf/stbl/sdtp offset=4421 payload=4429 size=20 hex=000000002018101810181018
+app/src/test/resources/apv-conformance/default-apv1.mp4
+/moov/trak/mdia/minf/vmhd offset=333 payload=341 size=20 hex=000000010000000000000000
+/moov/trak/mdia/minf/stbl/stsd/apv1/apvC offset=499 payload=507 size=30 hex=000000000101010101217b0200000f00000008702200

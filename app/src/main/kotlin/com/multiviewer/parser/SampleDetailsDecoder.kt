@@ -55,7 +55,7 @@ object SampleDetailsDecoder : BoxDecoder {
         pos += 4
         if (version == 0 && !isRoll) {
             fields += BoxField("parsing_status", "Unknown v0 group layout / 미지원 v0 그룹 구조", pos, 0)
-            fields += BoxField("unparsed_payload_bytes", (end - pos).toString(), pos, end - pos)
+            fields += BoxField("unparsed_payload_bytes", (end - pos).toString(), pos, end - pos, ValueInterpretation.UNINTERPRETED)
             return node()
         }
         if (isRoll && defaultLength == 2L) {
@@ -78,7 +78,7 @@ object SampleDetailsDecoder : BoxDecoder {
                 itemFields += BoxField("roll_distance", reader.readUInt16(pos).toShort().toString(), pos, 2)
             } else {
                 itemFields += BoxField("parsing_status", "Raw description / 원시 그룹 설명", pos, 0)
-                itemFields += BoxField("payload_bytes", length.toString(), pos, length)
+                itemFields += BoxField("payload_bytes", length.toString(), pos, length, ValueInterpretation.UNINTERPRETED)
                 if (isRoll) w += "Invalid roll description length / 복구 거리 길이 오류: $length"
             }
             children += BoxNode("$group[${parsed + 1}]", pos, 0, length, fields = itemFields)
@@ -88,7 +88,7 @@ object SampleDetailsDecoder : BoxDecoder {
         if (parsed == count && pos != end) w += "Extra group description bytes / 그룹 설명 잔여 바이트"
         if (parsed < count && parsed == 4096L) {
             fields += BoxField("parsing_status", "Description display limited to 4096 / 그룹 설명 표시 4096개 제한", pos, 0)
-            fields += BoxField("unparsed_payload_bytes", (end - pos).toString(), pos, end - pos)
+            fields += BoxField("unparsed_payload_bytes", (end - pos).toString(), pos, end - pos, ValueInterpretation.UNINTERPRETED)
         }
         return node()
     }

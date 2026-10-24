@@ -62,10 +62,10 @@ object EsdsBoxDecoder : BoxDecoder {
                     cursor += width
                     return value
                 }
-                fun raw(name: String) {
+                fun raw(name: String, interpretation: ValueInterpretation = ValueInterpretation.UNINTERPRETED) {
                     val shown = minOf(64L, descriptorEnd - cursor).toInt()
                     val hex = reader.readBytes(cursor, shown).joinToString("") { "%02x".format(it.toInt() and 255) }
-                    fields += BoxField(name, hex, cursor, shown.toLong())
+                    fields += BoxField(name, hex, cursor, shown.toLong(), interpretation)
                     if (shown.toLong() < descriptorEnd - cursor) fields += BoxField("$name.status", "Raw preview limited to 64 bytes / 원시 미리보기 64바이트 제한", cursor, 0)
                 }
                 when (tag) {
@@ -97,7 +97,7 @@ object EsdsBoxDecoder : BoxDecoder {
                         walk(cursor, descriptorEnd, depth + 1, oti == 0x40L && streamType == 5)
                     }
                     5 -> {
-                        raw("decoderSpecificInfo")
+                        raw("decoderSpecificInfo", if (audioConfig) ValueInterpretation.PARSED else ValueInterpretation.UNINTERPRETED)
                         if (audioConfig && aacRange == null) aacRange = body to length
                     }
                     6 -> {
@@ -135,7 +135,7 @@ object EsdsBoxDecoder : BoxDecoder {
             }
             // Semantic AAC issues are displayed as fields. Structural warnings are consumed by
             // conformance as a reason to stop; the AAC analyzer must still report its own FAIL.
-            config.issue?.let { fields += BoxField("AAC_config_issue", it, dataOffset, dataLength) }
+            config.issue?.let { fields += BoxField("AAC_config_issue", it, dataOffset, dataLength, ValueInterpretation.UNPARSABLE) }
         }
         return node()
     }

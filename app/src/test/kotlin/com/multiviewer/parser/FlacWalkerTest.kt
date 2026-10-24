@@ -77,7 +77,7 @@ class FlacWalkerTest {
     }
 
     @Test
-    fun `an unrecognized block type falls back to an unlabeled byte-count summary`() {
+    fun `unrecognized block keeps its raw header without inventing payload fields`() {
         val bytes = "fLaC".toByteArray(Charsets.US_ASCII) +
             byteArrayOf(0x8A.toByte(), 0x00, 0x00, 0x05) + // last=1, type=10 (reserved), length=5
             byteArrayOf(0x11, 0x22, 0x33, 0x44, 0x55)
@@ -87,7 +87,8 @@ class FlacWalkerTest {
 
         assertEquals(2, elements.size)
         assertEquals("Unknown (10)", elements[1].type)
-        assertTrue(elements[1].fields.isEmpty())
+        assertEquals("10", elements[1].fields.first { it.name == "block_type" }.value)
+        assertTrue(elements[1].fields.none { it.name !in setOf("block_type", "block_length", "is_last_metadata_block", "parsing_status") })
         assertEquals("5 byte(s)", elements[1].summary)
         reader.close()
     }

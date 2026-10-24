@@ -63,10 +63,6 @@ suspend fun analyzeAv1Bitstream(
         limitations += "av1C missing, truncated, or too large / av1C 없음·잘림·과대"
         return@withContext report(false)
     }
-    if (av1C.warnings.isNotEmpty()) {
-        limitations += "av1C box layout is malformed: ${av1C.warnings.take(3).joinToString()} / av1C 상자 손상"
-        return@withContext report(false)
-    }
 
     ByteReader.open(file).use { reader ->
         val payload = av1C.offset + av1C.headerSize
@@ -79,6 +75,11 @@ suspend fun analyzeAv1Bitstream(
         val version = b0 and 0x7F
         if (marker != 1 || version != 1) {
             limitations += "av1C marker bit or version is invalid (marker=$marker, version=$version) / av1C 마커·버전 오류"
+            return@use report(false)
+        }
+
+        if (av1C.warnings.isNotEmpty()) {
+            limitations += "av1C box layout is malformed: ${av1C.warnings.take(3).joinToString()} / av1C 상자 손상"
             return@use report(false)
         }
 

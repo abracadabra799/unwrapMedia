@@ -180,7 +180,7 @@ object SefdBoxDecoder : BoxDecoder {
                 type = name, offset = blockStart, headerSize = fieldHeaderSize, size = blockSize,
                 fields = listOf(
                     markerField,
-                    BoxField("raw_payload", dataBytes.take(256).joinToString(" ") { "%02x".format(it.toInt() and 255) }, dataStart, minOf(dataLength, 256).toLong()),
+                    BoxField("raw_payload", dataBytes.take(256).joinToString(" ") { "%02x".format(it.toInt() and 255) }, dataStart, minOf(dataLength, 256).toLong(), ValueInterpretation.UNINTERPRETED),
                     BoxField("parsing_status", "Unparsed binary / 미해석 바이너리", dataStart, dataLength.toLong()),
                 ) + if (dataLength > 256) listOf(BoxField("unshown_payload_bytes", (dataLength - 256).toString(), dataStart + 256, (dataLength - 256).toLong())) else emptyList(),
                 warnings = warnings,

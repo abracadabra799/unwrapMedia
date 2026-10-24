@@ -14,6 +14,10 @@ object DflaBoxDecoder : BoxDecoder {
         warnings: List<String>,
     ): BoxNode {
         val w = warnings.toMutableList()
+        if (offset < 0 || headerSize < 0 || size < headerSize || offset > reader.length || size > reader.length - offset) {
+            w.add("Invalid dfLa byte range / dfLa 바이트 범위 오류")
+            return BoxNode(type, offset, headerSize, size, warnings = w)
+        }
         val payloadStart = offset + headerSize
         val payloadEnd = offset + size
         val payloadLength = payloadEnd - payloadStart
@@ -43,9 +47,13 @@ object DflaBoxDecoder : BoxDecoder {
             BoxField("block_length", blockLength.toString(), blockHeaderOffset + 1, 3L),
         )
 
+        if (version != 0 || flags != 0) {
+            w.add("Unsupported dfLa version/flags / 미지원 dfLa 버전 또는 플래그")
+            return BoxNode(type, offset, headerSize, size, fields = fields, warnings = w, interpretation = ValueInterpretation.UNPARSABLE)
+        }
         if (blockType != 0) {
             w.add("First metadata block in dfLa is not STREAMINFO (type=$blockType)")
-            return BoxNode(type, offset, headerSize, size, fields = fields, warnings = w)
+            return BoxNode(type, offset, headerSize, size, fields = fields, warnings = w, interpretation = ValueInterpretation.UNPARSABLE)
         }
 
         if (blockLength != STREAMINFO_PAYLOAD_SIZE) {
@@ -53,9 +61,9 @@ object DflaBoxDecoder : BoxDecoder {
         }
 
         val streaminfoOffset = blockHeaderOffset + STREAMINFO_HEADER_SIZE
-        if (payloadLength < FULL_BOX_HEADER_SIZE + STREAMINFO_HEADER_SIZE + minOf(blockLength, STREAMINFO_PAYLOAD_SIZE)) {
+        if (blockLength < STREAMINFO_PAYLOAD_SIZE || blockLength > payloadLength - FULL_BOX_HEADER_SIZE - STREAMINFO_HEADER_SIZE) {
             w.add("Truncated STREAMINFO payload in dfLa")
-            return BoxNode(type, offset, headerSize, size, fields = fields, warnings = w)
+            return BoxNode(type, offset, headerSize, size, fields = fields, warnings = w, interpretation = ValueInterpretation.UNPARSABLE)
         }
 
         val minBlockSize = reader.readUInt16(streaminfoOffset)
@@ -82,6 +90,8 @@ object DflaBoxDecoder : BoxDecoder {
         fields.add(BoxField("bits_per_sample", bitsPerSample.toString(), streaminfoOffset + 13, 1L))
         fields.add(BoxField("total_samples", totalSamples.toString(), streaminfoOffset + 13, 5L))
 
+        val md5 = reader.readBytes(streaminfoOffset + 18, 16).joinToString("") { "%02x".format(it.toInt() and 255) }
+        fields.add(BoxField("md5_signature", md5, streaminfoOffset + 18, 16L))
         return BoxNode(
             type = type,
             offset = offset,
@@ -89,6 +99,7 @@ object DflaBoxDecoder : BoxDecoder {
             size = size,
             fields = fields,
             warnings = w,
+            interpretation = if (w.isNotEmpty()) ValueInterpretation.UNPARSABLE else ValueInterpretation.PARSED,
             summary = "${channels}ch, ${sampleRate}Hz, ${bitsPerSample}-bit",
         )
     }
