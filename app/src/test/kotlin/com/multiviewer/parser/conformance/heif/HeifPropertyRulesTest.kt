@@ -146,8 +146,30 @@ class HeifPropertyRulesTest {
         assertEquals(true, c.verified)
         assertNull(c.page)
         assertStatus(FAIL, check(avif.copy(props = listOf(hvcC(), ispe(64, 48)))), "heif.props.codec_config")
+        assertEquals("https://aomediacodec.github.io/av1-avif/v1.2.0.html#image-item",
+            check(avif.copy(props = listOf(hvcC(), ispe(64, 48)))).finding("heif.props.codec_config").rule.citation?.url)
         // HEIC keeps the unverified 23008-12 citation.
         assertEquals("ISO/IEC 23008-12:2025", check(HeifSpec()).finding("heif.props.codec_config").rule.citation?.document)
+    }
+
+    @Test
+    fun `codec config cites AVIF only for av01 item violations`() {
+        val brands = HeifSpec(major = "avif", compatible = listOf("avif", "mif1", "miaf"))
+        // hvc1 item without hvcC next to a valid av01 primary: the violation is HEIF's, not AVIF's.
+        val hvcOnly = check(brands.copy(items = listOf(HeifItem(1, "av01"), HeifItem(2, "hvc1")),
+            props = listOf(av1C(), ispe(64, 48)), assoc = listOf(1L to listOf(1 to true, 2 to false), 2L to listOf(2 to false))))
+            .finding("heif.props.codec_config")
+        assertEquals(FAIL, hvcOnly.status, hvcOnly.details.toString())
+        assertEquals("ISO/IEC 23008-12:2025", hvcOnly.rule.citation?.document, hvcOnly.details.toString())
+        assertTrue(hvcOnly.details.none { "AVIF v1.2.0 §2.1" in it }, hvcOnly.details.toString())
+        // Both kinds missing: keep the HEIF citation and name the AVIF §2.1 requirement for the av01 item.
+        val both = check(brands.copy(items = listOf(HeifItem(1, "av01"), HeifItem(2, "hvc1")),
+            props = listOf(ispe(64, 48)), assoc = listOf(1L to listOf(1 to false), 2L to listOf(1 to false))))
+            .finding("heif.props.codec_config")
+        assertEquals(FAIL, both.status, both.details.toString())
+        assertEquals("ISO/IEC 23008-12:2025", both.rule.citation?.document)
+        assertEquals(HeifRules.HEIF_SOURCE, both.rule.source)
+        assertTrue(both.details.any { "item_ID 1" in it && "AVIF v1.2.0 §2.1" in it && "#image-item" in it }, both.details.toString())
     }
 
     @Test
@@ -417,6 +439,8 @@ class HeifPropertyRulesTest {
             refs = listOf(Triple("dimg", 3L, listOf(1L, 2L))))
         val f = check(spec).finding("heif.derived.inputs")
         assertEquals(FAIL, f.status)
-        assertTrue(f.details.any { "§6.6.2.2 iden: dimg 입력 1개" in it }, f.details.toString())
+        assertTrue(f.details.any { "iden item_ID 3: 입력 2개" in it && "dimg 입력 1개" in it }, f.details.toString())
+        // Clause numbers are not verified against the paid standard: never hard-code one in a detail line.
+        assertTrue(f.details.none { "§6.6.2.2" in it }, f.details.toString())
     }
 }

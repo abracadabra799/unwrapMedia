@@ -201,6 +201,7 @@ internal object HeifPropertyRules {
         val fails = ArrayList<String>()
         val ranges = ArrayList<LongRange>()
         val notApplicable = ArrayList<String>()
+        val av01Fails = ArrayList<Long>()
         var checked = 0
         for (item in coded) {
             val config = CODEC_CONFIG[item.type]
@@ -208,13 +209,26 @@ internal object HeifPropertyRules {
             checked++
             if (p.props(item.id, config).isEmpty()) {
                 fails += "item_ID ${item.id} ('${item.type}'): $config 속성 없음"; ranges += ctx.range(item.infe)
+                if (item.type == "av01") av01Fails += item.id
             }
         }
         if (fails.isEmpty() && checked == 0) return ConformanceFinding(rule, NOT_APPLICABLE,
             notApplicable.capped().ifEmpty { listOf("부호화 이미지 항목 없음") }, emptyList())
         val summary = coded.filter { it.type in CODEC_CONFIG }.groupingBy { it.type }.eachCount().entries
             .joinToString(", ") { "${it.key}→${CODEC_CONFIG[it.key]} ${it.value}개" }
-        val f = result(ctx, id, fails, emptyList(), emptyList(), ranges, "부호화 항목의 디코더 구성 속성 있음 ($summary)", rule)
+        // Only av01 items' violations cite AVIF §2.1; any other item type's violation keeps the HEIF citation, and
+        // a mixed result names the AVIF requirement for the av01 items in a detail line.
+        val finalRule = when {
+            fails.isEmpty() || rule === base -> rule
+            av01Fails.size == fails.size -> rule
+            else -> base
+        }
+        val f = result(ctx, id, fails, emptyList(), emptyList(), ranges, "부호화 항목의 디코더 구성 속성 있음 ($summary)", finalRule)
+        if (finalRule === base && avif && av01Fails.isNotEmpty()) {
+            val ids = av01Fails.capped().joinToString(", ") + if (av01Fails.size > MAX_LISTED) " …" else ""
+            return f.copy(details = f.details +
+                "av01 item_ID $ids: AVIF v1.2.0 §2.1 (AV1 Image Item) — av1C 속성 필수 (${AVIF_CODEC_CITATION.url})")
+        }
         return if (f.status == PASS && notApplicable.isNotEmpty()) f.copy(details = f.details + notApplicable.capped()) else f
     }
 
@@ -454,7 +468,7 @@ internal object HeifPropertyRules {
                 }
             }
             if (d.type == "tmap" && inputs.size != 2) { fails += "$tag: 입력 ${inputs.size}개 (정확히 2개여야 함)"; ranges += ctx.range(d.infe) }
-            if (d.type == "iden" && inputs.size != 1) { fails += "$tag: 입력 ${inputs.size}개 (§6.6.2.2 iden: dimg 입력 1개)"; ranges += ctx.range(d.infe) }
+            if (d.type == "iden" && inputs.size != 1) { fails += "$tag: 입력 ${inputs.size}개 (iden은 dimg 입력 1개여야 함)"; ranges += ctx.range(d.infe) }
         }
         if (p.itemsIncomplete.isNotEmpty())
             unchecked += listOf("iinf를 끝까지 읽지 못해 다른 파생 이미지 항목이 있을 수 있음") + p.itemsIncomplete.capped()

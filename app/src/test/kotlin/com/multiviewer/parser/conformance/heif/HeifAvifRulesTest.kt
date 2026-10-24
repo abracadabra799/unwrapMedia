@@ -243,7 +243,8 @@ class HeifAvifRulesTest {
             "avif.primary" to "image-and-image-collection-brand",
             "avif.props.av1c_essential" to "av1-item-configuration-property",
             "avif.props.pixi" to "avif-required-boxes", "avif.props.pasp" to "avif-required-boxes-additional",
-            "avif.props.a1op" to "operating-point-selector-property", "avif.props.a1lx" to "layered-image-indexing-property",
+            "avif.props.a1op" to "operating-point-selector-property-description",
+            "avif.props.a1lx" to "layered-image-indexing-property-description",
             "avif.alpha.auxc" to "auxiliary-images",
         )
         assertEquals(avifIds.toSet(), anchors.keys)
@@ -256,6 +257,9 @@ class HeifAvifRulesTest {
             val c = assertNotNull(rule.citation, id)
             assertEquals("AVIF v1.2.0 (AOMedia, 2025-10-16)", c.document)
             assertEquals("https://aomediacodec.github.io/av1-avif/v1.2.0.html#$anchor", c.url)
+            // reference, section and anchor name the same clause.
+            val clause = Regex("§[0-9.]+").find(rule.reference!!)!!.value
+            assertTrue(c.section.startsWith("$clause "), "$id: ${c.section} vs ${rule.reference}")
             assertEquals(true, c.verified)
             assertNull(c.page)
         }

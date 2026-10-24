@@ -69,6 +69,7 @@ class HeifFixtureTest {
             assertEquals(true, citation.verified, id)
         }
         val codecConfig = check("no-av1c.avif").findings.single { it.rule.id == "heif.props.codec_config" }.rule.citation!!
-        assertTrue(codecConfig.url.isNotBlank(), codecConfig.toString())
+        assertTrue(codecConfig.url.endsWith("#image-item"), codecConfig.toString())
+        assertEquals(true, codecConfig.verified, codecConfig.toString())
     }
 }
