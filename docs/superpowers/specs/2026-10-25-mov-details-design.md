@@ -1,0 +1,8 @@
+# MOV detailed properties
+Continue approved byte-parser coverage. Extend typed QuickTime data (fixed integers, precise floats, UTF16 sort, coordinates/matrix), bounded keys/items and exact source/status propagation into derived metadata. Preserve type_code/locale/value prefix and decodeDataValue public wrapper. Unknown/binary payloads stay explicitly uninterpreted; malformed typed widths/encodings/ranges are unparsable. Apple permits variable integers21/22 in1..4bytes; preserve existing8-byte compatibility, corroborated by actual AVFoundation output. Do not invent5..7-byte interpretations.
+
+Expose verified QuickTime sound-description v1/v2 packet/flags fields, lpcm/PCM sample-entry layouts, chan/frma/enda. Register common PCM entries for structural inspection only; conformance sample indexing remains limited to codecs it actually supports. Preserve existing AudioSampleEntry fields and child positioning behavior for valid ISO AAC and QT fixtures.
+
+Decode verified legacy © userdata text records. Official Apple text describes length including record headers, while actual ffmpeg output stores text-byte length excluding4-byte record header. Accept only an unambiguous complete structural interpretation; preserve record language and source ranges, strict UTF8/UTF16BE or supported Mac encodings, bounded records/text. Ambiguous/unknown encodings explicitly uninterpreted. No release bump or push.
+
+Evidence: generated ffmpeg keyed/legacy/PCM MOV and Apple AVFoundation typed MOV in docs/validation/mov-details-fixtures. Apple official QuickTime JSON-backed documentation: well-known_types, type_indicator, locale_indicator, sound_sample_description_version_1/2, audio_channel_layout_atom, user_data_atoms. No new application dependencies.

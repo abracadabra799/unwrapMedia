@@ -1,6 +1,5 @@
 package com.multiviewer.parser
 
-import java.nio.charset.StandardCharsets
 
 data class QuickTimeMetadataKey(
     val index: Int,
@@ -62,269 +61,20 @@ val KNOWN_QUICKTIME_KEYS = mapOf(
     "covr" to "Cover Art",
 )
 
-object QuickTimeKeysBoxDecoder : BoxDecoder {
-    override fun decode(
-        reader: ByteReader,
-        type: String,
-        offset: Long,
-        headerSize: Int,
-        size: Long,
-        warnings: List<String>,
-    ): BoxNode {
-        val payloadStart = offset + headerSize
-        val payloadEnd = offset + size
-        if (payloadEnd - payloadStart < 8) {
-            return BoxNode(
-                type = type,
-                offset = offset,
-                headerSize = headerSize,
-                size = size,
-                warnings = warnings + "keys box too short",
-            )
-        }
-
-        val version = reader.readUInt8(payloadStart)
-        val flags = (reader.readUInt8(payloadStart + 1) shl 16) or
-            (reader.readUInt8(payloadStart + 2) shl 8) or
-            reader.readUInt8(payloadStart + 3)
-        val entryCount = reader.readUInt32(payloadStart + 4)
-
-        val fields = mutableListOf(
-            BoxField("version", version.toString(), payloadStart, 1),
-            BoxField("flags", "0x%06x".format(flags), payloadStart + 1, 3),
-            BoxField("entry_count", entryCount.toString(), payloadStart + 4, 4),
-        )
-
-        var pos = payloadStart + 8
-        for (i in 1..entryCount.toInt()) {
-            if (pos + 8 > payloadEnd) {
-                fields.add(BoxField("key[$i]", "(truncated)", pos, payloadEnd - pos))
-                break
-            }
-            val keySize = reader.readUInt32(pos)
-            if (keySize < 8 || pos + keySize > payloadEnd) {
-                fields.add(BoxField("key[$i]", "(invalid size $keySize)", pos, (payloadEnd - pos).coerceAtLeast(0)))
-                break
-            }
-            val namespaceBytes = reader.readBytes(pos + 4, 4)
-            val namespace = String(namespaceBytes, StandardCharsets.US_ASCII)
-            val keyBytes = reader.readBytes(pos + 8, (keySize - 8).toInt())
-            val keyStr = String(keyBytes, StandardCharsets.UTF_8)
-            fields.add(BoxField("key[$i]", "$namespace:$keyStr", pos, keySize))
-            pos += keySize
-        }
-
-        return BoxNode(
-            type = type,
-            offset = offset,
-            headerSize = headerSize,
-            size = size,
-            fields = fields,
-            warnings = warnings,
-            summary = "$entryCount keys",
-        )
-    }
-}
-
-object QuickTimeDataBoxDecoder : BoxDecoder {
-    override fun decode(
-        reader: ByteReader,
-        type: String,
-        offset: Long,
-        headerSize: Int,
-        size: Long,
-        warnings: List<String>,
-    ): BoxNode {
-        val payloadStart = offset + headerSize
-        val payloadEnd = offset + size
-        if (payloadEnd - payloadStart < 8) {
-            return BoxNode(
-                type = type,
-                offset = offset,
-                headerSize = headerSize,
-                size = size,
-                warnings = warnings + "data box too short",
-            )
-        }
-
-        val typeFlags = reader.readUInt32(payloadStart)
-        val typeCode = (typeFlags and 0x00FFFFFF).toInt()
-        val locale = reader.readUInt32(payloadStart + 4)
-        val dataLen = (payloadEnd - (payloadStart + 8)).toInt()
-        val dataOffset = payloadStart + 8
-
-        val valueDisplay = decodeDataValue(reader, typeCode, dataOffset, dataLen)
-
-        val fields = listOf(
-            BoxField("type_code", "$typeCode (0x%06x)".format(typeCode), payloadStart, 4),
-            BoxField("locale", locale.toString(), payloadStart + 4, 4),
-            BoxField("value", valueDisplay, dataOffset, dataLen.toLong()),
-        )
-
-        return BoxNode(
-            type = type,
-            offset = offset,
-            headerSize = headerSize,
-            size = size,
-            fields = fields,
-            warnings = warnings,
-            summary = valueDisplay,
-        )
-    }
-}
-
-object QuickTimeIlstBoxDecoder : BoxDecoder {
-    override fun decode(
-        reader: ByteReader,
-        type: String,
-        offset: Long,
-        headerSize: Int,
-        size: Long,
-        warnings: List<String>,
-    ): BoxNode {
-        val payloadStart = offset + headerSize
-        val payloadEnd = offset + size
-        val children = mutableListOf<BoxNode>()
-        var pos = payloadStart
-        while (pos + 8 <= payloadEnd) {
-            val itemSize = reader.readUInt32(pos)
-            if (itemSize < 8 || pos + itemSize > payloadEnd) break
-            val itemType = reader.readFourCC(pos + 4)
-            val itemPayloadStart = pos + 8
-            val itemPayloadEnd = pos + itemSize
-            val itemChildren = parseBoxes(reader, itemPayloadStart, itemPayloadEnd)
-            children.add(
-                BoxNode(
-                    type = itemType,
-                    offset = pos,
-                    headerSize = 8,
-                    size = itemSize,
-                    children = itemChildren,
-                ),
-            )
-            pos += itemSize
-        }
-        return BoxNode(
-            type = type,
-            offset = offset,
-            headerSize = headerSize,
-            size = size,
-            children = children,
-            warnings = warnings,
-            summary = "${children.size} items",
-        )
-    }
-}
-
-fun decodeDataValue(reader: ByteReader, typeCode: Int, dataOffset: Long, dataLen: Int): String {
-    if (dataLen <= 0) return ""
-    return when (typeCode) {
-        1, 4, 5 -> { // UTF-8 (1=text, 4=HTML, 5=XML)
-            val bytes = reader.readBytes(dataOffset, dataLen)
-            String(bytes, StandardCharsets.UTF_8)
-        }
-        2 -> { // UTF-16BE
-            val bytes = reader.readBytes(dataOffset, dataLen)
-            String(bytes, StandardCharsets.UTF_16BE)
-        }
-        3 -> { // Shift-JIS
-            val bytes = reader.readBytes(dataOffset, dataLen)
-            try {
-                String(bytes, java.nio.charset.Charset.forName("Shift_JIS"))
-            } catch (_: Exception) {
-                String(bytes, StandardCharsets.ISO_8859_1)
-            }
-        }
-        13 -> "JPEG Image ($dataLen bytes)"
-        14 -> "PNG Image ($dataLen bytes)"
-        27 -> "BMP Image ($dataLen bytes)"
-        21 -> { // Signed integer
-            when (dataLen) {
-                1 -> reader.readUInt8(dataOffset).toByte().toString()
-                2 -> reader.readUInt16(dataOffset).toShort().toString()
-                3 -> {
-                    val b0 = reader.readUInt8(dataOffset).toByte().toInt()
-                    val b1 = reader.readUInt8(dataOffset + 1)
-                    val b2 = reader.readUInt8(dataOffset + 2)
-                    ((b0 shl 16) or (b1 shl 8) or b2).toString()
-                }
-                4 -> (reader.readUInt32(dataOffset).toInt()).toString()
-                8 -> reader.readUInt64(dataOffset).toString()
-                else -> {
-                    val bytes = reader.readBytes(dataOffset, minOf(dataLen, 16))
-                    bytes.joinToString(" ") { "%02x".format(it) }
-                }
-            }
-        }
-        22 -> { // Unsigned integer
-            when (dataLen) {
-                1 -> reader.readUInt8(dataOffset).toString()
-                2 -> reader.readUInt16(dataOffset).toString()
-                3 -> {
-                    val b0 = reader.readUInt8(dataOffset)
-                    val b1 = reader.readUInt8(dataOffset + 1)
-                    val b2 = reader.readUInt8(dataOffset + 2)
-                    ((b0 shl 16) or (b1 shl 8) or b2).toString()
-                }
-                4 -> reader.readUInt32(dataOffset).toString()
-                8 -> {
-                    val hi = reader.readUInt32(dataOffset)
-                    val lo = reader.readUInt32(dataOffset + 4)
-                    val ulongVal = (hi.toULong() shl 32) or lo.toULong()
-                    ulongVal.toString()
-                }
-                else -> {
-                    val bytes = reader.readBytes(dataOffset, minOf(dataLen, 16))
-                    bytes.joinToString(" ") { "%02x".format(it) }
-                }
-            }
-        }
-        23 -> { // Float32
-            if (dataLen >= 4) {
-                val bits = reader.readUInt32(dataOffset).toInt()
-                val f = java.lang.Float.intBitsToFloat(bits)
-                String.format(java.util.Locale.US, "%.4f", f)
-            } else "(invalid float)"
-        }
-        24 -> { // Float64
-            if (dataLen >= 8) {
-                val bits = reader.readUInt64(dataOffset)
-                val d = java.lang.Double.longBitsToDouble(bits)
-                String.format(java.util.Locale.US, "%.4f", d)
-            } else "(invalid double)"
-        }
-        else -> { // Binary / undefined
-            val previewLen = minOf(dataLen, 32)
-            val bytes = reader.readBytes(dataOffset, previewLen)
-            val hex = bytes.joinToString(" ") { "%02x".format(it) }
-            if (dataLen > previewLen) "$hex... ($dataLen bytes)" else "$hex ($dataLen bytes)"
-        }
-    }
-}
+fun decodeDataValue(reader: ByteReader, typeCode: Int, dataOffset: Long, dataLen: Int): String =
+    readQuickTimeValue(reader, typeCode, dataOffset, dataLen.toLong()).value
 
 fun enrichQuickTimeMetadata(reader: ByteReader, children: List<BoxNode>): List<BoxNode> {
     val keysNode = children.find { it.type == "keys" }
     val ilstNode = children.find { it.type == "ilst" }
 
-    // Parse keys map: 1-based index -> QuickTimeMetadataKey
+    // Use already validated key fields; never re-read unbounded raw key data during enrichment.
     val keysMap = mutableMapOf<Int, QuickTimeMetadataKey>()
-    if (keysNode != null) {
-        val payloadStart = keysNode.offset + keysNode.headerSize
-        val payloadEnd = keysNode.offset + keysNode.size
-        if (payloadEnd - payloadStart >= 8) {
-            val entryCount = reader.readUInt32(payloadStart + 4)
-            var pos = payloadStart + 8
-            for (i in 1..entryCount.toInt()) {
-                if (pos + 8 > payloadEnd) break
-                val keySize = reader.readUInt32(pos)
-                if (keySize < 8 || pos + keySize > payloadEnd) break
-                val namespaceBytes = reader.readBytes(pos + 4, 4)
-                val namespace = String(namespaceBytes, StandardCharsets.US_ASCII)
-                val keyBytes = reader.readBytes(pos + 8, (keySize - 8).toInt())
-                val keyStr = String(keyBytes, StandardCharsets.UTF_8)
-                keysMap[i] = QuickTimeMetadataKey(i, namespace, keyStr, pos, keySize)
-                pos += keySize
-            }
+    keysNode?.fields?.forEach { field ->
+        val index = if (field.name.startsWith("key[") && field.name.endsWith("]"))
+            field.name.removePrefix("key[").removeSuffix("]").toIntOrNull() else null
+        if (index != null && field.interpretation == ValueInterpretation.PARSED && field.value.startsWith("mdta:")) {
+            keysMap[index] = QuickTimeMetadataKey(index, "mdta", field.value.substring(5), field.offset, field.length)
         }
     }
 
@@ -347,28 +97,17 @@ fun enrichQuickTimeMetadata(reader: ByteReader, children: List<BoxNode>): List<B
             val friendlyName = KNOWN_QUICKTIME_KEYS[keyString] ?: keyString
 
             // Find data box inside itemNode
-            val dataChild = itemNode.children.find { it.type == "data" }
-            val dataValue = dataChild?.fields?.find { it.name == "value" }?.value
-                ?: dataChild?.summary
-
-            if (dataValue != null) {
-                val displayName = if (friendlyName != keyString) "$friendlyName ($keyString)" else keyString
-                extractedFields.add(
-                    BoxField(
-                        name = displayName,
-                        value = dataValue,
-                        offset = itemNode.offset,
-                        length = itemNode.size,
-                    ),
-                )
+            val dataChildren = itemNode.children.filter { it.type == "data" }
+            val firstValue = dataChildren.firstOrNull()?.fields?.find { it.name == "value" }?.value
+            val displayName = if (friendlyName != keyString) "$friendlyName ($keyString)" else keyString
+            var interpretation = itemNode.interpretation
+            dataChildren.forEachIndexed { index, data ->
+                interpretation = quickTimeState(interpretation, detailInterpretation(data))
+                data.fields.find { it.name == "value" }?.let { value ->
+                    extractedFields += value.copy(name = if (index == 0) displayName else "$displayName [${index + 1}]")
+                }
             }
-
-            if (keyString != itemNode.type) {
-                itemNode.copy(
-                    type = keyString,
-                    summary = dataValue ?: itemNode.summary,
-                )
-            } else itemNode
+            itemNode.copy(type = keyString, summary = firstValue ?: itemNode.summary, interpretation = interpretation)
         }
 
         val ilstIndex = resultChildren.indexOf(ilstNode)

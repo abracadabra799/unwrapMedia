@@ -80,7 +80,8 @@ class ByteReader private constructor(private val raf: RandomAccessFile) : AutoCl
         return (hi shl 32) or lo
     }
 
-    fun readFourCC(offset: Long): String = String(read(offset, 4), Charsets.US_ASCII)
+    // FourCC is a byte identifier; Latin-1 preserves QuickTime copyright-prefixed atoms.
+    fun readFourCC(offset: Long): String = String(read(offset, 4), Charsets.ISO_8859_1)
 
     fun readBytes(offset: Long, len: Int): ByteArray = read(offset, len)
 
