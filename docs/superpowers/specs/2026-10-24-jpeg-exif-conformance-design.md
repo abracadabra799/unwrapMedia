@@ -1,6 +1,6 @@
 # JPEG / JFIF / Exif / MPF conformance — design (phase 1)
 
-Date: 2026-10-24. Status: designed on `feat/jpeg-conformance` (documents only); review decisions of 2026-10-25 applied. Item 3 of the standards-conformance
+Date: 2026-10-24. Status: implemented on `feat/jpeg-conformance` (2026-10-25; 2807 tests green; CLI check on the seven Samsung copies matches the table below); review decisions of 2026-10-25 applied. Item 3 of the standards-conformance
 roadmap (after ISO-BMFF and HEIF/AVIF). Plan: `docs/superpowers/plans/2026-10-24-jpeg-exif-conformance.md`.
 
 ## Goal
@@ -153,6 +153,13 @@ at once), `exif.tags.mandatory` (no YCbCrPositioning/ExifVersion/ComponentsConfi
 `exif.tags.recommended`. Web JPEG `mangu.jpg` (JFIF 1.01, progressive) → overall WARN. Photoshop export (`fig2d.jpg`) → FAIL `exif.tags.mandatory`, `exif.thumbnail` (APP2/13/14
 and RSTs in the thumbnail). **iPhone / Pixel camera JPEGs: none available locally — not measured**; expect at least
 `mpf.type` FAIL on Ultra HDR files whose gain map is typed 0x000000.
+
+### Implementation check (2026-10-25, committed code via `./gradlew :app:run --args="check <copy>"`)
+
+All seven Samsung copies report `containerConformance.format == "JPEG"` with no `inspectionError`, and the FAIL/WARN sets
+equal the table above (no JFIF rows: Samsung writes no JFIF APP0). Difference: `mpf.images` FAILs on 3 of the 7 named
+copies (S26 -14494, `20260718_200439_motion` +728, `mp_2` +726); the "4 of 7" count in the table included `1.jpg`,
+which is not one of the seven. GUI click-through (Content Check, 컨테이너 포맷 규격 row) was not run.
 
 ## Architecture
 
