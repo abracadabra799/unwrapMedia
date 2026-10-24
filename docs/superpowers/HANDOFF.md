@@ -1,5 +1,11 @@
 # Handoff — 2026-10-13 (Claude Code → Codex)
 
+## 2026-10-25 update — active Detailed Properties audit
+
+The current user request is to keep filling verified Detailed Properties parsing gaps, with explicit 미해석 / 파싱 불가 states. The authoritative progress ledger is `docs/superpowers/plans/2026-10-23-detail-parsing.md`; older roadmap statuses below are historical. MOV, native FLAC CUESHEET/PICTURE/Vorbis, and PNG APNG/HDR/color-context chunks have implementation/validation records in their 2026-10-25 plans. Continue next with the PNG text/ICC decompression and source-range audit, then the remaining TIFF/GIF/DNG/AV2 inventory and defined SEF work. Private payload semantics still require reliable evidence.
+
+The user explicitly requested push-before-continuing: `origin/main` was pushed through f5e65581 before FLAC/PNG work. Later local commits require a new push request. Keep local feature worktree → tests/review → main integration workflow.
+
 ## 2026-10-18 update — Content Check Table UI & Terminology Redesign merged
 
 - `feat/content-check-table-ui` merged into `main`:

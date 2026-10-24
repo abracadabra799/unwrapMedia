@@ -22,6 +22,10 @@ internal fun decodePngColorChunk(reader: ByteReader, type: String, offset: Long,
             c.warnings += "Missing valid PNG color context / 유효한 PNG 색상 타입 정보 없음"
             return@finish
         }
+        if (color == 3 && type in setOf("tRNS", "bKGD") && context.paletteEntries == null) {
+            c.state = ValueInterpretation.UNINTERPRETED
+            c.warnings += "Missing valid PNG palette context / 유효한 PNG 팔레트 정보 없음"
+        }
         when (type) {
             "tRNS" -> when (color) {
                 0 -> { c.requireLength(2); c.uint("gray_sample", 2) }

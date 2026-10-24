@@ -42,6 +42,17 @@ class PngColorDetailsTest {
         val shortHistogram = pngDetailNodes(context(3)+palette+pngDetailChunk("hIST",ByteArray(2))).last()
         assertEquals(ValueInterpretation.UNPARSABLE,detailInterpretation(shortHistogram))
     }
+    @Test fun `indexed values remain visible but uninterpreted without a valid palette`() {
+        for (palette in listOf(byteArrayOf(), pngDetailChunk("PLTE",ByteArray(2)))) {
+            for (type in listOf("tRNS","bKGD")) {
+                val value = if(type=="tRNS") 0 else 255
+                val n = pngDetailNodes(context(3)+palette+pngDetailChunk(type,byteArrayOf(value.toByte()))).last()
+                assertEquals(ValueInterpretation.UNINTERPRETED,detailInterpretation(n))
+                assertEquals(value.toString(),pngDetailValue(n,if(type=="tRNS") "alpha[0]" else "palette_index").value)
+                assertTrue(n.warnings.isNotEmpty())
+            }
+        }
+    }
     @Test fun `suggested 16 bit palette preserves sample values frequencies and source ranges`() {
         val palette = pngDetailFile("palette.png").first { it.type == "sPLT" }
         assertEquals("Wide",pngDetailValue(palette,"palette_name").value)

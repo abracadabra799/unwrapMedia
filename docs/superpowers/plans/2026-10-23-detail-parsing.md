@@ -69,3 +69,8 @@ Remaining: FLAC CUESHEET and other undecoded metadata; PNG/TIFF/GIF/DNG and broa
 Completed bounded CUESHEET track/index trees (including unsigned sample positions), PICTURE lengths/palette count/raw image range/URI, and strict bounded Vorbis tags with length/count/source ranges and duplicate values. Invalid counts/text/extents are unparsable; capped/opaque/reserved data remain uninterpreted. Actual ffmpeg/Mutagen files and independent dumps are in docs/validation/flac-metadata-fixtures. Full regression and independent review passed; see 2026-10-25-flac-metadata-details.md.
 
 Remaining: PNG missing transparency/background/significant-bit/histogram/APNG/HDR chunks and text/status audit; TIFF/GIF/DNG and broader AV2 inventory; private SEF semantics and payload limits. Known FLAC APPLICATION private bytes and embedded image binary remain intentionally uninterpreted.
+
+## Task21 — PNG animation, HDR and contextual color details
+Completed acTL/fcTL/fdAT sequence/size/delay/disposal/blend fields, cICP and exact mDCV/cLLI scaling, tRNS/bKGD/sBIT color-type layouts, hIST/sPLT, full PLTE entries and IEND status. Missing/invalid palette context preserves readable indexed values with an uninterpreted notice. Fixed payload sizes exclude CRC, suggested palette expansion is bounded. Pillow-generated files and independent CRC/byte dumps precede implementation; provenance and results in 2026-10-25-png-details.md.
+
+Remaining: PNG text/ICC decompression completion, strict text and decompressed source ranges; TIFF/GIF/DNG and broader AV2 inventory; private SEF semantic definitions and payload limits. This task does not claim full PNG conformance or pixel decoding.
