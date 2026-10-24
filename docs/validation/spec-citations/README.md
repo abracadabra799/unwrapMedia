@@ -40,3 +40,19 @@ result, IEC webstore, BSI: published 2024-10-31) rather than by fetching the pag
 page (an Ed.5 is signalled but unconfirmed). `vvc.nal.reserved_zero_bit` stays FAIL: the clause says
 `nuh_reserved_zero_bit` "shall be equal to 0" (decoders ignore NAL units with 1, which would justify WARN, but the
 bitstream requirement is FAIL-level).
+
+## JPEG catalog (`parser/conformance/jpeg/JpegRules.kt`)
+
+Downloaded 2026-10-24 and read with `pdftotext -layout`; `#page=N` is the 1-based physical PDF page.
+
+| Document | Edition | URL used in citations | sha256 |
+|---|---|---|---|
+| ITU-T (CCITT) Rec. T.81 = ISO/IEC 10918-1 | 09/1992, 186 pp | https://www.w3.org/Graphics/JPEG/itu-t81.pdf | 631031d4ba56b06abee3e312a0f235b9422da9c7267d1c8f7604418795768bf0 |
+| ITU-T Rec. T.871 = ISO/IEC 10918-5 (JFIF) | 05/2011, 18 pp | https://www.itu.int/rec/dologin_pub.asp?lang=e&id=T-REC-T.871-201105-I!!PDF-E&type=items | ca3d749e7e04016f7695ba9d319eeeab3ad80c99265a883c14f03b9daf3e1c9a |
+| CIPA DC-008-Translation-2026 (Exif 3.1) = JEITA CP-3451H | January 2026, 267 pp | https://www.cipa.jp/std/documents/download_e.html?CIPA_DC-008-2026-E | 9cc36399a46ab7aa4a65473bb8a4945d3b044da739b8f16a01b0be11886dcff9 |
+| CIPA DC-007-Translation-2026 (Multi-Picture Format) | August 2026, 65 pp | https://www.cipa.jp/std/documents/download_e.html?CIPA_DC-007-2026_E | fa03dcd8ac56ce173c5966cc5926c80ca3ff0e934e1f13dc3295627815f1b42e |
+
+Notes: T.81 is not a free download from itu.int (the `dologin_pub` link returns the login / shop page), so the W3C copy
+of the ITU/CCITT original is cited. CIPA serves its PDFs only by POST after accepting the terms, so the citation URL is
+the download page plus `#page=N` (the page number refers to the downloaded PDF). DC-007's physical page = printed page + 4;
+T.81 printed 31 = physical 35.
