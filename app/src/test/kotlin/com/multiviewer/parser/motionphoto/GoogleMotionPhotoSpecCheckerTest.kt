@@ -208,6 +208,8 @@ class GoogleMotionPhotoSpecCheckerTest {
         assertEquals("$GMP_DOC_URL#isobmff-image-specific-behavior", url("gmp.mpvd.last", "4"))
         assertEquals("§3.2 Container element", GoogleMotionPhotoCitations.forRule("gmp.dir.present", "3.2")?.section)
         assertEquals(null, GoogleMotionPhotoCitations.forRule("gmp.x", "9.9"), "unknown sections get no invented anchor")
+        // Explicit id set, not a substring heuristic: a hypothetical §3.4 rule merely containing "mime" is Semantic.
+        assertEquals("$GMP_DOC_URL#itemsemantic_values", url("gmp.dir.mimetype_hint", "3.4"))
     }
 
     @Test

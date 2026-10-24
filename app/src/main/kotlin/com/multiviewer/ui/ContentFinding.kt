@@ -32,6 +32,11 @@ data class ContentFinding(
     val nextChecks: List<String> = emptyList(),
     /** Spec text the finding comes from (copied from the rule); null for uncited or non-spec findings. */
     val citation: SpecCitation? = null,
+    /**
+     * Plain (never a link) source label for findings without a citation, set by the mappers: app structural
+     * observation, Samsung SEF, decoder result, or a spec whose link is still pending.
+     */
+    val sourceNote: String? = null,
 )
 
 data class ContentFindingSummary(

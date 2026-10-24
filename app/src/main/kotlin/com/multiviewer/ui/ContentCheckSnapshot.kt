@@ -169,6 +169,7 @@ private fun errorFinding(id: String, stage: FindingStage, error: String) = Conte
     id = id, stage = stage, status = CheckStatus.FAIL, title = "Inspection failed", location = null,
     offset = null, length = null, summary = safeFindingText(error),
     verifiedFacts = listOf("Inspection failed: ${safeFindingText(error)}"),
+    sourceNote = STRUCTURAL_OBSERVATION_LABEL,
 ).sanitizeFindingPaths()
 
 /** Text section for the AI diagnosis prompt; every free-text value passes through [scrubPaths]. */
@@ -196,7 +197,10 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
         appendCapped(limitations, MAX_ITEMS, "  • ") { promptText(it) }
         appendCapped(findings, MAX_ITEMS, "  • ") { finding ->
             "[${finding.status.name}] ${finding.rule.id}; 구조 관측값·규격 조항 미확인; " +
-                finding.details.take(4).joinToString("; ") { promptText(it) }
+                finding.details.take(4).joinToString("; ") { promptText(it) } +
+                (if (finding.status == ConformanceStatus.WARN || finding.status == ConformanceStatus.FAIL)
+                    "; 출처: " + (finding.rule.citation?.let { "${promptText(it.label())} ${promptText(it.url)}" }
+                        ?: promptText(linkPendingSourceLabel(finding.rule.source))) else "")
         }
     }
     sb.appendLine("### [컨텐츠 검사 결과 (앱이 직접 검증한 사실)]")
@@ -233,8 +237,9 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
                 "검사 범위: ${promptText(finding.rule.scope)}; 관측: $details" +
                 (if (locations.isEmpty()) "" else "; 바이트: $locations") +
                 // Non-PASS rows name the exact spec text so the AI can point the user at it.
-                (finding.rule.citation?.takeIf { finding.status != ConformanceStatus.PASS }
-                    ?.let { "; 출처: ${promptText(it.label())} ${promptText(it.url)}" } ?: "") +
+                (if (finding.status == ConformanceStatus.PASS) "" else finding.rule.citation
+                    ?.let { "; 출처: ${promptText(it.label())} ${promptText(it.url)}" }
+                    ?: conformanceSourceNote(finding.rule)?.let { "; 출처: ${promptText(it)}" } ?: "") +
                 (if (finding.details.size > MAX_PROMPT_FACTS_PER_FINDING || finding.ranges.size > MAX_PROMPT_FACTS_PER_FINDING) "; 근거 일부 생략" else "")
         }
         sb.appendLine("- 제한 및 파서 근거 (규격 판정과 별도):")
@@ -254,7 +259,12 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
         val allFacts = (listOf(finding.summary) + finding.verifiedFacts).distinct()
         val facts = allFacts.take(MAX_PROMPT_FACTS_PER_FINDING).joinToString("; ") { promptText(it) }
         val omitted = allFacts.size - MAX_PROMPT_FACTS_PER_FINDING
-        "[${finding.status.name}] ${finding.id}: $facts" +
+        val source = when (val line = contentFindingSourceLine(finding).takeIf { finding.status == CheckStatus.WARN || finding.status == CheckStatus.FAIL }) {
+            is CitationSourceLine.Link -> "; 출처: ${promptText(line.text)} ${promptText(line.url)}"
+            is CitationSourceLine.Plain -> "; 출처: ${promptText(line.text)}"
+            null -> ""
+        }
+        "[${finding.status.name}] ${finding.id}: $facts" + source +
             if (omitted > 0) "; 근거 일부 생략 (${omitted}개)" else ""
     }
     val hypotheses = normalizedFindings.filter { !it.hypothesis.isNullOrBlank() }
@@ -304,7 +314,7 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
                 val location = item.offset?.let { off ->
                     " @ ${hex(off)}" + (item.length?.let { " (${it}B)" } ?: "")
                 } ?: ""
-                "[${item.status.name}] ${item.id} — ${scrub(item.title)}$location: ${scrub(item.detail)}"
+                "[${item.status.name}] ${item.id} — ${scrub(item.title)}$location: ${scrub(item.detail)}; 출처: $STRUCTURAL_OBSERVATION_LABEL"
             }
         }
     }
@@ -345,10 +355,11 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
             val formats = m.detectedFormats.joinToString(", ") { it.name }.ifEmpty { "없음" }
             sb.appendLine("- 모션포토: ${m.verdictStatus().name} (감지 형식: $formats)")
             val citations = java.util.IdentityHashMap<SefCheckResult, SpecCitation>()
+            val notes = java.util.IdentityHashMap<SefCheckResult, String>()
             val checks = buildList<Pair<String, SefCheckResult>> {
                 m.googleSpec.forEach { spec ->
                     val row = spec.toSefCheckResult()
-                    spec.citation?.let { citations[row] = it }
+                    spec.citation?.let { citations[row] = it } ?: run { notes[row] = linkPendingSourceLabel(GOOGLE_MOTION_PHOTO_SOURCE) }
                     add("Google Motion Photo 1.0" to row)
                 }
                 m.sefSection?.let { sef ->
@@ -368,7 +379,11 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
             }.filter { (_, c) -> c.severity.toCheckStatus().let { it != CheckStatus.PASS && it != CheckStatus.INFO } }
             sb.appendCapped(checks, MAX_ITEMS, "  • ") { (section, c) ->
                 "[${c.severity.toCheckStatus().name}] $section — ${scrub(c.label)}: ${scrub(c.detail)}" +
-                    (citations[c]?.let { "; 출처: ${scrub(it.label())} ${scrub(it.url)}" } ?: "")
+                    (citations[c]?.let { "; 출처: ${scrub(it.label())} ${scrub(it.url)}" }
+                        ?: "; 출처: ${notes[c] ?: when (section) {
+                            "영상 디코딩" -> DECODER_RESULT_SOURCE_LABEL
+                            else -> SAMSUNG_SEF_SOURCE_LABEL
+                        }}")
             }
         }
         !snapshot.motionDetected -> sb.appendLine("- 모션포토: $NOT_APPLICABLE (모션포토 데이터 미감지)")

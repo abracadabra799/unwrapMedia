@@ -47,11 +47,19 @@ class SpecCitationLinkTest {
         assertEquals(CitationSourceLine.Plain(STRUCTURAL_OBSERVATION_LABEL), check)
     }
 
-    @Test fun uncitedNormativeRuleHasNoSourceLine() {
-        assertNull(contentFindingSourceLine(finding(null, "ISO/IEC 14496-12 (공개 자료 기반, 원문 미대조)")))
+    @Test fun uncitedFailShowsItsPlainSourceNote() {
+        val note = "ISO/IEC 14496-14 (공개 자료 기반, 원문 미대조) (링크 준비 중 / link pending)"
+        val f = finding(null, "ISO/IEC 14496-14 (공개 자료 기반, 원문 미대조)").copy(sourceNote = note)
+        assertEquals(CitationSourceLine.Plain(note), contentFindingSourceLine(f))
     }
 
-    @Test fun nonConformanceStageWithoutCitationHasNoSourceLine() {
-        assertNull(contentFindingSourceLine(finding(null, "unwrapMedia structural check", FindingStage.STRUCTURE)))
+    @Test fun nonConformanceFailWithoutNoteFallsBackToTheStructuralLabel() {
+        assertEquals(CitationSourceLine.Plain(STRUCTURAL_OBSERVATION_LABEL),
+            contentFindingSourceLine(finding(null, "unwrapMedia structural check", FindingStage.STRUCTURE)))
+    }
+
+    @Test fun passRowWithoutCitationHasNoSourceLine() {
+        val pass = finding(null, "ISO/IEC 14496-14", FindingStage.STRUCTURE).copy(status = CheckStatus.PASS, sourceNote = SAMSUNG_SEF_SOURCE_LABEL)
+        assertNull(contentFindingSourceLine(pass))
     }
 }

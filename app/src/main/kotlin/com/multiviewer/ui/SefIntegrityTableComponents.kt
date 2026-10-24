@@ -63,7 +63,7 @@ internal fun SeverityBadge(severity: SefIntegritySeverity) {
 }
 
 @Composable
-internal fun CheckRow(check: SefCheckResult, citation: SpecCitation? = null) {
+internal fun CheckRow(check: SefCheckResult, citation: SpecCitation? = null, sourceNote: String? = null) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -73,19 +73,17 @@ internal fun CheckRow(check: SefCheckResult, citation: SpecCitation? = null) {
         Column {
             Text(check.label, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
             Text(check.detail, fontSize = 11.sp, color = Color.Gray)
-            // Only WARN/FAIL rows name their spec text; SEF rows never carry a citation.
-            if (citation != null && (check.severity == SefIntegritySeverity.WARNING || check.severity == SefIntegritySeverity.CRITICAL)) {
-                SpecCitationText(citation)
-            }
+            // Every WARN/FAIL row names its source: the spec link, or a plain label when no public spec exists.
+            sefCheckSourceLine(check.severity, citation, sourceNote)?.let { CitationSourceText(it) }
         }
     }
 }
 
 @Composable
-internal fun CheckSection(title: String, checks: List<SefCheckResult>) {
+internal fun CheckSection(title: String, checks: List<SefCheckResult>, sourceNote: String? = null) {
     if (checks.isEmpty()) return
     Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
-    checks.forEach { CheckRow(it) }
+    checks.forEach { CheckRow(it, sourceNote = sourceNote) }
 }
 
 /** [CheckSection] whose rows may carry a spec citation (Google Motion Photo rules); same layout otherwise. */
@@ -93,7 +91,7 @@ internal fun CheckSection(title: String, checks: List<SefCheckResult>) {
 internal fun CitedCheckSection(title: String, checks: List<Pair<SefCheckResult, SpecCitation?>>) {
     if (checks.isEmpty()) return
     Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
-    checks.forEach { (check, citation) -> CheckRow(check, citation) }
+    checks.forEach { (check, citation) -> CheckRow(check, citation, linkPendingSourceLabel(GOOGLE_MOTION_PHOTO_SOURCE)) }
 }
 
 @Composable
@@ -155,7 +153,7 @@ internal fun DirectoryEntryTableRow(row: SefDirectoryEntryRow) {
 }
 
 @Composable
-internal fun DirectoryEntryTable(declaredCount: Long?, entries: List<SefDirectoryEntryRow>, countSeverity: SefIntegritySeverity, title: String = "SEFH 디렉토리 엔트리", showCountSummary: Boolean = true) {
+internal fun DirectoryEntryTable(declaredCount: Long?, entries: List<SefDirectoryEntryRow>, countSeverity: SefIntegritySeverity, title: String = "SEFH 디렉토리 엔트리", showCountSummary: Boolean = true, sourceNote: String = SAMSUNG_SEF_SOURCE_LABEL) {
     // When the summary line is suppressed (the filtered motion-photo-fields call site) AND there
     // are no rows to show, rendering just a bare title with nothing under it reads as broken UI --
     // matches CheckSection's own empty-list early-return for the same reason.
@@ -164,10 +162,17 @@ internal fun DirectoryEntryTable(declaredCount: Long?, entries: List<SefDirector
     if (showCountSummary) {
         DirectoryEntryCountSummary(declaredCount, entries.size, countSeverity)
     }
-    if (entries.isEmpty()) return
+    if (entries.isEmpty()) {
+        if (showCountSummary) sefCheckSourceLine(countSeverity, null, sourceNote)?.let { CitationSourceText(it) }
+        return
+    }
     val scrollState = rememberScrollState()
     Column(modifier = Modifier.horizontalScroll(scrollState)) {
         DirectoryEntryTableHeader()
         entries.forEach { DirectoryEntryTableRow(it) }
     }
+    // One plain source line under the table when any shown row (or the count) is WARN/FAIL.
+    val worst = (entries.map { it.status } + if (showCountSummary) listOf(countSeverity) else emptyList())
+        .firstOrNull { it == SefIntegritySeverity.CRITICAL || it == SefIntegritySeverity.WARNING }
+    worst?.let { sefCheckSourceLine(it, null, sourceNote)?.let { line -> CitationSourceText(line) } }
 }

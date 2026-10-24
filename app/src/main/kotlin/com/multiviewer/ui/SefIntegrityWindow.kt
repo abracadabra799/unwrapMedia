@@ -135,9 +135,9 @@ fun SefIntegrityWindow(
                     }
                     SelectionContainer(modifier = Modifier.fillMaxSize().padding(top = 8.dp)) {
                         LazyColumn(modifier = Modifier.fillMaxSize()) {
-                            item { CheckSection("구조적 검사", currentReport.structuralChecks) }
+                            item { CheckSection("구조적 검사", currentReport.structuralChecks, SAMSUNG_SEF_SOURCE_LABEL) }
                             item { DirectoryEntryTable(currentReport.declaredEntryCount, currentReport.directoryEntries, currentReport.declaredEntryCountSeverity) }
-                            item { CheckSection("필드별 의미론 검사", currentReport.semanticChecks) }
+                            item { CheckSection("필드별 의미론 검사", currentReport.semanticChecks, SAMSUNG_SEF_SOURCE_LABEL) }
                         }
                     }
                 }

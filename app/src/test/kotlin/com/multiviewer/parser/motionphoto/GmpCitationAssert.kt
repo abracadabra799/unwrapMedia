@@ -16,7 +16,7 @@ internal fun expectedGmpAnchor(ruleId: String, section: String): String = when (
     "3.1" -> "camera-metadata"
     "3.2" -> "container-element"
     "3.3" -> "item_element"
-    "3.4" -> if (ruleId.contains("mime")) "itemmime_type_values" else "itemsemantic_values"
+    "3.4" -> if (ruleId in setOf("gmp.item.mime_value", "gmp.item.video_mime")) "itemmime_type_values" else "itemsemantic_values"
     "4" -> "isobmff-image-specific-behavior"
     "5" -> "video-container"
     "6" -> "video-metadata"

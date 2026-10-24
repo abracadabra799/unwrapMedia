@@ -3,6 +3,7 @@ package com.multiviewer.cli
 import com.multiviewer.ui.MediaType
 import com.multiviewer.ui.containerConformanceFor
 import com.multiviewer.parser.conformance.ConformanceReport
+import com.multiviewer.parser.conformance.ConformanceStatus
 import com.multiviewer.parser.conformance.SpecCitation
 import com.multiviewer.parser.contentMediaType
 import com.multiviewer.parser.WarningEntry
@@ -224,7 +225,11 @@ fun containerConformanceJson(report: ConformanceReport, file: File): JsonValue =
                             "endInclusive" to JsonValue.JNumber(range.last),
                         ))
                     }),
-                ) + (finding.rule.citation?.let { listOf("citation" to citationJson(it)) } ?: emptyList()),
+                ) + (finding.rule.citation?.let { listOf("citation" to citationJson(it)) }
+                    ?: com.multiviewer.ui.conformanceSourceNote(finding.rule)
+                        ?.takeIf { finding.status == ConformanceStatus.WARN || finding.status == ConformanceStatus.FAIL }
+                        ?.let { listOf("sourceNote" to JsonValue.JString(it)) }
+                    ?: emptyList()),
             )
         }),
     ),

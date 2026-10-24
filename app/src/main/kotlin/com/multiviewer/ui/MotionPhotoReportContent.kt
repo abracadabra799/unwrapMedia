@@ -74,16 +74,16 @@ fun MotionPhotoReportContent(report: MotionPhotoIntegrityReport, modifier: Modif
                 }
                 item {
                     val motionPhotoSemanticChecks = sef.semanticChecks.filter { it.label.contains("MotionPhoto") }
-                    CheckSection("SEF 모션포토 필드 의미론 검사", motionPhotoSemanticChecks)
+                    CheckSection("SEF 모션포토 필드 의미론 검사", motionPhotoSemanticChecks, SAMSUNG_SEF_SOURCE_LABEL)
                 }
 
                 // 3. SEF 전체 구조 무결성 (identical to the standalone SEF window's own table)
-                item { CheckSection("SEF 구조적 검사", sef.structuralChecks) }
+                item { CheckSection("SEF 구조적 검사", sef.structuralChecks, SAMSUNG_SEF_SOURCE_LABEL) }
                 item { DirectoryEntryTable(sef.declaredEntryCount, sef.directoryEntries, sef.declaredEntryCountSeverity, title = "SEF 전체 구조 무결성") }
-                item { CheckSection("SEF 필드별 의미론 검사", sef.semanticChecks) }
+                item { CheckSection("SEF 필드별 의미론 검사", sef.semanticChecks, SAMSUNG_SEF_SOURCE_LABEL) }
             }
 
-            item { CheckSection("임베디드 비디오 디코딩 확인", report.decodeChecks) }
+            item { CheckSection("임베디드 비디오 디코딩 확인", report.decodeChecks, DECODER_RESULT_SOURCE_LABEL) }
 
             // 5. 심층 분석: 스틸 ↔ 비디오 프레임 매칭
             report.deepAnalysis?.frameMatch?.let { match ->

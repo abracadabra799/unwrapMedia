@@ -5,8 +5,19 @@ import com.multiviewer.parser.integrity.ImageStructureReport
 import com.multiviewer.parser.SefCheckResult
 import com.multiviewer.ui.ImageDecodeReport
 import com.multiviewer.ui.MotionPhotoIntegrityReport
+import com.multiviewer.ui.DECODER_RESULT_SOURCE_LABEL
+import com.multiviewer.ui.GOOGLE_MOTION_PHOTO_SOURCE
+import com.multiviewer.ui.SAMSUNG_SEF_SOURCE_LABEL
+import com.multiviewer.ui.STRUCTURAL_OBSERVATION_LABEL
+import com.multiviewer.ui.linkPendingSourceLabel
+import com.multiviewer.ui.mapImageDecodeStatus
 import com.multiviewer.ui.toCheckStatus
+import com.multiviewer.parser.integrity.CheckStatus
 import java.io.File
+
+/** `"sourceNote"` for a WARN/FAIL row without a citation: a plain label, never a link. */
+internal fun sourceNoteEntry(status: CheckStatus, note: String): List<Pair<String, JsonValue>> =
+    if (status == CheckStatus.WARN || status == CheckStatus.FAIL) listOf("sourceNote" to JsonValue.JString(note)) else emptyList()
 
 private fun size(w: Int?, h: Int?): JsonValue = JsonValue.JString(if (w != null && h != null) "${w}x$h" else "unknown")
 
@@ -56,13 +67,13 @@ fun motionPhotoJson(detected: Boolean, report: MotionPhotoIntegrityReport?, file
             ),
         )
     }
-    fun check(section: String, c: SefCheckResult) = JsonValue.JObject(
+    fun check(section: String, c: SefCheckResult, note: String) = JsonValue.JObject(
         listOf(
             "section" to JsonValue.JString(section),
             "status" to JsonValue.JString(c.severity.toCheckStatus().name),
             "label" to JsonValue.JString(c.label),
             "detail" to JsonValue.JString(scrubPaths(c.detail, file)),
-        ),
+        ) + sourceNoteEntry(c.severity.toCheckStatus(), note),
     )
     fun specCheck(f: GoogleSpecFinding) = JsonValue.JObject(
         listOf(
@@ -73,13 +84,14 @@ fun motionPhotoJson(detected: Boolean, report: MotionPhotoIntegrityReport?, file
             "ruleId" to JsonValue.JString(f.ruleId),
             "specSection" to JsonValue.JString(f.section),
             "requirement" to JsonValue.JString(f.requirement.name),
-        ) + (f.citation?.let { listOf("citation" to citationJson(it)) } ?: emptyList()),
+        ) + (f.citation?.let { listOf("citation" to citationJson(it)) }
+            ?: sourceNoteEntry(f.severity.toCheckStatus(), linkPendingSourceLabel(GOOGLE_MOTION_PHOTO_SOURCE))),
     )
     val checks = buildList {
         report.googleSpec.forEach { add(specCheck(it)) }
         report.sefSection?.let { sef ->
-            sef.structuralChecks.forEach { add(check("sef_structure", it)) }
-            sef.semanticChecks.forEach { add(check("sef_semantic", it)) }
+            sef.structuralChecks.forEach { add(check("sef_structure", it, SAMSUNG_SEF_SOURCE_LABEL)) }
+            sef.semanticChecks.forEach { add(check("sef_semantic", it, SAMSUNG_SEF_SOURCE_LABEL)) }
             sef.directoryEntries.forEach { row ->
                 add(
                     check(
@@ -89,11 +101,12 @@ fun motionPhotoJson(detected: Boolean, report: MotionPhotoIntegrityReport?, file
                             row.name ?: "#${row.entryIndex}",
                             "marker ${row.markerHex} offset ${row.declaredOffset} length ${row.declaredLength}",
                         ),
+                        SAMSUNG_SEF_SOURCE_LABEL,
                     ),
                 )
             }
         }
-        report.decodeChecks.forEach { add(check("video_decode", it)) }
+        report.decodeChecks.forEach { add(check("video_decode", it, DECODER_RESULT_SOURCE_LABEL)) }
     }
     return JsonValue.JObject(
         listOf(
@@ -119,6 +132,7 @@ fun imageIntegrityJson(structure: ImageStructureReport, decode: ImageDecodeRepor
                         add("detail" to JsonValue.JString(item.detail))
                         item.offset?.let { add("offset" to JsonValue.JNumber(it)) }
                         item.length?.let { add("length" to JsonValue.JNumber(it)) }
+                        addAll(sourceNoteEntry(item.status, STRUCTURAL_OBSERVATION_LABEL))
                     })
                 }),
             ),
@@ -130,6 +144,11 @@ fun imageIntegrityJson(structure: ImageStructureReport, decode: ImageDecodeRepor
                 listOf(
                     "status" to JsonValue.JString(decode.status.name),
                     "source" to JsonValue.JString(decode.source),
+                ) + sourceNoteEntry(
+                    listOf(mapImageDecodeStatus(decode.status), decode.resolutionStatus)
+                        .firstOrNull { it == CheckStatus.FAIL || it == CheckStatus.WARN } ?: CheckStatus.PASS,
+                    DECODER_RESULT_SOURCE_LABEL,
+                ) + listOf(
                     "resolution" to JsonValue.JString(decode.resolutionStatus.name),
                     "ffmpeg" to JsonValue.JObject(
                         listOf(

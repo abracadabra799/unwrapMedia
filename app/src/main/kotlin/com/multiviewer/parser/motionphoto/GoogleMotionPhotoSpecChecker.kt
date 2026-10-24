@@ -58,9 +58,12 @@ object GoogleMotionPhotoCitations {
     private val mimeValues = Anchor("Item:Mime type values", "itemmime_type_values")
     private val semanticValues = Anchor("Item:Semantic values", "itemsemantic_values")
 
-    /** §3.4 has two subsections: Item:Mime rules cite the Mime values, every other §3.4 rule the Semantic values. */
+    /** §3.4 rules about Item:Mime values; every other §3.4 rule is about Item:Semantic values. */
+    private val MIME_VALUE_RULES = setOf("gmp.item.mime_value", "gmp.item.video_mime")
+
+    /** §3.4 has two subsections: [MIME_VALUE_RULES] cite the Mime values, every other §3.4 rule the Semantic values. */
     fun forRule(ruleId: String, section: String): SpecCitation? {
-        val anchor = if (section == "3.4") (if ("mime" in ruleId) mimeValues else semanticValues) else bySection[section]
+        val anchor = if (section == "3.4") (if (ruleId in MIME_VALUE_RULES) mimeValues else semanticValues) else bySection[section]
         return anchor?.let { SpecCitation(DOCUMENT, "§$section ${it.heading}", null, "$URL#${it.id}", true) }
     }
 }

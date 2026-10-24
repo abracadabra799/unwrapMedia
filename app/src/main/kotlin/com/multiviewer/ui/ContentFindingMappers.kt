@@ -63,6 +63,7 @@ fun conformanceFindings(report: ConformanceReport): List<ContentFinding> = repor
         },
         nextChecks = finding.ranges.map { "Hex evidence: 0x${it.first.toString(16).uppercase()}–0x${it.last.toString(16).uppercase()}" },
         citation = finding.rule.citation,
+        sourceNote = conformanceSourceNote(finding.rule),
     ).sanitizeFindingPaths()
 }
 
@@ -88,6 +89,8 @@ fun audioStructureFindings(report: AudioStructureReport): List<ContentFinding> =
     addAll(report.items.map { it.toFinding(FindingStage.AUDIO_STRUCTURE) })
     addAll(report.parserWarnings.map { it.toFinding(FindingStage.PARSER) })
 }.map(ContentFinding::sanitizeFindingPaths)
+
+private fun List<ContentFinding>.decoderResults() = map { it.copy(sourceNote = DECODER_RESULT_SOURCE_LABEL) }
 
 fun imageDecodeFindings(report: ImageDecodeReport): List<ContentFinding> = buildList {
     add(ContentFinding(
@@ -120,11 +123,11 @@ fun imageDecodeFindings(report: ImageDecodeReport): List<ContentFinding> = build
             report.decodedHeight?.let { add("Decoded height: $it px") }
         },
     ))
-}.map(ContentFinding::sanitizeFindingPaths)
+}.decoderResults().map(ContentFinding::sanitizeFindingPaths)
 
 fun motionPhotoFindings(report: MotionPhotoIntegrityReport): List<ContentFinding> = buildList {
     report.sefSection?.let { sef ->
-        addAll(sef.structuralChecks.mapIndexed { i, check -> check.toFinding("motion.sef.structural.$i", FindingStage.MOTION_PHOTO) })
+        addAll(sef.structuralChecks.mapIndexed { i, check -> check.toFinding("motion.sef.structural.$i", FindingStage.MOTION_PHOTO, SAMSUNG_SEF_SOURCE_LABEL) })
         if (sef.declaredEntryCountSeverity != com.multiviewer.parser.SefIntegritySeverity.SKIPPED) {
             val declared = sef.declaredEntryCount ?: 0L
             val found = sef.directoryEntries.size
@@ -143,9 +146,10 @@ fun motionPhotoFindings(report: MotionPhotoIntegrityReport): List<ContentFinding
                 length = null,
                 summary = detail,
                 verifiedFacts = listOf(detail),
+                sourceNote = SAMSUNG_SEF_SOURCE_LABEL,
             ))
         }
-        addAll(sef.semanticChecks.mapIndexed { i, check -> check.toFinding("motion.sef.semantic.$i", FindingStage.MOTION_PHOTO) })
+        addAll(sef.semanticChecks.mapIndexed { i, check -> check.toFinding("motion.sef.semantic.$i", FindingStage.MOTION_PHOTO, SAMSUNG_SEF_SOURCE_LABEL) })
         addAll(sef.directoryEntries.map { row -> ContentFinding(
             id = "motion.sef.directory.${row.entryIndex}", stage = FindingStage.MOTION_PHOTO,
             status = row.status.toCheckStatus(), title = row.name ?: "SEF directory entry #${row.entryIndex}",
@@ -157,12 +161,14 @@ fun motionPhotoFindings(report: MotionPhotoIntegrityReport): List<ContentFinding
                 "Computed data end: ${row.computedDataEnd}", "In bounds: ${row.inBounds}",
                 "Marker matches: ${row.markerMatches ?: "unavailable"}",
             ),
+            sourceNote = SAMSUNG_SEF_SOURCE_LABEL,
         ) })
     }
     addAll(report.googleSpec.map {
-        it.toSefCheckResult().toFinding("motion.${it.ruleId}", FindingStage.MOTION_PHOTO).copy(citation = it.citation)
+        it.toSefCheckResult().toFinding("motion.${it.ruleId}", FindingStage.MOTION_PHOTO,
+            if (it.citation == null) linkPendingSourceLabel(GOOGLE_MOTION_PHOTO_SOURCE) else null).copy(citation = it.citation)
     })
-    addAll(report.decodeChecks.mapIndexed { i, check -> check.toFinding("motion.decode.$i", FindingStage.MOTION_PHOTO) })
+    addAll(report.decodeChecks.mapIndexed { i, check -> check.toFinding("motion.decode.$i", FindingStage.MOTION_PHOTO, DECODER_RESULT_SOURCE_LABEL) })
 }.map(ContentFinding::sanitizeFindingPaths)
 
 fun videoFindings(report: VideoIntegrityReport): VideoFindingPresentation {
@@ -214,8 +220,8 @@ fun videoFindings(report: VideoIntegrityReport): VideoFindingPresentation {
         )) }
     }
     return VideoFindingPresentation(
-        decoderFindings = decoderFindings.map(ContentFinding::sanitizeFindingPaths),
-        packetFindings = packetFindings.map(ContentFinding::sanitizeFindingPaths),
+        decoderFindings = decoderFindings.decoderResults().map(ContentFinding::sanitizeFindingPaths),
+        packetFindings = packetFindings.decoderResults().map(ContentFinding::sanitizeFindingPaths),
         packetRows = report.packets,
     )
 }
@@ -247,8 +253,8 @@ fun audioFindings(report: AudioIntegrityReport): AudioFindingPresentation {
         )
     }
     return AudioFindingPresentation(
-        probeFindings = probeFindings.map(ContentFinding::sanitizeFindingPaths),
-        trackFindings = trackFindings.map(ContentFinding::sanitizeFindingPaths),
+        probeFindings = probeFindings.decoderResults().map(ContentFinding::sanitizeFindingPaths),
+        trackFindings = trackFindings.decoderResults().map(ContentFinding::sanitizeFindingPaths),
         trackRows = report.streams.map { stream -> AudioTrackMeasurementRow(
             streamIndex = stream.stream.index, codec = stream.stream.codec, status = mapIntegrityStatus(stream.status),
             declaredSampleRate = stream.stream.sampleRate, observedSampleRates = stream.observedSampleRates.toSet(),
@@ -280,12 +286,13 @@ fun gainmapFindings(items: List<IntegrityCheckItem>): List<ContentFinding> =
 private fun IntegrityCheckItem.toFinding(stage: FindingStage, prefix: String = "structure"): ContentFinding = ContentFinding(
     id = "$prefix.$id", stage = stage, status = status, title = title,
     location = null, offset = offset, length = length, summary = detail,
-    verifiedFacts = listOf(detail),
+    verifiedFacts = listOf(detail), sourceNote = STRUCTURAL_OBSERVATION_LABEL,
 )
 
-private fun SefCheckResult.toFinding(id: String, stage: FindingStage): ContentFinding = ContentFinding(
+private fun SefCheckResult.toFinding(id: String, stage: FindingStage, sourceNote: String?): ContentFinding = ContentFinding(
     id = id, stage = stage, status = severity.toCheckStatus(), title = label,
     location = null, offset = null, length = null, summary = detail, verifiedFacts = listOf(detail),
+    sourceNote = sourceNote,
 )
 
 private fun dimensionSummary(declaredWidth: Int?, declaredHeight: Int?, decodedWidth: Int?, decodedHeight: Int?): String =

@@ -17,7 +17,10 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
+import com.multiviewer.parser.SefIntegritySeverity
+import com.multiviewer.parser.conformance.ConformanceRule
 import com.multiviewer.parser.conformance.SpecCitation
+import com.multiviewer.parser.integrity.CheckStatus
 import com.multiviewer.parser.conformance.label
 import java.awt.Desktop
 import java.awt.Toolkit
@@ -27,6 +30,24 @@ import javax.swing.SwingUtilities
 
 /** Shown instead of a citation for app-only checks that are not taken from any spec text. */
 internal const val STRUCTURAL_OBSERVATION_LABEL = "unwrapMedia 자체 관찰 / unwrapMedia structural observation (규격 아님)"
+
+/** Samsung SEF trailer checks: the format is proprietary, so there is no public text to link. */
+internal const val SAMSUNG_SEF_SOURCE_LABEL = "Samsung SEF (비공개 형식, 공개 규격 없음) / Samsung SEF (proprietary format, no public spec)"
+
+/** Decode / packet / audio-measurement findings report what ffmpeg did, not a spec clause. */
+internal const val DECODER_RESULT_SOURCE_LABEL = "디코더 결과 (ffmpeg) / Decoder result (ffmpeg), 규격 조항 아님"
+
+internal const val GOOGLE_MOTION_PHOTO_SOURCE = "Google Motion Photo Format 1.0"
+
+/** A spec-based rule whose verified link is not wired yet: name the source, never invent a link. */
+internal fun linkPendingSourceLabel(source: String): String = "$source (링크 준비 중 / link pending)"
+
+/** Source note for a container-conformance rule; null when the rule has a citation. */
+internal fun conformanceSourceNote(rule: ConformanceRule): String? = when {
+    rule.citation != null -> null
+    rule.source.startsWith("unwrapMedia structural") || rule.source.contains("structural observation") -> STRUCTURAL_OBSERVATION_LABEL
+    else -> linkPendingSourceLabel(rule.source)
+}
 
 /** What the "출처 / Source" line of a finding shows: a clickable spec link, or a plain note. */
 internal sealed class CitationSourceLine {
@@ -43,11 +64,25 @@ internal fun parseCitationUri(url: String): URI? = try {
     null
 }
 
+/**
+ * A clickable link when the finding has a citation. Every WARN/FAIL without one gets a plain label (its
+ * [ContentFinding.sourceNote], else the structural-observation label), so no issue row renders without a source.
+ * Other rows only show the structural label for app-only conformance observations.
+ */
 internal fun contentFindingSourceLine(finding: ContentFinding): CitationSourceLine? {
     finding.citation?.let { return CitationSourceLine.Link(it.label(), it.url) }
-    if (finding.stage != FindingStage.CONFORMANCE) return null
-    val structural = finding.verifiedFacts.any { it.startsWith("Source: unwrapMedia structural") }
-    return if (structural) CitationSourceLine.Plain(STRUCTURAL_OBSERVATION_LABEL) else null
+    if (finding.status == CheckStatus.WARN || finding.status == CheckStatus.FAIL) {
+        return CitationSourceLine.Plain(finding.sourceNote ?: STRUCTURAL_OBSERVATION_LABEL)
+    }
+    return if (finding.stage == FindingStage.CONFORMANCE && finding.sourceNote == STRUCTURAL_OBSERVATION_LABEL)
+        CitationSourceLine.Plain(STRUCTURAL_OBSERVATION_LABEL) else null
+}
+
+/** Source line of a SEF/motion-photo check row: only WARN/CRITICAL rows get one (link, else plain label). */
+internal fun sefCheckSourceLine(severity: SefIntegritySeverity, citation: SpecCitation?, sourceNote: String?): CitationSourceLine? = when {
+    severity != SefIntegritySeverity.WARNING && severity != SefIntegritySeverity.CRITICAL -> null
+    citation != null -> CitationSourceLine.Link(citation.label(), citation.url)
+    else -> CitationSourceLine.Plain(sourceNote ?: STRUCTURAL_OBSERVATION_LABEL)
 }
 
 /**
