@@ -73,7 +73,7 @@ fun motionPhotoJson(detected: Boolean, report: MotionPhotoIntegrityReport?, file
             "ruleId" to JsonValue.JString(f.ruleId),
             "specSection" to JsonValue.JString(f.section),
             "requirement" to JsonValue.JString(f.requirement.name),
-        ),
+        ) + (f.citation?.let { listOf("citation" to citationJson(it)) } ?: emptyList()),
     )
     val checks = buildList {
         report.googleSpec.forEach { add(specCheck(it)) }

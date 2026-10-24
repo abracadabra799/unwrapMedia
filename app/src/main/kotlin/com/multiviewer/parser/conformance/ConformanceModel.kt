@@ -8,7 +8,26 @@ data class ConformanceRule(
     val source: String,
     val reference: String?,
     val scope: String,
+    /** Where in the spec text this rule comes from; null for uncited / app-only structural rules. */
+    val citation: SpecCitation? = null,
 )
+
+/**
+ * A pointer to the spec text a rule comes from. [page] and anchors in [url] are only set when checked against the
+ * original; [verified] is true only when the clause text (and page) was checked against the original.
+ */
+data class SpecCitation(
+    val document: String,
+    val section: String,
+    val page: Int?,
+    val url: String,
+    val verified: Boolean,
+)
+
+/** "{document} {section}[, p. N][ (원문 미대조 / not checked against the original)]". */
+fun SpecCitation.label(): String =
+    "$document $section" + (page?.let { ", p. $it" } ?: "") +
+        (if (verified) "" else " (원문 미대조 / not checked against the original)")
 
 data class ConformanceFinding(
     val rule: ConformanceRule,

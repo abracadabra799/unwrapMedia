@@ -199,4 +199,34 @@ class ContentFindingMappersTest {
         assertEquals("Failed to read sample.mp4.", safeFindingText("Failed to read /Users/private-user/secret/sample.mp4."))
         assertEquals("Failed to read sample.mp4,", safeFindingText("Failed to read C:\\Users\\private-user\\secret\\sample.mp4,"))
     }
+
+
+    @Test fun conformanceMapperCopiesCitation() {
+        val citation = com.multiviewer.parser.conformance.SpecCitation(
+            "AVIF v1.2.0 (AOMedia, 2025-10-16)", "§7 General constraints", null,
+            "https://aomediacodec.github.io/av1-avif/v1.2.0.html#file-constraints", true)
+        val rule = com.multiviewer.parser.conformance.ConformanceRule(
+            "avif.ftyp.miaf", "MIAF 브랜드 / MIAF brand", "AVIF v1.2.0 (AOMedia)", "AVIF v1.2.0 §7", "ftyp", citation)
+        val plain = com.multiviewer.parser.conformance.ConformanceRule("bmff.x", "x", "ISO/IEC 14496-12", null, "ftyp")
+        val report = com.multiviewer.parser.conformance.ConformanceReport("AVIF", "p", listOf(
+            com.multiviewer.parser.conformance.ConformanceFinding(rule, com.multiviewer.parser.conformance.ConformanceStatus.FAIL, listOf("missing"), emptyList()),
+            com.multiviewer.parser.conformance.ConformanceFinding(plain, com.multiviewer.parser.conformance.ConformanceStatus.PASS, emptyList(), emptyList()),
+        ))
+        val findings = conformanceFindings(report)
+        assertEquals(citation, findings[0].citation)
+        assertNull(findings[1].citation)
+    }
+
+    @Test fun motionPhotoMapperCopiesGoogleSpecCitation() {
+        val citation = com.multiviewer.parser.conformance.SpecCitation(
+            "Google Motion Photo 1.0", "§Camera metadata", null,
+            "https://developer.android.com/media/platform/motion-photo-format#camera-metadata", true)
+        val report = MotionPhotoIntegrityReport(
+            detectedFormats = listOf(MotionPhotoFormat.GOOGLE_XMP), sefSection = null,
+            googleSpec = listOf(GoogleSpecFinding("gmp.camera.motionphoto", "3.1", SpecRequirement.MUST,
+                SefIntegritySeverity.CRITICAL, "MotionPhoto flag", "missing", citation)),
+            decodeChecks = emptyList(), overallSeverity = SefIntegritySeverity.CRITICAL,
+        )
+        assertEquals(citation, motionPhotoFindings(report).single().citation)
+    }
 }

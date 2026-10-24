@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import com.multiviewer.parser.SefCheckResult
 import com.multiviewer.parser.SefDirectoryEntryRow
 import com.multiviewer.parser.SefIntegritySeverity
+import com.multiviewer.parser.conformance.SpecCitation
 
 // Shared between SefIntegrityWindow.kt (the standalone "SEF 무결성 검사" window) and
 // MotionPhotoReportContent.kt (shown in the Content Check window; it embeds the same SEF directory-entry table as one of its
@@ -62,7 +63,7 @@ internal fun SeverityBadge(severity: SefIntegritySeverity) {
 }
 
 @Composable
-internal fun CheckRow(check: SefCheckResult) {
+internal fun CheckRow(check: SefCheckResult, citation: SpecCitation? = null) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -72,6 +73,10 @@ internal fun CheckRow(check: SefCheckResult) {
         Column {
             Text(check.label, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
             Text(check.detail, fontSize = 11.sp, color = Color.Gray)
+            // Only WARN/FAIL rows name their spec text; SEF rows never carry a citation.
+            if (citation != null && (check.severity == SefIntegritySeverity.WARNING || check.severity == SefIntegritySeverity.CRITICAL)) {
+                SpecCitationText(citation)
+            }
         }
     }
 }
@@ -81,6 +86,14 @@ internal fun CheckSection(title: String, checks: List<SefCheckResult>) {
     if (checks.isEmpty()) return
     Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
     checks.forEach { CheckRow(it) }
+}
+
+/** [CheckSection] whose rows may carry a spec citation (Google Motion Photo rules); same layout otherwise. */
+@Composable
+internal fun CitedCheckSection(title: String, checks: List<Pair<SefCheckResult, SpecCitation?>>) {
+    if (checks.isEmpty()) return
+    Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+    checks.forEach { (check, citation) -> CheckRow(check, citation) }
 }
 
 @Composable

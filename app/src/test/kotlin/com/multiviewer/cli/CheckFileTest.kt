@@ -223,4 +223,23 @@ class CheckFileTest {
         val result = checkFile(file, includeCase = true) as CheckResult.Success
         assertTrue(!result.analysisCaseJson!!.contains("containerConformance"))
     }
+
+
+    @Test
+    fun `containerConformanceJson renders the citation object and omits null page and null citation`() {
+        val file = File.createTempFile("citation-json-", ".avif").apply { deleteOnExit() }
+        val withPage = com.multiviewer.parser.conformance.SpecCitation("ITU-T H.265", "§7.3", 7, "https://example.org/h265.pdf#page=7", true)
+        val noPage = com.multiviewer.parser.conformance.SpecCitation("ISO/IEC 23008-12:2025", "§9", null, "https://www.iso.org/standard/1.html", false)
+        fun f(id: String, c: com.multiviewer.parser.conformance.SpecCitation?) = com.multiviewer.parser.conformance.ConformanceFinding(
+            com.multiviewer.parser.conformance.ConformanceRule(id, "t", "s", null, "ftyp", c),
+            com.multiviewer.parser.conformance.ConformanceStatus.FAIL, emptyList(), emptyList())
+        val json = containerConformanceJson(
+            com.multiviewer.parser.conformance.ConformanceReport("HEIF", "p", listOf(f("a", withPage), f("b", noPage), f("c", null))), file,
+        ).renderCompact()
+        assertTrue(json.contains("\"ruleId\":\"a\""), json)
+        assertTrue(json.contains("\"citation\":{\"document\":\"ITU-T H.265\",\"section\":\"§7.3\",\"page\":7,\"url\":\"https://example.org/h265.pdf#page=7\",\"verified\":true}"), json)
+        assertTrue(json.contains("\"citation\":{\"document\":\"ISO/IEC 23008-12:2025\",\"section\":\"§9\",\"url\":\"https://www.iso.org/standard/1.html\",\"verified\":false}"), json)
+        val third = json.substringAfter("\"ruleId\":\"c\"")
+        assertTrue(!third.contains("citation"), json)
+    }
 }

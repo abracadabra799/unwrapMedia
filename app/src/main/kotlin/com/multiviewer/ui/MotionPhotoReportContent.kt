@@ -63,7 +63,7 @@ fun MotionPhotoReportContent(report: MotionPhotoIntegrityReport, modifier: Modif
         LazyColumn(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
             // 1. Google Motion Photo 1.0 — first-priority spec for every motion photo, one table per rule group
             report.googleSpec.groupBy { it.groupLabel() }.forEach { (group, findings) ->
-                item { CheckSection(googleSpecSectionTitle(group), findings.map { it.toSefCheckResult() }) }
+                item { CitedCheckSection(googleSpecSectionTitle(group), findings.map { it.toSefCheckResult() to it.citation }) }
             }
 
             report.sefSection?.let { sef ->

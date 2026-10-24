@@ -62,6 +62,7 @@ fun conformanceFindings(report: ConformanceReport): List<ContentFinding> = repor
             addAll(finding.details)
         },
         nextChecks = finding.ranges.map { "Hex evidence: 0x${it.first.toString(16).uppercase()}–0x${it.last.toString(16).uppercase()}" },
+        citation = finding.rule.citation,
     ).sanitizeFindingPaths()
 }
 
@@ -158,7 +159,9 @@ fun motionPhotoFindings(report: MotionPhotoIntegrityReport): List<ContentFinding
             ),
         ) })
     }
-    addAll(report.googleSpec.map { it.toSefCheckResult().toFinding("motion.${it.ruleId}", FindingStage.MOTION_PHOTO) })
+    addAll(report.googleSpec.map {
+        it.toSefCheckResult().toFinding("motion.${it.ruleId}", FindingStage.MOTION_PHOTO).copy(citation = it.citation)
+    })
     addAll(report.decodeChecks.mapIndexed { i, check -> check.toFinding("motion.decode.$i", FindingStage.MOTION_PHOTO) })
 }.map(ContentFinding::sanitizeFindingPaths)
 

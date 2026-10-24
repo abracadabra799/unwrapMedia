@@ -101,6 +101,7 @@ internal fun hasContentFindingDetails(
     onSelectRange: ((Long, Long) -> Unit)? = null,
 ): Boolean {
     if (finding.verifiedFacts.isNotEmpty()) return true
+    if (finding.citation != null) return true
     if (finding.summary.length > MAX_COLLAPSED_FINDING_SUMMARY_LENGTH) return true
     if (finding.hypothesis != null) return true
     if (unknownDecoderCauseLabel(finding, ko) != null) return true
@@ -321,6 +322,7 @@ internal fun ContentFindingTable(
                                 verticalArrangement = Arrangement.spacedBy(3.dp),
                             ) {
                                 DetailLine(if (ko) "검사 ID" else "Check ID", finding.id, monospace = true)
+                                contentFindingSourceLine(finding)?.let { CitationSourceText(it) }
                                 if (finding.summary.length > MAX_COLLAPSED_FINDING_SUMMARY_LENGTH) {
                                     DetailLine(if (ko) "전체 결과" else "Full result", contentFindingExpandedSummary(finding.summary))
                                 }

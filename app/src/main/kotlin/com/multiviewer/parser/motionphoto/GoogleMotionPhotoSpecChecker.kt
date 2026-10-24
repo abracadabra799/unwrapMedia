@@ -5,6 +5,7 @@ import com.multiviewer.parser.ByteReader
 import com.multiviewer.parser.ContainerFormat
 import com.multiviewer.parser.SefCheckResult
 import com.multiviewer.parser.SefIntegritySeverity
+import com.multiviewer.parser.conformance.SpecCitation
 import com.multiviewer.parser.findFirst
 import com.multiviewer.parser.sniffFormat
 import java.io.File
@@ -19,6 +20,7 @@ data class GoogleSpecFinding(
     val severity: SefIntegritySeverity,
     val title: String,
     val detail: String,
+    val citation: SpecCitation? = null,
 )
 
 data class GmpSpecInput(

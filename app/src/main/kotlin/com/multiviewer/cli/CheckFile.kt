@@ -3,6 +3,7 @@ package com.multiviewer.cli
 import com.multiviewer.ui.MediaType
 import com.multiviewer.ui.isoBmffConformanceFor
 import com.multiviewer.parser.conformance.ConformanceReport
+import com.multiviewer.parser.conformance.SpecCitation
 import com.multiviewer.parser.contentMediaType
 import com.multiviewer.parser.WarningEntry
 import com.multiviewer.parser.collectWarnings
@@ -223,9 +224,20 @@ fun containerConformanceJson(report: ConformanceReport, file: File): JsonValue =
                             "endInclusive" to JsonValue.JNumber(range.last),
                         ))
                     }),
-                ),
+                ) + (finding.rule.citation?.let { listOf("citation" to citationJson(it)) } ?: emptyList()),
             )
         }),
+    ),
+)
+
+/** `{document, section, page?, url, verified}`; `page` is omitted when the clause page was not verified. */
+internal fun citationJson(citation: SpecCitation): JsonValue = JsonValue.JObject(
+    listOf(
+        "document" to JsonValue.JString(citation.document),
+        "section" to JsonValue.JString(citation.section),
+    ) + (citation.page?.let { listOf("page" to JsonValue.JNumber(it.toLong())) } ?: emptyList()) + listOf(
+        "url" to JsonValue.JString(citation.url),
+        "verified" to JsonValue.JBoolean(citation.verified),
     ),
 )
 

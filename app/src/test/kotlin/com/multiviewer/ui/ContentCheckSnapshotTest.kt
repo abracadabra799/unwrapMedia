@@ -423,4 +423,40 @@ class ContentCheckSnapshotTest {
         assertTrue(unbound.contains(UNBOUND_CONTENT_CHECK_NOTICE), unbound)
         assertFalse(unbound.contains(STALE_CONTENT_CHECK_NOTICE), unbound)
     }
+
+
+    @Test
+    fun promptShowsCitationSourceForNonPassConformanceRowsOnly() {
+        val failUrl = "https://aomediacodec.github.io/av1-avif/v1.2.0.html#file-constraints"
+        val passUrl = "https://aomediacodec.github.io/av1-avif/v1.2.0.html#image-item"
+        fun rule(id: String, url: String) = com.multiviewer.parser.conformance.ConformanceRule(
+            id, "title $id", "AVIF v1.2.0 (AOMedia)", "AVIF v1.2.0 §7", "AVIF",
+            com.multiviewer.parser.conformance.SpecCitation("AVIF v1.2.0 (AOMedia, 2025-10-16)", "§7 General constraints", null, url, true))
+        val report = com.multiviewer.parser.conformance.ConformanceReport("AVIF", "p", listOf(
+            com.multiviewer.parser.conformance.ConformanceFinding(rule("avif.ftyp.miaf", failUrl), com.multiviewer.parser.conformance.ConformanceStatus.FAIL, listOf("no miaf"), emptyList()),
+            com.multiviewer.parser.conformance.ConformanceFinding(rule("avif.ok", passUrl), com.multiviewer.parser.conformance.ConformanceStatus.PASS, emptyList(), emptyList()),
+        ))
+        val text = contentCheckPromptSection(
+            ContentCheckSnapshot(null, null, false, null, null, null, MediaType.IMAGE, conformance = report), file,
+        )
+        val failLine = text.lines().single { it.contains("avif.ftyp.miaf") && it.contains("[FAIL]") && it.contains("title") }
+        assertTrue(failLine.contains("출처: AVIF v1.2.0 (AOMedia, 2025-10-16) §7 General constraints $failUrl"), failLine)
+        val passLine = text.lines().single { it.contains("avif.ok") && it.contains("[PASS]") && it.contains("title") }
+        assertFalse(passLine.contains("출처:"), passLine)
+        assertFalse(text.contains(passUrl), text)
+    }
+
+    @Test
+    fun promptShowsCitationForNonPassMotionPhotoSpecRows() {
+        val url = "https://developer.android.com/media/platform/motion-photo-format#camera-metadata"
+        val report = MotionPhotoIntegrityReport(
+            detectedFormats = listOf(MotionPhotoFormat.GOOGLE_XMP), sefSection = null,
+            googleSpec = listOf(GoogleSpecFinding("gmp.camera.motionphoto", "3.1", SpecRequirement.MUST,
+                SefIntegritySeverity.CRITICAL, "MotionPhoto flag", "missing",
+                com.multiviewer.parser.conformance.SpecCitation("Google Motion Photo 1.0", "Camera metadata", null, url, true))),
+            decodeChecks = emptyList(), overallSeverity = SefIntegritySeverity.CRITICAL,
+        )
+        val text = contentCheckPromptSection(ContentCheckSnapshot(corruptStructure(), corruptDecode(), true, report, null, null), file)
+        assertTrue(text.contains("출처: Google Motion Photo 1.0 Camera metadata $url"), text)
+    }
 }

@@ -1,5 +1,6 @@
 package com.multiviewer.ui
 
+import com.multiviewer.parser.conformance.SpecCitation
 import com.multiviewer.parser.integrity.CheckStatus
 
 enum class FindingStage {
@@ -29,6 +30,8 @@ data class ContentFinding(
     val verifiedFacts: List<String>,
     val hypothesis: String? = null,
     val nextChecks: List<String> = emptyList(),
+    /** Spec text the finding comes from (copied from the rule); null for uncited or non-spec findings. */
+    val citation: SpecCitation? = null,
 )
 
 data class ContentFindingSummary(

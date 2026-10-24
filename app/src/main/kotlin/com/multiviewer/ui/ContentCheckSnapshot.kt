@@ -8,6 +8,8 @@ import com.multiviewer.parser.conformance.CodecBitstreamReport
 import com.multiviewer.parser.conformance.ConformanceFinding
 import com.multiviewer.parser.conformance.ConformanceReport
 import com.multiviewer.parser.conformance.ConformanceStatus
+import com.multiviewer.parser.conformance.SpecCitation
+import com.multiviewer.parser.conformance.label
 import com.multiviewer.parser.integrity.CheckStatus
 import com.multiviewer.parser.integrity.AudioStructureReport
 import com.multiviewer.parser.integrity.ImageStructureReport
@@ -227,9 +229,12 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
             }
             val details = finding.details.take(MAX_PROMPT_FACTS_PER_FINDING).joinToString("; ") { promptText(it) }
             "[${finding.status.name}] ${promptText(finding.rule.id)} — ${promptText(finding.rule.title)}; " +
-                "출처: ${promptText(finding.rule.source)}; 참조: ${finding.rule.reference?.let(::promptText) ?: "없음"}; " +
+                "규칙 근거: ${promptText(finding.rule.source)}; 참조: ${finding.rule.reference?.let(::promptText) ?: "없음"}; " +
                 "검사 범위: ${promptText(finding.rule.scope)}; 관측: $details" +
                 (if (locations.isEmpty()) "" else "; 바이트: $locations") +
+                // Non-PASS rows name the exact spec text so the AI can point the user at it.
+                (finding.rule.citation?.takeIf { finding.status != ConformanceStatus.PASS }
+                    ?.let { "; 출처: ${promptText(it.label())} ${promptText(it.url)}" } ?: "") +
                 (if (finding.details.size > MAX_PROMPT_FACTS_PER_FINDING || finding.ranges.size > MAX_PROMPT_FACTS_PER_FINDING) "; 근거 일부 생략" else "")
         }
         sb.appendLine("- 제한 및 파서 근거 (규격 판정과 별도):")
@@ -339,8 +344,13 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
         m != null -> {
             val formats = m.detectedFormats.joinToString(", ") { it.name }.ifEmpty { "없음" }
             sb.appendLine("- 모션포토: ${m.verdictStatus().name} (감지 형식: $formats)")
+            val citations = java.util.IdentityHashMap<SefCheckResult, SpecCitation>()
             val checks = buildList<Pair<String, SefCheckResult>> {
-                m.googleSpec.forEach { add("Google Motion Photo 1.0" to it.toSefCheckResult()) }
+                m.googleSpec.forEach { spec ->
+                    val row = spec.toSefCheckResult()
+                    spec.citation?.let { citations[row] = it }
+                    add("Google Motion Photo 1.0" to row)
+                }
                 m.sefSection?.let { sef ->
                     sef.structuralChecks.forEach { add("SEF 구조" to it) }
                     sef.semanticChecks.forEach { add("SEF 의미" to it) }
@@ -357,7 +367,8 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
                 m.decodeChecks.forEach { add("영상 디코딩" to it) }
             }.filter { (_, c) -> c.severity.toCheckStatus().let { it != CheckStatus.PASS && it != CheckStatus.INFO } }
             sb.appendCapped(checks, MAX_ITEMS, "  • ") { (section, c) ->
-                "[${c.severity.toCheckStatus().name}] $section — ${scrub(c.label)}: ${scrub(c.detail)}"
+                "[${c.severity.toCheckStatus().name}] $section — ${scrub(c.label)}: ${scrub(c.detail)}" +
+                    (citations[c]?.let { "; 출처: ${scrub(it.label())} ${scrub(it.url)}" } ?: "")
             }
         }
         !snapshot.motionDetected -> sb.appendLine("- 모션포토: $NOT_APPLICABLE (모션포토 데이터 미감지)")
