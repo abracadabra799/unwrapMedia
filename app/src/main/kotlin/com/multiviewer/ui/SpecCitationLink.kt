@@ -96,11 +96,14 @@ internal fun CitationSourceText(line: CitationSourceLine, fontSize: TextUnit = 1
                     color = AppColors.NeonBlue,
                     fontSize = fontSize,
                     textDecoration = TextDecoration.Underline,
+                    // weight(fill = false): a long label wraps inside the row instead of being clipped.
                     modifier = Modifier
+                        .weight(1f, fill = false)
                         .pointerHoverIcon(PointerIcon.Hand)
                         .clickable { openCitation(line.url) { status = it } },
                 )
-                is CitationSourceLine.Plain -> Text(line.text, color = plainColor, fontSize = fontSize)
+                is CitationSourceLine.Plain ->
+                    Text(line.text, color = plainColor, fontSize = fontSize, modifier = Modifier.weight(1f, fill = false))
             }
         }
         status?.let { Text(it, color = AppColors.TextMuted, fontSize = fontSize) }
