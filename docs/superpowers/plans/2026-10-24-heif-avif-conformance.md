@@ -3,7 +3,8 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Content Check's Container Conformance row checks HEIC/HEIF/AVIF item structure rule by rule (HEIF public
-knowledge + AVIF v1.2.0 original text), reusing the ISO-BMFF walker and box-structure rules.
+knowledge + AVIF v1.2.0 original text), reusing the ISO-BMFF walker and box-structure rules; every rule carries a
+clickable spec citation (Task 1b).
 
 **Architecture:** New package `com.multiviewer.parser.conformance.heif`: `HeifItemModel.kt` (reads `meta` from the
 ISO-BMFF `BmffTree` into items / iloc / properties / associations / references), `HeifRules.kt` (catalog),
@@ -20,6 +21,7 @@ Spec: `docs/superpowers/specs/2026-10-24-heif-avif-conformance-design.md` (rule 
 - `ConformanceRule.source`: HEIF rules exactly `"ISO/IEC 23008-12 (공개 자료 기반, 원문 미대조)"`; AVIF rules exactly `"AVIF v1.2.0 (AOMedia)"`; reused ISO-BMFF box rules keep `"ISO/IEC 14496-12 (공개 자료 기반, 원문 미대조)"`. `reference`: HEIF section hint ("ISO/IEC 23008-12 §… (판에 따라 다를 수 있음)") or AVIF section ("AVIF v1.2.0 §7").
 - `ConformanceRule.scope` ∈ {`"ftyp"`, `"meta 구조 / meta structure"`, `"항목 / Items"`, `"항목 위치 / Item locations"`, `"속성 / Properties"`, `"참조 / References"`, `"파생 항목 / Derived items"`, `"AVIF"`} (reused box rules keep their ISO-BMFF scope).
 - Report `format` = `"AVIF"` when the sniffer says AVIF (or major/compatible `avif`/`avis` with an `av01` primary), else `"HEIF"`; `profile` = `"ISO/IEC 23008-12 + AVIF v1.2.0 phase 1"` / `"ISO/IEC 23008-12 phase 1"`.
+- Every HEIF/AVIF rule has a `SpecCitation` (Task 1b data); never invent anchors or pages.
 - Titles bilingual `"한국어 / English"`, details Korean. Never throw out of the checker except `java.util.concurrent.CancellationException` (other exceptions → `inspectionError`). Bounded reads: cap item / property / association / reference counts at 1,000,000 (→ NOT_CHECKED). Phase 1 never decodes coded item data (only the grid descriptor bytes).
 - Must stay free of FAIL on: ffmpeg libsvtav1 AVIF, macOS `sips` HEIC, real Samsung Galaxy HEICs (grid + tmap + auxl + cdsc + idat, trailing free/mpvd/sefd).
 - Work in `.worktrees/heif-conformance` on branch `feat/heif-conformance`; `git branch --show-current` before every commit; trailer `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
@@ -136,6 +138,26 @@ internal fun buildHeif(s: HeifSpec = HeifSpec()): ByteArray {
 
 - [ ] **Step 2: Failing model tests** (`HeifItemModelTest.kt`): default spec → 1 item (id 1, hvc1, v2, not hidden), primary 1, handler pict, 1 location whose extent bytes are the mdat payload (read back and compare), properties [hvcC, ispe] with indices 1,2, associations (1,1,true),(1,2,false), no problems; a grid spec (`items = listOf(HeifItem(1,"hvc1",hidden=true), HeifItem(2,"hvc1",hidden=true), HeifItem(10,"grid",data=gridData(1,2,128,48),method=1))`, `primary = 10`, `refs = listOf(Triple("dimg",10,listOf(1,2)))`) → idat present, location 10 method 1 with idat-relative extent, reference dimg 10→[1,2]; ipma with flags & 1 (16-bit associations) parsed; `iloc` version 0 entries parsed; truncated ipma (count larger than box) → a `problems` entry, no throw; a real file: copy of `app/src/test/resources/isobmff-conformance/` has no HEIF — generate in the test via `sips` only if `/usr/bin/sips` exists (assume; skip with `org.junit.jupiter.api.Assumptions.assumeTrue`) and assert one `hvc1` item with `hvcC` + `ispe` properties.
 - [ ] **Step 3–5:** RED, implement `HeifItemModel.read` (use `BmffTree.top` to find `meta`; walk its children via the existing `BmffBox.children` — `meta`/`iprp`/`ipco`/`iinf`/`iref` children may not be in `BMFF_CONTAINERS`; if not, parse their children with a local bounded box loop over the payload), GREEN, commit `feat: read HEIF item metadata model`.
+
+---
+
+### Task 1b: Spec citation model and plumbing
+
+Spec: `docs/superpowers/specs/2026-10-24-spec-citations-design.md` (authoritative).
+
+**Files:** modify `app/src/main/kotlin/com/multiviewer/parser/conformance/ConformanceModel.kt` (add `SpecCitation`, `ConformanceRule.citation`), `ui/ContentFinding.kt` (`ContentFinding.citation`), `ui/ContentFindingMappers.kt` (`conformanceFindings` copies the citation), `ui/ContentFindingTable.kt` (clickable source line), `ui/ContentCheckSnapshot.kt` (prompt line), `cli/CheckFile.kt` (`containerConformanceJson` citation object), `parser/motionphoto/GoogleMotionPhotoSpecChecker.kt` (`GoogleSpecFinding.citation`, default null) and the motion-photo row rendering (`ui/SefIntegrityTableComponents.kt` CheckSection/CheckRow or a citation-aware variant); tests in the matching test files.
+
+**Interfaces (produces):** `data class SpecCitation(document: String, section: String, page: Int?, url: String, verified: Boolean)`; `ConformanceRule(..., citation: SpecCitation? = null)`; `ContentFinding(..., citation: SpecCitation? = null)`; `GoogleSpecFinding(..., citation: SpecCitation? = null)`; `fun openCitation(url: String)` (ui, background thread `Desktop.browse`, clipboard fallback); `fun SpecCitation.label(): String` = "{document} {section}" + (", p. N" when page != null) + (" (원문 미대조 / not checked against the original)" when !verified).
+
+- [ ] **Step 1: Failing tests:** mapper copies the citation; JSON for a finding with a citation contains `"citation": {"document": …, "section": …, "page": 7, "url": "…#page=7", "verified": true}` and omits `page` when null and omits `citation` when null; prompt section shows "출처:" with the URL for a FAIL row and not for PASS rows; `label()` formats with and without page/verified; `openCitation` with an invalid URI does not throw (unit-test the URI parsing helper, not Desktop).
+- [ ] **Step 2–4:** RED; implement (UI: the source line is a Material3 `Text` with underline + `pointerHoverIcon(Hand)` + clickable → `openCitation`; structural observations show the "unwrapMedia 자체 관찰 / unwrapMedia structural observation (규격 아님)" label instead); GREEN + `:app:compileKotlin`.
+- [ ] **Step 5:** commit `feat: add clickable spec citations to conformance findings`.
+
+**Citation data for this branch (used by Tasks 2–4):** every HEIF/AVIF rule gets a citation.
+- HEIF rules: `SpecCitation("ISO/IEC 23008-12:2025", "<clause hint>", null, "<ISO store page of the current edition — verify with curl -sI that it returns 200>", false)`.
+- AVIF rules (verified anchors, `https://aomediacodec.github.io/av1-avif/v1.2.0.html#…`, document `"AVIF v1.2.0 (AOMedia, 2025-10-16)"`, page null, verified true):
+  `avif.ftyp.miaf`, `avif.ftyp.avif` → "§7 General constraints" `#file-constraints`; `avif.primary` → "§6.2 AVIF image and image collection brand" `#image-and-image-collection-brand`; `avif.props.av1c_essential` → "§2.2.1 AV1 Item Configuration Property" `#av1-item-configuration-property`; `heif.props.codec_config` for av01 items and AVIF files → "§2.1 AV1 Image Item" `#image-item`; `avif.props.pixi` → "§9.1.1 Minimum set of boxes" `#avif-required-boxes`; `avif.props.pasp` → "§9.1.2 Requirements on additional image item related boxes" `#avif-required-boxes-additional`; `avif.props.a1op` → "§2.3.2.1 Operating Point Selector Property" `#operating-point-selector-property`; `avif.props.a1lx` → "§2.3.2.3 Layered Image Indexing Property" `#layered-image-indexing-property`; `avif.alpha.auxc` → "§4.1 Auxiliary Image Items and Sequences" `#auxiliary-images`.
+- Reused ISO-BMFF box rules keep their existing (citation-less) definitions on this branch; the retrofit branch adds them.
 
 ---
 
