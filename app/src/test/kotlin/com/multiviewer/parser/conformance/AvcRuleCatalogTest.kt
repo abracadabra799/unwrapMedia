@@ -12,7 +12,7 @@ class AvcRuleCatalogTest {
         for (id in listOf("avc.nal.framing", "avc.nal.forbidden_zero_bit", "avc.nal.idr_ref_idc")) {
             val rule = assertNotNull(AvcRuleCatalog.rule(id))
             assertEquals(id, rule.id)
-            assertTrue(rule.source.contains("structural observation"))
+            assertNotNull(rule.citation)
             assertTrue(rule.scope.contains("avc1"))
         }
         assertNull(AvcRuleCatalog.rule("avc.unknown.rule"))

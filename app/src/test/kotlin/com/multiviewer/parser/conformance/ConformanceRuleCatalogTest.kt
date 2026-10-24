@@ -47,7 +47,7 @@ class ConformanceRuleCatalogTest {
     @Test
     fun `PNG rules name published source while other checks remain application rules`() {
         assertTrue(rulesFor("PNG").all {
-            it.source == "W3C PNG Third Edition" && it.reference == "https://www.w3.org/TR/png-3/"
+            it.source == "W3C PNG Third Edition" && it.reference?.startsWith("https://www.w3.org/TR/png-3/#") == true && it.citation?.verified == true
         })
         for (format in expectedIds.keys - "PNG") {
             assertTrue(rulesFor(format).all {

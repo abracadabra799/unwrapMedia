@@ -25,7 +25,7 @@ class FlacRuleCatalogTest {
             val rule = assertNotNull(FlacRuleCatalog.rule(id), "Rule $id must exist")
             assertEquals(id, rule.id)
             assertTrue(rule.title.isNotBlank())
-            assertTrue(rule.source.contains("structural observation"))
+            assertNotNull(rule.citation)
             assertTrue(rule.reference?.isNotBlank() == true)
             assertTrue(rule.scope.contains("fLaC"))
         }

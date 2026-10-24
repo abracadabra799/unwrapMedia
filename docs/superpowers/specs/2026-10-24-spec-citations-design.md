@@ -54,6 +54,10 @@ Never invent a page number or anchor: an unverified anchor/page is omitted (link
 1. Done on this branch (`feat/heif-conformance`): the citation model + UI/JSON/prompt plumbing, citations for every
    HEIF/AVIF rule, every ISO-BMFF rule (ISO profile → 14496-12:2026 store page; QuickTime profile → QTFF document
    root), and every Google Motion Photo 1.0 rule (verified section anchors).
-2. Retrofit (next branch): codec bitstream catalogs (H.264/H.265/H.266, AV1, VP9, APV, AAC/Opus/FLAC) — download the
-   ITU-T/AOM/IETF documents and verify each `#page=N` against the PDF before marking verified.
+2. Done on `feat/codec-citations`: codec bitstream catalogs (H.264/H.265/H.266, AV1, VP9, APV, AAC/Opus/FLAC) and the
+   PNG rules. Every `#page=N` was verified against the downloaded PDF; HTML sources use anchors confirmed in the
+   downloaded page; rules from paid ISO documents (14496-15, 14496-1/-3) carry the iso.org store page, `verified=false`
+   and no page. Framing rules whose cited sentence is the closest definition (not a verbatim requirement) end their
+   section text with "(정의 문장 / definitional)". Documents, editions, URLs and hashes:
+   `docs/validation/spec-citations/README.md`.
 3. Every later roadmap format ships with citations from the start.

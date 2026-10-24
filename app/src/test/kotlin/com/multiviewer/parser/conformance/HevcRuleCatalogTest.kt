@@ -12,7 +12,7 @@ class HevcRuleCatalogTest {
         for (id in listOf("hevc.nal.framing", "hevc.nal.forbidden_zero_bit", "hevc.nal.temporal_id_plus1")) {
             val rule = assertNotNull(HevcRuleCatalog.rule(id))
             assertEquals(id, rule.id)
-            assertTrue(rule.source.contains("structural observation"))
+            assertNotNull(rule.citation)
             assertTrue(rule.scope.contains("hvc1") && rule.scope.contains("hev1"))
         }
         assertNull(HevcRuleCatalog.rule("hevc.hvc1.parameter_sets_location"))

@@ -19,7 +19,7 @@ class Av1RuleCatalogTest {
         for (id in expectedIds) {
             val rule = assertNotNull(Av1RuleCatalog.rule(id))
             assertEquals(id, rule.id)
-            assertTrue(rule.source.contains("structural observation"))
+            assertNotNull(rule.citation)
             assertTrue(rule.scope.contains("av01"))
         }
         assertNull(Av1RuleCatalog.rule("av1.unknown.rule"))

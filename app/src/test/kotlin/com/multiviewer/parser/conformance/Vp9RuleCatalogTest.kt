@@ -25,7 +25,7 @@ class Vp9RuleCatalogTest {
         for (id in expectedIds) {
             val rule = assertNotNull(Vp9RuleCatalog.rule(id))
             assertEquals(id, rule.id)
-            assertTrue(rule.source.contains("structural observation"))
+            assertNotNull(rule.citation)
             assertTrue(rule.scope.contains("vp09"))
         }
         assertNull(Vp9RuleCatalog.rule("vp9.unknown.rule"))

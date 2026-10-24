@@ -27,7 +27,7 @@ class ApvRuleCatalogTest {
         for (id in expectedIds) {
             val rule = assertNotNull(ApvRuleCatalog.rule(id))
             assertEquals(id, rule.id)
-            assertTrue(rule.source.contains("structural observation"))
+            assertNotNull(rule.citation)
             assertTrue(rule.scope.contains("apv1"))
         }
         assertNull(ApvRuleCatalog.rule("apv.unknown.rule"))
