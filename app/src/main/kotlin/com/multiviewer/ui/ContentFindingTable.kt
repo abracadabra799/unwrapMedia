@@ -102,6 +102,9 @@ internal fun hasContentFindingDetails(
 ): Boolean {
     if (finding.verifiedFacts.isNotEmpty()) return true
     if (finding.citation != null) return true
+    // A WARN/FAIL always has a source line (citation or note); keep it reachable.
+    if (finding.status == com.multiviewer.parser.integrity.CheckStatus.WARN ||
+        finding.status == com.multiviewer.parser.integrity.CheckStatus.FAIL) return true
     if (finding.summary.length > MAX_COLLAPSED_FINDING_SUMMARY_LENGTH) return true
     if (finding.hypothesis != null) return true
     if (unknownDecoderCauseLabel(finding, ko) != null) return true

@@ -200,7 +200,7 @@ fun contentCheckPromptSection(snapshot: ContentCheckSnapshot, file: File): Strin
                 finding.details.take(4).joinToString("; ") { promptText(it) } +
                 (if (finding.status == ConformanceStatus.WARN || finding.status == ConformanceStatus.FAIL)
                     "; 출처: " + (finding.rule.citation?.let { "${promptText(it.label())} ${promptText(it.url)}" }
-                        ?: promptText(linkPendingSourceLabel(finding.rule.source))) else "")
+                        ?: promptText(conformanceSourceNote(finding.rule) ?: STRUCTURAL_OBSERVATION_LABEL)) else "")
         }
     }
     sb.appendLine("### [컨텐츠 검사 결과 (앱이 직접 검증한 사실)]")

@@ -35,7 +35,7 @@ internal const val STRUCTURAL_OBSERVATION_LABEL = "unwrapMedia 자체 관찰 / u
 internal const val SAMSUNG_SEF_SOURCE_LABEL = "Samsung SEF (비공개 형식, 공개 규격 없음) / Samsung SEF (proprietary format, no public spec)"
 
 /** Decode / packet / audio-measurement findings report what ffmpeg did, not a spec clause. */
-internal const val DECODER_RESULT_SOURCE_LABEL = "디코더 결과 (ffmpeg) / Decoder result (ffmpeg), 규격 조항 아님"
+internal const val DECODER_RESULT_SOURCE_LABEL = "디코더 결과 (ffmpeg, 규격 조항 아님) / Decoder result (ffmpeg, not a spec clause)"
 
 internal const val GOOGLE_MOTION_PHOTO_SOURCE = "Google Motion Photo Format 1.0"
 

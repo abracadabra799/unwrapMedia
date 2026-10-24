@@ -24,6 +24,7 @@ import com.multiviewer.parser.motionphoto.SpecRequirement
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -102,7 +103,7 @@ class FindingSourceLabelTest {
     @Test fun labelsAreExact() {
         assertEquals("unwrapMedia 자체 관찰 / unwrapMedia structural observation (규격 아님)", STRUCTURAL_OBSERVATION_LABEL)
         assertEquals("Samsung SEF (비공개 형식, 공개 규격 없음) / Samsung SEF (proprietary format, no public spec)", SAMSUNG_SEF_SOURCE_LABEL)
-        assertEquals("디코더 결과 (ffmpeg) / Decoder result (ffmpeg), 규격 조항 아님", DECODER_RESULT_SOURCE_LABEL)
+        assertEquals("디코더 결과 (ffmpeg, 규격 조항 아님) / Decoder result (ffmpeg, not a spec clause)", DECODER_RESULT_SOURCE_LABEL)
         assertEquals("X (링크 준비 중 / link pending)", linkPendingSourceLabel("X"))
     }
 
@@ -134,7 +135,8 @@ class FindingSourceLabelTest {
         assertNull(byId.getValue("bmff.ftyp.position").sourceNote)
         assertEquals("ISO/IEC 14496-14 (공개 자료 기반, 원문 미대조) (링크 준비 중 / link pending)", byId.getValue("x.uncited").sourceNote)
         assertEquals(STRUCTURAL_OBSERVATION_LABEL, byId.getValue("x.structural").sourceNote)
-        assertEquals("unwrapMedia structural observation; AVC header fields (링크 준비 중 / link pending)", byId.getValue("avc.sps").sourceNote)
+        // An app observation is never presented as a spec whose link is pending.
+        assertEquals(STRUCTURAL_OBSERVATION_LABEL, byId.getValue("avc.sps").sourceNote)
         assertEquals(STRUCTURAL_OBSERVATION_LABEL, byId.getValue("structure.heif.ftyp").sourceNote)
         assertEquals(STRUCTURAL_OBSERVATION_LABEL, byId.getValue("structure.wave.data").sourceNote)
         assertEquals(STRUCTURAL_OBSERVATION_LABEL, byId.getValue("check.gainmap.x").sourceNote)
@@ -170,6 +172,6 @@ class FindingSourceLabelTest {
         assertTrue(text.contains("출처: $DECODER_RESULT_SOURCE_LABEL"), text)
         assertTrue(text.contains("출처: ISO/IEC 14496-14 (공개 자료 기반, 원문 미대조) (링크 준비 중 / link pending)"), text)
         assertTrue(text.contains("출처: $STRUCTURAL_OBSERVATION_LABEL"), text)
-        assertTrue(text.contains("출처: unwrapMedia structural observation; AVC header fields (링크 준비 중 / link pending)"), text)
+        assertFalse(text.contains("unwrapMedia structural observation; AVC header fields (링크 준비 중"), text)
     }
 }

@@ -74,6 +74,13 @@ class ContentFindingTableTest {
         assertFalse(canSelectContentFindingRange(ranged, 5, callbackAvailable = false))
     }
 
+    @Test fun warnOrFailAlwaysExpandsSoItsSourceLineIsReachable() {
+        for (status in listOf(CheckStatus.WARN, CheckStatus.FAIL)) {
+            val bare = finding("bare", status).copy(summary = "short", verifiedFacts = emptyList())
+            assertTrue(hasContentFindingDetails(bare, 100, true), status.name)
+        }
+    }
+
     @Test fun hasContentFindingDetailsDistinguishesItemsWithDetails() {
         val withFacts = finding("facts", CheckStatus.PASS).copy(verifiedFacts = listOf("fact 1"))
         assertTrue(hasContentFindingDetails(withFacts, 100, true))
