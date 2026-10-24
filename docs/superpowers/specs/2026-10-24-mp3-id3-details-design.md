@@ -1,0 +1,6 @@
+# MP3 / ID3 detailed properties
+Continue the approved format-by-format byte-parser expansion. Reuse existing MPEG integrity header tables for versions1/2/2.5 and Layers I/II/III rather than duplicate them. Preserve MPEG1 LayerIII field prefix/summary; append raw indices/flags and derived frame length. Free-format bitrate remains explicitly uninterpreted.
+
+Expand ID3v2.3/v2.4 text, TXXX/WXXX/COMM/USLT/APIC/PRIV/UFID and frame/tag headers. Respect encoded terminator width, strict encodings, frame format flags and source byte ranges. Parse bounded extended headers/footer, handle v2.4 per-frame unsynchronisation with source mapping; v2.3 tag-wide unsynchronisation and encrypted/compressed data must remain explicitly uninterpreted unless their layout can be safely decoded with correct offsets. Preserve source values; never silently decode encrypted/compressed text. Unknown payloads get bounded raw preview and UNINTERPRETED state; malformed records get UNPARSABLE. Limits disclosed, no heavy dependencies. ID3v1.1 track metadata included.
+
+Existing byte parser output feeds Detailed Properties and JSON, including explicit interpretation badges. Sources: id3.org/id3v2.4.0-structure and id3v2.4.0-frames; real encoder fixtures/dumps in docs/validation/mp3-details-fixtures. Legacy v2.2 remains marked unsupported pending verified real fixture. No release bump or push.

@@ -1,0 +1,22 @@
+app/src/test/resources/mp3-details/mpeg1-v23.mp3 ID3 version 3 tag_size 255 header 4944330300000000017f
+frame TIT2 offset 10 size 15 flags 0000 hex 01fffe80ac9dc920001cc8a9ba0000
+frame TPE1 offset 35 size 13 flags 0000 hex 00546573742041727469737400
+frame TXXX offset 58 size 22 flags 0000 hex 00636f6d6d656e7400436f6d6d656e74207465787400
+frame TXXX offset 90 size 25 flags 0000 hex 00637573746f6d5f6b657900637573746f6d2d76616c756500
+frame TSSE offset 125 size 15 flags 0000 hex 004c61766636322e31322e31303200
+frame APIC offset 150 size 95 flags 0000 hex 00696d6167652f706e670003436f7665720089504e470d0a1a0a0000000d49484452000000080000000808020000004b6d29dc0000001449444154789c63544858c0800d3061151db41200e548013061f2a30d0000000049454e44ae426082
+MPEG header offset 265 hex fffb94c0 version_bits 3 bitrate_index 9 sample_rate_index 1
+app/src/test/resources/mp3-details/mpeg2-v24.mp3 ID3 version 4 tag_size 150 header 49443304000000000116
+frame TIT2 offset 10 size 15 flags 0000 hex 03eab280eca69d20eca09cebaaa900
+frame TPE1 offset 35 size 13 flags 0000 hex 03546573742041727469737400
+frame TXXX offset 58 size 22 flags 0000 hex 03636f6d6d656e7400436f6d6d656e74207465787400
+frame TXXX offset 90 size 25 flags 0000 hex 03637573746f6d5f6b657900637573746f6d2d76616c756500
+frame TSSE offset 125 size 15 flags 0000 hex 034c61766636322e31322e31303200
+MPEG header offset 160 hex fff384c0 version_bits 2 bitrate_index 8 sample_rate_index 1
+app/src/test/resources/mp3-details/mpeg25-v24.mp3 ID3 version 4 tag_size 150 header 49443304000000000116
+frame TIT2 offset 10 size 15 flags 0000 hex 03eab280eca69d20eca09cebaaa900
+frame TPE1 offset 35 size 13 flags 0000 hex 03546573742041727469737400
+frame TXXX offset 58 size 22 flags 0000 hex 03636f6d6d656e7400436f6d6d656e74207465787400
+frame TXXX offset 90 size 25 flags 0000 hex 03637573746f6d5f6b657900637573746f6d2d76616c756500
+frame TSSE offset 125 size 15 flags 0000 hex 034c61766636322e31322e31303200
+MPEG header offset 160 hex ffe344c0 version_bits 0 bitrate_index 4 sample_rate_index 1

@@ -174,8 +174,7 @@ private fun hasId3v2(reader: ByteReader): Boolean {
 
 private fun id3v2End(reader: ByteReader): Long {
     if (!hasId3v2(reader)) return 0
-    val size = reader.readBytes(6, 4).fold(0L) { acc, b -> (acc shl 7) or (b.toLong() and 0x7F) }
-    return 10 + size
+    return id3v2StoredEnd(reader) ?: 0
 }
 
 private fun hasSecondMpegFrame(reader: ByteReader): Boolean {

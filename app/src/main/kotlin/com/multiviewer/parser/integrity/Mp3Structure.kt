@@ -1,6 +1,7 @@
 package com.multiviewer.parser.integrity
 
 import com.multiviewer.parser.ByteReader
+import com.multiviewer.parser.id3v2StoredEnd
 
 private const val MPEG_SYNC_SCAN_LIMIT = 65_536L
 private val MPEG1_BITRATES = arrayOf(
@@ -36,6 +37,14 @@ internal fun checkMp3Structure(reader: ByteReader): List<IntegrityCheckItem> {
         if (start > reader.length) {
             add("id3.bounds", "ID3v2 bounds", CheckStatus.FAIL, "ID3v2 tag extends past end of file", 6, 4)
             return items
+        }
+        if (reader.readUInt8(3) == 4 && reader.readUInt8(5) and 16 != 0) {
+            val storedEnd = id3v2StoredEnd(reader)
+            if (storedEnd == null) {
+                add("id3.footer", "ID3v2 footer", CheckStatus.FAIL, "ID3v2 footer is missing or mismatched", start, minOf(10L, reader.length - start))
+                return items
+            }
+            start = storedEnd
         }
     }
     var audioEnd = reader.length
@@ -131,6 +140,7 @@ internal data class MpegFrame(
     val channelMode: Int,
     val length: Int,
     val freeFormat: Boolean,
+    val bitrateKbps: Int = 0,
 )
 
 private data class VbrInfo(val frames: Long?, val bytes: Long?, val offset: Long)
@@ -160,7 +170,7 @@ internal fun parseMpegFrame(reader: ByteReader, position: Long, end: Long): Mpeg
         3 -> (if (version == 1) 144 else 72) * bitrate / sampleRate + padding
         else -> 144 * bitrate / sampleRate + padding
     }
-    return MpegFrame(version, layer, sampleRate, channelMode, length, false)
+    return MpegFrame(version, layer, sampleRate, channelMode, length, false, table[bitrateIndex])
 }
 
 private fun findMpegFrame(reader: ByteReader, start: Long, end: Long): Long? {

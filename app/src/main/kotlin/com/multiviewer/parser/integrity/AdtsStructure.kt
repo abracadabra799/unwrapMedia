@@ -1,6 +1,7 @@
 package com.multiviewer.parser.integrity
 
 import com.multiviewer.parser.ByteReader
+import com.multiviewer.parser.id3v2StoredEnd
 
 private val ADTS_SAMPLE_RATES = intArrayOf(96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350)
 
@@ -24,6 +25,14 @@ internal fun checkAdtsStructure(reader: ByteReader): List<IntegrityCheckItem> {
         if (position > reader.length) {
             add("id3.bounds", "ID3v2 bounds", CheckStatus.FAIL, "ID3v2 tag extends past end of file", 6, 4)
             return items
+        }
+        if (reader.readUInt8(3) == 4 && reader.readUInt8(5) and 16 != 0) {
+            val storedEnd = id3v2StoredEnd(reader)
+            if (storedEnd == null) {
+                add("id3.footer", "ID3v2 footer", CheckStatus.FAIL, "ID3v2 footer is missing or mismatched", position, minOf(10L, reader.length - position))
+                return items
+            }
+            position = storedEnd
         }
     }
     if (position == reader.length) {

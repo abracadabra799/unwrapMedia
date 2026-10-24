@@ -158,9 +158,8 @@ fun parseAac(reader: ByteReader, start: Long, end: Long): List<BoxNode> {
 internal fun isAdtsMagic(reader: ByteReader): Boolean {
     if (reader.length < 2) return false
     var pos = 0L
-    if (reader.length >= 10 && String(reader.readBytes(0, 3), Charsets.US_ASCII) == "ID3") {
-        val tagSize = readSyncsafeUInt32(reader, 6)
-        pos = minOf(10L + tagSize, reader.length - 2)
+    if (reader.length >= 3 && String(reader.readBytes(0, 3), Charsets.US_ASCII) == "ID3") {
+        pos = id3v2StoredEnd(reader) ?: return false
     }
     if (pos + 2 > reader.length) return false
     val b0 = reader.readUInt8(pos)
