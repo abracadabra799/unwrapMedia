@@ -1,0 +1,7 @@
+app/src/test/resources/detail-parsing/fragmented-avc.mp4
+/moov/trak/mdia/minf/vmhd offset=337 payload=345 size=20 hex=000000010000000000000000
+/moov/mvex/trex offset=648 payload=656 size=32 hex=000000000000000100000001000000000000000000000000
+/moof/mfhd offset=786 payload=794 size=16 hex=0000000000000001
+/moof/traf/tfhd offset=810 payload=818 size=28 hex=000200380000000100000800000007bc01010000
+/moof/traf/tfdt offset=838 payload=846 size=20 hex=010000000000000000000000
+/moof/traf/trun offset=858 payload=866 size=32 hex=00000205000000020000007802000000000007bc000001fe

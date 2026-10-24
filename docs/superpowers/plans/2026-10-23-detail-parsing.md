@@ -36,3 +36,6 @@ Verified default fixture: ES_ID=2; objectTypeIndication=0x40; streamType=5; buff
 - Tests: real fixture fields, v1 parameter, truncated table clamping and unsupported version. No eager expansion of sample tables.
 
 Tasks 2/3 validation: new registry tests failed before implementation and passed after; AAC extension regression failed then passed after separating display notices from structural warnings. Full :app:test passed (2026-10-24); independent review found no remaining issues.
+
+## Tasks 4/5 — sample dependencies and fragment headers
+Implemented sdtp bitfields, sgpd roll/prol signed recovery distances, mfhd/trex/tfhd/tfdt scalar fields and lazy trun rows, plus fragment container traversal. See 2026-10-24-sample-details.md and 2026-10-24-fragment-details.md for evidence. Fragment playback indexing, other group descriptions, HEIC/HEIF and subsequent formats remain pending.

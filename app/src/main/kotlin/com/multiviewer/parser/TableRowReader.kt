@@ -21,6 +21,11 @@ fun readTableRow(reader: ByteReader, table: TableData, rowIndex: Long): List<Lon
             val value = reader.readUInt8(table.entriesStart + rowIndex)
             listOf(6, 4, 2, 0).map { ((value shr it) and 3).toLong() }
         }
+        TableRowEncoding.SIGNED_LAST_32 -> {
+            require(table.fieldWidths.isNotEmpty() && table.fieldWidths.all { it == 4 })
+            val values = readTableRow(reader, table.entriesStart, table.fieldWidths, rowIndex)
+            values.dropLast(1) + values.last().toInt().toLong()
+        }
         TableRowEncoding.SIGNED_16 -> {
             require(table.fieldWidths == listOf(2))
             listOf(reader.readUInt16(table.entriesStart + rowIndex * 2).toShort().toLong())

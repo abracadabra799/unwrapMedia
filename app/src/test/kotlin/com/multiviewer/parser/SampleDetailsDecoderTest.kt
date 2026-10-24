@@ -58,12 +58,12 @@ class SampleDetailsDecoderTest {
             val table = assertNotNull(node.table)
             assertEquals(listOf(3L, 2L, 1L, 0L), readTableRow(reader, table, 0))
             assertFailsWith<IllegalArgumentException> { readTableRow(reader, table, 1) }
-            val unsigned = TableData(listOf("raw"), listOf(1), 4, 1)
-            assertEquals(listOf(228L), readTableRow(reader, unsigned, 0))
+            val unsigned = TableData(listOf("raw"), listOf(4), 0, 1)
+            assertEquals(listOf(0L), readTableRow(reader, unsigned, 0))
         }
         val json = com.multiviewer.cli.buildDumpJson(File("sample.mp4"), node)
         assertTrue(json.contains("SDTP_BITS"))
-        val ordinary = node.copy(table = TableData(listOf("raw"), listOf(1), 4, 1))
+        val ordinary = node.copy(table = TableData(listOf("raw"), listOf(4), 0, 1))
         assertFalse(com.multiviewer.cli.buildDumpJson(File("sample.mp4"), ordinary).contains("rowEncoding"))
     }
 

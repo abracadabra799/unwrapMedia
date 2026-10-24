@@ -10,3 +10,9 @@ python3 docs/validation/detail-parsing/dump_boxes.py app/src/test/resources/deta
 ```
 
 `verified-bytes.txt` records the independent dump before application parser implementation. The existing AV1 HDR fixture supplies fiel and sdtp. Bitrates may vary across encoder versions; tests assert the checked-in file's raw fields.
+
+Fragment fixture (lavfi, default AVC tag):
+```sh
+ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=size=64x64:rate=5 -t 0.4 -c:v libx264 -pix_fmt yuv420p -movflags +empty_moov+frag_keyframe+default_base_moof app/src/test/resources/detail-parsing/fragmented-avc.mp4
+python3 docs/validation/detail-parsing/dump_boxes.py app/src/test/resources/detail-parsing/fragmented-avc.mp4
+```

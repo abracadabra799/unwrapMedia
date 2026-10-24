@@ -11,6 +11,12 @@ fun registerAllDecoders() {
         BoxRegistry.register(type, BasicMediaBoxDecoder)
     }
     BoxRegistry.register("esds", EsdsBoxDecoder)
+    for (type in listOf("mfhd", "trex", "tfhd", "tfdt", "trun")) {
+        BoxRegistry.register(type, FragmentBoxDetailsDecoder)
+    }
+    for (type in listOf("moof", "traf", "mvex", "mfra")) {
+        BoxRegistry.register(type, ContainerBoxDecoder())
+    }
     BoxRegistry.register("ftyp", FtypBoxDecoder)
     BoxRegistry.register("mvhd", MvhdBoxDecoder)
     BoxRegistry.register("tkhd", TkhdBoxDecoder)

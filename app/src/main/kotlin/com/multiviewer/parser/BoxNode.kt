@@ -7,7 +7,7 @@ data class BoxField(
     val length: Long,
 )
 
-enum class TableRowEncoding { UNSIGNED, SDTP_BITS, SIGNED_16 }
+enum class TableRowEncoding { UNSIGNED, SDTP_BITS, SIGNED_16, SIGNED_LAST_32 }
 
 data class TableData(
     val columns: List<String>,
