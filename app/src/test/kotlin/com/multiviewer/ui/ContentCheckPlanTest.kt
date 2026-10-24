@@ -265,8 +265,8 @@ class ContentCheckPlanTest {
 
     @Test
     fun isoBmffReportReplacesTheParserOnlyVideoReport() {
-        val report = isoBmffConformanceFor(movieFile("x.mp4"))!!
-        val conformance = contentConformanceReport(MediaType.VIDEO, isoBmff = report)
+        val report = containerConformanceFor(movieFile("x.mp4"))!!
+        val conformance = contentConformanceReport(MediaType.VIDEO, container = report)
         assertEquals("ISO-BMFF", conformance.format)
         assertEquals(report.findings, conformance.findings)
         assertTrue(conformance.findings.any { it.rule.id == "bmff.moov.count" && it.status == ConformanceStatus.PASS })
@@ -277,18 +277,18 @@ class ContentCheckPlanTest {
     @Test
     fun isoBmffConformanceIsOnlyComputedForMp4MovAndM4a() {
         val jpeg = File.createTempFile("ccp-iso-", ".jpg").also { it.deleteOnExit(); it.writeBytes(jpegBytes()) }
-        assertNull(isoBmffConformanceFor(jpeg))
-        val mp4 = isoBmffConformanceFor(movieFile("x.mp4"))
+        assertNull(containerConformanceFor(jpeg))
+        val mp4 = containerConformanceFor(movieFile("x.mp4"))
         assertEquals("ISO-BMFF", mp4?.format)
         // Content decides, not the extension.
-        assertEquals("ISO-BMFF", isoBmffConformanceFor(movieFile("x.bin"))?.format)
-        assertNull(isoBmffConformanceFor(File("/definitely/missing/file.mp4")))
+        assertEquals("ISO-BMFF", containerConformanceFor(movieFile("x.bin"))?.format)
+        assertNull(containerConformanceFor(File("/definitely/missing/file.mp4")))
     }
 
     @Test
     fun isoBmffFailFindingIsNormativeAndListedInThePrompt() {
         val file = movieFile("nomoov.mp4", com.multiviewer.parser.conformance.isobmff.MovieSpec(dropBox = "moov"))
-        val report = contentConformanceReport(MediaType.VIDEO, isoBmff = isoBmffConformanceFor(file))
+        val report = contentConformanceReport(MediaType.VIDEO, container = containerConformanceFor(file))
         val fail = report.findings.first { it.rule.id == "bmff.moov.count" }
         assertEquals(ConformanceStatus.FAIL, fail.status)
         val snapshot = ContentCheckSnapshot(null, null, false, null, null, null, MediaType.VIDEO, conformance = report)
@@ -299,14 +299,14 @@ class ContentCheckPlanTest {
     }
     @Test
     fun isoBmffReportKeepsParserEvidenceLinesFromTheOldReport() {
-        val iso = isoBmffConformanceFor(movieFile("x.mp4"))!!
+        val iso = containerConformanceFor(movieFile("x.mp4"))!!
         val parserItem = IntegrityCheckItem("parser.warning", "Parser warning", CheckStatus.WARN, "stsz truncated", offset = 16, length = 4)
         val video = contentConformanceReport(MediaType.VIDEO,
-            structure = ImageStructureReport("MP4", listOf(parserItem)), isoBmff = iso)
+            structure = ImageStructureReport("MP4", listOf(parserItem)), container = iso)
         assertEquals(iso.findings, video.findings)
         assertTrue(video.limitations.contains("파서 근거 / Parser evidence [WARN]: stsz truncated (바이트 / bytes 16–19)"), video.limitations.toString())
         val audio = contentConformanceReport(MediaType.AUDIO,
-            audioStructure = com.multiviewer.parser.integrity.AudioStructureReport("M4A", emptyList(), listOf(parserItem)), isoBmff = iso)
+            audioStructure = com.multiviewer.parser.integrity.AudioStructureReport("M4A", emptyList(), listOf(parserItem)), container = iso)
         assertTrue(audio.limitations.any { it.startsWith("파서 근거 / Parser evidence [WARN]: stsz truncated") }, audio.limitations.toString())
         assertEquals(1, audio.limitations.count { it.startsWith("파서 근거") })
     }
@@ -320,14 +320,37 @@ class ContentCheckPlanTest {
     @Test
     fun isoBmffGateAdmitsQuickTimeMovAndM4a() {
         listOf("v.mov", "clip.bin").forEach { asName ->
-            val mov = isoBmffConformanceFor(bmffFixture("v.mov", asName))
+            val mov = containerConformanceFor(bmffFixture("v.mov", asName))
             assertEquals("QuickTime", mov?.format, asName)
             assertEquals(emptyList(), mov!!.findings.filter { it.status == ConformanceStatus.FAIL }, asName)
         }
         listOf("a.m4a", "song.bin").forEach { asName ->
-            val m4a = isoBmffConformanceFor(bmffFixture("a.m4a", asName))
+            val m4a = containerConformanceFor(bmffFixture("a.m4a", asName))
             assertEquals("ISO-BMFF", m4a?.format, asName)
             assertEquals(emptyList(), m4a!!.findings.filter { it.status == ConformanceStatus.FAIL }, asName)
         }
+    }
+
+    @Test
+    fun `HEIF and AVIF images get the HEIF report with parser evidence kept`() {
+        val heic = containerConformanceFor(renamed("a.heic", "photo.heic"))!!
+        assertEquals("HEIF", heic.format)
+        assertEquals(com.multiviewer.parser.conformance.heif.HeifConformanceChecker.HEIF_PROFILE, heic.profile)
+        // Content decides, not the extension.
+        assertEquals("HEIF", containerConformanceFor(renamed("a.heic", "photo.jpg"))?.format)
+        assertEquals("AVIF", containerConformanceFor(renamed("a.avif", "a.avif"))?.format)
+
+        val parserItem = com.multiviewer.parser.integrity.IntegrityCheckItem("parser.0", "Parser", com.multiviewer.parser.integrity.CheckStatus.WARN, "odd box")
+        val structural = com.multiviewer.parser.integrity.IntegrityCheckItem("heif.ftyp", "ftyp", com.multiviewer.parser.integrity.CheckStatus.PASS, "ok")
+        val report = contentConformanceReport(MediaType.IMAGE,
+            structure = ImageStructureReport("HEIF", listOf(structural, parserItem)), container = heic)
+        assertEquals("HEIF", report.format)
+        assertEquals(heic.findings, report.findings)
+        assertTrue(report.limitations.any { it.startsWith("파서 근거 / Parser evidence") && it.contains("odd box") }, report.limitations.toString())
+        assertTrue(report.limitations.any { it.contains("Samsung") })
+
+        // IMAGE still needs a completed STRUCTURE stage before a green summary.
+        val pending = ContentCheckSnapshot(null, null, false, null, null, null, MediaType.IMAGE, conformance = report)
+        assertEquals(ConformanceStatus.NOT_CHECKED, effectiveConformanceStatus(pending))
     }
 }

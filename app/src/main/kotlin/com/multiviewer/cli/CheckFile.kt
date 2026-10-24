@@ -1,7 +1,7 @@
 package com.multiviewer.cli
 
 import com.multiviewer.ui.MediaType
-import com.multiviewer.ui.isoBmffConformanceFor
+import com.multiviewer.ui.containerConformanceFor
 import com.multiviewer.parser.conformance.ConformanceReport
 import com.multiviewer.parser.conformance.SpecCitation
 import com.multiviewer.parser.contentMediaType
@@ -67,7 +67,7 @@ fun checkFile(file: File, includeCase: Boolean = false, decode: Boolean = false,
         } else {
             null
         }
-        val containerConformance = isoBmffConformanceFor(result.file)
+        val containerConformance = containerConformanceFor(result.file)
         val json = buildCheckJson(result.file, warnings, integrity, imageIntegrity, audio,
             containerConformance = containerConformance)
         val prompt = AiDiagnosticPromptBuilder.buildPrompt(result.file, result.root, warnings)
@@ -199,7 +199,7 @@ fun buildCheckJson(
     return wrapper.render()
 }
 
-/** ISO-BMFF / QuickTime container conformance (MP4/MOV/M4A only); status never reads PASS on an inspection error. */
+/** Container conformance (ISO-BMFF/QuickTime for MP4/MOV/M4A, HEIF/AVIF for images); status never reads PASS on an inspection error. */
 fun containerConformanceJson(report: ConformanceReport, file: File): JsonValue = JsonValue.JObject(
     listOf(
         "status" to JsonValue.JString(report.overall.name),

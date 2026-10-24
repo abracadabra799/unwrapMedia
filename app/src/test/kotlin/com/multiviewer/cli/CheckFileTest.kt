@@ -215,6 +215,25 @@ class CheckFileTest {
         assertTrue(!case.contains(file.parentFile.absolutePath), case)
     }
 
+    private fun sniffFixture(name: String): File {
+        val dir = kotlin.io.path.createTempDirectory("check-heif-").toFile().also { it.deleteOnExit() }
+        return File(javaClass.getResource("/format-sniff/$name")!!.toURI()).copyTo(File(dir, name)).also { it.deleteOnExit() }
+    }
+
+    @Test
+    fun `checkFile adds HEIF and AVIF containerConformance for image files`() {
+        val heic = checkFile(sniffFixture("a.heic"), includeCase = true) as CheckResult.Success
+        assertTrue(heic.json.contains("\"containerConformance\": {"), heic.json)
+        val heicSection = heic.json.substringAfter("\"containerConformance\": {")
+        assertTrue(heicSection.contains("\"format\": \"HEIF\""), heicSection)
+        assertTrue(Regex("\"ruleId\": \"heif.meta.present\",\\s*\"status\": \"PASS\"").containsMatchIn(heicSection), heicSection)
+        assertTrue(heic.json.contains("\"imageIntegrity\""), heic.json)
+        assertTrue(heic.analysisCaseJson!!.contains("\"containerConformance\": {"), heic.analysisCaseJson!!)
+        val avif = checkJson(sniffFixture("a.avif"))
+        assertTrue(avif.substringAfter("\"containerConformance\": {").contains("\"format\": \"AVIF\""), avif)
+        assertTrue(avif.contains("\"url\": \"https://aomediacodec.github.io/av1-avif/"), avif)
+    }
+
     @Test
     fun `analysis case omits containerConformance for non-ISO-BMFF files`() {
         val file = File.createTempFile("check-iso-", ".jpg").also {
