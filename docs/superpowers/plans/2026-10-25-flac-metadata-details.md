@@ -15,16 +15,18 @@
 
 ## Task 1 — CUESHEET
 - [x] Generate actual fixtures before implementation; independent dumps recorded. metadata.flac CUESHEET146 payload150 len540: catalog1234567890123, lead-in88200, CD flag128, tracks3. Track1 at546, ISRC USAAA2600001, pre-emphasis1, index0@582 offset0, index1@594 offset588. Track2@606 offset44100; lead-out@654 number170 offset88200. non-cd.flac track1@492 offset17/type1, index@528 offset3, lead-out255.
-- [ ] Add FlacCueSheetDetailsTest: actual CD/non-CD values/ranges, unsigned u64 max, every truncated prefix, following-block isolation, expanded-node limit.
-- [ ] Observe red with `./gradlew :app:test --tests 'com.multiviewer.parser.FlacCueSheetDetailsTest'`.
-- [ ] Implement FlacCueSheetDecoder and shared FlacMetadataCursor; dispatch CUESHEET even with empty payload. Preserve decoded prefix and explicit remaining raw ranges on errors/caps.
-- [ ] Focused suite green; commit task.
+- [x] Add FlacCueSheetDetailsTest: actual CD/non-CD values/ranges, unsigned u64 max, every truncated prefix, following-block isolation, expanded-node limit.
+- [x] Observe red with `./gradlew :app:test --tests 'com.multiviewer.parser.FlacCueSheetDetailsTest'`.
+- [x] Implement FlacCueSheetDecoder and shared FlacMetadataCursor; dispatch CUESHEET even with empty payload. Preserve decoded prefix and explicit remaining raw ranges on errors/caps.
+- [x] Focused suite green; commit task.
 
 ## Task 2 — PICTURE and Vorbis details
-- [ ] Add FlacMetadataValueDetailsTest. Actual first picture690: data_length96 at737, payload741 len96, num_colors0 at733, description 표지715 len6. URI payload888 len33. Vorbis count4 at63; TITLE value102 len11; repeated ARTIST values First/Second. Add forged lengths/counts, invalid text, trailing data and caps.
-- [ ] Observe red; implement FlacPictureDecoder and FlacVorbisCommentDecoder using shared bounded cursor. Delete old duplicate functions from FlacWalker, retain STREAMINFO and other dispatch.
-- [ ] Focused parser/summary tests green; commit task.
+- [x] Add FlacMetadataValueDetailsTest. Actual first picture690: data_length96 at737, payload741 len96, num_colors0 at733, description 표지715 len6. URI payload888 len33. Vorbis count4 at63; TITLE value102 len11; repeated ARTIST values First/Second. Add forged lengths/counts, invalid text, trailing data and caps.
+- [x] Observe red; implement FlacPictureDecoder and FlacVorbisCommentDecoder using shared bounded cursor. Delete old duplicate functions from FlacWalker, retain STREAMINFO and other dispatch.
+- [x] Focused parser/summary tests green; commit task.
 
 ## Task 3 — Review and integration
-- [ ] Independent code review; correct important findings with regression evidence.
-- [ ] Full `./gradlew :app:test`, record counts and any failures/retries. Update broad parsing plan/provenance. Integrate with latest main and fast-forward locally. Initial requested push was completed before this work; no automatic second push.
+- [x] Independent code review; correct important findings with regression evidence.
+- [x] Full `./gradlew :app:test`, record counts and any failures/retries. Update broad parsing plan/provenance. Integrate with latest main and fast-forward locally. Initial requested push was completed before this work; no automatic second push.
+
+Validation: all new tests observed red before implementation. Final whole suite {'tests': 2807, 'failures': 0, 'errors': 0, 'skipped': 1}; independent review corrections (impossible Vorbis count and reserved picture type status) reproduced red and fixed, then reviewer confirmed no remaining important issues.

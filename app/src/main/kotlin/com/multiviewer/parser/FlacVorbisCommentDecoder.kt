@@ -8,6 +8,7 @@ internal object FlacVorbisCommentDecoder : BoxDecoder {
             c.text("vendor", vendorLength)
             val commentCount = c.uint("comment_count", 4, littleEndian = true)
             count = commentCount
+            if (commentCount > c.remaining / 4) throw FlacMetadataIssue("Impossible Vorbis comment count / Vorbis 태그 개수가 블록 범위를 초과")
             var index = 0L
             while (index < commentCount) {
                 // Check structure before the display cap, so missing records are not reported as a cap.

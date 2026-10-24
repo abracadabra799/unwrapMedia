@@ -65,6 +65,21 @@ class FlacMetadataValueDetailsTest {
         assertEquals(ValueInterpretation.UNINTERPRETED, detailInterpretation(trailing))
         assertEquals("4294967295", value(block(4, hex("00000000ffffffff")), "comment_count").value)
     }
+    @Test fun `impossible comment count is malformed even beyond the display limit`() {
+        val record = le(3) + "A=B".toByteArray()
+        val node = block(4, le(0) + hex("ffffffff") + ByteArray(record.size * 4097) { record[it % record.size] })
+        assertEquals(ValueInterpretation.UNPARSABLE, detailInterpretation(node))
+    }
+    @Test fun `reserved picture types retain their raw number and uninterpreted status`() {
+        val bytes = File("src/test/resources/flac-metadata/metadata.flac").readBytes()
+        for (code in listOf(hex("00000015"), hex("ffffffff"))) {
+            val uri = bytes.copyOfRange(841, 921).also { code.copyInto(it) }
+            val node = block(6, uri)
+            assertEquals(ValueInterpretation.UNINTERPRETED, value(node, "picture_type").interpretation)
+            assertEquals(ValueInterpretation.UNINTERPRETED, detailInterpretation(node))
+            assertEquals("https://example.invalid/cover.png", value(node, "picture_uri").value)
+        }
+    }
     @Test fun `large text and comment counts remain bounded with explicit omitted bytes`() {
         val text = "TITLE=".toByteArray() + ByteArray(70_000) { 'x'.code.toByte() }
         val large = block(4, le(0) + le(1) + le(text.size) + text)

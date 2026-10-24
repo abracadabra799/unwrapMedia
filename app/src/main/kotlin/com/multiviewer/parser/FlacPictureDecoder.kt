@@ -4,7 +4,11 @@ internal object FlacPictureDecoder : BoxDecoder {
     override fun decode(reader: ByteReader, type: String, offset: Long, headerSize: Int, size: Long, warnings: List<String>): BoxNode {
         var summary: String? = null
         val node = decodeFlacMetadata(reader, type, offset, headerSize, size, warnings) { c ->
-            c.uint("picture_type", 4)
+            val pictureType = c.uint("picture_type", 4)
+            if (pictureType > 20) {
+                c.fields[c.fields.lastIndex] = c.fields.last().copy(interpretation = ValueInterpretation.UNINTERPRETED)
+                if (c.state == ValueInterpretation.PARSED) c.state = ValueInterpretation.UNINTERPRETED
+            }
             val mimeLength = c.uint("mime_length", 4)
             val mime = c.text("mime", mimeLength, Charsets.US_ASCII, printableAscii = true)
             val descriptionLength = c.uint("description_length", 4)

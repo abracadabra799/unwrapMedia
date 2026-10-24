@@ -64,3 +64,8 @@ Remaining after task18: MOV-specific metadata inventory; FLAC CUESHEET and other
 Implemented precise typed QuickTime values and fixed integer/vector/matrix types, strict text/width checks, bounded keys/ilst, exact source spans and interpretation states on derived properties. Added verified QT v1/v2 packet fields, PCM flags, chan/frma/enda, legacy © userdata with language records and strict encodings. Real ffmpeg/AVFoundation fixture bytes and provenance in docs/validation/mov-details-fixtures; design/plan in 2026-10-25-mov-details*. The ambiguous raw FourCC stays uninterpreted until track-aware dispatch exists.
 
 Remaining: FLAC CUESHEET and other undecoded metadata; PNG/TIFF/GIF/DNG and broader AV2 inventory; proprietary SEF semantic definitions and large-name/payload limits. Nested/binary QuickTime metadata and unsupported legacy encodings remain explicitly uninterpreted. This does not claim complete MOV specification coverage.
+
+## Task20 — FLAC native metadata
+Completed bounded CUESHEET track/index trees (including unsigned sample positions), PICTURE lengths/palette count/raw image range/URI, and strict bounded Vorbis tags with length/count/source ranges and duplicate values. Invalid counts/text/extents are unparsable; capped/opaque/reserved data remain uninterpreted. Actual ffmpeg/Mutagen files and independent dumps are in docs/validation/flac-metadata-fixtures. Full regression and independent review passed; see 2026-10-25-flac-metadata-details.md.
+
+Remaining: PNG missing transparency/background/significant-bit/histogram/APNG/HDR chunks and text/status audit; TIFF/GIF/DNG and broader AV2 inventory; private SEF semantics and payload limits. Known FLAC APPLICATION private bytes and embedded image binary remain intentionally uninterpreted.
