@@ -69,8 +69,8 @@ private fun decodeFlacBlock(
     if (payloadLength <= 0 && name !in setOf("APPLICATION", "STREAMINFO", "VORBIS_COMMENT", "PICTURE", "CUESHEET")) return BoxNode(name, offset, headerSize, size, warnings = warnings)
     return when (name) {
         "STREAMINFO" -> decodeStreamInfo(reader, name, offset, headerSize, size, payloadStart, payloadLength, warnings)
-        "VORBIS_COMMENT" -> decodeVorbisComment(reader, name, offset, headerSize, size, payloadStart, payloadLength, warnings)
-        "PICTURE" -> decodePicture(reader, name, offset, headerSize, size, payloadStart, payloadLength, warnings)
+        "VORBIS_COMMENT" -> FlacVorbisCommentDecoder.decode(reader, name, offset, headerSize, size, warnings)
+        "PICTURE" -> FlacPictureDecoder.decode(reader, name, offset, headerSize, size, warnings)
         "CUESHEET" -> FlacCueSheetDecoder.decode(reader, name, offset, headerSize, size, warnings)
         "SEEKTABLE", "APPLICATION" -> FlacExtraMetadataDecoder.decode(reader, name, offset, headerSize, size, warnings)
         else -> BoxNode(name, offset, headerSize, size, summary = "$payloadLength byte(s)", warnings = warnings,
@@ -114,124 +114,7 @@ private fun decodeStreamInfo(
     )
 }
 
-private fun decodeVorbisComment(
-    reader: ByteReader, name: String, offset: Long, headerSize: Int, size: Long,
-    payloadStart: Long, payloadLength: Int, warnings: List<String>,
-): BoxNode {
-    val allWarnings = warnings.toMutableList()
-    val payloadEnd = payloadStart + payloadLength
-    val fields = mutableListOf<BoxField>()
-    var pos = payloadStart
-
-    if (pos + 4 > payloadEnd) {
-        allWarnings.add("VORBIS_COMMENT block is $payloadLength byte(s), too short for its vendor length field")
-        return BoxNode(name, offset, headerSize, size, warnings = allWarnings)
-    }
-    val vendorLength = readUInt32LE(reader, pos).toInt()
-    pos += 4
-    if (vendorLength < 0 || pos + vendorLength > payloadEnd) {
-        allWarnings.add("Vendor string length $vendorLength extends past the end of this block")
-        return BoxNode(name, offset, headerSize, size, warnings = allWarnings)
-    }
-    val vendor = String(reader.readBytes(pos, vendorLength), Charsets.UTF_8)
-    fields.add(BoxField("vendor", vendor, pos, vendorLength.toLong()))
-    pos += vendorLength
-
-    if (pos + 4 > payloadEnd) {
-        allWarnings.add("Truncated before comment count")
-        return BoxNode(name, offset, headerSize, size, fields = fields, warnings = allWarnings)
-    }
-    val commentCount = readUInt32LE(reader, pos).toInt()
-    pos += 4
-
-    for (i in 0 until commentCount) {
-        if (pos + 4 > payloadEnd) {
-            allWarnings.add("Comment list truncated at entry $i of $commentCount")
-            break
-        }
-        val commentLength = readUInt32LE(reader, pos).toInt()
-        pos += 4
-        if (commentLength < 0 || pos + commentLength > payloadEnd) {
-            allWarnings.add("Comment $i length $commentLength extends past the end of this block")
-            break
-        }
-        val comment = String(reader.readBytes(pos, commentLength), Charsets.UTF_8)
-        val eq = comment.indexOf('=')
-        if (eq >= 0) {
-            fields.add(BoxField(comment.substring(0, eq), comment.substring(eq + 1), pos, commentLength.toLong()))
-        } else {
-            fields.add(BoxField("comment", comment, pos, commentLength.toLong()))
-        }
-        pos += commentLength
-    }
-
-    return BoxNode(name, offset, headerSize, size, fields = fields, summary = "$commentCount comment(s)", warnings = allWarnings)
-}
-
-private fun decodePicture(
-    reader: ByteReader, name: String, offset: Long, headerSize: Int, size: Long,
-    payloadStart: Long, payloadLength: Int, warnings: List<String>,
-): BoxNode {
-    val allWarnings = warnings.toMutableList()
-    val payloadEnd = payloadStart + payloadLength
-    var pos = payloadStart
-
-    if (pos + 8 > payloadEnd) {
-        allWarnings.add("PICTURE block is $payloadLength byte(s), too short for its fixed fields")
-        return BoxNode(name, offset, headerSize, size, warnings = allWarnings)
-    }
-    val pictureType = reader.readUInt32(pos)
-    val mimeLength = reader.readUInt32(pos + 4).toInt()
-    pos += 8
-    if (mimeLength < 0 || pos + mimeLength > payloadEnd) {
-        allWarnings.add("MIME type length $mimeLength extends past the end of this block")
-        return BoxNode(name, offset, headerSize, size, warnings = allWarnings)
-    }
-    val mime = String(reader.readBytes(pos, mimeLength), Charsets.US_ASCII)
-    val mimeOffset = pos
-    pos += mimeLength
-
-    if (pos + 4 > payloadEnd) {
-        allWarnings.add("Truncated before description length")
-        return BoxNode(name, offset, headerSize, size, warnings = allWarnings)
-    }
-    val descriptionLength = reader.readUInt32(pos).toInt()
-    pos += 4
-    if (descriptionLength < 0 || pos + descriptionLength > payloadEnd) {
-        allWarnings.add("Description length $descriptionLength extends past the end of this block")
-        return BoxNode(name, offset, headerSize, size, warnings = allWarnings)
-    }
-    val description = String(reader.readBytes(pos, descriptionLength), Charsets.UTF_8)
-    val descriptionOffset = pos
-    pos += descriptionLength
-
-    val baseFields = mutableListOf(
-        BoxField("picture_type", pictureType.toString(), payloadStart, 4),
-        BoxField("mime", mime, mimeOffset, mimeLength.toLong()),
-        BoxField("description", description, descriptionOffset, descriptionLength.toLong()),
-    )
-
-    if (pos + 20 > payloadEnd) {
-        allWarnings.add("Truncated before width/height/color fields")
-        return BoxNode(name, offset, headerSize, size, fields = baseFields, warnings = allWarnings)
-    }
-    val width = reader.readUInt32(pos)
-    val height = reader.readUInt32(pos + 4)
-    val colorDepth = reader.readUInt32(pos + 8)
-    baseFields.add(BoxField("width", width.toString(), pos, 4))
-    baseFields.add(BoxField("height", height.toString(), pos + 4, 4))
-    baseFields.add(BoxField("color_depth", colorDepth.toString(), pos + 8, 4))
-
-    return BoxNode(name, offset, headerSize, size, fields = baseFields, summary = "$mime, ${width}x$height", warnings = allWarnings)
-}
-
 private fun readUInt24BE(reader: ByteReader, offset: Long): Long {
     val bytes = reader.readBytes(offset, 3)
     return ((bytes[0].toLong() and 0xFF) shl 16) or ((bytes[1].toLong() and 0xFF) shl 8) or (bytes[2].toLong() and 0xFF)
-}
-
-private fun readUInt32LE(reader: ByteReader, offset: Long): Long {
-    val b = reader.readBytes(offset, 4)
-    return (b[0].toLong() and 0xFF) or ((b[1].toLong() and 0xFF) shl 8) or
-        ((b[2].toLong() and 0xFF) shl 16) or ((b[3].toLong() and 0xFF) shl 24)
 }
