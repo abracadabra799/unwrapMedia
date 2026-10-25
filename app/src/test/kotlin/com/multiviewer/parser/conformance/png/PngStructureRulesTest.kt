@@ -34,6 +34,16 @@ class PngStructureRulesTest {
         assertEquals(PASS, r.overall)
     }
 
+    @Test fun `I2 an unknown critical chunk fails, a private one cannot be verified`() {
+        failsOnly(rgb(chunk("ABCD")), "png3.chunk.unknown")                       // public, critical, not defined by PNG-3
+        val priv = check(rgb(chunk("AbCD")))                                      // private critical: not a violation, but never PASS
+        assertEquals(NOT_CHECKED, priv.statusOf("png3.chunk.unknown"))
+        assertEquals(emptySet(), priv.idsWith(FAIL, WARN))
+        assertEquals(PASS, check(rgb(chunk("ABcD"))).statusOf("png3.chunk.unknown")) // reserved bit set: png3.chunk.type's business
+        assertEquals(PASS, check(rgb()).statusOf("png3.chunk.unknown"))
+        assertEquals(PASS, check(rgb(chunk("abcd"))).statusOf("png3.chunk.unknown")) // ancillary: never flagged
+    }
+
     @Test fun `chunk type bytes and the reserved bit`() {
         failsOnly(rgb(chunk("abcd")), "png3.chunk.type")          // third letter lowercase
         failsOnly(rgb(chunk("ab1d")), "png3.chunk.type")          // '1' outside 41-5A / 61-7A

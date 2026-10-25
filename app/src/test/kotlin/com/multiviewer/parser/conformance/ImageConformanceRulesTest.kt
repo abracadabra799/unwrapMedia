@@ -26,7 +26,7 @@ class ImageConformanceRulesTest {
     @Test fun `PNG catalog cites PNG-3 anchors and RFC 1950 page 5`() {
         val rules = PngRules.all
         common(rules)
-        assertEquals(22, rules.size)
+        assertEquals(23, rules.size)
         assertEquals(setOf("png3.srgb_iccp", "png3.unused_bits"), PngRules.WARN_RULES)
         rules.filter { it.id != "zlib.header" }.forEach { r ->
             val c = r.citation!!

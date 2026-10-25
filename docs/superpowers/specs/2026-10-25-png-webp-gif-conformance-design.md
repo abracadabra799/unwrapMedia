@@ -71,19 +71,20 @@ Notes:
 - GIF89a: plain text, no anchors — the URL is the document and the section number is the locator; page is null (the
   text has printed page numbers in the margin, listed below as "txt p." for reviewers only).
 
-## Rules (53: PNG 22 = 19 FAIL + 3 WARN, WebP 16 = 12 FAIL + 4 WARN, GIF 15 = 9 FAIL + 6 WARN)
+## Rules (54: PNG 23 = 21 FAIL + 2 WARN, WebP 16 = 12 FAIL + 4 WARN, GIF 15 = 9 FAIL + 6 WARN)
 
 "def." = section carries `DEFINITIONAL_SUFFIX`. Scopes: `PNG 데이터스트림 구조 / PNG datastream structure (PNG-3)`,
 `PNG 보조 청크 / PNG ancillary chunks (PNG-3)`, `APNG 애니메이션 / APNG animation (PNG-3)`, `zlib 스트림 헤더 / zlib
 stream headers (PNG-3 §10, RFC 1950)`, `WebP RIFF 컨테이너 …`, `WebP 비트스트림 헤더 …`, `GIF 블록 구조 …`.
 
-### PNG (W3C PNG-3) and zlib (RFC 1950) — 22 rules
+### PNG (W3C PNG-3) and zlib (RFC 1950) — 23 rules
 
 | ID | Checks | Level | Citation (anchor) | Quoted sentence |
 |---|---|---|---|---|
 | `png3.signature` | first 8 bytes `89 50 4E 47 0D 0A 1A 0A` | FAIL | 5.2, def. (`#5PNG-file-signature`) | "The first eight bytes of a PNG datastream always contain the following hexadecimal values: 89 50 4E 47 0D 0A 1A 0A" |
 | `png3.chunk.layout` | length ≤ 2^31-1; header + data + CRC inside the file (truncation) | FAIL | 5.3 Table 5 (`#5Chunk-layout`) | "Although encoders and decoders should treat the length as unsigned, its value shall not exceed 2^31-1 bytes." (superscript in the original) |
 | `png3.chunk.type` | type bytes in 41-5A / 61-7A; third letter uppercase | FAIL | 5.3 Table 5 / 5.4 (`#5Chunk-naming-conventions`) | "Each byte of a chunk type is restricted to the hexadecimal values 41 to 5A and 61 to 7A." / "In this International Standard, all chunk names shall have uppercase third letters." |
+| `png3.chunk.unknown` | critical chunk (uppercase 1st letter) other than IHDR/PLTE/IDAT/IEND: public (uppercase 2nd letter) → FAIL; private → NOT_CHECKED (cannot be verified, never PASS) | FAIL | 15.3.1 / 13.1 (`#15FileConformance`) | "No chunks appear in the PNG datastream other than those specified in this specification or those defined according to the rules for creating new chunk types as defined in this specification." / "Encountering an unknown critical chunk is a fatal condition for any decoder trying to extract the image from the datastream." |
 | `png3.crc` | stored CRC = CRC-32 of type + data, every complete chunk (critical and ancillary) | FAIL | 5.3 / 5.5, def. (`#5CRC-algorithm`) | "A four-byte CRC calculated on the preceding bytes in the chunk, including the chunk type field and chunk data fields, but not including the length field." |
 | `png3.ihdr` | IHDR first, length 13; width, height 1..2^31-1; Table 12 colour type / bit depth; compression 0; filter 0; interlace 0/1 | FAIL | 11.2.1 Table 12 (`#11IHDR`) | "The IHDR chunk shall be the first chunk in the PNG datastream." / "Zero is an invalid value." / "The allowed combinations are defined in Table 12." / "All conforming PNG images shall be compressed with this scheme." / "Two values are defined in this specification: 0 (no interlace) or 1 (Adam7 interlace)." |
 | `png3.critical` | one IHDR; ≥ 1 IDAT, consecutive; PLTE before the first IDAT; one IEND, empty, reached | FAIL | 11.2 / 11.2.3 (`#11Critical-chunks`) | "A valid PNG datastream shall begin with a PNG signature, immediately followed by an IHDR chunk, then one or more IDAT chunks, and shall end with an IEND chunk. Only one IHDR chunk and one IEND chunk are allowed in a PNG datastream." / "There may be multiple IDAT chunks; if so, they shall appear consecutively with no other intervening chunks." / IEND: "The chunk's data field is empty." |
@@ -101,7 +102,7 @@ stream headers (PNG-3 §10, RFC 1950)`, `WebP RIFF 컨테이너 …`, `WebP 비�
 | `png3.actl` | acTL length 8, num_frames ≠ 0 and = number of fcTL (acTL before IDAT is in `png3.order`) | FAIL | 11.3.6.1 (`#acTL-chunk`) | "This must equal the number of fcTL chunks. 0 is not a valid value." |
 | `png3.sequence` | fcTL + fdAT sequence numbers 0, 1, 2 … in file order; the first animation chunk is fcTL | FAIL | 4.9.2 (`#4Concepts.APNGSequence`) | "The first fcTL chunk shall contain sequence number 0, and the sequence numbers in the remaining fcTL and fdAT chunks shall be in ascending order, with no gaps or duplicates." |
 | `png3.fctl` | length 26; width, height > 0; x+w ≤ IHDR width, y+h ≤ IHDR height; dispose_op 0-2, blend_op 0-1; ≤ 1 fcTL before IDAT, none between IDATs; that fcTL has offsets 0 and the IHDR size | FAIL | 11.3.6.2 (`#fcTL-chunk`) | "They must be greater than zero." / "thus x_offset plus width must not be greater than the IHDR width; similarly y_offset plus height must not be greater than the IHDR height." / "The x_offset and y_offset fields must be 0. The width and height fields must equal the corresponding fields from the IHDR chunk." / Table 7: "One may occur before IDAT; all others shall be after IDAT" |
-| `png3.fdat` | fdAT ≥ 4 bytes, after IDAT, after an fcTL; every frame whose fcTL is after IDAT has ≥ 1 fdAT | FAIL | 11.3.6.3 (`#fdAT-chunk`) | "At least one fdAT chunk is required for each frame, except for the first frame, if that frame is represented by an IDAT chunk." / "fdAT chunks may not be of zero length" |
+| `png3.fdat` | fdAT ≥ 4 bytes, after IDAT, after an fcTL; every frame whose fcTL is after IDAT has ≥ 1 fdAT; no fdAT in the default-image frame (fcTL before IDAT: its data is the IDAT stream, "…or, for animations which include the static image as first frame, for all frames after the first one") | FAIL | 11.3.6.3 (`#fdAT-chunk`) | "At least one fdAT chunk is required for each frame, except for the first frame, if that frame is represented by an IDAT chunk." / "fdAT chunks may not be of zero length" |
 | `png3.trailing` | bytes after IEND (decision 2: SEF trailer → PASS; user decision 2026-10-25: unexplained data is a conformance FAIL) | FAIL | 15.3.1 (`#15FileConformance`) | "No chunks or other content follow the IEND chunk." |
 
 APNG rules are NOT_APPLICABLE without acTL; fcTL/fdAT without acTL → NOT_CHECKED ("not declared animated"). Colour-type

@@ -17,7 +17,7 @@ internal object PngStructureRules {
     val SINGLE = listOf("acTL", "cHRM", "cICP", "gAMA", "iCCP", "mDCV", "cLLI", "sBIT", "sRGB", "bKGD", "hIST", "tRNS", "eXIf", "pHYs", "tIME")
 
     fun evaluate(ctx: PngContext): List<ConformanceFinding> =
-        listOf(signature(ctx), layout(ctx), type(ctx), crc(ctx), ihdr(ctx), critical(ctx), plte(ctx), order(ctx), multiple(ctx))
+        listOf(signature(ctx), layout(ctx), type(ctx), unknownCritical(ctx), crc(ctx), ihdr(ctx), critical(ctx), plte(ctx), order(ctx), multiple(ctx))
 
     private fun signature(ctx: PngContext): ConformanceFinding {
         val ok = ctx.length >= 8 && ctx.reader.readBytes(0, 8).contentEquals(PngChunkScanner.SIGNATURE)
@@ -45,6 +45,29 @@ internal object PngStructureRules {
             }?.let { bad += "${c.label}: $it"; ranges += ctx.range(c) }
         }
         return ctx.finding("png3.chunk.type", bad, ranges, listOf("청크 유형 ${ctx.chunks.map { it.type }.distinct().size}종 / ${ctx.chunks.map { it.type }.distinct().size} chunk types: ${ctx.chunks.map { it.type }.distinct().joinToString(", ")}"))
+    }
+
+    private val KNOWN_CRITICAL = setOf("IHDR", "PLTE", "IDAT", "IEND")
+
+    /**
+     * PNG-3 §15.3.1: no chunks other than those specified or defined by the rules for new chunk types; §13.1: an unknown
+     * critical chunk is fatal for a decoder. A public (2nd letter uppercase) critical chunk is not defined by PNG-3 -> FAIL;
+     * a private critical chunk is allowed by the naming rules but cannot be verified (and decoders must reject it) -> NOT_CHECKED.
+     */
+    private fun unknownCritical(ctx: PngContext): ConformanceFinding {
+        val bad = ArrayList<String>()
+        val ranges = ArrayList<LongRange>()
+        val priv = ArrayList<PngChunk>()
+        for (c in ctx.chunks) {
+            val b = c.type.map { it.code }
+            if (b.size != 4 || b.any { it !in 0x41..0x5A && it !in 0x61..0x7A } || b[2] and 0x20 != 0) continue   // png3.chunk.type's business
+            if (b[0] and 0x20 != 0 || c.type in KNOWN_CRITICAL) continue
+            if (b[1] and 0x20 == 0) { bad += "${c.label}: PNG-3이 정의하지 않은 공개 필수 청크 / public critical chunk not defined by PNG-3 (decoders must reject the file)"; ranges += ctx.range(c) }
+            else priv += c
+        }
+        if (bad.isEmpty() && priv.isNotEmpty())
+            return ctx.skip("png3.chunk.unknown", NOT_CHECKED, "비공개 필수 청크 ${priv.joinToString { it.type }}는 검증 불가 / private critical chunk(s) ${priv.joinToString { it.type }} cannot be verified")
+        return ctx.finding("png3.chunk.unknown", bad, ranges, listOf("정의되지 않은 필수 청크 없음 / no critical chunk other than IHDR, PLTE, IDAT, IEND"))
     }
 
     private fun crc(ctx: PngContext): ConformanceFinding {

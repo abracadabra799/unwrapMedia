@@ -93,6 +93,13 @@ internal object PngApngRules {
             val next = fctls.getOrNull(i + 1)?.index ?: Int.MAX_VALUE
             if (ctx.complete.none { it.type == "fdAT" && it.index > f.index && it.index < next }) fail(f, "이 프레임에 fdAT 없음 / no fdAT for this frame")
         }
+        // Default-image frame (fcTL before IDAT): its data is the IDAT stream, so an fdAT before the next fcTL is a second source.
+        if (first != null && last != null) {
+            val nextAfterIdat = fctls.firstOrNull { it.index > last }?.index ?: Int.MAX_VALUE
+            if (fctls.any { it.index < first })
+                ctx.of("fdAT").filter { it.index > last && it.index < nextAfterIdat }
+                    .forEach { fail(it, "기본 이미지 프레임에 fdAT(데이터는 IDAT) / fdAT in the default-image frame (its data is the IDAT stream)") }
+        }
         val orphan = ctx.of("fdAT").filter { d -> fctls.none { it.index < d.index } }
         orphan.forEach { fail(it, "앞선 fcTL 없음 / no preceding fcTL") }
         return ctx.finding("png3.fdat", bad, ranges, listOf("fdAT ${ctx.of("fdAT").size}개, 모두 IDAT 뒤, 프레임마다 1개 이상 / ${ctx.of("fdAT").size} fdAT, all after IDAT, at least one per non-default frame"))

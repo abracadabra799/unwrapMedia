@@ -40,6 +40,8 @@ class PngApngRulesTest {
         failsOnly(apng(acTL(2), fcTL(0), fdAT(1), idat(), fcTL(2)), "png3.fdat")                // fdAT before IDAT; last frame without fdAT
         // fdAT shorter than its sequence number: no frame_data, so the frame has no zlib header either
         failsOnly(apng(acTL(1), idat(), fcTL(0), chunk("fdAT", byteArrayOf(0, 0))), "png3.fdat", "zlib.header")
+        // I1: fdAT between the default image's IDAT and the next fcTL is a second data source for frame 0.
+        failsOnly(apng(acTL(2), fcTL(0), idat(), fdAT(1), fcTL(2), fdAT(3)), "png3.fdat")
         assertEquals(NOT_APPLICABLE, check(SyntheticPng.rgb()).statusOf("png3.actl"))
         val noActl = check(apng(idat(), fcTL(0), fdAT(1)))
         assertEquals(NOT_CHECKED, noActl.statusOf("png3.actl"))

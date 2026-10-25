@@ -28,6 +28,7 @@ object PngRules {
         png("png3.signature", "PNG 시그니처", "PNG signature", SCOPE_STRUCTURE, "5.2 PNG signature$DEFINITIONAL_SUFFIX", "5PNG-file-signature"),
         png("png3.chunk.layout", "청크 길이·경계", "Chunk length and extent", SCOPE_STRUCTURE, "5.3 Chunk layout, Table 5 (Length)", "5Chunk-layout"),
         png("png3.chunk.type", "청크 유형 바이트", "Chunk type bytes", SCOPE_STRUCTURE, "5.3 Chunk layout, Table 5 (Chunk Type) / 5.4 Chunk naming conventions", "5Chunk-naming-conventions"),
+        png("png3.chunk.unknown", "알 수 없는 필수 청크", "Unknown critical chunk", SCOPE_STRUCTURE, "15.3.1 Conformance of PNG datastreams / 13.1 Error checking", "15FileConformance"),
         png("png3.crc", "청크 CRC", "Chunk CRC", SCOPE_STRUCTURE, "5.3 Chunk layout, Table 5 (CRC) / 5.5 CRC algorithm$DEFINITIONAL_SUFFIX", "5CRC-algorithm"),
         png("png3.ihdr", "IHDR 필드", "IHDR fields", SCOPE_STRUCTURE, "11.2.1 IHDR Image header, Table 12", "11IHDR"),
         png("png3.critical", "필수 청크 구성", "Critical chunk sequence", SCOPE_STRUCTURE, "11.2 Critical chunks / 11.2.3 IDAT", "11Critical-chunks"),
