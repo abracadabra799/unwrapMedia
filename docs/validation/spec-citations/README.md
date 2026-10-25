@@ -56,3 +56,22 @@ Notes: T.81 is not a free download from itu.int (the `dologin_pub` link returns 
 of the ITU/CCITT original is cited. CIPA serves its PDFs only by POST after accepting the terms, so the citation URL is
 the download page plus `#page=N` (the page number refers to the downloaded PDF). DC-007's physical page = printed page + 4;
 T.81 printed 31 = physical 35.
+
+## PNG / WebP / GIF catalogs (`parser/conformance/{png,webp,gif}/*Rules.kt`)
+
+Downloaded 2026-10-25; HTML read with a tag-stripping script that keeps `id` attributes, plain text read as is. Every
+quote of the spec (`docs/superpowers/specs/2026-10-25-png-webp-gif-conformance-design.md`) was matched by script against
+the whitespace-normalised text. Pages are null except `zlib.header` (RFC page 5).
+
+| Document | Edition | URL used in citations | sha256 of downloaded copy |
+|---|---|---|---|
+| W3C PNG Third Edition | W3C Recommendation 2025-06-24 (byte-identical to `/TR/png-3/` on 2026-10-25) | https://www.w3.org/TR/2025/REC-png-3-20250624/ + `#anchor` | a3ac82bb9eb8664b93961a2a9ff6def3d70e3a9f63d92721143c1f391d04edec |
+| RFC 1950 (ZLIB 3.3) | May 1996 | https://www.rfc-editor.org/rfc/rfc1950.html#page-5 | d3c9d031292be13c93f0bacc854b71c1654f8995df4865eb119748592a6a1cc9 |
+| RFC 9649 (WebP Image Format) | November 2024 | https://www.rfc-editor.org/rfc/rfc9649.html + `#section-N` | 8880255877aac6fbcad88a54cf02ad4d6ce3042220e965fd36bc8cccccaeee06 |
+| RFC 6386 (VP8) | November 2011 | https://www.rfc-editor.org/rfc/rfc6386.html#section-9.1 | 65c94e526038f28a5180b526fcedfffa4226498ce08765828bf8d766bbaf5faa |
+| GIF89a Specification (CompuServe) | 31 July 1990, W3C-hosted plain text | https://www.w3.org/Graphics/GIF/spec-gif89a.txt | c0e48c12e3e91b1e78090caffb1d1ffe8e7d0face4350da675044a9a4be02aa3 |
+
+Notes: rfc1950.html has no `#section-2.2` anchor (only top-level sections and `page-N`), so `zlib.header` cites the
+page anchor of the page holding both quoted sentences. The VP8 key-frame start code is defined in RFC 6386 §9.1, which
+RFC 9649 §2.5 references. The GIF89a text has no anchors: every GIF citation URL is the document itself, the section
+number is the locator and page is null (the document name says "plain text, no anchors").
