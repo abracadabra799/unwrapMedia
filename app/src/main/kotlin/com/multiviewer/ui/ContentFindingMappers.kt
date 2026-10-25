@@ -267,7 +267,11 @@ fun audioFindings(report: AudioIntegrityReport): AudioFindingPresentation {
 
 private val ABSOLUTE_PATH = Regex("""(?<![\w])(?:[A-Za-z]:[\\/][^\s"'<>|]*|/(?:[^\s"'<>|/]+[\\/])*[^\s"'<>|/]+)""")
 
-internal fun safeFindingText(value: String): String = ABSOLUTE_PATH.replace(value) { match ->
+// Web links (spec citations) are not local paths; matched first so their "/…/" segments are left intact.
+private val WEB_URL_OR_ABSOLUTE_PATH = Regex("""https?://[^\s"'<>]+|""" + ABSOLUTE_PATH.pattern)
+
+internal fun safeFindingText(value: String): String = WEB_URL_OR_ABSOLUTE_PATH.replace(value) { match ->
+    if (match.value.startsWith("http://") || match.value.startsWith("https://")) return@replace match.value
     val trimmed = match.value.trimEnd(',', '.', ':', ';', ')', ']', '}')
     val suffix = match.value.substring(trimmed.length)
     val sanitized = trimmed.trimEnd('/', '\\').substringAfterLast('/').substringAfterLast('\\')

@@ -200,6 +200,15 @@ class ContentFindingMappersTest {
         assertEquals("Failed to read sample.mp4,", safeFindingText("Failed to read C:\\Users\\private-user\\secret\\sample.mp4,"))
     }
 
+    @Test fun safeFindingTextKeepsSpecUrlsIntact() {
+        val itu = "Reference: https://www.itu.int/rec/dologin_pub.asp?lang=e&id=T-REC-T.871-201105-I!!PDF-E&type=items#page=9"
+        assertEquals(itu, safeFindingText(itu))
+        val w3c = "Reference: https://www.w3.org/TR/png-3/#11IHDR"
+        assertEquals(w3c, safeFindingText(w3c))
+        assertEquals("see https://example.org/a/b and sample.mp4",
+            safeFindingText("see https://example.org/a/b and /Users/private-user/sample.mp4"))
+    }
+
 
     @Test fun conformanceMapperCopiesCitation() {
         val citation = com.multiviewer.parser.conformance.SpecCitation(
