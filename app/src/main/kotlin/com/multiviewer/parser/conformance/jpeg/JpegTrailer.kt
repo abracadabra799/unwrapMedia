@@ -1,9 +1,8 @@
 package com.multiviewer.parser.conformance.jpeg
 
-import com.multiviewer.parser.SefIntegrityAnalyzer
-import com.multiviewer.parser.SefIntegritySeverity
 import com.multiviewer.parser.conformance.ConformanceFinding
 import com.multiviewer.parser.conformance.ConformanceStatus.NOT_CHECKED
+import com.multiviewer.parser.conformance.sefTrailerGaps
 import com.multiviewer.parser.conformance.jpeg.JpegContext.Companion.hex
 import com.multiviewer.parser.motionphoto.walkBoxes
 
@@ -55,18 +54,8 @@ internal object JpegTrailer {
         return boxes.last().end.takeIf { it > pos }
     }
 
-    /**
-     * null = [pos]..EOF is not a usable SEF trailer (no SEFT, or CRITICAL); "" = explained; otherwise the analyzer's
-     * gap/overlap text (some bytes are not accounted for).
-     */
-    private fun sefAssess(ctx: JpegContext, pos: Long): String? {
-        val len = ctx.length
-        if (len - pos < 12 || ctx.reader.readFourCC(len - 4) != "SEFT") return null
-        val report = try { SefIntegrityAnalyzer.analyze(ctx.reader, pos, 0, len - pos, len) } catch (e: java.util.concurrent.CancellationException) { throw e } catch (_: Exception) { return null }
-        if (report.overallSeverity == SefIntegritySeverity.CRITICAL) return null
-        return report.structuralChecks.filter { (it.label == "Field block gaps" || it.label == "Field block overlap") && it.severity != SefIntegritySeverity.PASS }
-            .joinToString("; ") { it.detail }
-    }
+    /** See [sefTrailerGaps] (shared with the PNG / WebP / GIF trailing-data rules). */
+    private fun sefAssess(ctx: JpegContext, pos: Long): String? = sefTrailerGaps(ctx.reader, pos)
 
     /** The next MPF image start or ISO-BMFF `ftyp` box after [pos] (searched within 4 MiB), or null. */
     private fun nextKnownStart(ctx: JpegContext, pos: Long, mpfImages: List<LongRange>): Long? {
