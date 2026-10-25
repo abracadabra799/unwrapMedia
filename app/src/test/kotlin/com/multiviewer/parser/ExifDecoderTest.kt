@@ -267,7 +267,7 @@ class ExifDecoderTest {
         )
         val reader = byteReaderOf(body)
         val ifds = decodeExif(reader, 0, body.size.toLong())
-        assertEquals("01 01 04 00", ifds[0].fields.first { it.name == "DNGVersion" }.value)
+        assertEquals("1.1.4.0", ifds[0].fields.first { it.name == "DNGVersion" }.value)
         reader.close()
     }
 

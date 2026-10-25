@@ -146,6 +146,9 @@ val TAG_NAMES_TIFF = mapOf(
     0xC6FE to "ProfileCopyright",
     0xC714 to "ForwardMatrix1",
     0xC715 to "ForwardMatrix2",
+    0xC740 to "OpcodeList1",
+    0xC741 to "OpcodeList2",
+    0xC74E to "OpcodeList3",
     0xC761 to "NoiseProfile",
 )
 val TAG_NAMES_IFD0 = TAG_NAMES_TIFF
@@ -311,6 +314,14 @@ private val TAG_NAMES_MAKERNOTE_SAMSUNG = mapOf(
     0xA054 to "VignettingSetting",
 )
 
+private val ILLUMINANT_LABELS = mapOf(
+    0 to "Unknown", 1 to "Daylight", 2 to "Fluorescent", 3 to "Tungsten", 4 to "Flash",
+    9 to "Fine weather", 10 to "Cloudy", 11 to "Shade", 12 to "Daylight fluorescent",
+    13 to "Day white fluorescent", 14 to "Cool white fluorescent", 15 to "White fluorescent",
+    17 to "Standard light A", 18 to "Standard light B", 19 to "Standard light C",
+    20 to "D55", 21 to "D65", 22 to "D75", 23 to "D50", 24 to "ISO studio tungsten", 255 to "Other",
+)
+
 // Enum/flag tags whose raw integer value is translated to a label ExifTool would also show --
 // keyed by (IFD group label, tag ID) so the same numeric tag ID under a different group (e.g. a
 // vendor MakerNote reusing a low tag number) is never misinterpreted. Only single-value SHORT/
@@ -371,6 +382,15 @@ private val TAG_VALUE_LABELS_TIFF: Map<Int, Map<Int, String>> = mapOf(
     0x0152 to mapOf(0 to "Unspecified data", 1 to "Associated Alpha (pre-multiplied)", 2 to "Unassociated Alpha", 3 to "Range or depth channel"),
     0x0153 to mapOf(1 to "Unsigned integer", 2 to "Signed integer (2's complement)", 3 to "IEEE floating point", 4 to "Undefined data format"),
     0x0213 to mapOf(1 to "Centered", 2 to "Co-sited"),
+    0xC617 to mapOf(
+        1 to "Rectangular", 2 to "Staggered layout A", 3 to "Staggered layout B",
+        4 to "Staggered layout C", 5 to "Staggered layout D", 6 to "Staggered layout E",
+        7 to "Staggered layout F", 8 to "Staggered layout G", 9 to "Staggered layout H",
+    ),
+    0xC65A to ILLUMINANT_LABELS,
+    0xC65B to ILLUMINANT_LABELS,
+    0xC6BF to mapOf(0 to "sRGB", 1 to "CRIS Color Appearance Model"),
+    0xC6FD to mapOf(0 to "allowCopying", 1 to "embedIfUsed", 2 to "embedNever", 3 to "noRestrictions"),
 )
 
 // Enum/flag tags whose raw integer value is translated to a label ExifTool would also show --
@@ -473,9 +493,10 @@ private fun formatSize(bytes: Long): String = when {
     else -> "%.2f GB".format(bytes / (1024.0 * 1024.0 * 1024.0))
 }
 
-private fun readUIntArray(reader: ByteReader, fieldType: Int, count: Int, valuePos: Long, littleEndian: Boolean, itemEnd: Long): List<Long> {
+private fun readUIntArray(reader: ByteReader, fieldType: Int, count: Long, valuePos: Long, littleEndian: Boolean, itemEnd: Long): List<Long> {
+    val shown = count.coerceAtMost(1024).toInt()
     val result = mutableListOf<Long>()
-    for (i in 0 until count) {
+    for (i in 0 until shown) {
         val pos = valuePos + when (fieldType) {
             3 -> i * 2L // SHORT
             4 -> i * 4L // LONG
@@ -497,12 +518,16 @@ private fun readUIntArray(reader: ByteReader, fieldType: Int, count: Int, valueP
 // (group, tag); null otherwise, in which case the caller falls back to formatTiffValue's raw
 // output exactly as before. Multi-value fields (count != 1) are never interpreted -- an "average"
 // or "list" reading of an enum table wouldn't be meaningful.
-private fun interpretedDisplay(group: String, tag: Int, fieldType: Int, count: Int, reader: ByteReader, valuePos: Long, littleEndian: Boolean): String? {
-    if (count != 1) return null
+private fun interpretedDisplay(group: String, tag: Int, fieldType: Int, count: Long, reader: ByteReader, valuePos: Long, littleEndian: Boolean): String? {
+    if (count != 1L) return null
     val labelMap = TAG_VALUE_LABELS[group to tag]
         ?: if (group.startsWith("IFD") || group.startsWith("SubIFD") || group.startsWith("Thumbnail")) TAG_VALUE_LABELS_TIFF[tag] else null
 
     return when (fieldType) {
+        1, 7 -> {
+            val b = reader.readBytes(valuePos, 1)[0].toInt() and 0xFF
+            labelMap?.get(b)
+        }
         3 -> labelMap?.get(readUInt16Endian(reader, valuePos, littleEndian))
         8 -> labelMap?.get(readUInt16Endian(reader, valuePos, littleEndian).toShort().toInt())
         4 -> labelMap?.get(readUInt32Endian(reader, valuePos, littleEndian).toInt())
@@ -519,6 +544,55 @@ private fun interpretedDisplay(group: String, tag: Int, fieldType: Int, count: I
         }
         else -> null
     }
+}
+
+private val CFA_COLOR_NAMES = mapOf(
+    0 to "Red", 1 to "Green", 2 to "Blue", 3 to "Cyan", 4 to "Magenta", 5 to "Yellow", 6 to "White",
+)
+
+private fun decodeSpecialTiffTag(
+    tag: Int,
+    fieldType: Int,
+    count: Long,
+    valueAbsolutePos: Long,
+    reader: ByteReader,
+    littleEndian: Boolean,
+): Pair<String, ValueInterpretation>? {
+    when (tag) {
+        0xC612, 0xC613 -> { // DNGVersion, DNGBackwardVersion
+            if (fieldType == 1 && count == 4L) {
+                val bytes = reader.readBytes(valueAbsolutePos, 4)
+                val ver = (0 until 4).joinToString(".") { (bytes[it].toInt() and 0xFF).toString() }
+                return ver to ValueInterpretation.PARSED
+            }
+        }
+        0x828D -> { // CFARepeatPatternDim: SHORT[2] -> rows x cols
+            if (fieldType == 3 && count == 2L) {
+                val rows = readUInt16Endian(reader, valueAbsolutePos, littleEndian)
+                val cols = readUInt16Endian(reader, valueAbsolutePos + 2, littleEndian)
+                return "$rows x $cols" to ValueInterpretation.PARSED
+            }
+        }
+        0xC616 -> { // CFAPlaneColor: BYTE[n]
+            if (fieldType == 1 && count in 1..256) {
+                val bytes = reader.readBytes(valueAbsolutePos, count.toInt())
+                val nums = (0 until count.toInt()).joinToString(", ") { (bytes[it].toInt() and 0xFF).toString() }
+                val names = (0 until count.toInt()).mapNotNull { CFA_COLOR_NAMES[bytes[it].toInt() and 0xFF] }.joinToString(", ")
+                return "$nums ($names)" to ValueInterpretation.PARSED
+            }
+        }
+        0x828E -> { // CFAPattern: BYTE[rows * cols]
+            if (fieldType == 1 && count in 1..256) {
+                val bytes = reader.readBytes(valueAbsolutePos, count.toInt())
+                val shown = count.coerceAtMost(16).toInt()
+                val nums = (0 until shown).joinToString(", ") { (bytes[it].toInt() and 0xFF).toString() }
+                val names = (0 until shown).mapNotNull { CFA_COLOR_NAMES[bytes[it].toInt() and 0xFF] }.joinToString(", ")
+                val suffix = if (count > shown) " … ($shown/$count)" else ""
+                return "$nums ($names)$suffix" to ValueInterpretation.PARSED
+            }
+        }
+    }
+    return null
 }
 
 enum class MakerNoteVendor {
@@ -538,6 +612,10 @@ fun decodeTiff(reader: ByteReader, tiffStart: Long, itemEnd: Long): List<BoxNode
     if (tiffStart + 8 > itemEnd) return emptyList()
     val byteOrderBytes = reader.readBytes(tiffStart, 2)
     val littleEndian = byteOrderBytes[0] == 'I'.code.toByte() && byteOrderBytes[1] == 'I'.code.toByte()
+    val magic = readUInt16Endian(reader, tiffStart + 2, littleEndian)
+    if (magic == 43) {
+        return listOf(BoxNode("BigTIFF", tiffStart, 0, itemEnd - tiffStart, warnings = listOf("BigTIFF format is currently unsupported")))
+    }
     val ifd0Offset = readUInt32Endian(reader, tiffStart + 4, littleEndian)
     val ifd0AbsoluteOffset = tiffStart + ifd0Offset
     // MakerNote tag numbering is entirely vendor-specific -- the same numeric tag ID means a
@@ -597,7 +675,7 @@ private fun peekMakeValue(reader: ByteReader, tiffStart: Long, ifdOffset: Long, 
             val fieldType = readUInt16Endian(reader, pos + 2, littleEndian)
             val count = readUInt32Endian(reader, pos + 4, littleEndian)
             val valueOffsetPos = pos + 8
-            val typeSize = TIFF_TYPE_SIZES[fieldType] ?: 1
+            val typeSize = TIFF_TYPE_SIZES[fieldType] ?: return null
             val totalSize = typeSize * count
             val valueAbsolutePos = if (totalSize <= 4) {
                 valueOffsetPos
@@ -605,7 +683,7 @@ private fun peekMakeValue(reader: ByteReader, tiffStart: Long, ifdOffset: Long, 
                 tiffStart + readUInt32Endian(reader, valueOffsetPos, littleEndian)
             }
             if (valueAbsolutePos < 0 || valueAbsolutePos + totalSize > itemEnd) return null
-            return formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian).trim()
+            return formatTiffValue(reader, fieldType, count, valueAbsolutePos, littleEndian).first.trim()
         }
         pos += 12
     }
@@ -655,12 +733,24 @@ private fun decodeIfd(
         val fieldType = readUInt16Endian(reader, pos + 2, littleEndian)
         val count = readUInt32Endian(reader, pos + 4, littleEndian)
         val valueOffsetPos = pos + 8
-        val typeSize = TIFF_TYPE_SIZES[fieldType] ?: 1
+        val typeSize = TIFF_TYPE_SIZES[fieldType]
+        if (typeSize == null) {
+            val name = tagNames[tag] ?: "Tag 0x${tag.toString(16).padStart(4, '0')}"
+            fields.add(BoxField(name, "알 수 없는 자료형 / Unknown type ($fieldType)", pos + 8, 4, ValueInterpretation.UNINTERPRETED))
+            pos += 12
+            continue
+        }
         val totalSize = typeSize * count
         val valueAbsolutePos = if (totalSize <= 4) {
             valueOffsetPos
         } else {
             tiffStart + readUInt32Endian(reader, valueOffsetPos, littleEndian)
+        }
+        if (count == 0L) {
+            val name = tagNames[tag] ?: "Tag 0x${tag.toString(16).padStart(4, '0')}"
+            fields.add(BoxField(name, "빈 값 / Empty value", valueAbsolutePos, 0, ValueInterpretation.UNPARSABLE))
+            pos += 12
+            continue
         }
 
         when (tag) {
@@ -697,7 +787,8 @@ private fun decodeIfd(
                 }
             }
             TAG_SUB_IFDS -> {
-                for (subIdx in 0 until count.toInt()) {
+                val subCount = count.coerceAtMost(64).toInt()
+                for (subIdx in 0 until subCount) {
                     val entryPos = valueAbsolutePos + subIdx * 4L
                     if (entryPos + 4 > itemEnd) break
                     val subIfdOffset = tiffStart + readUInt32Endian(reader, entryPos, littleEndian)
@@ -713,25 +804,25 @@ private fun decodeIfd(
                 jpegThumbnailLength = readUInt32Endian(reader, valueOffsetPos, littleEndian)
             }
             0x0111 -> { // StripOffsets
-                stripOffsets = readUIntArray(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian, itemEnd)
-                val display = if (count > 8) "${stripOffsets.take(8).joinToString(", ")}... (${count} strips)" else formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian)
+                stripOffsets = readUIntArray(reader, fieldType, count, valueAbsolutePos, littleEndian, itemEnd)
+                val display = if (count > 8) "${stripOffsets.take(8).joinToString(", ")}... (${count} strips)" else formatTiffValue(reader, fieldType, count, valueAbsolutePos, littleEndian).first
                 fields.add(BoxField("StripOffsets", display, valueAbsolutePos, totalSize))
             }
             0x0117 -> { // StripByteCounts
-                stripByteCounts = readUIntArray(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian, itemEnd)
+                stripByteCounts = readUIntArray(reader, fieldType, count, valueAbsolutePos, littleEndian, itemEnd)
                 val totalBytes = stripByteCounts.sum()
-                val display = if (count > 8) "${stripByteCounts.take(8).joinToString(", ")}... (total: ${formatSize(totalBytes)})" else formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian)
+                val display = if (count > 8) "${stripByteCounts.take(8).joinToString(", ")}... (total: ${formatSize(totalBytes)})" else formatTiffValue(reader, fieldType, count, valueAbsolutePos, littleEndian).first
                 fields.add(BoxField("StripByteCounts", display, valueAbsolutePos, totalSize))
             }
             0x0144 -> { // TileOffsets
-                tileOffsets = readUIntArray(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian, itemEnd)
-                val display = if (count > 8) "${tileOffsets.take(8).joinToString(", ")}... (${count} tiles)" else formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian)
+                tileOffsets = readUIntArray(reader, fieldType, count, valueAbsolutePos, littleEndian, itemEnd)
+                val display = if (count > 8) "${tileOffsets.take(8).joinToString(", ")}... (${count} tiles)" else formatTiffValue(reader, fieldType, count, valueAbsolutePos, littleEndian).first
                 fields.add(BoxField("TileOffsets", display, valueAbsolutePos, totalSize))
             }
             0x0145 -> { // TileByteCounts
-                tileByteCounts = readUIntArray(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian, itemEnd)
+                tileByteCounts = readUIntArray(reader, fieldType, count, valueAbsolutePos, littleEndian, itemEnd)
                 val totalBytes = tileByteCounts.sum()
-                val display = if (count > 8) "${tileByteCounts.take(8).joinToString(", ")}... (total: ${formatSize(totalBytes)})" else formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian)
+                val display = if (count > 8) "${tileByteCounts.take(8).joinToString(", ")}... (total: ${formatSize(totalBytes)})" else formatTiffValue(reader, fieldType, count, valueAbsolutePos, littleEndian).first
                 fields.add(BoxField("TileByteCounts", display, valueAbsolutePos, totalSize))
             }
             0x8773 -> { // ICCProfile
@@ -752,7 +843,7 @@ private fun decodeIfd(
             0x87AF -> { // GeoKeyDirectory
                 geoKeyOffset = valueAbsolutePos
                 geoKeySize = totalSize
-                val display = formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian)
+                val display = formatTiffValue(reader, fieldType, count, valueAbsolutePos, littleEndian).first
                 fields.add(BoxField("GeoKeyDirectoryTag", display, valueAbsolutePos, totalSize))
             }
             else -> {
@@ -766,10 +857,22 @@ private fun decodeIfd(
                         pos += 12
                         continue
                     }
-                    val interpreted = interpretedDisplay(label, tag, fieldType, count.toInt(), reader, valueAbsolutePos, littleEndian)
-                    val display = interpreted ?: formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian)
-                    val state = if (tagNames[tag] == null || interpreted == null && fieldType !in setOf(2, 3, 4, 5, 8, 9, 10))
-                        ValueInterpretation.UNINTERPRETED else ValueInterpretation.PARSED
+                    val special = decodeSpecialTiffTag(tag, fieldType, count, valueAbsolutePos, reader, littleEndian)
+                    if (special != null) {
+                        fields.add(BoxField(name, special.first, valueAbsolutePos, totalSize, special.second))
+                        pos += 12
+                        continue
+                    }
+                    val interpreted = interpretedDisplay(label, tag, fieldType, count, reader, valueAbsolutePos, littleEndian)
+                    val (rawDisplay, truncated) = formatTiffValue(reader, fieldType, count, valueAbsolutePos, littleEndian)
+                    val display = interpreted ?: rawDisplay
+                    val state = when {
+                        tagNames[tag] == null -> ValueInterpretation.UNINTERPRETED
+                        truncated -> ValueInterpretation.UNINTERPRETED
+                        interpreted != null -> ValueInterpretation.PARSED
+                        fieldType in setOf(1, 2, 3, 4, 5, 8, 9, 10) -> ValueInterpretation.PARSED
+                        else -> ValueInterpretation.UNINTERPRETED
+                    }
                     fields.add(BoxField(name, display, valueAbsolutePos, totalSize, state))
                 }
             }
@@ -927,7 +1030,13 @@ private fun decodeMakerNote(
         val fieldType = readUInt16Endian(reader, pos + 2, littleEndian)
         val count = readUInt32Endian(reader, pos + 4, littleEndian)
         val valueOffsetPos = pos + 8
-        val typeSize = TIFF_TYPE_SIZES[fieldType] ?: 1
+        val typeSize = TIFF_TYPE_SIZES[fieldType]
+        if (typeSize == null) {
+            val name = tagNames[tag] ?: "Tag 0x${tag.toString(16).padStart(4, '0')}"
+            fields.add(BoxField(name, "알 수 없는 자료형 / Unknown type ($fieldType)", pos + 8, 4, ValueInterpretation.UNINTERPRETED))
+            pos += 12
+            continue
+        }
         val totalSize = typeSize * count
         val valueAbsolutePos = if (totalSize <= 4) {
             valueOffsetPos
@@ -935,6 +1044,11 @@ private fun decodeMakerNote(
             tiffStart + readUInt32Endian(reader, valueOffsetPos, littleEndian)
         }
         val name = tagNames[tag] ?: "Tag 0x${tag.toString(16).padStart(4, '0')}"
+        if (count == 0L) {
+            fields.add(BoxField(name, "빈 값 / Empty value", valueAbsolutePos, 0, ValueInterpretation.UNPARSABLE))
+            pos += 12
+            continue
+        }
         if (valueAbsolutePos < 0 || valueAbsolutePos + totalSize > itemEnd) {
             fields.add(BoxField(name, "(out of bounds)", valueAbsolutePos, totalSize, ValueInterpretation.UNPARSABLE))
         } else {
@@ -944,8 +1058,19 @@ private fun decodeMakerNote(
                 pos += 12
                 continue
             }
-            val display = formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian)
-            val state = if (tagNames[tag] == null || fieldType !in setOf(2, 3, 4, 5, 8, 9, 10)) ValueInterpretation.UNINTERPRETED else ValueInterpretation.PARSED
+            val special = decodeSpecialTiffTag(tag, fieldType, count, valueAbsolutePos, reader, littleEndian)
+            if (special != null) {
+                fields.add(BoxField(name, special.first, valueAbsolutePos, totalSize, special.second))
+                pos += 12
+                continue
+            }
+            val (display, truncated) = formatTiffValue(reader, fieldType, count, valueAbsolutePos, littleEndian)
+            val state = when {
+                tagNames[tag] == null -> ValueInterpretation.UNINTERPRETED
+                truncated -> ValueInterpretation.UNINTERPRETED
+                fieldType in setOf(1, 2, 3, 4, 5, 8, 9, 10) -> ValueInterpretation.PARSED
+                else -> ValueInterpretation.UNINTERPRETED
+            }
             fields.add(BoxField(name, display, valueAbsolutePos, totalSize, state))
         }
         pos += 12
@@ -953,30 +1078,82 @@ private fun decodeMakerNote(
     return BoxNode(type = "MakerNote", offset = absolutePos, headerSize = 2, size = byteLength.toLong(), fields = fields)
 }
 
-private fun formatTiffValue(reader: ByteReader, type: Int, count: Int, valuePos: Long, littleEndian: Boolean): String {
-    return when (type) {
+private fun formatTiffValue(reader: ByteReader, type: Int, count: Long, valuePos: Long, littleEndian: Boolean): Pair<String, Boolean> {
+    when (type) {
+        1 -> {
+            val shown = count.coerceAtMost(256).toInt()
+            val bytes = reader.readBytes(valuePos, shown)
+            val str = (0 until shown).joinToString(", ") { (bytes[it].toInt() and 0xFF).toString() }
+            val truncated = count > shown
+            val display = if (truncated) "$str … ($shown/$count 표시 / shown; 나머지 미해석 / remainder uninterpreted)" else str
+            return display to truncated
+        }
         2 -> {
-            val bytes = reader.readBytes(valuePos, count)
+            val shown = count.coerceAtMost(4096).toInt()
+            val bytes = reader.readBytes(valuePos, shown)
             val nullIndex = bytes.indexOf(0)
-            String(bytes, 0, if (nullIndex >= 0) nullIndex else bytes.size, Charsets.UTF_8)
+            val str = String(bytes, 0, if (nullIndex >= 0) nullIndex else bytes.size, Charsets.UTF_8)
+            val truncated = count > shown
+            val display = if (truncated) "$str … ($shown/$count 바이트 표시 / bytes shown)" else str
+            return display to truncated
         }
-        3 -> (0 until count).joinToString(", ") { i -> readUInt16Endian(reader, valuePos + i * 2, littleEndian).toString() }
-        8 -> (0 until count).joinToString(", ") { i -> readUInt16Endian(reader, valuePos + i * 2, littleEndian).toShort().toString() }
-        4 -> (0 until count).joinToString(", ") { i -> readUInt32Endian(reader, valuePos + i * 4, littleEndian).toString() }
-        9 -> (0 until count).joinToString(", ") { i -> readUInt32Endian(reader, valuePos + i * 4, littleEndian).toInt().toString() }
-        5 -> (0 until count).joinToString(", ") { i ->
-            val num = readUInt32Endian(reader, valuePos + i * 8, littleEndian)
-            val den = readUInt32Endian(reader, valuePos + i * 8 + 4, littleEndian)
-            "$num/$den"
+        3 -> {
+            val shown = count.coerceAtMost(256).toInt()
+            val str = (0 until shown).joinToString(", ") { i -> readUInt16Endian(reader, valuePos + i * 2, littleEndian).toString() }
+            val truncated = count > shown
+            val display = if (truncated) "$str … ($shown/$count 표시 / shown; 나머지 미해석 / remainder uninterpreted)" else str
+            return display to truncated
         }
-        10 -> (0 until count).joinToString(", ") { i ->
-            val num = readUInt32Endian(reader, valuePos + i * 8, littleEndian).toInt()
-            val den = readUInt32Endian(reader, valuePos + i * 8 + 4, littleEndian).toInt()
-            "$num/$den"
+        8 -> {
+            val shown = count.coerceAtMost(256).toInt()
+            val str = (0 until shown).joinToString(", ") { i -> readUInt16Endian(reader, valuePos + i * 2, littleEndian).toShort().toString() }
+            val truncated = count > shown
+            val display = if (truncated) "$str … ($shown/$count 표시 / shown; 나머지 미해석 / remainder uninterpreted)" else str
+            return display to truncated
+        }
+        4 -> {
+            val shown = count.coerceAtMost(256).toInt()
+            val str = (0 until shown).joinToString(", ") { i -> readUInt32Endian(reader, valuePos + i * 4, littleEndian).toString() }
+            val truncated = count > shown
+            val display = if (truncated) "$str … ($shown/$count 표시 / shown; 나머지 미해석 / remainder uninterpreted)" else str
+            return display to truncated
+        }
+        9 -> {
+            val shown = count.coerceAtMost(256).toInt()
+            val str = (0 until shown).joinToString(", ") { i -> readUInt32Endian(reader, valuePos + i * 4, littleEndian).toInt().toString() }
+            val truncated = count > shown
+            val display = if (truncated) "$str … ($shown/$count 표시 / shown; 나머지 미해석 / remainder uninterpreted)" else str
+            return display to truncated
+        }
+        5 -> {
+            val shown = count.coerceAtMost(256).toInt()
+            val str = (0 until shown).joinToString(", ") { i ->
+                val num = readUInt32Endian(reader, valuePos + i * 8, littleEndian)
+                val den = readUInt32Endian(reader, valuePos + i * 8 + 4, littleEndian)
+                "$num/$den"
+            }
+            val truncated = count > shown
+            val display = if (truncated) "$str … ($shown/$count 표시 / shown; 나머지 미해석 / remainder uninterpreted)" else str
+            return display to truncated
+        }
+        10 -> {
+            val shown = count.coerceAtMost(256).toInt()
+            val str = (0 until shown).joinToString(", ") { i ->
+                val num = readUInt32Endian(reader, valuePos + i * 8, littleEndian).toInt()
+                val den = readUInt32Endian(reader, valuePos + i * 8 + 4, littleEndian).toInt()
+                "$num/$den"
+            }
+            val truncated = count > shown
+            val display = if (truncated) "$str … ($shown/$count 표시 / shown; 나머지 미해석 / remainder uninterpreted)" else str
+            return display to truncated
         }
         else -> {
-            val bytes = reader.readBytes(valuePos, count.coerceAtMost(64))
-            bytes.joinToString(" ") { "%02x".format(it) }
+            val shown = count.coerceAtMost(64).toInt()
+            val bytes = reader.readBytes(valuePos, shown)
+            val str = bytes.joinToString(" ") { "%02x".format(it) }
+            val truncated = count > shown
+            val display = if (truncated) "$str … ($shown/$count 바이트 표시 / bytes shown)" else str
+            return display to truncated
         }
     }
 }
