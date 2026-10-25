@@ -1,5 +1,9 @@
 # Handoff — 2026-10-13 (Claude Code → Codex)
 
+## 2026-10-25 — 다음 에이전트 인수인계
+
+사용자가 잔여 작업 기록 후 다른 에이전트로 전환을 요청했다. **먼저 [DETAIL_PARSING_REMAINING.md](DETAIL_PARSING_REMAINING.md)를 읽을 것.** 현재 구현은 로컬 main `bcd890a6`, 마지막 전체 테스트 2,870개(실패 0, 제외 1). PNG text/ICC와 TIFF numeric 커밋은 아직 push하지 않았다. 새 구현은 진행하지 않고 잔여 작업·조사 진입점·한계를 위 문서에 기록했다.
+
 ## 2026-10-25 update — active Detailed Properties audit
 
 The current user request is to keep filling verified Detailed Properties parsing gaps, with explicit 미해석 / 파싱 불가 states. The authoritative progress ledger is `docs/superpowers/plans/2026-10-23-detail-parsing.md`; older roadmap statuses below are historical. MOV, native FLAC CUESHEET/PICTURE/Vorbis, and PNG APNG/HDR/color-context chunks have implementation/validation records in their 2026-10-25 plans. The PNG text/ICC decompression and source-range audit is also complete (2026-10-25-png-text-details.md). TIFF SBYTE/FLOAT/DOUBLE detailed-value decoding is complete (2026-10-25-tiff-numeric-details.md), including numeric DNG NoiseProfile display. Continue next with broader TIFF/DNG tag semantics, GIF/AV2 inventory and defined SEF work. Private payload semantics still require reliable evidence.
