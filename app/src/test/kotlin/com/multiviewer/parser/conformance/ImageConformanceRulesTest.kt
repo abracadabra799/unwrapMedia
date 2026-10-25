@@ -42,8 +42,8 @@ class ImageConformanceRulesTest {
     @Test fun `WebP catalog cites RFC 9649 and RFC 6386 section anchors`() {
         val rules = WebpRules.all
         common(rules)
-        assertEquals(16, rules.size)
-        assertEquals(setOf("rfc9649.anmf.flag", "rfc9649.alph.vp8l", "rfc9649.metadata.count", "rfc9649.trailing"), WebpRules.WARN_RULES)
+        assertEquals(17, rules.size)
+        assertEquals(setOf("rfc9649.anmf.flag", "rfc9649.alph.vp8l", "rfc9649.metadata.count", "rfc9649.trailing", "rfc6386.version"), WebpRules.WARN_RULES)
         rules.forEach { r ->
             val c = r.citation!!
             assertNull(c.page, r.id)

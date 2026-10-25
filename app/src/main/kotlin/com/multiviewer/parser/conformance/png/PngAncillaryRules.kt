@@ -55,7 +55,7 @@ internal object PngAncillaryRules {
                 "gAMA" -> { checked++; len(c, 4) }
                 "cLLI" -> { checked++; len(c, 8) }
                 "sRGB" -> { checked++; if (len(c, 1)) ctx.data(c, 1)[0].toInt().and(0xFF).let { if (it > 3) fail(c, "Rendering intent $it (0..3)") } }
-                "cICP" -> { checked++; if (len(c, 4)) ctx.data(c, 4).let { if (u8(it, 2) != 0) fail(c, "Matrix Coefficients ${u8(it, 2)} ≠ 0") } }
+                "cICP" -> { checked++; if (len(c, 4)) ctx.data(c, 4).let { if (u8(it, 2) != 0) fail(c, "Matrix Coefficients ${u8(it, 2)} ≠ 0"); if (u8(it, 3) !in 0..1) fail(c, "Video Full Range Flag ${u8(it, 3)} (0, 1)") } }
                 "mDCV" -> { checked++; len(c, 24); if (ctx.first("cICP") == null) fail(c, "mDCV에는 cICP가 필요 / mDCV requires a cICP chunk") }
                 "pHYs" -> { checked++; if (len(c, 9)) u8(ctx.data(c, 9), 8).let { if (it > 1) fail(c, "Unit specifier $it (0, 1)") } }
                 "tIME" -> {

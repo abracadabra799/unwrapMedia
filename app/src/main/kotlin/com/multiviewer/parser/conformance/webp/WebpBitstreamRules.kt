@@ -8,7 +8,7 @@ import com.multiviewer.parser.conformance.webp.WebpContext.Companion.BITSTREAMS
 /** RFC 9649 §2.7.1 ANIM/ANMF/ALPH, §3.4 VP8L header, RFC 6386 §9.1 VP8 frame tag, canvas vs bitstream size. */
 internal object WebpBitstreamRules {
     fun evaluate(ctx: WebpContext): List<ConformanceFinding> =
-        listOf(anim(ctx), anmfFlag(ctx), alph(ctx), alphVp8l(ctx), vp8l(ctx), vp8(ctx), canvas(ctx))
+        listOf(anim(ctx), anmfFlag(ctx), alph(ctx), alphVp8l(ctx), vp8l(ctx), vp8(ctx), vp8Version(ctx), canvas(ctx))
 
     private fun anim(ctx: WebpContext): ConformanceFinding {
         val anim = ctx.of("ANIM")
@@ -92,6 +92,19 @@ internal object WebpBitstreamRules {
         return ctx.finding("rfc9649.vp8l", bad, ranges, listOf("VP8L ${list.size}개: 0x2F, version 0 / ${list.size} VP8L headers: signature 0x2F, version 0"))
     }
 
+    /** RFC 6386 §9.1: versions 0-3 are defined, "other values may be defined for future variants" (not a violation sentence; libwebp rejects them) -> WARN. */
+    private fun vp8Version(ctx: WebpContext): ConformanceFinding {
+        val list = ctx.allChunks.filter { it.fourcc == "VP8 " && it.size >= 10 }
+        if (list.isEmpty()) return ctx.skip("rfc6386.version", NOT_APPLICABLE, "'VP8 ' 없음 / no 'VP8 ' chunk")
+        val bad = ArrayList<String>()
+        val ranges = ArrayList<LongRange>()
+        for (c in list) {
+            val version = (ctx.reader.readUInt8(c.payload) shr 1) and 7
+            if (version > 3) { bad += "${c.label}: version_number $version (정의된 값 0..3 / defined values 0..3)"; ranges += ctx.range(c) }
+        }
+        return ctx.finding("rfc6386.version", bad, ranges, listOf("'VP8 ' ${list.size}개: version 0..3 / ${list.size} VP8 frame tags with a defined version (0..3)"))
+    }
+
     private fun vp8(ctx: WebpContext): ConformanceFinding {
         val list = ctx.allChunks.filter { it.fourcc == "VP8 " }
         if (list.isEmpty()) return ctx.skip("rfc6386.frame", NOT_APPLICABLE, "'VP8 ' 없음 / no 'VP8 ' chunk")
@@ -103,8 +116,6 @@ internal object WebpBitstreamRules {
             val tag = (b[0].toInt() and 0xFF) or ((b[1].toInt() and 0xFF) shl 8) or ((b[2].toInt() and 0xFF) shl 16)
             val problems = ArrayList<String>()
             if (tag and 1 != 0) problems += "frame type 1(인터 프레임) — 키 프레임이어야 함 / interframe, a key frame is required"
-            val version = (tag shr 1) and 7
-            if (version > 3) problems += "version $version (0..3)"
             val firstPart = (tag shr 5) and 0x7FFFF
             if (firstPart > c.size - 10) problems += "first_part_size $firstPart > ${c.size - 10}"
             if ((b[3].toInt() and 0xFF) != 0x9D || (b[4].toInt() and 0xFF) != 0x01 || (b[5].toInt() and 0xFF) != 0x2A)

@@ -71,7 +71,7 @@ Notes:
 - GIF89a: plain text, no anchors — the URL is the document and the section number is the locator; page is null (the
   text has printed page numbers in the margin, listed below as "txt p." for reviewers only).
 
-## Rules (54: PNG 23 = 21 FAIL + 2 WARN, WebP 16 = 12 FAIL + 4 WARN, GIF 15 = 9 FAIL + 6 WARN)
+## Rules (55: PNG 23 = 21 FAIL + 2 WARN, WebP 17 = 12 FAIL + 5 WARN, GIF 15 = 9 FAIL + 6 WARN)
 
 "def." = section carries `DEFINITIONAL_SUFFIX`. Scopes: `PNG 데이터스트림 구조 / PNG datastream structure (PNG-3)`,
 `PNG 보조 청크 / PNG ancillary chunks (PNG-3)`, `APNG 애니메이션 / APNG animation (PNG-3)`, `zlib 스트림 헤더 / zlib
@@ -108,7 +108,7 @@ stream headers (PNG-3 §10, RFC 1950)`, `WebP RIFF 컨테이너 …`, `WebP 비�
 APNG rules are NOT_APPLICABLE without acTL; fcTL/fdAT without acTL → NOT_CHECKED ("not declared animated"). Colour-type
 dependent rules are NOT_CHECKED when IHDR is invalid.
 
-### WebP (RFC 9649, RFC 6386 §9.1) — 16 rules
+### WebP (RFC 9649, RFC 6386 §9.1) — 17 rules
 
 | ID | Checks | Level | Citation (anchor) | Quoted sentence |
 |---|---|---|---|---|
@@ -125,7 +125,8 @@ dependent rules are NOT_CHECKED when IHDR is invalid.
 | `rfc9649.alph.vp8l` | ALPH in a frame whose bitstream is VP8L | WARN | 2.7.1.2 (`#section-2.7.1.2`) | "A frame containing a 'VP8L' Chunk SHOULD NOT contain this chunk." |
 | `rfc9649.metadata.count` | > 1 ICCP, EXIF or XMP | WARN | 2.7.1.4 / 2.7.1.5 (`#section-2.7.1.4`) | "There SHOULD be at most one such chunk." / "There SHOULD be at most one chunk of each type ('EXIF' and 'XMP ')." |
 | `rfc9649.vp8l` | ≥ 5 bytes; signature 0x2F; version_number 0 | FAIL | 3.4 (`#section-3.4`) | "6. 1-byte signature 0x2f." / "The version_number is a 3-bit code that MUST be set to 0. Any other value MUST be treated as an error." |
-| `rfc6386.frame` | ≥ 10 bytes; frame type 0 (key frame); version 0-3; first_part_size ≤ size-10; start code 9D 01 2A | FAIL | RFC 6386 §9.1, def. (`#section-9.1`) | "A 1-bit frame type (0 for key frames, 1 for interframes)." / "Start code byte 0 0x9d Start code byte 1 0x01 Start code byte 2 0x2a" / RFC 9649 §2.1: "a file containing a single image encoded as a VP8 key frame" |
+| `rfc6386.frame` | ≥ 10 bytes; frame type 0 (key frame); first_part_size ≤ size-10; start code 9D 01 2A | FAIL | RFC 6386 §9.1, def. (`#section-9.1`) | "A 1-bit frame type (0 for key frames, 1 for interframes)." / "Start code byte 0 0x9d Start code byte 1 0x01 Start code byte 2 0x2a" / RFC 9649 §2.1: "a file containing a single image encoded as a VP8 key frame" |
+| `rfc6386.version` | VP8 frame tag version_number ≤ 3 (final review M3: not a violation sentence, libwebp rejects > 3) | WARN | RFC 6386 §9.1 (`#section-9.1`) | "A 3-bit version number (0 - 3 are defined as four different profiles with different decoding complexity; other values may be defined for future variants of the VP8 data format)." |
 | `rfc9649.canvas` | extended still: VP8/VP8L size = VP8X canvas; ANMF: bitstream size = frame size (simple format: the bitstream is the canvas) | FAIL | 2.5-2.6 / 2.7.1.1, def. (`#section-2.5`) | "Note that the VP8 frame header contains the VP8 frame width and height. That is assumed to be the width and height of the canvas." (boxed note) / "Frame Width Minus One + 1 pixels wide by Frame Height Minus One + 1 pixels high are rendered onto the canvas using the Blending method." |
 | `rfc9649.trailing` | bytes after 8 + File Size (decision 2) | WARN | 2.4 (`#section-2.4`) | "The file SHOULD NOT contain any data after the data specified by _File Size_." |
 

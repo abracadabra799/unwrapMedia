@@ -42,7 +42,9 @@ class WebpBitstreamRulesTest {
 
     @Test fun `bitstream headers and canvas size`() {
         failsOnly(riff(vp8(tag = 1 or (2 shl 5))), "rfc6386.frame")                           // interframe
-        failsOnly(riff(vp8(tag = (4 shl 1) or (2 shl 5))), "rfc6386.frame")                    // version 4
+        // M3: RFC 6386 §9.1 only says 0-3 are defined and "other values may be defined for future variants": WARN, not FAIL
+        failsOnly(riff(vp8(tag = (4 shl 1) or (2 shl 5))), "rfc6386.version")                  // version 4
+        assertEquals(WARN, check(riff(vp8(tag = (4 shl 1) or (2 shl 5)))).overall)
         failsOnly(riff(vp8(tag = 3 shl 5)), "rfc6386.frame")                                   // first_part_size 3 > 2
         failsOnly(riff(vp8l(version = 1)), "rfc9649.vp8l")
         failsOnly(riff(chunk("VP8L", byteArrayOf(0x2E, 0, 0, 0, 0, 0))), "rfc9649.vp8l")

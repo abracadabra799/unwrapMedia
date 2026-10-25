@@ -37,13 +37,15 @@ object WebpRules {
         webp("rfc9649.vp8l", "VP8L 헤더", "VP8L header", SCOPE_BITSTREAM, "3.4 RIFF Header (VP8L signature, version)", "section-3.4"),
         ImageRuleBook.cited("rfc6386.frame", "VP8 키 프레임 헤더", "VP8 key frame header", SCOPE_BITSTREAM, VP8_DOCUMENT,
             "9.1 Uncompressed Data Chunk (+ RFC 9649 §2.1 \"VP8 key frame\")$DEFINITIONAL_SUFFIX", "$VP8_URL#section-9.1"),
+        ImageRuleBook.cited("rfc6386.version", "VP8 버전 번호", "VP8 version number", SCOPE_BITSTREAM, VP8_DOCUMENT,
+            "9.1 Uncompressed Data Chunk (version_number)", "$VP8_URL#section-9.1"),
         webp("rfc9649.canvas", "캔버스·프레임 크기와 비트스트림 크기", "Canvas / frame size vs bitstream size", SCOPE_BITSTREAM,
             "2.5-2.6 (VP8/VP8L size = canvas) / 2.7.1.1 (ANMF frame size)$DEFINITIONAL_SUFFIX", "section-2.5"),
         webp("rfc9649.trailing", "RIFF 이후 데이터", "Data after the RIFF File Size", SCOPE_CONTAINER, "2.4 WebP File Header", "section-2.4"),
     )
 
     /** Violations of these rules are WARN (SHOULD / SHOULD NOT); all others FAIL. */
-    val WARN_RULES = setOf("rfc9649.anmf.flag", "rfc9649.alph.vp8l", "rfc9649.metadata.count", "rfc9649.trailing")
+    val WARN_RULES = setOf("rfc9649.anmf.flag", "rfc9649.alph.vp8l", "rfc9649.metadata.count", "rfc9649.trailing", "rfc6386.version")
 
     internal val book = ImageRuleBook(all, WARN_RULES)
 

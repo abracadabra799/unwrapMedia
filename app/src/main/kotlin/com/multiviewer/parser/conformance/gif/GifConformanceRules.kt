@@ -95,11 +95,11 @@ internal object GifConformanceRules {
         var pending: GifBlock.Extension? = null
         for (b in ctx.scan.blocks) {
             if (b is GifBlock.Extension && b.label == 0xF9) {
-                if (pending != null) { bad += "GCE @${hex(b.offset)}: 그래픽 블록 전 두 번째 GCE(앞 GCE @${hex(pending.offset)}) / second GCE before one graphic rendering block"; ranges += ctx.range(b) }
+                if (pending != null) { bad += "GCE @${hex(b.offset)}: 그래픽 블록 전 두 번째 GCE(앞 GCE @${hex(pending.offset)}) / second GCE before one graphic rendering block (Appendix B grammar: <Graphic Block> ::= [Graphic Control Extension] <Graphic-Rendering Block>)"; ranges += ctx.range(b) }
                 pending = b
             } else if (b.rendering()) pending = null
         }
-        if (pending != null && ctx.scan.trailer != null) { bad += "GCE @${hex(pending.offset)}: 뒤따르는 그래픽 렌더링 블록 없음 / no graphic rendering block follows"; ranges += ctx.range(pending) }
+        if (pending != null && ctx.scan.trailer != null) { bad += "GCE @${hex(pending.offset)}: 뒤따르는 그래픽 렌더링 블록 없음 / no graphic rendering block follows (Appendix B grammar: a Graphic Control Extension is part of <Graphic Block> and must precede a <Graphic-Rendering Block>)"; ranges += ctx.range(pending) }
         return f(ctx, "gif89a.gce", bad, ranges, "GCE ${gces.size}개: Block Size 4, 그래픽 블록마다 최대 1개 / ${gces.size} GCE: size 4, at most one per graphic rendering block")
     }
 

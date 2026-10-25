@@ -30,6 +30,7 @@ class PngAncillaryRulesTest {
     @Test fun `ancillary field values`() {
         failsOnly(rgb(chunk("sRGB", byteArrayOf(4))), "png3.ancillary")
         failsOnly(rgb(chunk("cICP", byteArrayOf(1, 13, 1, 1))), "png3.ancillary")              // Matrix Coefficients must be 0
+        failsOnly(rgb(chunk("cICP", byteArrayOf(1, 13, 0, 2))), "png3.ancillary")              // M5: Video Full Range Flag is 0 or 1
         failsOnly(rgb(chunk("mDCV", ByteArray(24))), "png3.ancillary")                          // without cICP
         assertEquals(PASS, check(rgb(chunk("cICP", byteArrayOf(9, 16, 0, 1)), chunk("mDCV", ByteArray(24)), chunk("cLLI", ByteArray(8)))).statusOf("png3.ancillary"))
         failsOnly(rgb(chunk("sBIT", byteArrayOf(8, 0, 8))), "png3.ancillary")
