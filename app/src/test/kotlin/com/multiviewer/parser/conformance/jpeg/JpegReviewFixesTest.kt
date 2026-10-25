@@ -46,6 +46,17 @@ class JpegReviewFixesTest {
         assertTrue(gap.details.any { it.contains("5000") }, gap.details.toString())
     }
 
+    @Test fun `C1 a SEF trailer with zero directory entries explains nothing`() {
+        fun zero(n: Int): ByteArray {
+            val dir = "SEFH".toByteArray() + le32(0) + le32(0)
+            return ByteArray(n) { 0x55 } + dir + le32(dir.size) + "SEFT".toByteArray()
+        }
+        val r = trailing(baseline() + zero(100))
+        assertEquals(WARN, r.status)
+        assertEquals(WARN, trailing(baseline() + zero(0)).status)
+        assertEquals(PASS, trailing(baseline() + sefTrailer()).status)
+    }
+
     @Test fun `I2 a second SOI inside the image fails soi`() {
         val r = check(SOI + SOI + dqt() + dht(0, 0) + dht(1, 0) + sof() + sos() + ecs() + EOI)
         assertEquals(FAIL, r.status("t81.soi"))

@@ -90,7 +90,25 @@ internal fun sefTrailerGaps(reader: ByteReader, pos: Long): String? {
         return null
     }
     if (report.overallSeverity == SefIntegritySeverity.CRITICAL) return null
-    return report.structuralChecks
+    // The analyzer only checks gaps when the directory has entries (count 0 would "explain" anything): require
+    // >= 1 entry and entries that tile [pos, SEFH) exactly (the analyzer's own gap/overlap text is kept too).
+    val count = report.declaredEntryCount ?: return null
+    val sefh = len - 8 - (12 + 12 * count)
+    val problems = ArrayList<String>()
+    val entries = report.directoryEntries.sortedBy { it.computedDataStart }
+    if (entries.isEmpty()) {
+        problems += "SEF 디렉터리 항목 0개 — 앞 ${sefh - pos}바이트는 설명되지 않음 / SEF directory has no entries: ${sefh - pos} byte(s) in [$pos, $sefh) are not covered"
+    } else {
+        if (entries.first().computedDataStart != pos) problems += "SEF 첫 항목 앞 ${entries.first().computedDataStart - pos}바이트 설명되지 않음 / ${entries.first().computedDataStart - pos} byte(s) before the first SEF entry [$pos, ${entries.first().computedDataStart})"
+        for (i in 1 until entries.size) {
+            val prev = entries[i - 1]; val cur = entries[i]
+            if (cur.computedDataStart != prev.computedDataEnd) problems += "SEF 항목 #${prev.entryIndex}/#${cur.entryIndex} 사이 간극 또는 겹침 / gap or overlap between SEF entries #${prev.entryIndex} and #${cur.entryIndex}"
+        }
+        if (entries.last().computedDataEnd != sefh) problems += "SEF 마지막 항목과 SEFH 사이 간극 / gap between the last SEF entry and SEFH [${entries.last().computedDataEnd}, $sefh)"
+    }
+    if (problems.isEmpty()) return ""
+    val analyzer = report.structuralChecks
         .filter { (it.label == "Field block gaps" || it.label == "Field block overlap") && it.severity != SefIntegritySeverity.PASS }
-        .joinToString("; ") { it.detail }
+        .map { it.detail }
+    return (problems + analyzer).distinct().joinToString("; ")
 }
