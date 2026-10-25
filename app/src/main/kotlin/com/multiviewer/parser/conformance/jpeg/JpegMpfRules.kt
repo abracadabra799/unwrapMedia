@@ -102,7 +102,7 @@ internal object JpegMpfRules {
         val b = t.valueBytes(e) ?: return ctx.skip("mpf.version", NOT_CHECKED, "MPFVersion 값을 읽을 수 없음 / unreadable")
         val ok = b.contentEquals(ASCII_0100)
         return ctx.finding("mpf.version",
-            if (ok) emptyList() else listOf("MPFVersion ${b.joinToString(" ") { "%02X".format(it) }} ≠ \"0100\" (NULL 종료 없음) / shall be ASCII \"0100\""),
+            if (ok) emptyList() else listOf("MPFVersion ${b.joinToString(" ") { "%02X".format(it) }} ≠ \"0100\" (NULL 종료 없음 / no NULL terminator) / shall be ASCII \"0100\""),
             emptyList(), listOf("MPFVersion \"0100\""))
     }
 

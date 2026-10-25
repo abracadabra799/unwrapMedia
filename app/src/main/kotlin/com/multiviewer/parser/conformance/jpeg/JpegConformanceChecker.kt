@@ -12,6 +12,8 @@ object JpegConformanceChecker {
         "엔트로피 부호화 데이터는 해독하지 않습니다(RSTm 마커만 셉니다) / Entropy-coded data is not decoded (only RSTm markers are counted)",
         "계층(hierarchical) 모드, XMP, ICC, MakerNote 내부, 비압축 Exif 썸네일, MPF 2번째 이후 이미지의 내부는 1단계에서 검사하지 않습니다 / " +
             "Hierarchical mode, XMP, ICC, MakerNote contents, uncompressed Exif thumbnails and the inside of MPF secondary images are not checked in phase 1",
+        "DHT 값 개수 제약(ΣLi ≤ 256 등), DNL NL=0, MPF Extended 파일의 \"단독 사용 금지\" 유형, MPF APP2를 가진 Large Thumbnail은 검사하지 않습니다 / " +
+            "Not checked: DHT value-count limits (ΣLi ≤ 256 etc.), DNL NL = 0, MPF types that must not be used alone in Extended files, Large Thumbnails that carry an MPF APP2",
         "Exif·MPF 규칙은 첫(주) 이미지의 APP1/APP2만 검사합니다 / Exif and MPF rules check the first (primary) image's APP1/APP2 only",
     )
 
@@ -31,7 +33,7 @@ object JpegConformanceChecker {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            "검사 중 오류: ${e.javaClass.simpleName}: ${e.message ?: ""}".trim()
+            "검사 중 오류 / inspection error: ${e.javaClass.simpleName}: ${e.message ?: ""}".trim()
         }
         return ConformanceReport(
             format = "JPEG",

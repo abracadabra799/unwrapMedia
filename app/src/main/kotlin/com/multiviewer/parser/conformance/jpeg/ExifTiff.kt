@@ -28,6 +28,8 @@ class ExifTiff private constructor(val bytes: ByteArray, val base: Long) {
     val headerProblems = ArrayList<String>()
     val structureProblems = ArrayList<String>()
     val ifds = LinkedHashMap<ExifIfd, TiffIfd>()
+    /** IFDs that are pointed to but could not be read (loop, out of range, bad pointer): their tags were never seen. */
+    val unreadable = LinkedHashSet<ExifIfd>()
     val headerOk: Boolean get() = headerProblems.isEmpty()
 
     fun u8(o: Long): Int = bytes[o.toInt()].toInt() and 0xFF
@@ -101,8 +103,8 @@ class ExifTiff private constructor(val bytes: ByteArray, val base: Long) {
     private fun walkExif() {
         val visited = HashSet<Long>()
         fun visit(kind: ExifIfd, offset: Long): TiffIfd? {
-            if (!visited.add(offset)) { structureProblems += "${kind.label} @$offset: 이미 읽은 IFD를 다시 가리킴(순환/공유) / IFD loop or shared IFD"; return null }
-            return readIfd(kind, offset)?.also { ifds[kind] = it }
+            if (!visited.add(offset)) { structureProblems += "${kind.label} @$offset: 이미 읽은 IFD를 다시 가리킴(순환/공유) / IFD loop or shared IFD"; unreadable += kind; return null }
+            return readIfd(kind, offset)?.also { ifds[kind] = it } ?: run { unreadable += kind; null }
         }
         val ifd0 = visit(ExifIfd.IFD0, firstIfd) ?: return
         if (ifd0.next != 0L) {
@@ -113,7 +115,7 @@ class ExifTiff private constructor(val bytes: ByteArray, val base: Long) {
         fun pointer(from: TiffIfd, tag: Int, kind: ExifIfd) {
             val e = from.entry(tag) ?: return
             val off = uint(e)
-            if (off == null) structureProblems += "${from.kind.label}: ${kind.label} 포인터(0x%04X)를 읽을 수 없음 (Type ${e.type}, Count ${e.count}) / unreadable pointer".format(tag)
+            if (off == null) { structureProblems += "${from.kind.label}: ${kind.label} 포인터(0x%04X)를 읽을 수 없음 (Type ${e.type}, Count ${e.count}) / unreadable pointer".format(tag); unreadable += kind }
             else visit(kind, off)
         }
         pointer(ifd0, 0x8769, ExifIfd.EXIF)

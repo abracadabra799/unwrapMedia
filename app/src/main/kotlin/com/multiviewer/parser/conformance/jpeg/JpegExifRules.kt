@@ -48,7 +48,8 @@ internal object JpegExifRules {
         val ok = ctx.segments.getOrNull(0)?.marker == 0xD8 && ctx.segments.getOrNull(1) == s
         val prev = ctx.segments.getOrNull(ctx.segments.indexOf(s) - 1)
         return ctx.finding("exif.app1.position",
-            if (ok) emptyList() else listOf("Exif APP1 @${hex(s.offset)}가 SOI 바로 뒤가 아님 — 앞: ${prev?.let { markerName(it.marker) + " @" + hex(it.offset) }} / not immediately after SOI"),
+            if (ok) emptyList() else listOf("Exif APP1 @${hex(s.offset)}가 SOI 바로 뒤가 아님 — 앞: ${prev?.let { markerName(it.marker) + " @" + hex(it.offset) }} / not immediately after SOI" +
+                (if (prev?.marker == 0xE0 && ctx.startsWith(prev, JpegContext.JFIF_ID)) " — JFIF(T.871 §6.3)와 Exif(DC-008 §4.7.2.1)는 둘 다 SOI 바로 뒤를 요구하므로 동시에 만족할 수 없음 / JFIF and Exif both require the segment right after SOI, so a file cannot satisfy both" else "")),
             if (ok) emptyList() else listOf(s.range), listOf("Exif APP1 @${hex(s.offset)} = SOI 바로 뒤 / immediately after SOI"))
     }
 
@@ -108,9 +109,9 @@ internal object JpegExifRules {
     private fun mandatory(ctx: JpegContext, t: ExifTiff): ConformanceFinding {
         val v = ArrayList<String>()
         val ifd0 = t.ifds[ExifIfd.IFD0]
-        MANDATORY_0TH.forEach { (tag, name) -> if (ifd0?.entry(tag) == null) v += "0th IFD: $name 없음 / missing" }
+        if (ExifIfd.IFD0 !in t.unreadable) MANDATORY_0TH.forEach { (tag, name) -> if (ifd0?.entry(tag) == null) v += "0th IFD: $name 없음 / missing" }
         val exif = t.ifds[ExifIfd.EXIF]
-        MANDATORY_EXIF.forEach { (tag, name) -> if (exif?.entry(tag) == null) v += "Exif IFD: $name 없음 / missing" }
+        if (ExifIfd.EXIF !in t.unreadable) MANDATORY_EXIF.forEach { (tag, name) -> if (exif?.entry(tag) == null) v += "Exif IFD: $name 없음 / missing" }
         t.ifds[ExifIfd.GPS]?.let { if (it.entries.isNotEmpty() && it.entry(0x0000) == null) v += "GPS IFD: GPSVersionID 없음 — GPS 태그가 있으면 필수 (§4.6.7.1.1, p.94) / mandatory when a GPS tag is present" }
         val notes = ArrayList<String>()
         t.ifds[ExifIfd.IFD1]?.let { ifd1 ->
@@ -120,7 +121,10 @@ internal object JpegExifRules {
                 else -> notes += "1st IFD가 JPEG 압축 썸네일이 아님 — 비압축 썸네일 필수 태그는 1단계 범위 밖 / uncompressed thumbnail tags not checked"
             }
         }
-        return ctx.finding("exif.tags.mandatory", v, emptyList(), listOf("필수(M) 태그 모두 있음 / all mandatory tags present") + notes)
+        val mandatoryKinds = setOf(ExifIfd.IFD0, ExifIfd.EXIF, ExifIfd.GPS, ExifIfd.IFD1)
+        val cannot = unreadableNotes(t, mandatoryKinds)
+        if (v.isEmpty() && cannot.isNotEmpty()) return ctx.skip("exif.tags.mandatory", NOT_CHECKED, cannot.joinToString("; "))
+        return ctx.finding("exif.tags.mandatory", v + cannot, emptyList(), listOf("필수(M) 태그 모두 있음 / all mandatory tags present") + notes)
     }
 
     private fun notAllowed(ctx: JpegContext, t: ExifTiff): ConformanceFinding {
@@ -132,13 +136,18 @@ internal object JpegExifRules {
         return ctx.finding("exif.tags.not_allowed", v, emptyList(), listOf("기록 금지(N/J) 태그 없음 / no tags that are not allowed"))
     }
 
+    private fun unreadableNotes(t: ExifTiff, kinds: Set<ExifIfd>): List<String> =
+        t.unreadable.filter { it in kinds }.map { "${it.label}를 읽을 수 없어 그 태그를 판단할 수 없음 (exif.ifd.structure 참고) / ${it.label} could not be read, so its tags are not evaluated (see exif.ifd.structure)" }
+
     private fun recommended(ctx: JpegContext, t: ExifTiff): ConformanceFinding {
         val ifd0 = t.ifds[ExifIfd.IFD0]
         val exif = t.ifds[ExifIfd.EXIF]
-        val missing = RECOMMENDED_0TH.filter { ifd0?.entry(it.key) == null }.map { "0th IFD ${it.value}" } +
-            RECOMMENDED_EXIF.filter { exif?.entry(it.key) == null }.map { "Exif IFD ${it.value}" }
+        val missing = (if (ExifIfd.IFD0 in t.unreadable) emptyList() else RECOMMENDED_0TH.filter { ifd0?.entry(it.key) == null }.map { "0th IFD ${it.value}" }) +
+            (if (ExifIfd.EXIF in t.unreadable) emptyList() else RECOMMENDED_EXIF.filter { exif?.entry(it.key) == null }.map { "Exif IFD ${it.value}" })
+        val cannot = unreadableNotes(t, setOf(ExifIfd.IFD0, ExifIfd.EXIF))
+        if (missing.isEmpty() && cannot.isNotEmpty()) return ctx.skip("exif.tags.recommended", NOT_CHECKED, cannot.joinToString("; "))
         // One row listing every missing tag name (user decision 2026-10-25).
-        val v = if (missing.isEmpty()) emptyList() else listOf("권장(R) 태그 ${missing.size}개 없음 / ${missing.size} recommended tag(s) missing: " + missing.joinToString(", "))
+        val v = if (missing.isEmpty()) emptyList() else listOf("권장(R) 태그 ${missing.size}개 없음 / ${missing.size} recommended tag(s) missing: " + missing.joinToString(", ")) + cannot
         return ctx.finding("exif.tags.recommended", v, emptyList(), listOf("권장(R) 태그 모두 있음 / all recommended tags present"))
     }
 
@@ -172,6 +181,6 @@ internal object JpegExifRules {
         val rst = stream.entropy.sumOf { it.restartCount }
         if (rst > 0) v += "썸네일 안의 재시작 마커 ${rst}개 — 기록 금지 / restart markers shall not be recorded"
         stream.segments.firstOrNull { it.marker in JpegFrame.SOF_MARKERS }?.let { if (it.marker != 0xC0) v += "썸네일 ${markerName(it.marker)} — Baseline(SOF0)이 아님 / not Baseline DCT" }
-        return ctx.finding(id, v, if (v.isEmpty()) emptyList() else listOf(abs until abs + len), listOf("썸네일 @${hex(abs)} ${len}바이트, SOF0, APPn/COM/RST 없음"))
+        return ctx.finding(id, v, if (v.isEmpty()) emptyList() else listOf(abs until abs + len), listOf("썸네일 @${hex(abs)} ${len}바이트, SOF0, APPn/COM/RST 없음 / thumbnail @${hex(abs)}, ${len} bytes, SOF0, no APPn/COM/RST"))
     }
 }

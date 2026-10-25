@@ -32,8 +32,12 @@ internal object JpegTrailer {
             if (video != null) {
                 out += TrailerRegion(pos, video, "ISO-BMFF 동영상 (모션 포토) / ISO-BMFF video (motion photo)", true); pos = video; continue
             }
-            if (sefExplains(ctx, pos)) {
-                out += TrailerRegion(pos, len, "Samsung SEF 트레일러 / Samsung SEF trailer", true); pos = len; continue
+            val sef = sefAssess(ctx, pos)
+            if (sef != null) {
+                // Fail closed: a gap or overlap the SEF analyzer reports leaves bytes no structure accounts for.
+                out += if (sef.isEmpty()) TrailerRegion(pos, len, "Samsung SEF 트레일러 / Samsung SEF trailer", true)
+                else TrailerRegion(pos, len, "Samsung SEF 트레일러 안의 설명되지 않는 간극 / unexplained gap in the Samsung SEF trailer — $sef", false)
+                pos = len; continue
             }
             val next = nextKnownStart(ctx, pos, mpfImages) ?: len
             out += TrailerRegion(pos, next, "알 수 없는 데이터 / unexplained data", false)
@@ -42,17 +46,26 @@ internal object JpegTrailer {
         return out
     }
 
+    /** A structurally valid ISO-BMFF tail: `ftyp` first, boxes tiling without a hole, none cut off, with `moov` and `mdat`. */
     private fun videoEnd(ctx: JpegContext, pos: Long): Long? {
         if (pos + 8 > ctx.length || ctx.reader.readFourCC(pos + 4) != "ftyp") return null
-        val boxes = walkBoxes(ctx.reader, pos, ctx.length).takeWhile { !it.truncated }
-        return boxes.lastOrNull()?.end?.takeIf { it > pos }
+        val boxes = walkBoxes(ctx.reader, pos, ctx.length)
+        if (boxes.isEmpty() || boxes.any { it.truncated } || boxes.first().type != "ftyp") return null
+        if (boxes.none { it.type == "moov" } || boxes.none { it.type == "mdat" }) return null
+        return boxes.last().end.takeIf { it > pos }
     }
 
-    private fun sefExplains(ctx: JpegContext, pos: Long): Boolean {
+    /**
+     * null = [pos]..EOF is not a usable SEF trailer (no SEFT, or CRITICAL); "" = explained; otherwise the analyzer's
+     * gap/overlap text (some bytes are not accounted for).
+     */
+    private fun sefAssess(ctx: JpegContext, pos: Long): String? {
         val len = ctx.length
-        if (len - pos < 12 || ctx.reader.readFourCC(len - 4) != "SEFT") return false
-        val report = try { SefIntegrityAnalyzer.analyze(ctx.reader, pos, 0, len - pos, len) } catch (e: java.util.concurrent.CancellationException) { throw e } catch (_: Exception) { return false }
-        return report.overallSeverity != SefIntegritySeverity.CRITICAL
+        if (len - pos < 12 || ctx.reader.readFourCC(len - 4) != "SEFT") return null
+        val report = try { SefIntegrityAnalyzer.analyze(ctx.reader, pos, 0, len - pos, len) } catch (e: java.util.concurrent.CancellationException) { throw e } catch (_: Exception) { return null }
+        if (report.overallSeverity == SefIntegritySeverity.CRITICAL) return null
+        return report.structuralChecks.filter { (it.label == "Field block gaps" || it.label == "Field block overlap") && it.severity != SefIntegritySeverity.PASS }
+            .joinToString("; ") { it.detail }
     }
 
     /** The next MPF image start or ISO-BMFF `ftyp` box after [pos] (searched within 4 MiB), or null. */
@@ -80,7 +93,7 @@ internal object JpegTrailer {
         val eoi = ctx.stream.eoi ?: return ctx.skip(id, NOT_CHECKED, "EOI 없음 — 판단 불가 / no EOI")
         if (ctx.stream.end >= ctx.length) return ctx.finding(id, emptyList(), emptyList(), listOf("EOI @${hex(eoi.offset)} 뒤 데이터 없음 / nothing after EOI"))
         val regions = regions(ctx, mpfImages)
-        val lines = regions.map { "${it.label}: ${hex(it.start)}..${hex(it.end)} (${it.end - it.start}바이트)" }
+        val lines = regions.map { "${it.label}: ${hex(it.start)}..${hex(it.end)} (${it.end - it.start}바이트 / ${it.end - it.start} bytes)" }
         val unknown = regions.filter { !it.known }
         val note = "T.81은 EOI 이후 데이터를 정의하지 않음 / T.81 defines no data after EOI"
         return if (unknown.isEmpty()) ctx.finding(id, emptyList(), emptyList(), listOf("$note — 모두 알려진 구조로 설명됨 / all explained by known structures") + lines)

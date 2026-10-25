@@ -74,7 +74,7 @@ fun extensionMismatchItem(file: File): IntegrityCheckItem? {
 /**
  * Uses existing observations only; no file reads. [container] (computed off the UI thread by [containerConformanceFor])
  * replaces the legacy report: the parser-warning-only report for MP4/MOV/M4A, and the structural-observation report
- * for HEIF/AVIF images (those observations stay in the Structure row).
+ * for HEIF/AVIF and JPEG images (those observations stay in the Structure row).
  */
 fun contentConformanceReport(
     type: MediaType,
@@ -106,7 +106,7 @@ private val ISO_BMFF_CONTAINERS = setOf(ContainerFormat.MP4, ContainerFormat.MOV
 
 /**
  * Container conformance by content (sniffer), not extension: MP4/MOV/M4A → ISO-BMFF checker, HEIF/AVIF → HEIF
- * checker; null for every other format. Blocking file I/O: never call on the UI thread.
+ * checker, JPEG → JPEG checker; null for every other format. Blocking file I/O: never call on the UI thread.
  */
 fun containerConformanceFor(file: File): ConformanceReport? {
     val format = confidentFormat(file)

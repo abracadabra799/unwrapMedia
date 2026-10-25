@@ -42,7 +42,7 @@ internal object JpegJfifRules {
         if (units > 2) v += "units=$units — 0, 1, 2만 정의 / only 0, 1, 2 are defined"
         if (hd == 0 || vd == 0) v += "Hdensity=$hd, Vdensity=$vd — 0이 아니어야 함 / must be non-zero"
         return ctx.finding("jfif.fields", v.map { "JFIF APP0 @${hex(s.offset)}: $it" }, if (v.isEmpty()) emptyList() else listOf(s.range),
-            listOf("Lp=${s.length}, units=$units, density ${hd}x$vd, 썸네일 ${tw}x$th"))
+            listOf("Lp=${s.length}, units=$units, density ${hd}x$vd, 썸네일 ${tw}x$th / thumbnail ${tw}x$th"))
     }
 
     private fun version(ctx: JpegContext, s: JpegSegment): ConformanceFinding {

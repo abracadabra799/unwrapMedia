@@ -275,7 +275,7 @@ class ContentCheckPlanTest {
     }
 
     @Test
-    fun isoBmffConformanceIsOnlyComputedForMp4MovAndM4a() {
+    fun containerConformanceIsOnlyComputedForIsoBmffHeifAndJpeg() {
         val png = File.createTempFile("ccp-iso-", ".png").also { it.deleteOnExit(); it.writeBytes(com.multiviewer.parser.integrity.pngBytes()) }
         assertNull(containerConformanceFor(png))
         val jpeg = File.createTempFile("ccp-iso-", ".jpg").also { it.deleteOnExit(); it.writeBytes(jpegBytes()) }

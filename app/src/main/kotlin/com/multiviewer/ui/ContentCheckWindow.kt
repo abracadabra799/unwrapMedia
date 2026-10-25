@@ -224,7 +224,7 @@ fun ContentCheckWindow(
                 contentStructureReport(tab.file, root, type) to null
             }
             // Blocking file I/O stays here: never on the UI thread (Windows file locks).
-            // Content-based: MP4/MOV/M4A → ISO-BMFF, HEIF/AVIF images → HEIF; null for everything else.
+            // Content-based: MP4/MOV/M4A → ISO-BMFF, HEIF/AVIF images → HEIF, JPEG → JPEG; null for everything else.
             val container = containerConformanceFor(tab.file)
             checked to container
         }

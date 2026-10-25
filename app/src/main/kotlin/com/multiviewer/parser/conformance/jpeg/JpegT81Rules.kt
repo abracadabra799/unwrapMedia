@@ -17,9 +17,19 @@ internal object JpegT81Rules {
 
     private fun soi(ctx: JpegContext): ConformanceFinding {
         val first = ctx.segments.firstOrNull()
-        return if (first?.marker == 0xD8) ctx.finding("t81.soi", emptyList(), emptyList(), listOf("SOI @${hex(first.offset)}"))
-        else ctx.finding("t81.soi", listOf("파일이 SOI(0xFFD8)로 시작하지 않음 / does not begin with SOI" +
-            (first?.let { " — 첫 마커 ${markerName(it.marker)} @${hex(it.offset)}" } ?: "")), listOf(0L until minOf(2L, ctx.length)), emptyList())
+        val v = ArrayList<String>()
+        val ranges = ArrayList<LongRange>()
+        if (first?.marker != 0xD8) {
+            v += "파일이 SOI(0xFFD8)로 시작하지 않음 / does not begin with SOI" +
+                (first?.let { " — 첫 마커 ${markerName(it.marker)} @${hex(it.offset)}" } ?: "")
+            ranges += 0L until minOf(2L, ctx.length)
+        }
+        // B.2.1: the interchange format begins with one SOI and contains one frame; a later SOI before EOI is not allowed.
+        ctx.segments.drop(1).filter { it.marker == 0xD8 }.forEach {
+            v += "SOI @${hex(it.offset)}: 이미지 안에 SOI가 또 있음 — SOI는 처음 한 번만 / a second SOI inside the image (B.2.1: begins with an SOI, one frame, ends with an EOI)"
+            ranges += it.range
+        }
+        return ctx.finding("t81.soi", v, ranges, listOf("SOI @${hex(first?.offset ?: 0)}"))
     }
 
     private fun marker(ctx: JpegContext): ConformanceFinding {
@@ -253,6 +263,7 @@ internal object JpegT81Rules {
         val v = ArrayList<String>()
         val ranges = ArrayList<LongRange>()
         val notes = ArrayList<String>()
+        val unverified = ArrayList<String>()
         var ri: Int? = 0 // SOI disables restart (B.2.4.4); null = unknown after a malformed DRI
         ctx.segments.forEachIndexed { i, s ->
             when (s.marker) {
@@ -266,7 +277,7 @@ internal object JpegT81Rules {
                     val at = "SOS @${hex(s.offset)}"
                     val interval = ri
                     when {
-                        interval == null -> notes += "$at: Ri를 알 수 없어 RST 개수 미검사 / Ri unknown"
+                        interval == null -> unverified += "$at: Ri를 알 수 없어 RST 개수 미검사 / Ri unknown"
                         interval == 0 && e.restartCount > 0 -> {
                             v += "$at: 재시작 비활성(Ri=0)인데 RST ${e.restartCount}개 @${hex(e.firstRestart!!)} / restart markers while restart is disabled"
                             ranges += e.firstRestart until e.firstRestart + 2
@@ -278,8 +289,8 @@ internal object JpegT81Rules {
                             val truncatedScan = ctx.stream.truncated && e === ctx.stream.entropy.last()
                             val mcus = if (f != null && f.dct && sh != null && sh.complete && lines != null) mcuCount(f, sh, lines) else null
                             when {
-                                truncatedScan -> notes += "$at: 스캔 데이터가 잘려 RST 개수 미검사 / scan data cut off"
-                                mcus == null -> notes += "$at: MCU 수를 계산할 수 없어(무손실·DNL 미상 등) RST 개수 미검사 / MCU count unknown"
+                                truncatedScan -> unverified += "$at: 스캔 데이터가 잘려 RST 개수 미검사 / scan data cut off"
+                                mcus == null -> unverified += "$at: MCU 수를 계산할 수 없어(무손실·DNL 미상 등) RST 개수 미검사 / MCU count unknown"
                                 else -> {
                                     val expected = ceilDiv(mcus, interval.toLong()) - 1
                                     if (e.restartCount != expected) {
@@ -294,6 +305,7 @@ internal object JpegT81Rules {
                 }
             }
         }
+        if (v.isEmpty() && unverified.isNotEmpty()) return ctx.skip(id, NOT_CHECKED, (unverified + notes).joinToString("; "))
         return ctx.finding(id, v, ranges, notes.ifEmpty { listOf("스캔 없음 / no scan") })
     }
 
