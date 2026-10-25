@@ -760,6 +760,12 @@ private fun decodeIfd(
                 if (valueAbsolutePos < 0 || valueAbsolutePos + totalSize > itemEnd) {
                     fields.add(BoxField(name, "(out of bounds)", valueAbsolutePos, totalSize, ValueInterpretation.UNPARSABLE))
                 } else {
+                    val numeric = tiffNumericField(reader, name, fieldType, count, valueAbsolutePos, littleEndian, tagNames[tag] != null)
+                    if (numeric != null) {
+                        fields.add(numeric)
+                        pos += 12
+                        continue
+                    }
                     val interpreted = interpretedDisplay(label, tag, fieldType, count.toInt(), reader, valueAbsolutePos, littleEndian)
                     val display = interpreted ?: formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian)
                     val state = if (tagNames[tag] == null || interpreted == null && fieldType !in setOf(2, 3, 4, 5, 8, 9, 10))
@@ -932,6 +938,12 @@ private fun decodeMakerNote(
         if (valueAbsolutePos < 0 || valueAbsolutePos + totalSize > itemEnd) {
             fields.add(BoxField(name, "(out of bounds)", valueAbsolutePos, totalSize, ValueInterpretation.UNPARSABLE))
         } else {
+            val numeric = tiffNumericField(reader, name, fieldType, count, valueAbsolutePos, littleEndian, tagNames[tag] != null)
+            if (numeric != null) {
+                fields.add(numeric)
+                pos += 12
+                continue
+            }
             val display = formatTiffValue(reader, fieldType, count.toInt(), valueAbsolutePos, littleEndian)
             val state = if (tagNames[tag] == null || fieldType !in setOf(2, 3, 4, 5, 8, 9, 10)) ValueInterpretation.UNINTERPRETED else ValueInterpretation.PARSED
             fields.add(BoxField(name, display, valueAbsolutePos, totalSize, state))

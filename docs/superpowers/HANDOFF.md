@@ -2,7 +2,7 @@
 
 ## 2026-10-25 update — active Detailed Properties audit
 
-The current user request is to keep filling verified Detailed Properties parsing gaps, with explicit 미해석 / 파싱 불가 states. The authoritative progress ledger is `docs/superpowers/plans/2026-10-23-detail-parsing.md`; older roadmap statuses below are historical. MOV, native FLAC CUESHEET/PICTURE/Vorbis, and PNG APNG/HDR/color-context chunks have implementation/validation records in their 2026-10-25 plans. The PNG text/ICC decompression and source-range audit is also complete (2026-10-25-png-text-details.md). Continue next with the remaining TIFF/GIF/DNG/AV2 inventory and defined SEF work. Private payload semantics still require reliable evidence.
+The current user request is to keep filling verified Detailed Properties parsing gaps, with explicit 미해석 / 파싱 불가 states. The authoritative progress ledger is `docs/superpowers/plans/2026-10-23-detail-parsing.md`; older roadmap statuses below are historical. MOV, native FLAC CUESHEET/PICTURE/Vorbis, and PNG APNG/HDR/color-context chunks have implementation/validation records in their 2026-10-25 plans. The PNG text/ICC decompression and source-range audit is also complete (2026-10-25-png-text-details.md). TIFF SBYTE/FLOAT/DOUBLE detailed-value decoding is complete (2026-10-25-tiff-numeric-details.md), including numeric DNG NoiseProfile display. Continue next with broader TIFF/DNG tag semantics, GIF/AV2 inventory and defined SEF work. Private payload semantics still require reliable evidence.
 
 The user explicitly requested push-before-continuing: `origin/main` was most recently pushed through ee9c9210 before the PNG text/ICC unit. Later local commits require a new push request. Keep local feature worktree → tests/review → main integration workflow.
 

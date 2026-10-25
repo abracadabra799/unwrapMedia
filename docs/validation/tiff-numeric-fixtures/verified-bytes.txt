@@ -1,0 +1,13 @@
+be.tif bytes= 218 order= b'MM'
+340 6 4 offset= 126 length= 4 raw= 80ff007f values= (-128, -1, 0, 127)
+341 11 3 offset= 182 length= 12 raw= bfc000003e80000047800000 values= (-1.5, 0.25, 65536.0)
+50706 1 4 offset= 150 length= 4 raw= 01040000 values= (1, 4, 0, 0)
+51041 12 2 offset= 194 length= 16 raw= 3fc0000000000000beb0c6f7a0b5ed8d values= (0.125, -1e-06)
+65000 11 1 offset= 174 length= 4 raw= 3fa00000 values= (1.25,)
+default.tif bytes= 152 order= b'II'
+le.tif bytes= 218 order= b'II'
+340 6 4 offset= 126 length= 4 raw= 80ff007f values= (-128, -1, 0, 127)
+341 11 3 offset= 182 length= 12 raw= 0000c0bf0000803e00008047 values= (-1.5, 0.25, 65536.0)
+50706 1 4 offset= 150 length= 4 raw= 01040000 values= (1, 4, 0, 0)
+51041 12 2 offset= 194 length= 16 raw= 000000000000c03f8dedb5a0f7c6b0be values= (0.125, -1e-06)
+65000 11 1 offset= 174 length= 4 raw= 0000a03f values= (1.25,)

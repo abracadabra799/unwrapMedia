@@ -79,3 +79,8 @@ Remaining: PNG text/ICC decompression completion, strict text and decompressed s
 Completed bounded tEXt/zTXt/iTXt/iCCP decoding with complete zlib/checksum verification, strict UTF8/ASCII and keyword rules, explicit unsupported/limited/malformed states, compression header fields and actual compressed source ranges for derived ICC header values. Valid empty text and ignored uncompressed iTXt method remain supported. Input/output and aggregate metadata budgets prevent unchecked allocations; a sparse2GiB chunk regression verifies UInt32 handling. ICC header/tag-count truncation and size/signature mismatch are explicit failures; tag contents remain uninterpreted. Real Pillow/lcms fixtures precede code, with independent CRC/zlib dumps and final validation in2026-10-25-png-text-details.md.
 
 Remaining: TIFF/GIF/DNG and broader AV2 inventory; private SEF semantic definitions and payload limits; deeper ICC tag-content and legacy metadata coverage as verified evidence permits. No full-format-coverage claim.
+
+## Task23 — TIFF/DNG numeric storage types
+Decoded SBYTE/FLOAT/DOUBLE values in regular IFD and MakerNote fields, including DNG NoiseProfile DOUBLE arrays. Both endian orders and inline/reference ranges are verified against Pillow-generated files and independent raw dumps. Numeric display does not claim unknown private-tag semantics: those remain UNINTERPRETED. Arrays above256 values retain full source span and explicit omission/state; malformed extents remain UNPARSABLE. See2026-10-25-tiff-numeric-details.md.
+
+Remaining: broader TIFF/DNG tag semantics, nested/opaque DNG structures, GIF and AV2 inventory, private SEF semantics/limits and deeper ICC coverage. This unit adds storage-type decoding, not full TIFF/DNG conformance.
