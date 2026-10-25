@@ -1,0 +1,224 @@
+# PNG / WebP / GIF conformance — design (one combined phase)
+
+Date: 2026-10-25. Status: designed; plan `docs/superpowers/plans/2026-10-25-png-webp-gif-conformance.md` (every code
+block compiled and run on `feat/png-webp-gif-conformance`, then removed so the branch holds documents only). Item 4 of
+the standards-conformance roadmap (after ISO-BMFF, HEIF/AVIF, JPEG/EXIF).
+
+## Goal
+
+Content Check's **"컨테이너 포맷 규격"** row reports rule-by-rule conformance for PNG (incl. APNG), WebP and GIF files.
+Today it shows only the structural observations of `PngIntegrity` / `WebpIntegrity` / `GifIntegrity` (`png.*`,
+`webp.*`, `gif.*` ids), which stay in the Structure row. Every WARN/FAIL rule carries a `SpecCitation` checked against
+the original (quoted sentence below).
+
+- **This phase:** W3C PNG Third Edition (signature, chunk layout/type/CRC, IHDR, critical sequence, PLTE, Table 7
+  ordering/uniqueness, tRNS and other ancillary field values, keywords and text fields, APNG), RFC 1950 zlib CMF/FLG of
+  every compressed PNG stream, RFC 9649 WebP (RIFF size, padding, simple/extended layout, chunk order, VP8X fields and
+  flags, ANIM/ANMF, ALPH, VP8L header, canvas sizes) with the VP8 frame tag of RFC 6386 §9.1, and GIF89a (header and
+  version, Logical Screen, block grammar, GCE / Application / Plain Text sizes, reserved fields, image bounds, LZW
+  minimum code size and first code, Trailer).
+- **Not in this phase (stated as limitations, NOT_CHECKED, never PASS):** zlib/deflate inflate, LZW decode, VP8/VP8L
+  entropy decode — pixel decoding stays with the existing ffmpeg decode check in the 디코딩 검증 group. Also ICC / Exif /
+  XMP contents, BCP 47 language tags, registered PNG extension chunks (oFFs, pCAL, sCAL …), GIF Application Extension
+  contents (NETSCAPE2.0) and Plain Text grids.
+
+## Decisions (binding, from the user)
+
+1. Severity: shall / MUST / "must" violation → **FAIL**; should / SHOULD (NOT) / recommended / "expected" → **WARN**;
+   never INFO. Definitional rules (a field definition, a grammar, a value table — no "shall" sentence) carry
+   `DEFINITIONAL_SUFFIX` and FAIL, like the JPEG catalog. Not evaluable (truncated, unparsed, invalid IHDR, walk cap) →
+   `NOT_CHECKED` with the reason; not applicable (no tRNS, no acTL, no ALPH …) → `NOT_APPLICABLE`. **A walk that stops
+   early (truncation / syntax error) turns every PASS or NOT_APPLICABLE of a rule that needs the whole chunk/block list
+   into NOT_CHECKED** (`ImageRuleBook.partial`), so a truncated file never shows a partial PASS.
+2. Data after IEND / after the RIFF File Size / after the GIF Trailer → **WARN** unless explained by a known structure.
+   The only structure recognised there is a Samsung SEF trailer running to EOF, ending in `SEFT`, that
+   `SefIntegrityAnalyzer` does not mark CRITICAL (the JPEG check's test, now shared as `sefTrailerGaps`). No other
+   structure (Motion Photo video, MPF) is defined for these formats. See open decision 1 for PNG.
+3. Bilingual KO/EN titles and details, Material3 only (no UI code is added: the existing conformance table renders the
+   report), no new dependencies, all file I/O off the UI thread (inside `containerConformanceFor`, already called from
+   the structure stage's IO block).
+4. Rule ids use the spec name as prefix (`png3.`, `zlib.`, `rfc9649.`, `rfc6386.`, `gif89a.`) so they never collide
+   with the Structure row's `png.*` / `webp.*` / `gif.*` observation ids.
+
+## Sources (downloaded 2026-10-25 into the session scratchpad `cite/pngwebpgif/`; untrusted data, read as text)
+
+These rows go into `docs/validation/spec-citations/README.md` (plan Task 9). HTML was read with a tag-stripping
+script that keeps `id` attributes; quotes were then checked by a script against the whitespace-normalised text (106
+quotes, all found verbatim except three marked below: the PNG superscript "2^31-1" (rendered "231-1" as text), the boxed
+RFC 9649 §2.5 note quoted without its `|` margin, and a GIF89a sentence split by a page number).
+
+| Document | Edition | URL used in citations | sha256 of downloaded copy |
+|---|---|---|---|
+| W3C PNG Third Edition | W3C Recommendation 24 June 2025 | https://www.w3.org/TR/2025/REC-png-3-20250624/ (+ `#anchor`) | a3ac82bb9eb8664b93961a2a9ff6def3d70e3a9f63d92721143c1f391d04edec |
+| RFC 1950 (ZLIB 3.3) | May 1996 | https://www.rfc-editor.org/rfc/rfc1950.html#page-5 | html d3c9d031292be13c93f0bacc854b71c1654f8995df4865eb119748592a6a1cc9, txt 8f0475a5c984657bf26277f73df9456c9b97f175084f0c1748f1eb1f0b9b10b9 |
+| RFC 9649 (WebP Image Format) | November 2024 | https://www.rfc-editor.org/rfc/rfc9649.html (+ `#section-N`) | html 8880255877aac6fbcad88a54cf02ad4d6ce3042220e965fd36bc8cccccaeee06, txt f4d7cd92b015c0b340f10a932bb03e564a758a17df50cbb992c16d8459d60e58 |
+| RFC 6386 (VP8 Data Format and Decoding Guide) | November 2011 | https://www.rfc-editor.org/rfc/rfc6386.html#section-9.1 | html 65c94e526038f28a5180b526fcedfffa4226498ce08765828bf8d766bbaf5faa, txt c044997ae5e26f74dc28569f8866937412b2783e887c96e0c09372af78be411c |
+| GIF89a Specification (CompuServe) | Document Date 31 July 1990 (W3C-hosted plain text) | https://www.w3.org/Graphics/GIF/spec-gif89a.txt | c0e48c12e3e91b1e78090caffb1d1ffe8e7d0face4350da675044a9a4be02aa3 |
+
+Notes:
+- `https://www.w3.org/TR/png-3/` (already in the README for the `png.*` structural citations) served the byte-identical
+  REC of 2025-06-24; the dated URL is cited so the anchors cannot drift with a later edition. PNG anchors used:
+  `5PNG-file-signature`, `5Chunk-naming-conventions`, `5CRC-algorithm`, `5Chunk-layout`, `5ChunkOrdering`, `11IHDR`,
+  `11Critical-chunks`, `11PLTE`, `11tRNS`, `11Ancillary-chunks`, `11keywords`, `11textinfo`, `10CompressionCM0`,
+  `acTL-chunk`, `4Concepts.APNGSequence`, `fcTL-chunk`, `fdAT-chunk`, `15FileConformance` — all present as `id`s.
+- **rfc1950.html has no `#section-2.2` anchor** (its TOC links to one, but only top-level sections and `page-N` ids
+  exist). Both quoted sentences are on RFC page 5, so `zlib.header` cites `#page-5` with page 5.
+- The user's scope names RFC 9649 for the VP8 frame header, but RFC 9649 §2.5 only says "The VP8 bitstream format
+  specification is described in [RFC6386]". The key-frame start code and frame tag are therefore cited to RFC 6386 §9.1
+  (normative reference of RFC 9649); "key frame" itself comes from RFC 9649 §2.1.
+- GIF89a: plain text, no anchors — the URL is the document and the section number is the locator; page is null (the
+  text has printed page numbers in the margin, listed below as "txt p." for reviewers only).
+
+## Rules (53: PNG 22 = 19 FAIL + 3 WARN, WebP 16 = 12 FAIL + 4 WARN, GIF 15 = 9 FAIL + 6 WARN)
+
+"def." = section carries `DEFINITIONAL_SUFFIX`. Scopes: `PNG 데이터스트림 구조 / PNG datastream structure (PNG-3)`,
+`PNG 보조 청크 / PNG ancillary chunks (PNG-3)`, `APNG 애니메이션 / APNG animation (PNG-3)`, `zlib 스트림 헤더 / zlib
+stream headers (PNG-3 §10, RFC 1950)`, `WebP RIFF 컨테이너 …`, `WebP 비트스트림 헤더 …`, `GIF 블록 구조 …`.
+
+### PNG (W3C PNG-3) and zlib (RFC 1950) — 22 rules
+
+| ID | Checks | Level | Citation (anchor) | Quoted sentence |
+|---|---|---|---|---|
+| `png3.signature` | first 8 bytes `89 50 4E 47 0D 0A 1A 0A` | FAIL | 5.2, def. (`#5PNG-file-signature`) | "The first eight bytes of a PNG datastream always contain the following hexadecimal values: 89 50 4E 47 0D 0A 1A 0A" |
+| `png3.chunk.layout` | length ≤ 2^31-1; header + data + CRC inside the file (truncation) | FAIL | 5.3 Table 5 (`#5Chunk-layout`) | "Although encoders and decoders should treat the length as unsigned, its value shall not exceed 2^31-1 bytes." (superscript in the original) |
+| `png3.chunk.type` | type bytes in 41-5A / 61-7A; third letter uppercase | FAIL | 5.3 Table 5 / 5.4 (`#5Chunk-naming-conventions`) | "Each byte of a chunk type is restricted to the hexadecimal values 41 to 5A and 61 to 7A." / "In this International Standard, all chunk names shall have uppercase third letters." |
+| `png3.crc` | stored CRC = CRC-32 of type + data, every complete chunk (critical and ancillary) | FAIL | 5.3 / 5.5, def. (`#5CRC-algorithm`) | "A four-byte CRC calculated on the preceding bytes in the chunk, including the chunk type field and chunk data fields, but not including the length field." |
+| `png3.ihdr` | IHDR first, length 13; width, height 1..2^31-1; Table 12 colour type / bit depth; compression 0; filter 0; interlace 0/1 | FAIL | 11.2.1 Table 12 (`#11IHDR`) | "The IHDR chunk shall be the first chunk in the PNG datastream." / "Zero is an invalid value." / "The allowed combinations are defined in Table 12." / "All conforming PNG images shall be compressed with this scheme." / "Two values are defined in this specification: 0 (no interlace) or 1 (Adam7 interlace)." |
+| `png3.critical` | one IHDR; ≥ 1 IDAT, consecutive; PLTE before the first IDAT; one IEND, empty, reached | FAIL | 11.2 / 11.2.3 (`#11Critical-chunks`) | "A valid PNG datastream shall begin with a PNG signature, immediately followed by an IHDR chunk, then one or more IDAT chunks, and shall end with an IEND chunk. Only one IHDR chunk and one IEND chunk are allowed in a PNG datastream." / "There may be multiple IDAT chunks; if so, they shall appear consecutively with no other intervening chunks." / IEND: "The chunk's data field is empty." |
+| `png3.plte` | colour type 3 needs PLTE, 0/4 forbid it; ≤ 1 PLTE; length % 3 = 0; 1..256 entries; ≤ 2^bitdepth for type 3 | FAIL | 11.2.2 (`#11PLTE`) | "This chunk shall appear for color type 3, and may appear for color types 2 and 6; it shall not appear for color types 0 and 4. There shall not be more than one PLTE chunk." / "A chunk length not divisible by 3 is an error." / "The number of palette entries shall not exceed the range that can be represented in the image bit depth" |
+| `png3.order` | Table 7: cHRM cICP gAMA iCCP mDCV cLLI sBIT sRGB before PLTE and IDAT; bKGD hIST tRNS after PLTE, before IDAT; acTL eXIf pHYs sPLT before IDAT | FAIL | 5.6 Table 7 (`#5ChunkOrdering`) | "Chunks higher up shall appear before chunks lower down." + Table 7 "Before PLTE and IDAT" / "After PLTE; before IDAT" |
+| `png3.multiple` | Table 7 "Multiple allowed: No" ancillary chunks (acTL cHRM cICP gAMA iCCP mDCV cLLI sBIT sRGB bKGD hIST tRNS eXIf pHYs tIME) at most once | FAIL | 5.6 Table 7, def. (`#5ChunkOrdering`) | Table 7 column "Multiple allowed" = No; eXIf: "Only one eXIf chunk is allowed in a PNG datastream." |
+| `png3.trns` | not for colour types 4/6; length 2 (type 0), 6 (type 2), ≤ PLTE entries (type 3, PLTE required) | FAIL | 11.3.1.1 (`#11tRNS`) | "A tRNS chunk shall not appear for color types 4 and 6, since a full alpha channel is already present in those cases." / "The tRNS chunk shall not contain more alpha values than there are palette entries," |
+| `png3.ancillary` | lengths cHRM 32, gAMA 4, sRGB 1 (intent 0-3), cICP 4 (Matrix Coefficients 0), mDCV 24 + cICP present, cLLI 8, pHYs 9 (unit 0/1), tIME 7 (month 1-12, day 1-31, hour 0-23, minute 0-59, second 0-60); sBIT length per colour type, each 1..sample depth; bKGD length per colour type, palette index < entries; hIST needs PLTE, 2 bytes per entry; sPLT depth 8/16, entries divisible by 6/10, decreasing frequency, unique names | FAIL | 11.3 (`#11Ancillary-chunks`) | "Each depth specified in sBIT shall be greater than zero and less than or equal to the sample depth" / "There shall be exactly one entry for each entry in the PLTE chunk." / "RGB is currently the only supported color model in PNG, and as such Matrix Coefficients shall be set to 0." / "a cICP chunk must accompany the use of mDCV" / "The sPLT sample depth shall be 8 or 16." / "Entries shall appear in decreasing order of frequency." / "Multiple sPLT chunks are permitted, but each shall have a different palette name." |
+| `png3.keyword` | tEXt / zTXt / iTXt keywords, iCCP profile and sPLT palette names: 1-79 bytes before a NUL, only 0x20-7E / 0xA1-FF, no leading / trailing / double spaces | FAIL | 11.3.3.1 (`#11keywords`) | "Keywords shall contain only printable Latin-1 [ISO_8859-1] characters and spaces; that is, only code points 0x20-7E and 0xA1-FF are allowed." / "Keywords are restricted to 1 to 79 bytes in length." / iCCP: "Profile names shall contain only printable Latin-1 characters and spaces (only code points 0x20-7E and 0xA1-FF are allowed). Leading, trailing, and consecutive spaces are not permitted." |
+| `png3.text` | tEXt text without NUL; zTXt / iCCP compression method 0; iTXt flag 0/1, method 0, both NUL separators, translated keyword (and uncompressed text) UTF-8 without zero bytes | FAIL | 11.3.3.2-4 / 11.3.2.3 (`#11textinfo`) | "Neither the keyword nor the text string may contain a null character." / "The compression flag is 0 for uncompressed text, 1 for compressed text." / "For uncompressed text, encoders shall set the compression method to 0, and decoders shall ignore it." / "The translated keyword and text both use the UTF-8 encoding [rfc3629], and neither shall contain a zero byte (null character)." |
+| `png3.srgb_iccp` | sRGB and iCCP both present | WARN | 5.6 Table 7 (`#5ChunkOrdering`) | "If the iCCP chunk is present, the sRGB chunk should not be present." |
+| `png3.unused_bits` | tRNS (types 0, 2) / bKGD (types 0, 2, 4, 6) samples with bits above the bit depth set (bit depth < 16) | WARN | 11.3.1.1 / 11.3.4.1 (`#11tRNS`) | "Encoders should set the other bits to 0, and decoders must mask the other bits to 0 before the value is used." |
+| `png3.compression` | every zlib stream (IDAT concatenation, iCCP, zTXt, compressed iTXt, each APNG frame's fdAT data): CM = 8, CINFO ≤ 7 (window ≤ 32768), FDICT = 0 | FAIL | 10.1 (`#10CompressionCM0`) | "For PNG compression method 0, the zlib compression method/flags code shall specify method code 8 (deflate compression) and an LZ77 window size of not more than 32768 bytes." / "The additional flags shall not specify a preset dictionary." |
+| `zlib.header` | the same streams: ≥ 2 header bytes (may span IDAT / fdAT chunks), (CMF*256+FLG) % 31 = 0, CINFO ≤ 7 | FAIL | RFC 1950 §2.2, page 5 (`#page-5`) | "The FCHECK value must be such that CMF and FLG, when viewed as a 16-bit unsigned integer stored in MSB order (CMF*256 + FLG), is a multiple of 31." / "Values of CINFO above 7 are not allowed in this version of the specification." |
+| `png3.actl` | acTL length 8, num_frames ≠ 0 and = number of fcTL (acTL before IDAT is in `png3.order`) | FAIL | 11.3.6.1 (`#acTL-chunk`) | "This must equal the number of fcTL chunks. 0 is not a valid value." |
+| `png3.sequence` | fcTL + fdAT sequence numbers 0, 1, 2 … in file order; the first animation chunk is fcTL | FAIL | 4.9.2 (`#4Concepts.APNGSequence`) | "The first fcTL chunk shall contain sequence number 0, and the sequence numbers in the remaining fcTL and fdAT chunks shall be in ascending order, with no gaps or duplicates." |
+| `png3.fctl` | length 26; width, height > 0; x+w ≤ IHDR width, y+h ≤ IHDR height; dispose_op 0-2, blend_op 0-1; ≤ 1 fcTL before IDAT, none between IDATs; that fcTL has offsets 0 and the IHDR size | FAIL | 11.3.6.2 (`#fcTL-chunk`) | "They must be greater than zero." / "thus x_offset plus width must not be greater than the IHDR width; similarly y_offset plus height must not be greater than the IHDR height." / "The x_offset and y_offset fields must be 0. The width and height fields must equal the corresponding fields from the IHDR chunk." / Table 7: "One may occur before IDAT; all others shall be after IDAT" |
+| `png3.fdat` | fdAT ≥ 4 bytes, after IDAT, after an fcTL; every frame whose fcTL is after IDAT has ≥ 1 fdAT | FAIL | 11.3.6.3 (`#fdAT-chunk`) | "At least one fdAT chunk is required for each frame, except for the first frame, if that frame is represented by an IDAT chunk." / "fdAT chunks may not be of zero length" |
+| `png3.trailing` | bytes after IEND (decision 2: SEF trailer → PASS) | WARN | 15.3.1 (`#15FileConformance`) | "No chunks or other content follow the IEND chunk." |
+
+APNG rules are NOT_APPLICABLE without acTL; fcTL/fdAT without acTL → NOT_CHECKED ("not declared animated"). Colour-type
+dependent rules are NOT_CHECKED when IHDR is invalid.
+
+### WebP (RFC 9649, RFC 6386 §9.1) — 16 rules
+
+| ID | Checks | Level | Citation (anchor) | Quoted sentence |
+|---|---|---|---|---|
+| `rfc9649.header` | `RIFF` … `WEBP` | FAIL | 2.4 (`#section-2.4`) | "A WebP file MUST begin with a RIFF header with the FourCC 'WEBP'." |
+| `rfc9649.riff.size` | File Size ≤ 2^32-10, even; 8 + File Size ≤ file length; chunks tile 12..8+File Size exactly | FAIL | 2.4, def. (`#section-2.4`) | "The file size in the header is the total size of the chunks that follow plus 4 bytes for the 'WEBP' FourCC." / "The maximum value of this field is 2^32 minus 10 bytes" |
+| `rfc9649.chunk.layout` | every chunk (and ANMF sub-chunk) inside its parent; odd size → pad byte present and 0 | FAIL | 2.3 (`#section-2.3`) | "If _Chunk Size_ is odd, a single padding byte -- which MUST be 0 to conform with RIFF [RIFF-spec] -- is added." |
+| `rfc9649.layout` | first chunk VP8 / VP8L / VP8X; simple format = that one chunk only; extended still = exactly one VP8/VP8L (≤ 1 ALPH); animated = ANMF, no top-level ALPH/VP8/VP8L | FAIL | 2.5-2.7, def. (`#section-2.7`) | Figures 3/5 (header + one bitstream chunk) and "For a _still image_, the _image data_ consists of a single frame, which is made up of:" |
+| `rfc9649.order` | VP8X first, then ICCP, ANIM, image data; ALPH before its bitstream | FAIL | 2.7 (`#section-2.7`) | "All chunks necessary for reconstruction and color correction, that is, 'VP8X', 'ICCP', 'ANIM', 'ANMF', 'ALPH', 'VP8 ', and 'VP8L', MUST appear in the order described earlier." / ICCP: "This chunk MUST appear before the image data." |
+| `rfc9649.vp8x` | payload ≥ 10; Rsv (2 bits), R (1 bit), Reserved (24 bits) = 0; canvas W×H ≤ 2^32-1 | FAIL | 2.7 Figure 7 (`#section-2.7`) | "Reserved (Rsv): 2 bits MUST be 0. Readers MUST ignore this field." / "The product of _Canvas Width_ and _Canvas Height_ MUST be at most 2^32 - 1." |
+| `rfc9649.vp8x.flags` | I ⇔ ICCP, E ⇔ EXIF, X ⇔ XMP; A ⇒ ANIM; ALPH ⇒ L; L ⇒ an ALPH or VP8L frame | FAIL | 2.7 Figure 7 / 2.7.1.1, def. (`#section-2.7`) | "ICC profile (I): 1 bit Set if the file contains an 'ICCP' Chunk." (same for L, E, X, A) / "This chunk MUST appear if the _Animation_ flag in the 'VP8X' Chunk is set." |
+| `rfc9649.anim` | ANIM 6 bytes; ANMF ≥ 16, reserved 6 bits 0, frame inside the canvas, Frame Data = optional ALPH then exactly one bitstream | FAIL | 2.7.1.1 / 2.7.2 (`#section-2.7.1.1`) | "Reserved: 6 bits MUST be 0. Readers MUST ignore this field." / "VP8X.canvasWidth >= frame_right MUST be TRUE" / "bitstream subchunks not found in 'Frame Data' earlier MUST be TRUE" |
+| `rfc9649.anmf.flag` | ANMF without the Animation flag | WARN | 2.7.1.1 (`#section-2.7.1.1`) | "If the _Animation flag_ is not set, then this chunk SHOULD NOT be present." |
+| `rfc9649.alph` | Rsv = 0; compression method 0/1; method 0 → payload-1 = width × height | FAIL | 2.7.1.2 (`#section-2.7.1.2`) | "Reserved (Rsv): 2 bits MUST be 0. Readers MUST ignore this field." / "Raw data: This consists of a byte sequence of length = width * height, containing all the 8-bit transparency values in scan order." |
+| `rfc9649.alph.vp8l` | ALPH in a frame whose bitstream is VP8L | WARN | 2.7.1.2 (`#section-2.7.1.2`) | "A frame containing a 'VP8L' Chunk SHOULD NOT contain this chunk." |
+| `rfc9649.metadata.count` | > 1 ICCP, EXIF or XMP | WARN | 2.7.1.4 / 2.7.1.5 (`#section-2.7.1.4`) | "There SHOULD be at most one such chunk." / "There SHOULD be at most one chunk of each type ('EXIF' and 'XMP ')." |
+| `rfc9649.vp8l` | ≥ 5 bytes; signature 0x2F; version_number 0 | FAIL | 3.4 (`#section-3.4`) | "6. 1-byte signature 0x2f." / "The version_number is a 3-bit code that MUST be set to 0. Any other value MUST be treated as an error." |
+| `rfc6386.frame` | ≥ 10 bytes; frame type 0 (key frame); version 0-3; first_part_size ≤ size-10; start code 9D 01 2A | FAIL | RFC 6386 §9.1, def. (`#section-9.1`) | "A 1-bit frame type (0 for key frames, 1 for interframes)." / "Start code byte 0 0x9d Start code byte 1 0x01 Start code byte 2 0x2a" / RFC 9649 §2.1: "a file containing a single image encoded as a VP8 key frame" |
+| `rfc9649.canvas` | extended still: VP8/VP8L size = VP8X canvas; ANMF: bitstream size = frame size (simple format: the bitstream is the canvas) | FAIL | 2.5-2.6 / 2.7.1.1, def. (`#section-2.5`) | "Note that the VP8 frame header contains the VP8 frame width and height. That is assumed to be the width and height of the canvas." (boxed note) / "Frame Width Minus One + 1 pixels wide by Frame Height Minus One + 1 pixels high are rendered onto the canvas using the Blending method." |
+| `rfc9649.trailing` | bytes after 8 + File Size (decision 2) | WARN | 2.4 (`#section-2.4`) | "The file SHOULD NOT contain any data after the data specified by _File Size_." |
+
+`rfc9649.canvas` is the one interpretation: RFC 9649 has no sentence "the VP8X canvas shall equal the bitstream size";
+the rule follows from the boxed notes of §2.5/§2.6 and the ANMF frame definition (libwebp rejects such files; the
+existing Structure-row `webp.canvas` observation reports the same mismatch).
+
+### GIF (GIF89a, plain text, section numbers) — 15 rules
+
+| ID | Checks | Level | Section (txt p.) | Quoted sentence |
+|---|---|---|---|---|
+| `gif89a.header` | Signature `GIF`; Version 87a / 89a | FAIL | 17 (p. 8) | "Signature - Identifies the GIF Data Stream. This field contains the fixed value 'GIF'." / "Version Numbers as of 10 July 1990 : "87a" - May 1987 "89a" - July 1989" |
+| `gif89a.version` | 87a stream using an 89a block (Graphic Control, Comment, Plain Text, Application Extension) or a Sort Flag (reserved in 87a) | FAIL | 6 / 23-26 "Required Version", def. (p. 3-4, 16) | "Within each block section in this document, there is an entry labeled Required Version which specifies the [page break] earliest version number that includes the corresponding block." / "b. Required Version. 89a." |
+| `gif89a.version.earliest` | 89a stream using no 89a feature | WARN | 17 d. ii (p. 9) | "An encoder should use the earliest possible version number that defines all the blocks used in the Data Stream." |
+| `gif89a.lsd` | 7-byte LSD right after the header; Global Color Table (3×2^(n+1)) inside the file | FAIL | 18 (p. 9) | "This block is REQUIRED; exactly one Logical Screen Descriptor must be present per Data Stream." / "This block must appear immediately after the Header." |
+| `gif89a.lsd.background` | no GCT but Background Color Index ≠ 0 | WARN | 18 vii (p. 11) | "If the Global Color Table Flag is set to (zero), this field should be zero and should be ignored." |
+| `gif89a.blocks` | after the Logical Screen every block starts with 0x21 / 0x2C / 0x3B; sub-block chains end with a terminator inside the file; undefined extension labels are skipped (§12 ranges) and listed, not flagged | FAIL | Appendix B / 15, def. (p. 26, 7) | "<GIF Data Stream> ::= Header <Logical Screen> <Data>* Trailer" / "ii) Data Values - Any 8-bit value. There must be exactly as many Data Values as specified by the Block Size field." |
+| `gif89a.gce` | Block Size 4 and one data sub-block; ≤ 1 GCE per graphic rendering block; a GCE is followed by an Image or Plain Text block | FAIL | 23 (p. 16-17), Appendix B (p. 26) | "This field contains the fixed value 4." / "at most one Graphic Control Extension may precede a graphic rendering block." / Appendix B: "<Graphic Block> ::= [Graphic Control Extension] <Graphic-Rendering Block>" |
+| `gif89a.extension` | Application Extension Block Size 11 and an 8-character printable-ASCII identifier; Plain Text Block Size 12 | FAIL | 25 / 26 (p. 21, 23-24) | "This field contains the fixed value 12." / "This field contains the fixed value 11." / "Sequence of eight printable ASCII characters used to identify the application owning the Application Extension." |
+| `gif89a.reserved` | GCE reserved 3 bits, Image Descriptor reserved 2 bits ≠ 0; Disposal Method 4-7 | WARN | Appendix D / 23 iv (p. 29, 17) | "Reserved Fields - All Reserved Fields are expected to have each bit set to zero (off)." / Disposal "4-7 - To be defined." |
+| `gif89a.image.bounds` | left + width ≤ screen width and top + height ≤ screen height | FAIL | 20 (p. 12) | "Each image must fit within the boundaries of the Logical Screen, as defined in the Logical Screen Descriptor." |
+| `gif89a.lct.size` | no Local Color Table but Size of Local Color Table ≠ 0 | WARN | 20 ix (p. 14) | "This value should be 0 if there is no Local Color Table specified." |
+| `gif89a.lzw` | LZW Minimum Code Size 2..11 (codes 3..12 bits); ≥ 1 data byte | FAIL | 22 / Appendix F, def. (p. 31-32) | "black & white images which have one color bit must be indicated as having a code size of 2." / "The output codes are of variable length, starting at <code size>+1 bits per code, up to 12 bits per code." / "The code that terminates the LZW compressed data must appear before Block Terminator." |
+| `gif89a.lzw.clear` | first code (min+1 bits, LSB first, may span sub-blocks) = Clear (2^min) | WARN | Appendix F (p. 32) | "Encoders should output a Clear code as the first code of each image data stream." |
+| `gif89a.trailer` | 0x3B reached | FAIL | 27 / Appendix B, def. (p. 24, 26) | "This block is a single-field block indicating the end of the GIF Data Stream." + the grammar above |
+| `gif89a.trailing` | bytes after the Trailer (decision 2) | WARN | Appendix C Glossary, def. (p. 28) | "All control and data blocks in the Data Stream must follow the Header and must precede the Trailer." |
+
+Image bounds: the spec does say "must fit" (§20 a.), so overflow is FAIL; it says nothing about zero width/height or
+about Plain Text grids, so those are not checked.
+
+## Expected outcome on real files (measured 2026-10-25 with the committed-to-be code on copies; nothing committed)
+
+`~/Downloads` holds only ten PNG / WebP / GIF files (copied to the scratchpad, originals untouched):
+
+| File | Origin (from the bytes) | Overall | FAIL / WARN |
+|---|---|---|---|
+| `real.png` | 320x240 RGB, IHDR+pHYs+IDAT+IEND (ffmpeg layout) | PASS | — |
+| `crc.png` | same file with a corrupted IDAT | **FAIL** | `png3.crc` (IDAT stored 0x373c1246 ≠ computed 0xbcf3bdc5) |
+| `image_5406fcbb.png`, `image_79024843.png` | 1408x768 RGBA, ~200 IDAT of 8 KiB, zlib `78 01` | PASS | — |
+| `ssim_psnr_diagram.png` | 1006x441 RGBA, IDAT 4 KiB, zlib `78 01` | PASS | — |
+| `unwrapICO.png` | 1024x1024 RGBA with a 24,865-byte `caBX` (C2PA, private ancillary) chunk | PASS | — |
+| `BMPfileFormat.svg.webp` | simple lossless (VP8L) | PASS | — |
+| `real.webp` | simple lossy (VP8 key frame) | PASS | — |
+| `anim.gif` | 160x120 GIF89a, NETSCAPE2.0 + 5 GCE/image pairs | PASS | — |
+| `trunc.gif` | same, cut inside the last image's data | **FAIL** | `gif89a.blocks`, `gif89a.trailer`; 9 block rules + `gif89a.trailing` NOT_CHECKED |
+
+Tool outputs (fixtures, Task 2): ffmpeg 8.1.2 default PNG / pal8 / gray16be / rgba / APNG, macOS `sips` PNG (sRGB +
+eXIf), libwebp 1.6.0 `cwebp` default / `-lossless` / alpha, `img2webp`, `gif2webp`, ffmpeg default still and animated
+GIF → **PASS, no WARN**. **macOS `sips` GIF → FAIL `gif89a.version`**: ImageIO writes `GIF87a` but includes a Graphic
+Control Extension (transparency), whose Required Version is 89a (open decision 2). ffmpeg 8.1.2 has no WebP encoder
+here, so the WebP default-settings fixture is `cwebp`.
+
+**Samsung / iPhone / Pixel PNG, WebP or GIF files: none available locally — not measured.** Samsung screenshots and
+Gallery edits are PNG/JPEG; if one carries a SEF trailer after IEND it is explained (PASS), otherwise trailing data
+WARNs. No local real file has data after IEND / RIFF / Trailer.
+
+## Architecture
+
+New packages (mirroring `parser/conformance/jpeg/`):
+
+- `parser/conformance/ImageRuleBook.kt` — shared catalog/finding builder (`finding`, `skip`, `partial`, `sorted`,
+  `cited`), `trailingDataFinding` and `sefTrailerGaps` (moved out of `JpegTrailer`, which now delegates — no JPEG
+  behaviour change).
+- `png/`: `PngRules.kt` (catalog), `PngChunks.kt` (`PngChunkScanner.scan`: bounded walk to the first IEND, 200,000-chunk
+  cap; `PngContext` with IHDR / PLTE facts, payload reads ≤ 1 MiB), `PngStructureRules.kt`, `PngAncillaryRules.kt`
+  (incl. zlib header collection across IDAT / fdAT boundaries), `PngApngRules.kt`, `PngConformanceChecker.kt`
+  (format `"PNG"`). CRCs stream through `integrity.crc32Of` (64 KiB blocks).
+- `webp/`: `WebpRules.kt`, `WebpChunks.kt` (`WebpChunkScanner.walk` for the RIFF payload and every ANMF Frame Data,
+  100,000-chunk cap; `WebpContext` with VP8X, frames, bitstream sizes), `WebpContainerRules.kt`,
+  `WebpBitstreamRules.kt`, `WebpConformanceChecker.kt` (format `"WebP"`).
+- `gif/`: `GifRules.kt`, `GifBlocks.kt` (`GifBlockScanner.scan`: header/LSD/GCT then blocks to the Trailer,
+  1,000,000-block cap, first two LZW bytes per image), `GifConformanceRules.kt`, `GifConformanceChecker.kt` (format
+  `"GIF"`).
+- The display walkers (`PngWalker`, `PngColorChunkDecoder`, `WebpWalker`, `GifWalker`) and `*Integrity` stay
+  unchanged: they build the tree / Structure row; the conformance scanners are independent bounded walks (as
+  `JpegStreamScanner` is next to `JpegWalker`). The new PNG chunk decoders on main (APNG/HDR/tRNS/palette) informed the
+  field layouts; their BoxNode output is not reused because it reports "파싱 불가" states, not spec values.
+- Wiring: `containerConformanceFor` (`ui/ContentCheckPlan.kt`) adds `ContainerFormat.PNG / WEBP / GIF` (content-sniffed,
+  so a PNG named `.gif` is checked as PNG). Content Check, CLI `check` / `--case` (`containerConformance`), JSON export and
+  the AI prompt (`출처:` lines) need no other change: they render any `ConformanceReport` with citations.
+
+## Testing
+
+- Synthetic builders (`SyntheticPng`, `SyntheticWebp`, `SyntheticGif`) + unit tests per rule group, including
+  "truncated → no partial PASS".
+- Real fixtures: `docs/validation/png-webp-gif-conformance-fixtures/{generate.sh,build.py}` →
+  `app/src/test/resources/png-webp-gif-conformance/` (63 files, 0.4-2 KB, byte-identical on regeneration): 14 tool
+  outputs + 49 byte-patched variants, each failing exactly its targeted rule (table in the plan, Task 2).
+- `ImageConformanceRulesTest`: counts, WARN sets, definitional sets, anchors / page fields of all three catalogs.
+- Manual: the copies above via `./gradlew -q :app:run --args="check <copy>"`; results must match the table.
+
+## Open decisions (genuine spec-vs-reality / spec-vs-decision conflicts)
+
+1. **PNG data after IEND**: PNG-3 §15.3.1 lists "No chunks or other content follow the IEND chunk." as a *conformance
+   condition* of a datastream (not a recommendation), while decision 2 makes it WARN. Keep WARN (as designed), or FAIL
+   unexplained trailing data for PNG only (WebP's own text says SHOULD NOT → WARN either way)?
+2. **macOS sips GIF87a + GCE**: ImageIO's default GIF output is labelled 87a but uses an 89a block. Strictly that is a
+   FAIL (definitional "Required Version 89a"), and every decoder still reads it. Keep FAIL (as designed, like the
+   strict Exif rules), or downgrade this one case to WARN like `jfif.version` 1.00/1.01?
