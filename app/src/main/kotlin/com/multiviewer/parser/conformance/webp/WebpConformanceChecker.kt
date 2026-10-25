@@ -27,7 +27,7 @@ object WebpConformanceChecker {
         val findings = ArrayList<ConformanceFinding>()
         val error = try {
             val ctx = WebpContext(reader)
-            val rules = WebpContainerRules.evaluate(ctx)
+            val rules = WebpContainerRules.evaluate(ctx) + WebpBitstreamRules.evaluate(ctx)
             val truncated = ctx.riffEnd > ctx.length || ctx.chunks.any { !it.complete } || ctx.top.capped
             findings += if (!truncated) rules
             else WebpRules.book.partial(rules, CHUNK_RULES, "RIFF 데이터가 잘림 — 읽은 청크만 검사됨 / RIFF data truncated: only the chunks read were checked")
