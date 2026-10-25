@@ -28,7 +28,7 @@ object PngConformanceChecker {
         val findings = ArrayList<ConformanceFinding>()
         val error = try {
             val ctx = PngContext(reader, PngChunkScanner.scan(reader))
-            val rules = PngStructureRules.evaluate(ctx)
+            val rules = PngStructureRules.evaluate(ctx) + PngAncillaryRules.evaluate(ctx)
             findings += if (ctx.scan.problem == null && ctx.scan.iend != null) rules
             else PngRules.book.partial(rules, CHUNK_RULES, "청크 열거가 IEND 전에 멈춤 — 읽은 청크만 검사됨 / chunk walk stopped before IEND: only the chunks read were checked")
             findings += if (ctx.scan.iend == null) ctx.skip("png3.trailing", NOT_CHECKED, "IEND 없음 — 판단 불가 / no IEND")
