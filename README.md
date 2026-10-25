@@ -107,6 +107,29 @@ A/V 싱크 분석기는 오디오·비디오 프레젠테이션 타임라인을 
 동영상내 비트스트림 뭉개짐, 비트스트림 에러로 인한 이슈 발생시 사용하기 위한 기능, 이슈 발생시에 실질적으로 쉽게 도움을 받을수있도록 더 보완해야함
 
 
+### 표준 규격 검사와 출처 표시
+
+**분석 → 컨텐츠 검사**의 **컨테이너 규격** 행은 파일이 국제 표준을 실제로 지키는지 규칙 단위로 검사합니다. 파싱·디코딩이 되는지만 보는 것이 아니라, 규격 문장이 "해야 한다(shall/MUST·필수)"로 정한 것을 어기면 **실패**, "권장(should·Recommended)"을 어기면 **경고**로 표시합니다. 잘렸거나 지원하지 않는 부분은 통과로 처리하지 않고 **미검증**으로 남깁니다.
+
+| 대상 | 기준 규격 |
+|---|---|
+| MP4·MOV·M4A·3GP 컨테이너 | ISO/IEC 14496-12:2026 (MOV는 Apple QuickTime File Format 기준) |
+| HEIC/HEIF·AVIF | ISO/IEC 23008-12:2025, AVIF v1.2.0 |
+| JPEG | ITU-T T.81, JFIF(T.871), Exif 3.1(CIPA DC-008-2026), MPF(CIPA DC-007-2026) |
+| PNG·WebP·GIF | W3C PNG 3판(APNG 포함)·zlib(RFC 1950), WebP(RFC 9649·VP8 RFC 6386), GIF89a |
+| 모션포토 | Google Motion Photo 1.0 (XMP·Container 항목·HEIC `mpvd`) |
+| 코덱 비트스트림 | H.264·H.265·H.266, AV1, VP9, APV, AAC, Opus, FLAC 헤더 규칙 |
+
+실패·경고 행을 펼치면 **출처**가 표시됩니다. 문서와 판(edition), 절 번호, PDF 쪽 번호와 함께 링크를 클릭하면 해당 문서의 그 쪽(`#page=N`)이나 절(`#anchor`)로 바로 이동합니다. 출처는 원문 PDF·HTML을 받아 문장을 대조한 것이며, 원문을 구할 수 없는 유료 ISO 문서는 판매 페이지로 연결하고 "원문 미대조"로 표시합니다. 규격 문장이 아닌 앱 자체 관찰이나 디코더(ffmpeg) 결과는 그렇다고 따로 표시합니다. 같은 출처 정보가 `unwrapMedia check` JSON, **JSON 복사**, AI 진단 프롬프트에도 포함됩니다. 사용한 문서 목록은 [docs/validation/spec-citations/README.md](docs/validation/spec-citations/README.md)에 있습니다.
+
+<p align="center">
+  <img src="docs/screenshots/showcase/08-content-check-spec-citations.jpg" width="920" alt="컨텐츠 검사 창에서 JPEG 컨테이너 규격 39개 항목 중 JFIF APP0 위치 실패 행을 펼쳐 ITU-T T.871 6.3절 9쪽 출처 링크를 보여주는 화면" />
+</p>
+
+샘플 [campfire-motion-photo.jpg](docs/showcase-media/images/campfire-motion-photo.jpg)를 열고 컨텐츠 검사를 실행해 보세요. JFIF APP0가 Exif APP1 뒤에 있고 Exif 필수 태그가 빠져 있어 실패 2건·경고 1건이 출처와 함께 표시됩니다. 실제 카메라 파일도 엄격한 기준에서는 실패가 나올 수 있으며, 이는 의도된 동작입니다.
+
+**모션포토 → 모션포토 생성 ▸**에서 **구글 스펙 준수(권장)**, **삼성 모션포토(SEF 포함)**, **MicroVideo v1(레거시)** 중 하나를 골라 모션포토를 만듭니다.
+
 ### 파일내 모든 SEF 에 대한 무결성 검사 
 올바르게 구성되어있는지 검사, sef header, sef tail, sef header 정보에 따른 실제 sef data 위치와 length 
 

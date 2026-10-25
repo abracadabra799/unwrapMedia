@@ -74,6 +74,29 @@ The A/V sync analyzer compares audio and video presentation timelines to help in
 
 Use [avsync-frame-gap.mp4](docs/showcase-media/video/avsync-frame-gap.mp4) to try both tools. This synthetic clip intentionally includes an audio delay and a video timestamp gap; see the sample-media notes for details.
 
+### Standards conformance with spec citations
+
+The **Container conformance** row in **Analyze → Content Check** tests, rule by rule, whether a file actually follows its international standard — not just whether it parses or decodes. Violating a `shall`/`MUST`/Mandatory requirement is a **FAIL**, missing a `should`/Recommended one is a **WARN**, and anything truncated or unsupported stays **not checked** instead of passing.
+
+| Content | Standards |
+|---|---|
+| MP4 · MOV · M4A · 3GP containers | ISO/IEC 14496-12:2026 (MOV against the Apple QuickTime File Format) |
+| HEIC/HEIF · AVIF | ISO/IEC 23008-12:2025, AVIF v1.2.0 |
+| JPEG | ITU-T T.81, JFIF (T.871), Exif 3.1 (CIPA DC-008-2026), MPF (CIPA DC-007-2026) |
+| PNG · WebP · GIF | W3C PNG Third Edition (incl. APNG) and zlib (RFC 1950), WebP (RFC 9649, VP8 RFC 6386), GIF89a |
+| Motion photos | Google Motion Photo 1.0 (XMP, Container items, HEIC `mpvd`) |
+| Codec bitstreams | Header rules for H.264, H.265, H.266, AV1, VP9, APV, AAC, Opus, FLAC |
+
+Expand a FAIL or WARN row to see its **source**: document and edition, section, PDF page, and a link that opens that exact page (`#page=N`) or section (`#anchor`). Citations were checked against the downloaded original text; paid ISO documents link to their store page and are marked "not checked against the original". App-only observations and decoder (ffmpeg) results are labelled as such. The same source data appears in `unwrapMedia check` JSON, **Copy JSON**, and the AI diagnosis prompt. The documents used are listed in [docs/validation/spec-citations/README.md](docs/validation/spec-citations/README.md).
+
+<p align="center">
+  <img src="docs/screenshots/showcase/08-content-check-spec-citations.jpg" width="920" alt="unwrapMedia Content Check showing 39 JPEG conformance rules with the JFIF APP0 position failure expanded to an ITU-T T.871 section 6.3, page 9 source link" />
+</p>
+
+Open [campfire-motion-photo.jpg](docs/showcase-media/images/campfire-motion-photo.jpg) and run Content Check: its JFIF APP0 follows the Exif APP1 and Exif mandatory tags are missing, so two FAILs and one WARN appear with their sources. Real camera files can fail these strict rules too; that is intentional.
+
+**Motion Photo → Create Motion Photo ▸** offers **Google spec (recommended)**, **Samsung motion photo (with SEF)**, and **MicroVideo v1 (legacy)**.
+
 ### AI-assisted diagnosis
 
 Structure checks flag parser-detected warnings, and the AI prompt generator prepares file-specific technical context that you can provide to an AI assistant. unwrapMedia generates the prompt; it does not require or bundle an AI service. On Windows, the prompt window can open an embedded PowerShell session. The terminal pane shown here is an illustrative Windows example, not a live PowerShell capture.
