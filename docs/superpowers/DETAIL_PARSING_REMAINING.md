@@ -19,30 +19,27 @@
 
 아래 항목은 모두 미완료다. 조사 후보를 확정된 버그로 간주하거나, 전체를 한 번에 구현하지 않는다. 실제 코드와 fixture를 확인해 한 단위씩 진행한다.
 
-1. **TIFF/DNG 추가 태그 의미 및 경계 처리** — 권장 다음 단위.
-   - 진입점: `app/src/main/kotlin/com/multiviewer/parser/ExifDecoder.kt`, `TiffNumericValue.kt`, 기존 `ExifDecoderTest.kt`.
-   - SBYTE(6), FLOAT(11), DOUBLE(12)는 완료. 다시 구현하지 말 것. DNG NoiseProfile은 DOUBLE 숫자 배열 표시까지 완료했으며 센서 의미/규격 검증은 하지 않았다.
-   - BYTE 기반 DNGVersion/BackwardVersion, CFA 관련 값, 기존 태그 enum·배열·행렬 등에서 숫자/hex만 보이는 항목을 조사하고, 근거가 확인되는 의미만 추가한다.
-   - DNG 중첩/opaque 구조, opcode 등의 현재 지원 여부를 조사한다. BigTIFF 지원 여부도 별도 조사 대상이며 이번 변경에 포함되지 않았다.
-   - 기존 일반 값 경로의 count.toInt(), ASCII/수치 배열의 무제한 읽기·문자열 생성, 알 수 없는 자료형 크기 추정, 특수 태그 분기의 범위 검증을 조사한다. 새 숫자 경로에 적용한 256개 제한이 기존 모든 TIFF 경로에 적용된 것은 아니다.
-2. **GIF Detailed Properties 조사**.
+1. **GIF Detailed Properties 조사** — 권장 다음 단위.
    - `GifWalker.kt`, `GifFrameDecoder.kt`, `integrity/GifIntegrity.kt`와 기존 테스트부터 읽는다.
    - extension/GCE/application/comment/plain text, 색상표, data sub-block 등 현재 값 표시·누락·미해석 상태를 대조한다. 누락이 있다고 단정하지 않는다.
    - 기본 설정 GIF와 실제 애니메이션/extension fixture를 생성해 원본 바이트를 검증한다. 픽셀 디코더 재작성이나 전체 conformance로 범위를 넓히지 않는다.
-3. **AV2 추가 상세 값 조사**.
+2. **AV2 추가 상세 값 조사**.
    - `Av2CBoxDecoder.kt`, `Av2SequenceHeader.kt`, `Av2Obu.kt`, `Av2SampleIndexer.kt`, `Av2ParameterSetExtraction.kt` 및 `plans/2026-10-02-av2-isobmff-analysis.md`.
    - 이미 지원하는 config/sequence-header 값과 미해석 payload를 먼저 목록화한다. 규격·encoder 버전을 fixture와 함께 명시한다. AV1 규칙을 AV2에 추정 적용하지 않는다.
-4. **SEF 남은 값 및 크기 제한**.
+3. **SEF 남은 값 및 크기 제한**.
    - `SefdBoxDecoder.kt`, `SefIntegrityAnalyzer.kt`, `plans/2026-10-24-sef-details.md`와 관련 fixture부터 확인한다.
    - 정의가 확인된 payload만 의미를 추가한다. 제조사 전용 binary는 근거가 없으면 원본 범위와 미해석 표시를 유지한다.
    - 큰 이름/payload, UInt32 길이, allocation/preview 한도를 조사한다. 최근 다른 작업의 JPEG conformance/SEF 검사 수정과 충돌하거나 중복 구현하지 않는다.
-5. **후순위: ICC 내부 태그와 legacy metadata**.
+4. **후순위: ICC 내부 태그와 legacy metadata**.
    - PNG iCCP는 안전한 압축 해제, ICC header/tag-count 길이 검증, 실제 압축 바이트 source span까지 완료. ICC 태그 내용은 미해석으로 남아 있다.
    - 지원하지 않는 ID3v2.2, v2.3 tag-wide unsync, 압축/암호화 프레임, 일부 MOV nested/binary/legacy encoding 등은 미해석 상태를 유지한다. 추가 구현은 실제 근거와 우선순위 확인 후 진행한다.
 
 ## 최근 완료 작업 — 중복 방지
 
 - Task18 MP3/ID3, Task19 MOV, Task20 native FLAC CUESHEET/PICTURE/Vorbis.
+- Task21 PNG APNG/HDR/color-context 및 palette, Task22 PNG text/ICC.
+- Task23 TIFF SBYTE/FLOAT/DOUBLE.
+- Task24 TIFF/DNG 추가 태그 의미 및 경계 처리: DNGVersion/BackwardVersion 4-tier 버전 표기, CFARepeatPatternDim/CFAPattern/CFAPlaneColor 색상 매핑, CFALayout, CalibrationIlluminant1/2, ColorimetricReference, ProfileEmbedPolicy, EXIF 1바이트 FileSource/SceneType 해석, OpcodeList 식별, 256개 배열 상한 및 생략 표시, count==0L 빈 값 처리, 알 수 없는 자료형 안전 처리, BigTIFF 매직(43) 미지원 경고, SubIFD 64개 제한.
 - Task21 PNG APNG/HDR/color-context 및 palette, Task22 PNG text/ICC.
 - Task23 TIFF SBYTE/FLOAT/DOUBLE: 양쪽 endian, inline/reference, signed zero/nonfinite 표현, 256개 초과 시 생략+미해석, 미등록 태그 의미 미해석 유지, 원본 offset/length 보존.
 - 구체적인 테스트 결과·한계는 각 `plans/2026-10-24-*.md`, `plans/2026-10-25-*.md` 및 공통 진행 기록에 있다.
