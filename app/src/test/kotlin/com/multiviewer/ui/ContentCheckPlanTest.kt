@@ -275,9 +275,17 @@ class ContentCheckPlanTest {
     }
 
     @Test
-    fun containerConformanceIsOnlyComputedForIsoBmffHeifAndJpeg() {
-        val png = File.createTempFile("ccp-iso-", ".png").also { it.deleteOnExit(); it.writeBytes(com.multiviewer.parser.integrity.pngBytes()) }
-        assertNull(containerConformanceFor(png))
+    fun containerConformanceIsOnlyComputedForIsoBmffHeifJpegPngWebpAndGif() {
+        val bmp = File.createTempFile("ccp-iso-", ".bmp").also { it.deleteOnExit(); it.writeBytes(com.multiviewer.parser.integrity.bmpBytes()) }
+        assertNull(containerConformanceFor(bmp))
+        // Content decides: a PNG saved as .gif is still checked as PNG.
+        val png = File.createTempFile("ccp-iso-", ".gif").also { it.deleteOnExit(); it.writeBytes(com.multiviewer.parser.integrity.pngBytes()) }
+        assertEquals(com.multiviewer.parser.conformance.png.PngConformanceChecker.PROFILE, containerConformanceFor(png)?.profile)
+        assertEquals("PNG", containerConformanceFor(png)?.format)
+        val webp = File.createTempFile("ccp-iso-", ".webp").also { it.deleteOnExit(); it.writeBytes(com.multiviewer.parser.integrity.webpBytes()) }
+        assertEquals("WebP", containerConformanceFor(webp)?.format)
+        val gif = File.createTempFile("ccp-iso-", ".gif").also { it.deleteOnExit(); it.writeBytes(com.multiviewer.parser.integrity.gifBytes()) }
+        assertEquals("GIF", containerConformanceFor(gif)?.format)
         val jpeg = File.createTempFile("ccp-iso-", ".jpg").also { it.deleteOnExit(); it.writeBytes(jpegBytes()) }
         assertEquals("JPEG", containerConformanceFor(jpeg)?.format)
         assertEquals(com.multiviewer.parser.conformance.jpeg.JpegConformanceChecker.PROFILE, containerConformanceFor(jpeg)?.profile)

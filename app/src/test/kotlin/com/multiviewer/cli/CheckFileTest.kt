@@ -192,11 +192,25 @@ class CheckFileTest {
 
     @Test
     fun `checkFile omits containerConformance for formats without a container checker`() {
-        val file = File.createTempFile("check-iso-", ".png").also {
-            it.deleteOnExit(); it.writeBytes(com.multiviewer.parser.integrity.pngBytes())
+        val file = File.createTempFile("check-iso-", ".bmp").also {
+            it.deleteOnExit(); it.writeBytes(com.multiviewer.parser.integrity.bmpBytes())
         }
         val json = checkJson(file)
         assertTrue(!json.contains("containerConformance"), json)
+    }
+
+    @Test
+    fun `checkFile includes the PNG, WebP and GIF containerConformance reports`() {
+        listOf(
+            Triple(".png", com.multiviewer.parser.integrity.pngBytes(), "png3.signature"),
+            Triple(".webp", com.multiviewer.parser.integrity.webpBytes(), "rfc9649.header"),
+            Triple(".gif", com.multiviewer.parser.integrity.gifBytes(), "gif89a.header"),
+        ).forEach { (ext, bytes, rule) ->
+            val file = File.createTempFile("check-img-", ext).also { it.deleteOnExit(); it.writeBytes(bytes) }
+            val json = checkJson(file)
+            assertTrue(json.contains("\"containerConformance\": {"), json)
+            assertTrue(Regex("\"ruleId\": \"${Regex.escape(rule)}\",\\s*\"status\": \"PASS\"").containsMatchIn(json), json)
+        }
     }
 
     @Test
@@ -246,8 +260,8 @@ class CheckFileTest {
 
     @Test
     fun `analysis case omits containerConformance for formats without a container checker`() {
-        val file = File.createTempFile("check-iso-", ".png").also {
-            it.deleteOnExit(); it.writeBytes(com.multiviewer.parser.integrity.pngBytes())
+        val file = File.createTempFile("check-iso-", ".bmp").also {
+            it.deleteOnExit(); it.writeBytes(com.multiviewer.parser.integrity.bmpBytes())
         }
         val result = checkFile(file, includeCase = true) as CheckResult.Success
         assertTrue(!result.analysisCaseJson!!.contains("containerConformance"))

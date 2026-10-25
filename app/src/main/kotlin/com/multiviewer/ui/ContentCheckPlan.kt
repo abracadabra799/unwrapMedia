@@ -4,7 +4,10 @@ import com.multiviewer.parser.BoxNode
 import com.multiviewer.parser.ByteReader
 import com.multiviewer.parser.ContainerFormat
 import com.multiviewer.parser.conformance.heif.HeifConformanceChecker
+import com.multiviewer.parser.conformance.gif.GifConformanceChecker
 import com.multiviewer.parser.conformance.jpeg.JpegConformanceChecker
+import com.multiviewer.parser.conformance.png.PngConformanceChecker
+import com.multiviewer.parser.conformance.webp.WebpConformanceChecker
 import com.multiviewer.parser.conformance.isobmff.IsoBmffConformanceChecker
 import java.util.concurrent.CancellationException
 import com.multiviewer.parser.conformance.ConformanceReport
@@ -103,18 +106,22 @@ fun contentConformanceReport(
 private const val PARSER_EVIDENCE_PREFIX = "파서 근거 / Parser evidence"
 
 private val ISO_BMFF_CONTAINERS = setOf(ContainerFormat.MP4, ContainerFormat.MOV, ContainerFormat.M4A)
+private val IMAGE_CONTAINERS = setOf(ContainerFormat.HEIF, ContainerFormat.AVIF, ContainerFormat.JPEG, ContainerFormat.PNG, ContainerFormat.WEBP, ContainerFormat.GIF)
 
 /**
  * Container conformance by content (sniffer), not extension: MP4/MOV/M4A → ISO-BMFF checker, HEIF/AVIF → HEIF
- * checker, JPEG → JPEG checker; null for every other format. Blocking file I/O: never call on the UI thread.
+ * checker, JPEG / PNG / WebP / GIF → their checkers; null for every other format. Blocking file I/O: never call on the UI thread.
  */
 fun containerConformanceFor(file: File): ConformanceReport? {
     val format = confidentFormat(file)
-    if (format !in ISO_BMFF_CONTAINERS && format != ContainerFormat.HEIF && format != ContainerFormat.AVIF && format != ContainerFormat.JPEG) return null
+    if (format !in ISO_BMFF_CONTAINERS && format !in IMAGE_CONTAINERS) return null
     return try {
         ByteReader.open(file).use {
             when (format) {
                 ContainerFormat.JPEG -> JpegConformanceChecker.check(it)
+                ContainerFormat.PNG -> PngConformanceChecker.check(it)
+                ContainerFormat.WEBP -> WebpConformanceChecker.check(it)
+                ContainerFormat.GIF -> GifConformanceChecker.check(it)
                 ContainerFormat.HEIF, ContainerFormat.AVIF -> HeifConformanceChecker.check(it)
                 else -> IsoBmffConformanceChecker.check(it)
             }
@@ -127,6 +134,9 @@ fun containerConformanceFor(file: File): ConformanceReport? {
             ContainerFormat.AVIF -> "AVIF" to HeifConformanceChecker.AVIF_PROFILE
             ContainerFormat.HEIF -> "HEIF" to HeifConformanceChecker.HEIF_PROFILE
             ContainerFormat.JPEG -> "JPEG" to JpegConformanceChecker.PROFILE
+            ContainerFormat.PNG -> "PNG" to PngConformanceChecker.PROFILE
+            ContainerFormat.WEBP -> "WebP" to WebpConformanceChecker.PROFILE
+            ContainerFormat.GIF -> "GIF" to GifConformanceChecker.PROFILE
             else -> "ISO-BMFF" to "ISO/IEC 14496-12 phase 1"
         }
         ConformanceReport(name, profile, emptyList(), inspectionError = message,
