@@ -164,15 +164,18 @@ internal object GifConformanceRules {
         if (list.isEmpty()) return ctx.book.skip("gif89a.lzw.clear", if (ctx.images.isEmpty()) NOT_APPLICABLE else NOT_CHECKED, "판독 가능한 LZW 데이터 없음 / no readable LZW data")
         val bad = ArrayList<String>()
         val ranges = ArrayList<LongRange>()
+        val unreadable = ArrayList<GifBlock.Image>()
         for (i in list) {
             val bits = i.lzwMinCodeSize + 1
             val raw = (i.head[0].toInt() and 0xFF) or (if (i.head.size > 1) (i.head[1].toInt() and 0xFF) shl 8 else 0)
-            if (bits > 8 && i.head.size < 2) continue
+            if (bits > 8 && i.head.size < 2) { unreadable += i; continue }
             val code = raw and ((1 shl bits) - 1)
             val clear = 1 shl i.lzwMinCodeSize
             if (code != clear) { bad += "Image @${hex(i.offset)}: 첫 코드 $code ≠ Clear $clear / first code $code is not the Clear code $clear"; ranges += ctx.range(i) }
         }
-        return f(ctx, "gif89a.lzw.clear", bad, ranges, "이미지 ${list.size}개 첫 코드 = Clear / first code is Clear in all ${list.size} images")
+        if (bad.isEmpty() && unreadable.isNotEmpty())
+            return ctx.book.skip("gif89a.lzw.clear", NOT_CHECKED, "이미지 ${unreadable.size}개의 첫 코드(${unreadable.first().lzwMinCodeSize + 1}비트)를 읽을 수 없음(데이터 1바이트) / the first code of ${unreadable.size} image(s) cannot be read (one data byte, ${unreadable.first().lzwMinCodeSize + 1}-bit code)")
+        return f(ctx, "gif89a.lzw.clear", bad, ranges, "이미지 ${list.size - unreadable.size}개 첫 코드 = Clear / first code is Clear in all ${list.size - unreadable.size} readable images")
     }
 
     private fun trailer(ctx: GifContext): ConformanceFinding {

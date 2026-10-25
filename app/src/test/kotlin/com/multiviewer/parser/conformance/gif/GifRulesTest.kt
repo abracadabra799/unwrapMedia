@@ -80,6 +80,27 @@ class GifRulesTest {
         failsOnly(gif(header("87a"), image(data = byteArrayOf(0x2D, 0)), TRAILER), "gif89a.lzw.clear") // first code 5 (EOI)
     }
 
+    @Test fun `M1 an unreadable first LZW code is NOT_CHECKED, never PASS`() {
+        // min code size 8 -> 9-bit first code, but only one data byte
+        val r = check(gif(header("87a"), image(lzw = 8, data = byteArrayOf(0)), TRAILER))
+        assertEquals(NOT_CHECKED, r.statusOf("gif89a.lzw.clear"))
+        assertEquals(emptySet(), r.idsWith(FAIL, WARN), r.notPassing().toString())
+        // a readable image elsewhere that is wrong still WARNs
+        assertEquals(WARN, check(gif(header("87a"), image(lzw = 8, data = byteArrayOf(0)), image(data = byteArrayOf(0x2D, 0)), TRAILER)).statusOf("gif89a.lzw.clear"))
+    }
+
+    @Test fun `M2 the scanner keeps extension bytes only for the labels the rules read`() {
+        val bytes = gif(header(), gce(), comment("abc"), plainText(), app(), image(), TRAILER)
+        val exts = com.multiviewer.parser.byteReaderOf(bytes).use { GifContext(it).extensions }
+        fun first(label: Int) = exts.single { it.label == label }
+        assertEquals(4, first(0xF9).firstSize)
+        assertTrue(first(0xF9).first.isNotEmpty() && first(0xFF).first.isNotEmpty())
+        assertEquals(0, first(0xFE).first.size)
+        assertEquals(0, first(0x01).first.size)
+        assertEquals(3, first(0xFE).firstSize)
+        assertEquals(12, first(0x01).firstSize)
+    }
+
     @Test fun `trailer and data after it`() {
         val noTrailer = check(gif(header(), gce(), image()))
         assertEquals(setOf("gif89a.trailer"), noTrailer.idsWith(FAIL, WARN), noTrailer.notPassing().toString())

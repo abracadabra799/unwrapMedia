@@ -70,7 +70,7 @@ internal object GifBlockScanner {
                 0x21 -> {
                     if (pos + 2 > len) return stop("확장 레이블 전에 파일 끝 / end of file before the extension label")
                     val label = reader.readUInt8(pos + 1)
-                    val chain = subBlocks(reader, pos + 2, 16) ?: return stop("확장 0x%02X @${hex(pos)}의 서브블록이 Block Terminator 전에 잘림 / extension 0x%02X sub-blocks cut off before the Block Terminator".format(label, label))
+                    val chain = subBlocks(reader, pos + 2, if (label == 0xF9 || label == 0xFF) 16 else 0) ?: return stop("확장 0x%02X @${hex(pos)}의 서브블록이 Block Terminator 전에 잘림 / extension 0x%02X sub-blocks cut off before the Block Terminator".format(label, label))
                     blocks += GifBlock.Extension(pos, chain.end, label, chain.firstSize, chain.head, chain.count)
                     pos = chain.end
                 }
@@ -110,7 +110,7 @@ internal object GifBlockScanner {
             if (n == 0) return Chain(p, count, firstSize, head.toByteArray(), data)
             if (p + n > len) return null
             if (spanning) { if (head.size() < headBytes) head.write(reader.readBytes(p, minOf(n, headBytes - head.size()))) }
-            else if (count == 0) head.write(reader.readBytes(p, minOf(n, headBytes)))
+            else if (count == 0 && headBytes > 0) head.write(reader.readBytes(p, minOf(n, headBytes)))
             count++; data += n; p += n
         }
     }
