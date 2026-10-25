@@ -30,7 +30,8 @@ the original (quoted sentence below).
    `NOT_CHECKED` with the reason; not applicable (no tRNS, no acTL, no ALPH …) → `NOT_APPLICABLE`. **A walk that stops
    early (truncation / syntax error) turns every PASS or NOT_APPLICABLE of a rule that needs the whole chunk/block list
    into NOT_CHECKED** (`ImageRuleBook.partial`), so a truncated file never shows a partial PASS.
-2. Data after IEND / after the RIFF File Size / after the GIF Trailer → **WARN** unless explained by a known structure.
+2. Data after the RIFF File Size / after the GIF Trailer → **WARN** unless explained by a known structure; data after
+   the PNG IEND chunk → **FAIL** (user decision, open decision 1) unless explained.
    The only structure recognised there is a Samsung SEF trailer running to EOF, ending in `SEFT`, that
    `SefIntegrityAnalyzer` does not mark CRITICAL (the JPEG check's test, now shared as `sefTrailerGaps`). No other
    structure (Motion Photo video, MPF) is defined for these formats. See open decision 1 for PNG.
@@ -100,7 +101,7 @@ stream headers (PNG-3 §10, RFC 1950)`, `WebP RIFF 컨테이너 …`, `WebP 비�
 | `png3.sequence` | fcTL + fdAT sequence numbers 0, 1, 2 … in file order; the first animation chunk is fcTL | FAIL | 4.9.2 (`#4Concepts.APNGSequence`) | "The first fcTL chunk shall contain sequence number 0, and the sequence numbers in the remaining fcTL and fdAT chunks shall be in ascending order, with no gaps or duplicates." |
 | `png3.fctl` | length 26; width, height > 0; x+w ≤ IHDR width, y+h ≤ IHDR height; dispose_op 0-2, blend_op 0-1; ≤ 1 fcTL before IDAT, none between IDATs; that fcTL has offsets 0 and the IHDR size | FAIL | 11.3.6.2 (`#fcTL-chunk`) | "They must be greater than zero." / "thus x_offset plus width must not be greater than the IHDR width; similarly y_offset plus height must not be greater than the IHDR height." / "The x_offset and y_offset fields must be 0. The width and height fields must equal the corresponding fields from the IHDR chunk." / Table 7: "One may occur before IDAT; all others shall be after IDAT" |
 | `png3.fdat` | fdAT ≥ 4 bytes, after IDAT, after an fcTL; every frame whose fcTL is after IDAT has ≥ 1 fdAT | FAIL | 11.3.6.3 (`#fdAT-chunk`) | "At least one fdAT chunk is required for each frame, except for the first frame, if that frame is represented by an IDAT chunk." / "fdAT chunks may not be of zero length" |
-| `png3.trailing` | bytes after IEND (decision 2: SEF trailer → PASS) | WARN | 15.3.1 (`#15FileConformance`) | "No chunks or other content follow the IEND chunk." |
+| `png3.trailing` | bytes after IEND (decision 2: SEF trailer → PASS; user decision 2026-10-25: unexplained data is a conformance FAIL) | FAIL | 15.3.1 (`#15FileConformance`) | "No chunks or other content follow the IEND chunk." |
 
 APNG rules are NOT_APPLICABLE without acTL; fcTL/fdAT without acTL → NOT_CHECKED ("not declared animated"). Colour-type
 dependent rules are NOT_CHECKED when IHDR is invalid.
@@ -177,7 +178,7 @@ here, so the WebP default-settings fixture is `cwebp`.
 
 **Samsung / iPhone / Pixel PNG, WebP or GIF files: none available locally — not measured.** Samsung screenshots and
 Gallery edits are PNG/JPEG; if one carries a SEF trailer after IEND it is explained (PASS), otherwise trailing data
-WARNs. No local real file has data after IEND / RIFF / Trailer.
+FAILs for PNG (PNG-3 §15.3.1) and WARNs for WebP / GIF. No local real file has data after IEND / RIFF / Trailer.
 
 ## Architecture
 
@@ -216,9 +217,10 @@ New packages (mirroring `parser/conformance/jpeg/`):
 
 ## Open decisions (genuine spec-vs-reality / spec-vs-decision conflicts)
 
-1. **PNG data after IEND**: PNG-3 §15.3.1 lists "No chunks or other content follow the IEND chunk." as a *conformance
-   condition* of a datastream (not a recommendation), while decision 2 makes it WARN. Keep WARN (as designed), or FAIL
-   unexplained trailing data for PNG only (WebP's own text says SHOULD NOT → WARN either way)?
+1. **PNG data after IEND** — DECIDED (user, 2026-10-25): FAIL. PNG-3 §15.3.1 lists "No chunks or other content follow
+   the IEND chunk." as a *conformance condition* of a datastream, so unexplained data after IEND is a FAIL (a Samsung
+   SEF trailer to EOF stays explained → PASS). WebP's own text says SHOULD NOT and GIF's glossary is not a
+   conformance condition, so `rfc9649.trailing` and `gif89a.trailing` stay WARN.
 2. **macOS sips GIF87a + GCE**: ImageIO's default GIF output is labelled 87a but uses an 89a block. Strictly that is a
    FAIL (definitional "Required Version 89a"), and every decoder still reads it. Keep FAIL (as designed, like the
    strict Exif rules), or downgrade this one case to WARN like `jfif.version` 1.00/1.01?

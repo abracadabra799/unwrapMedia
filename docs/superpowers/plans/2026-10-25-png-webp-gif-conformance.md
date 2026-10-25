@@ -27,8 +27,8 @@ reference / assertion", stop and report.
 - Work in `.worktrees/png-webp-gif-conformance` on `feat/png-webp-gif-conformance`; run `git branch --show-current`
   before every commit (subagents have committed into the main repo before). Commit trailer
   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
-- Status mapping: violated rule → FAIL, except the catalogs' `WARN_RULES` (PNG `png3.srgb_iccp`, `png3.unused_bits`,
-  `png3.trailing`; WebP `rfc9649.anmf.flag`, `rfc9649.alph.vp8l`, `rfc9649.metadata.count`, `rfc9649.trailing`; GIF
+- Status mapping: violated rule → FAIL, except the catalogs' `WARN_RULES` (PNG `png3.srgb_iccp`, `png3.unused_bits`;
+  WebP `rfc9649.anmf.flag`, `rfc9649.alph.vp8l`, `rfc9649.metadata.count`, `rfc9649.trailing`; GIF
   `gif89a.version.earliest`, `gif89a.lsd.background`, `gif89a.reserved`, `gif89a.lct.size`, `gif89a.lzw.clear`,
   `gif89a.trailing`) → WARN; satisfied → PASS; not evaluable → NOT_CHECKED with the reason; not applicable →
   NOT_APPLICABLE. Never INFO. A walk that stops before IEND / the RIFF end / the Trailer turns the PASS and
@@ -115,7 +115,7 @@ class ImageConformanceRulesTest {
         val rules = PngRules.all
         common(rules)
         assertEquals(22, rules.size)
-        assertEquals(setOf("png3.srgb_iccp", "png3.unused_bits", "png3.trailing"), PngRules.WARN_RULES)
+        assertEquals(setOf("png3.srgb_iccp", "png3.unused_bits"), PngRules.WARN_RULES)
         rules.filter { it.id != "zlib.header" }.forEach { r ->
             val c = r.citation!!
             assertNull(c.page, r.id)
@@ -357,7 +357,7 @@ object PngRules {
     )
 
     /** Violations of these rules are WARN (should / not recommended / data after IEND, user decision); all others FAIL. */
-    val WARN_RULES = setOf("png3.srgb_iccp", "png3.unused_bits", "png3.trailing")
+    val WARN_RULES = setOf("png3.srgb_iccp", "png3.unused_bits")
 
     internal val book = ImageRuleBook(all, WARN_RULES)
 
@@ -789,7 +789,7 @@ Variants (each fails exactly the listed rule(s); byte changes measured against t
 |---|---|---|
 | `png-crc.png` | ffmpeg-default, 0xA2: 9E→61 (IDAT data, CRC stale) | `png3.crc` |
 | `png-truncated.png` | ffmpeg-default minus 6 bytes | `png3.chunk.layout`, `png3.critical` |
-| `png-trailing.png` | ffmpeg-default + 16 zero bytes | `png3.trailing` (WARN) |
+| `png-trailing.png` | ffmpeg-default + 16 zero bytes | `png3.trailing` (FAIL, user decision) |
 | `png-ihdr-depth.png` | ffmpeg-default, 0x18: 08→04 (type 2 + depth 4) | `png3.ihdr` |
 | `png-plte-gray.png` | ffmpeg-gray16 + 9-byte PLTE before IDAT | `png3.plte` |
 | `png-pal-noplte.png` | ffmpeg-pal8 without PLTE | `png3.plte` |
@@ -1817,7 +1817,8 @@ class PngFixtureTest {
             assertNull(r.inspectionError, name)
             assertEquals(ids, r.idsWith(FAIL, WARN), "$name: ${r.notPassing()}")
         }
-        listOf("png-trailing.png", "png-srgb-iccp.png", "png-bkgd-bits.png").forEach { assertEquals(WARN, run(it).overall, it) }
+        listOf("png-srgb-iccp.png", "png-bkgd-bits.png").forEach { assertEquals(WARN, run(it).overall, it) }
+        assertEquals(FAIL, run("png-trailing.png").overall)   // PNG-3 §15.3.1: data after IEND is a conformance FAIL
     }
 
     @Test fun `findings carry the verified W3C anchor`() {

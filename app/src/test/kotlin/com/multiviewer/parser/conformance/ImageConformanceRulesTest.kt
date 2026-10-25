@@ -27,7 +27,7 @@ class ImageConformanceRulesTest {
         val rules = PngRules.all
         common(rules)
         assertEquals(22, rules.size)
-        assertEquals(setOf("png3.srgb_iccp", "png3.unused_bits", "png3.trailing"), PngRules.WARN_RULES)
+        assertEquals(setOf("png3.srgb_iccp", "png3.unused_bits"), PngRules.WARN_RULES)
         rules.filter { it.id != "zlib.header" }.forEach { r ->
             val c = r.citation!!
             assertNull(c.page, r.id)

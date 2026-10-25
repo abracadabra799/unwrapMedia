@@ -51,7 +51,7 @@ object PngRules {
     )
 
     /** Violations of these rules are WARN (should / not recommended / data after IEND, user decision); all others FAIL. */
-    val WARN_RULES = setOf("png3.srgb_iccp", "png3.unused_bits", "png3.trailing")
+    val WARN_RULES = setOf("png3.srgb_iccp", "png3.unused_bits")
 
     internal val book = ImageRuleBook(all, WARN_RULES)
 

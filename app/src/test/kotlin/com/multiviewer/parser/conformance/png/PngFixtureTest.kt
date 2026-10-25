@@ -9,6 +9,7 @@ import com.multiviewer.parser.conformance.ConformanceStatus.WARN
 import com.multiviewer.parser.conformance.conformanceFixture
 import com.multiviewer.parser.conformance.idsWith
 import com.multiviewer.parser.conformance.notPassing
+import com.multiviewer.parser.conformance.statusOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -56,7 +57,10 @@ class PngFixtureTest {
             assertNull(r.inspectionError, name)
             assertEquals(ids, r.idsWith(FAIL, WARN), "$name: ${r.notPassing()}")
         }
-        listOf("png-trailing.png", "png-srgb-iccp.png", "png-bkgd-bits.png").forEach { assertEquals(WARN, run(it).overall, it) }
+        listOf("png-srgb-iccp.png", "png-bkgd-bits.png").forEach { assertEquals(WARN, run(it).overall, it) }
+        // PNG-3 §15.3.1 (conformance condition): data after IEND is a FAIL, not a WARN.
+        assertEquals(FAIL, run("png-trailing.png").overall)
+        assertEquals(FAIL, run("png-trailing.png").statusOf("png3.trailing"))
     }
 
     @Test fun `findings carry the verified W3C anchor`() {
